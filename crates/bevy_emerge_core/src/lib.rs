@@ -49,10 +49,12 @@ pub mod naming;
 pub mod placement;
 pub mod plot;
 pub mod policy;
+pub mod project_data;
 pub mod range;
 pub mod rig_check;
 pub mod rigs;
 pub mod rigs_edit;
+pub mod rules;
 /// The deterministic RNG, re-exported at its original path.
 ///
 /// It lives in the `bevy_emerge_rng` crate — a leaf with no dependencies of its own, so every crate
