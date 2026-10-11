@@ -15813,3 +15813,296 @@ mod palette_headings {
         assert_eq!(palette_headings(&project), vec!["prop".to_owned()]);
     }
 }
+
+/// **The project's block rules in the editor** — `rules.ron` read at open, and `G` laying a block
+/// the way the game does.
+///
+/// Three things are claimed. The rules are validated against the library at open, so a rules file
+/// naming a piece nothing carries stops the editor rather than failing at the first `G`. `G` on a
+/// rule's own example lays one block at the rule's cell — not the editor's 1 m step — with the
+/// border ring pinned to the border descriptor, and Enter keeps it like any other generate. And `G`
+/// on a map of regions only previews, because the game lays those blocks itself: Enter refuses and
+/// the preview stays. A project with no rules, or with rules about some other map, is untouched.
+mod block_rules {
+    use super::*;
+    use bevy_emerge_mapper::editor::{EditorState, Proposal};
+    use bevy_emerge_mapper::keys::{Action, binding};
+    use bevy_emerge_mapper::project::{OpenMap, Project};
+
+    /// A rule with 2 m cells in a 4 x 4 block, a `street` ring and no empty cells. No footprints, so
+    /// the only thing the layout has to satisfy is the border and the pins.
+    fn rule(example: &str, regions: &str, border: &str) -> String {
+        format!(
+            "(version: 1, blocks: [(example: \"{example}\", regions: [{regions}], cell: 2.0, \
+             size: (4, 4), border: Some(\"{border}\"), no_empty: true, weights: [], \
+             footprints: [], attempts: 8, seed: 7)])"
+        )
+    }
+
+    /// The rows of an 8 x 8 m example: a street ring round `lot`s, one interior cell `garden`.
+    fn example_rows(garden_pinned: bool) -> Vec<(&'static str, (f32, f32), bool)> {
+        let mut rows = Vec::new();
+        for r in 0..4 {
+            for c in 0..4 {
+                let at = (c as f32 * 2.0 - 3.0, r as f32 * 2.0 - 3.0);
+                let ring = r == 0 || c == 0 || r == 3 || c == 3;
+                rows.push(if ring {
+                    ("street", at, false)
+                } else if (r, c) == (2, 2) {
+                    ("garden", at, garden_pinned)
+                } else {
+                    ("lot", at, false)
+                });
+            }
+        }
+        rows
+    }
+
+    fn on_ring(at: (f32, f32), centre: (f32, f32)) -> bool {
+        (at.0 - centre.0).abs() > 2.9 || (at.1 - centre.1).abs() > 2.9
+    }
+
+    fn generate(app: &mut App) {
+        press_once(app, binding(Action::Generate).key);
+    }
+
+    #[test]
+    fn g_on_a_rules_example_lays_one_block_at_the_rules_cell_and_enter_keeps_it() {
+        let mut f = Fixture::new("rules-example")
+            .descriptor("street", "alpha")
+            .descriptor("lot", "alpha")
+            .descriptor("garden", "alpha")
+            .side(8.0)
+            .rules(&rule("m", "", "street"));
+        for (id, at, owned) in example_rows(true) {
+            f = if owned { f.place_owned(id, at) } else { f.place(id, at) };
+        }
+        let root = f.build("m");
+        let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+        for _ in 0..3 {
+            app.update();
+        }
+        let before = app.world().resource::<OpenMap>().map.placements.len();
+        assert_eq!(before, 16, "the example is 4 x 4 cells");
+
+        generate(&mut app);
+
+        let proposal = app.world().resource::<Proposal>();
+        let p = proposal
+            .0
+            .as_ref()
+            .unwrap_or_else(|| panic!("G on a rule's example proposed nothing"));
+        assert!(!p.preview_only, "an example's layout is keepable");
+        assert_eq!(p.cell, 2.0, "the outlines must be drawn on the rule's cell, not the editor's 1 m");
+        assert_eq!(
+            p.placements.len(),
+            15,
+            "every cell but the pinned one — a pin is already a placement in the map"
+        );
+        for r in &p.placements {
+            assert_eq!(
+                r.descriptor == "street",
+                on_ring(r.at, (0.0, 0.0)),
+                "the border ring is the border descriptor and nothing else is: {} at {:?}",
+                r.descriptor,
+                r.at
+            );
+            assert!(
+                (r.at.0 - 1.0).abs() > 0.01 || (r.at.1 - 1.0).abs() > 0.01,
+                "the pinned garden's cell must not be proposed again"
+            );
+        }
+        let said = app.world().resource::<EditorState>().status.note_text().to_owned();
+        assert!(said.contains("by the rules for `m`"), "the status must say which rules laid it: {said}");
+        assert_eq!(
+            app.world().resource::<OpenMap>().map.placements.len(),
+            before,
+            "G proposes; nothing is written before Enter"
+        );
+
+        press_once(&mut app, binding(Action::AcceptProposal).key);
+        assert!(
+            app.world().resource::<Proposal>().0.is_none(),
+            "Enter must take a keepable proposal"
+        );
+        let open = app.world().resource::<OpenMap>();
+        assert_eq!(
+            open.map.placements.len(),
+            16,
+            "15 unpinned rows replaced by 15 laid ones, and the pin kept"
+        );
+        assert!(
+            open.map.placements.iter().any(|p| p.owned && p.descriptor == "garden"),
+            "the pinned garden must survive the replacement"
+        );
+    }
+
+    #[test]
+    fn g_on_a_map_of_regions_only_previews_and_enter_refuses_and_keeps_it() {
+        let root = Fixture::new("rules-regions")
+            .descriptor("street", "alpha")
+            .descriptor("lot", "alpha")
+            .descriptor("region", "alpha")
+            .rules(&rule("block", "\"region\"", "street"))
+            .place("region", (2.0, -3.0))
+            .build("m");
+        let mut rows = example_rows(false);
+        for row in rows.iter_mut() {
+            if row.0 == "garden" {
+                row.0 = "lot";
+            }
+        }
+        Fixture::write_map(&root, "block", 8.0, &rows);
+        let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+        for _ in 0..3 {
+            app.update();
+        }
+        let undo_before = app.world().resource::<EditorState>().undo_depth();
+
+        generate(&mut app);
+
+        let proposal = app.world().resource::<Proposal>();
+        let p = proposal.0.as_ref().unwrap_or_else(|| {
+            panic!(
+                "G on a map holding a region proposed nothing: {}",
+                app.world().resource::<EditorState>().status.problem_text()
+            )
+        });
+        assert!(p.preview_only, "the game lays regions out itself, so this is a preview");
+        assert_eq!(p.cell, 2.0);
+        assert_eq!(p.placements.len(), 16, "one whole 4 x 4 block around the region");
+        for r in &p.placements {
+            assert!(
+                (r.at.0 - 2.0).abs() <= 3.01 && (r.at.1 + 3.0).abs() <= 3.01,
+                "{} at {:?} falls outside the block centred on the region",
+                r.descriptor,
+                r.at
+            );
+            assert_eq!(
+                r.descriptor == "street",
+                on_ring(r.at, (2.0, -3.0)),
+                "the ring is the border: {} at {:?}",
+                r.descriptor,
+                r.at
+            );
+        }
+
+        press_once(&mut app, binding(Action::AcceptProposal).key);
+        assert!(
+            app.world().resource::<Proposal>().0.is_some(),
+            "a refused Enter must leave the preview standing, or Esc has nothing to clear"
+        );
+        let said = app.world().resource::<EditorState>().status.note_text().to_owned();
+        assert!(said.starts_with("preview only"), "the refusal must say why: {said}");
+        assert_eq!(
+            app.world().resource::<OpenMap>().map.placements.len(),
+            1,
+            "nothing may reach the map"
+        );
+        assert_eq!(
+            app.world().resource::<EditorState>().undo_depth(),
+            undo_before,
+            "a refusal records nothing to undo"
+        );
+    }
+
+    #[test]
+    fn a_region_whose_example_map_is_missing_is_a_problem_not_a_proposal() {
+        let root = Fixture::new("rules-no-example")
+            .descriptor("street", "alpha")
+            .descriptor("region", "alpha")
+            .rules(&rule("block", "\"region\"", "street"))
+            .place("region", (0.0, 0.0))
+            .build("m");
+        let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+        for _ in 0..3 {
+            app.update();
+        }
+        generate(&mut app);
+        assert!(app.world().resource::<Proposal>().0.is_none());
+        let state = app.world().resource::<EditorState>();
+        assert!(state.status.has_problem(), "a missing example must be said");
+        assert!(
+            state.status.problem_text().contains("block.map.ron"),
+            "and must name the file: {}",
+            state.status.problem_text()
+        );
+    }
+
+    #[test]
+    fn without_rules_g_learns_as_before() {
+        let root = Fixture::new("rules-none")
+            .descriptor("floor", "alpha")
+            .place("floor", (0.5, 0.5))
+            .place("floor", (1.5, 0.5))
+            .build("m");
+        let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            app.world().resource::<Project>().rules.blocks.is_empty(),
+            "no rules.ron is no rules"
+        );
+        generate(&mut app);
+        let proposal = app.world().resource::<Proposal>();
+        let p = proposal
+            .0
+            .as_ref()
+            .unwrap_or_else(|| panic!("the learned generate proposed nothing"));
+        assert_eq!(p.cell, bevy_emerge_core::grid::TILE, "the learned path draws on the editor's step");
+        assert!(!p.preview_only);
+    }
+
+    #[test]
+    fn rules_about_some_other_map_leave_this_maps_g_alone() {
+        let root = Fixture::new("rules-elsewhere")
+            .descriptor("street", "alpha")
+            .descriptor("region", "alpha")
+            .descriptor("floor", "alpha")
+            .rules(&rule("block", "\"region\"", "street"))
+            .place("floor", (0.5, 0.5))
+            .place("floor", (1.5, 0.5))
+            .build("m");
+        let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(app.world().resource::<Project>().rules.blocks.len(), 1);
+        generate(&mut app);
+        let proposal = app.world().resource::<Proposal>();
+        let p = proposal
+            .0
+            .as_ref()
+            .unwrap_or_else(|| panic!("the learned generate proposed nothing"));
+        assert_eq!(p.cell, bevy_emerge_core::grid::TILE);
+        assert!(!p.preview_only);
+    }
+
+    #[test]
+    fn a_rules_file_naming_a_missing_descriptor_fails_the_open() {
+        let root = Fixture::new("rules-missing")
+            .descriptor("street", "alpha")
+            .rules(&rule("m", "", "nowhere"))
+            .build("m");
+        let e = match Project::open(&root, None) {
+            Ok(_) => panic!("a rules file naming `nowhere` must not open"),
+            Err(e) => e,
+        };
+        assert!(e.contains("rules.ron"), "the error must name the file: {e}");
+        assert!(e.contains("nowhere"), "and the descriptor: {e}");
+    }
+
+    #[test]
+    fn a_rules_file_that_does_not_parse_fails_the_open() {
+        let root = Fixture::new("rules-garbled")
+            .descriptor("street", "alpha")
+            .rules("(version: 1, blocks: [")
+            .build("m");
+        let e = match Project::open(&root, None) {
+            Ok(_) => panic!("a rules file that does not parse must not open"),
+            Err(e) => e,
+        };
+        assert!(e.contains("rules.ron"), "the error must name the file: {e}");
+    }
+}

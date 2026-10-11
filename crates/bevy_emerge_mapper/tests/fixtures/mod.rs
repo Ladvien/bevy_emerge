@@ -44,6 +44,11 @@ pub struct Fixture {
     /// **Named combinations of kits**, as `(bash name, namespaces)` — `kits.ron`'s `bash`. Every
     /// namespace named must be one this fixture binds, or the write is refused at load.
     bashes: Vec<(String, Vec<String>)>,
+    /// **`rules.ron`'s text**, written beside `kits.ron` by [`Self::build`]. `None` writes no file,
+    /// which is a project without rules. See [`Self::rules`].
+    rules: Option<String>,
+    /// The open map's edge in metres, both horizontal axes. See [`Self::side`].
+    side: f32,
 }
 
 /// Where the workspace lives, for the one file that has to be borrowed.
@@ -206,6 +211,8 @@ impl Fixture {
             kits: Vec::new(),
             ids: Vec::new(),
             bashes: Vec::new(),
+            rules: None,
+            side: 16.0,
         }
     }
 
@@ -660,6 +667,75 @@ impl Fixture {
         self
     }
 
+    /// **The project's `rules.ron`**, as the text a project would hold — written verbatim by
+    /// [`Self::build`], so a test can also hand it something the loader must refuse.
+    pub fn rules(mut self, text: &str) -> Fixture {
+        self.rules = Some(text.to_owned());
+        self
+    }
+
+    /// **The open map's edge**, in metres on both horizontal axes. Sixteen by default; a rule's
+    /// example has to be exactly `size * cell`, so a test about rules states its own.
+    pub fn side(mut self, metres: f32) -> Fixture {
+        self.side = metres;
+        self
+    }
+
+    /// **A pinned placement** — [`Self::place`] with `owned` set and the reason a pin must carry.
+    pub fn place_owned(mut self, id: &str, at: (f32, f32)) -> Fixture {
+        self = self.place(id, at);
+        if let Some(last) = self.placements.last_mut() {
+            assert!(
+                last.contains("owned: false,") && last.contains("owned_because: None,"),
+                "the fixture's placement shape changed under this helper"
+            );
+            *last = last
+                .replace("owned: false,", "owned: true,")
+                .replace("owned_because: None,", "owned_because: Some(\"pinned by the test\"),");
+        }
+        self
+    }
+
+    /// **Another map beside the one [`Self::build`] writes**, at `maps/<name>.map.ron` under `root` —
+    /// for the rule whose example is a different map from the one open. Rows are `(descriptor, at,
+    /// owned)`, named `<descriptor>@<n>`. The map is not checked against the library, because the
+    /// reader of an example (`rules::learn`) never asks.
+    pub fn write_map(root: &Path, name: &str, side: f32, rows: &[(&str, (f32, f32), bool)]) {
+        let placements: Vec<String> = rows
+            .iter()
+            .enumerate()
+            .map(|(n, (id, at, owned))| {
+                let because = if *owned {
+                    "Some(\"pinned by the test\")"
+                } else {
+                    "None"
+                };
+                format!(
+                    "        (id: \"{id}@{n}\", descriptor: \"{id}\", at: ({:.1}, {:.1}), yaw: 0.0, \
+                     tip: (0, 0), lift: 0.0, on: None, owned: {owned}, owned_because: {because}, \
+                     note: None, patch: None),",
+                    at.0, at.1
+                )
+            })
+            .collect();
+        let path = root
+            .join("assets/emerge/maps")
+            .join(format!("{name}.map.ron"));
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("{dir:?}: {e}"));
+        }
+        std::fs::write(
+            &path,
+            format!(
+                "(\n    version: 3,\n    name: \"{name}\",\n    origin: (0.0, 0.0, 0.0),\n    \
+                 bounds: ({side:?}, 3.0, {side:?}),\n    bash: None,\n    placements: [\n{}\n    ],\n    \
+                 stamps: [],\n    locations: [],\n)",
+                placements.join("\n")
+            ),
+        )
+        .unwrap_or_else(|e| panic!("{path:?}: {e}"));
+    }
+
     /// Write the library and the map, and hand back the root [`crate::harness::build_headless`] opens.
     pub fn build(self, map: &str) -> PathBuf {
         let emerge = self.dir.join("assets/emerge");
@@ -735,6 +811,12 @@ impl Fixture {
         )
         .unwrap_or_else(|e| panic!("{e}"));
 
+        // **Absent is the ordinary project.** Only a test that is about rules writes the file.
+        if let Some(text) = &self.rules {
+            std::fs::write(emerge.join("rules.ron"), text).unwrap_or_else(|e| panic!("{e}"));
+        }
+        let side = self.side;
+
         // **One collection, at the project root.** Its absence and an empty one mean the same
         // thing, so a project that stamps nothing writes no file.
         if !self.compositions.is_empty() {
@@ -754,7 +836,7 @@ impl Fixture {
             maps.join(format!("{map}.map.ron")),
             format!(
                 "(\n    version: 3,\n    name: \"{map}\",\n    origin: (0.0, 0.0, 0.0),\n    \
-                 bounds: (16.0, 3.0, 16.0),\n    bash: None,\n    placements: [\n{}\n    ],\n    \
+                 bounds: ({side:?}, 3.0, {side:?}),\n    bash: None,\n    placements: [\n{}\n    ],\n    \
                  stamps: [],\n    locations: [],\n)",
                 self.placements.join("\n")
             ),

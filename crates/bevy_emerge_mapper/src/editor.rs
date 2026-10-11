@@ -2248,6 +2248,14 @@ pub struct Proposed {
     pub composes: bool,
     pub placements: Vec<Placed>,
     pub stamps: Vec<bevy_emerge_core::composition::Stamped>,
+    /// The edge of one proposed cell in metres — what [`draw_proposal`] sizes each outline to. The
+    /// editor's own step ([`CELL`]) unless the proposal came from the project's block rules, which
+    /// state their own (`BlockRules::cell`), so the preview is drawn on the grid the game builds.
+    pub cell: f32,
+    /// True for a proposal the editor may show but never keep: the game lays these blocks out
+    /// itself, so writing them into the map would make a second, stale copy of its answer.
+    /// [`apply_proposal`] refuses one and leaves it standing.
+    pub preview_only: bool,
 }
 
 /// The proposal in hand, or `None`. `None` is a real state: it is what makes the Map's key list show
@@ -8444,6 +8452,13 @@ fn generate_from(project: &Project,
     proposal: &mut Proposal,
     source: Source,
 ) {
+    // **The project's rules answer first when they apply**, and only for `Learned` — `Declared` and
+    // `Composed` read other things and a rule has nothing to say to them. When a rule applies it
+    // is the whole answer, refusals included: falling back to the 1 m learned path after a rule
+    // refused would show the author a layout the game will never build.
+    if source == Source::Learned && generate_by_rules(project, open, state, proposal) {
+        return;
+    }
     // One metre: the tile the kits are authored on, and coarse enough that a 32 m map is a grid the
     // solver finishes rather than 4,096 cells of half-metre noise.
 
@@ -8622,7 +8637,223 @@ fn generate_from(project: &Project,
         composes,
         placements: solved.placements,
         stamps: solved.stamps,
+        cell: CELL,
+        preview_only: false,
     });
+}
+
+/// **`G` under the project's block rules**, for the one case where they apply. Returns whether it
+/// handled the press — proposed, or refused by name — so `false` means "no rule is about this map"
+/// and the ordinary learned path runs unchanged.
+///
+/// Two shapes, both through `bevy_emerge_core::rules`, the same code the game runs, so what is drawn
+/// here is what the game builds:
+///
+/// - **The example.** The open map *is* a rule's example. Learn from it at the rule's cell, pin its
+///   owned cells, solve one block centred on the map, and propose the result like any other
+///   generate — Enter replaces the unowned rows.
+/// - **Regions.** The map holds placements a rule names in `regions`, each asking for a block. Learn
+///   from the example map on disk, solve every block around its region, and propose all of them as
+///   a **preview only**: the game lays these blocks out itself.
+fn generate_by_rules(
+    project: &Project,
+    open: &OpenMap,
+    state: &mut EditorState,
+    proposal: &mut Proposal,
+) -> bool {
+    if let Some(rule) = project
+        .rules
+        .blocks
+        .iter()
+        .find(|r| r.example == open.map.name)
+    {
+        generate_example_block(rule, open, state, proposal);
+        return true;
+    }
+    let asks = open.map.placements.iter().any(|p| {
+        project
+            .rules
+            .blocks
+            .iter()
+            .any(|r| r.regions.contains(&p.descriptor))
+    });
+    if asks {
+        generate_region_blocks(project, open, state, proposal);
+        return true;
+    }
+    false
+}
+
+/// What a rule's example lays: the new placements, the pinned cells it kept and the prototypes it
+/// drew from.
+fn solve_example_block(
+    rule: &bevy_emerge_core::rules::BlockRules,
+    open: &OpenMap,
+    seed_base: u64,
+    next_id: &mut u32,
+) -> Result<(Vec<Placed>, usize, usize), String> {
+    use bevy_emerge_core::rules;
+    let alphabet = rules::learn(rule, &open.map)?;
+    // The example's own centre, in map space: the block *is* the map, so it is centred on the origin.
+    let centre = Placed {
+        at: (0.0, 0.0),
+        ..Placed::default()
+    };
+    let pins = rules::region_pins(&open.map, &centre, &alphabet, rule)?;
+    let block = rules::solve_block(&alphabet, rule, &pins, seed_base)?;
+    let placed = rules::placements(&alphabet, rule, &block, centre.at, &pins, || {
+        *next_id += 1;
+        format!("gen@{}", *next_id)
+    });
+    Ok((placed, pins.len(), alphabet.grammar.len().saturating_sub(1)))
+}
+
+fn generate_example_block(
+    rule: &bevy_emerge_core::rules::BlockRules,
+    open: &OpenMap,
+    state: &mut EditorState,
+    proposal: &mut Proposal,
+) {
+    // Seeded like the ordinary path — every press a different layout — but from the rule's own seed.
+    state.seed = state.seed.wrapping_add(1);
+    let seed_base = rule.seed.wrapping_add(state.seed.wrapping_mul(1000));
+    let mut n = state.next_id;
+    match solve_example_block(rule, open, seed_base, &mut n) {
+        Ok((placements, pinned, prototypes)) => {
+            state.next_id = n;
+            let replaces = open.map.placements.iter().filter(|p| !p.owned).count();
+            state.status.note(format!(
+                "proposed: {} piece(s) replacing {replaces}, around {pinned} pinned cell(s), from \
+                 {prototypes} prototype(s), by the rules for `{}` — {} keeps it, {} throws it away",
+                placements.len(),
+                rule.example,
+                keys::chord(Action::AcceptProposal),
+                keys::chord(Action::Cancel),
+            ));
+            proposal.0 = Some(Proposed {
+                composes: false,
+                placements,
+                stamps: Vec::new(),
+                cell: rule.cell,
+                preview_only: false,
+            });
+        }
+        Err(e) => {
+            error!("bevy_emerge_mapper: {e}");
+            state.status.problem(e);
+        }
+    }
+}
+
+/// What every region on the open map lays: the placements, the number of blocks, the blocks that
+/// had no layout (named) and the cell the proposal is drawn at. `Err` is a failure that stops all of
+/// them: an example that cannot be read or learned from.
+fn solve_region_blocks(
+    project: &Project,
+    open: &OpenMap,
+    mut n: u32,
+) -> Result<(Vec<Placed>, usize, Vec<String>, f32), String> {
+    use bevy_emerge_core::rules;
+    let mut learned: std::collections::BTreeMap<usize, rules::Alphabet> =
+        std::collections::BTreeMap::new();
+    let mut cell: Option<f32> = None;
+    let mut placements = Vec::new();
+    let mut blocks = 0;
+    let mut failed = Vec::new();
+    for region in &open.map.placements {
+        let Some((ix, rule)) = project
+            .rules
+            .blocks
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.regions.contains(&region.descriptor))
+        else {
+            continue;
+        };
+        if let Some(c) = cell {
+            if (c - rule.cell).abs() > f32::EPSILON {
+                return Err(format!(
+                    "the regions on this map use cells of {c} m and {} m; they cannot be previewed \
+                     on one grid",
+                    rule.cell
+                ));
+            }
+        } else {
+            cell = Some(rule.cell);
+        }
+        if let std::collections::btree_map::Entry::Vacant(slot) = learned.entry(ix) {
+            let path = project
+                .maps_dir
+                .join(bevy_emerge_core::naming::map_file_name(&rule.example));
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("the example map for `{}`: {}: {e}", region.id, path.display()))?;
+            let example = bevy_emerge_core::map::Map::parse(&text)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            slot.insert(rules::learn(rule, &example)?);
+        }
+        let Some(alphabet) = learned.get(&ix) else {
+            continue;
+        };
+        blocks += 1;
+        let laid = rules::region_pins(&open.map, region, alphabet, rule).and_then(|pins| {
+            let block =
+                rules::solve_block(alphabet, rule, &pins, rules::region_seed(rule, &region.id))?;
+            Ok(rules::placements(alphabet, rule, &block, region.at, &pins, || {
+                n += 1;
+                format!("gen@{n}")
+            }))
+        });
+        match laid {
+            Ok(p) => placements.extend(p),
+            Err(e) => failed.push(format!("`{}` ({e})", region.id)),
+        }
+    }
+    Ok((placements, blocks, failed, cell.unwrap_or(CELL)))
+}
+
+fn generate_region_blocks(
+    project: &Project,
+    open: &OpenMap,
+    state: &mut EditorState,
+    proposal: &mut Proposal,
+) {
+    // Not `state.seed`: the game seeds a region from its id, so a second press must show the same
+    // layout, or the preview would stop being a preview of anything.
+    match solve_region_blocks(project, open, state.next_id) {
+        Ok((placements, blocks, failed, cell)) => {
+            let laid = blocks - failed.len();
+            if !failed.is_empty() {
+                let message = format!(
+                    "no layout for {} of {blocks} block(s): {}",
+                    failed.len(),
+                    failed.join("; ")
+                );
+                error!("bevy_emerge_mapper: {message}");
+                state.status.problem(message);
+            } else {
+                state.status.note(format!(
+                    "previewing {} piece(s) in {blocks} block(s) by the rules — the game lays \
+                     these out itself, so {} will not keep them; {} clears the preview",
+                    placements.len(),
+                    keys::chord(Action::AcceptProposal),
+                    keys::chord(Action::Cancel),
+                ));
+            }
+            if laid > 0 {
+                proposal.0 = Some(Proposed {
+                    composes: false,
+                    placements,
+                    stamps: Vec::new(),
+                    cell,
+                    preview_only: true,
+                });
+            }
+        }
+        Err(e) => {
+            error!("bevy_emerge_mapper: {e}");
+            state.status.problem(e);
+        }
+    }
 }
 
 /// **What the proposal would put down, drawn where it would go.**
@@ -8644,7 +8875,7 @@ fn draw_proposal(project: Res<Project>,
     };
     let y = open.map.origin.1 - ground_drop(&project) + BOUNDS_FILL_CLEARANCE;
     let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    let cell = Vec2::splat(CELL * 0.94);
+    let cell = Vec2::splat(p.cell * 0.94);
 
     // Placements and stamps both answer "a tile's worth of map, here" — one loop over their `at`s,
     // because the outline is about the cell and not about what fills it.
@@ -8682,6 +8913,16 @@ fn apply_proposal(
     placed: Query<(Entity, &Placement)>,
 ) {
     if !keys::just_pressed(&keyboard, *live, Action::AcceptProposal) {
+        return;
+    }
+    // **A preview is refused before it is taken**, so it is still on screen to be looked at and
+    // cleared with Esc. Taking it first would throw it away on the very key that was meant to keep it.
+    if proposal.0.as_ref().is_some_and(|p| p.preview_only) {
+        state.status.note(
+            "preview only — the game lays these blocks out itself. Esc clears it; to fix a cell, \
+             place a tile there and pin it with O."
+                .to_owned(),
+        );
         return;
     }
     let Some(taken) = proposal.0.take() else {
@@ -9818,6 +10059,10 @@ mod tests {
             policy: bevy_emerge_core::policy::Policy::default(),
             lattice: bevy_emerge_core::kits::Lattice::default(),
             masks: Vec::new(),
+            rules: bevy_emerge_core::rules::Rules {
+                version: bevy_emerge_core::rules::RULES_VERSION,
+                blocks: Vec::new(),
+            },
             touched: Vec::new(),
             triangles: Vec::new(),
         };

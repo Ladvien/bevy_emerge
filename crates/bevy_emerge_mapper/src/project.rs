@@ -120,6 +120,13 @@ pub struct Project {
     /// **The project's own directory** — `assets/emerge`, the one holding `vocab.ron`, `kits.ron`
     /// and `compositions.ron`. Not a kit; kits are its subdirectories.
     pub project_dir: PathBuf,
+    /// **The block rules the project states** — `rules.ron` beside `kits.ron`, validated against
+    /// the merged [`Self::library`] at open. Empty (no blocks) when the file is absent, which is the
+    /// same state as a file that states none: a project without rules behaves as it always did.
+    ///
+    /// Held so `G` can lay a block the way the game will (`editor::generate_from`), instead of
+    /// learning from the whole map at the editor's own 1 m step.
+    pub rules: bevy_emerge_core::rules::Rules,
     /// **Where every map in this project lives** — see [`MAPS_DIR`]. Held rather than re-derived, so
     /// a rename follows the name without re-deciding which directory a map belongs to.
     pub maps_dir: PathBuf,
@@ -279,6 +286,25 @@ impl Project {
                 )
             })?;
 
+        // **Rules are read last of the project files, against the merged library**, because the
+        // descriptors they name (the border, a footprint's nine parts, a region marker) may live in
+        // any bound kit. An absent file is no rules; a present one that does not parse or names
+        // something the library lacks fails the open, like every other project file.
+        let rules_path = project_dir.join(bevy_emerge_core::rules::FILE);
+        let rules = if rules_path.exists() {
+            let parsed = bevy_emerge_core::rules::Rules::parse(&read(&rules_path)?)
+                .map_err(|e| format!("{}: {e}", rules_path.display()))?;
+            parsed
+                .validate_against(&library)
+                .map_err(|e| format!("{}: {e}", rules_path.display()))?;
+            parsed
+        } else {
+            bevy_emerge_core::rules::Rules {
+                version: bevy_emerge_core::rules::RULES_VERSION,
+                blocks: Vec::new(),
+            }
+        };
+
         let maps_dir = project_dir.join(MAPS_DIR);
 
         // Counts come from the one census, never from a `.len()` written here — see
@@ -340,6 +366,7 @@ impl Project {
             measured,
             compositions,
             library,
+            rules,
             policy,
             masks,
             project_dir,

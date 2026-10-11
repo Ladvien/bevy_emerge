@@ -4551,6 +4551,10 @@ mod pack_fold_tests {
             policy: bevy_emerge_core::policy::Policy::default(),
             lattice: bevy_emerge_core::kits::Lattice::default(),
             masks: Vec::new(),
+            rules: bevy_emerge_core::rules::Rules {
+                version: bevy_emerge_core::rules::RULES_VERSION,
+                blocks: Vec::new(),
+            },
             // **No map anywhere in this fixture**, which is the point: the rule under test is about
             // a kit, and the Kits door has no map to consult. See `project::OpenMap`.
             touched: Vec::new(),
@@ -10163,6 +10167,10 @@ mod write_library_tests {
             library,
             policy,
             masks: Vec::new(),
+            rules: bevy_emerge_core::rules::Rules {
+                version: bevy_emerge_core::rules::RULES_VERSION,
+                blocks: Vec::new(),
+            },
             touched: Vec::new(),
             triangles: vec![0],
         }
