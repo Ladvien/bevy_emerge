@@ -47,7 +47,7 @@ use bevy::image::Image;
 use bevy::prelude::*;
 use bevy::camera::primitives::Aabb;
 use bevy::asset::RenderAssetUsages;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use std::path::{Path, PathBuf};
 
@@ -113,6 +113,8 @@ pub struct Thumbnails {
     waited: u32,
     camera: Option<Entity>,
     booth: Option<Entity>,
+    /// The cache readback of the portrait being taken, while there is one.
+    capture: Option<Capture>,
 }
 
 impl Thumbnails {
@@ -222,12 +224,38 @@ fn load_cached(path: &Path) -> Option<Image> {
     ))
 }
 
-/// Read a finished portrait back from the GPU and write it to the cache. The same readback the label
-/// booth uses (`label_booth`): the copy lands a frame or two later, in the observer.
-fn save_portrait(commands: &mut Commands, handle: Handle<Image>, path: PathBuf) {
-    commands
+/// A readback of the portrait being taken, in flight.
+///
+/// **A screenshot of an image target is a re-render, not a copy.** Bevy redirects whatever camera
+/// draws into that image this frame into the capture's own texture and reads that back (see
+/// `prepare_screenshots`' `view_target_attachments`). So the request has to be made while the booth
+/// camera is still aimed at the portrait: asked for after parking it, the capture is of a frame nothing
+/// drew into (all zeros), which is what the first version wrote to the cache. The portrait itself
+/// keeps what the earlier settle frames drew; only the captured frame goes to the capture texture.
+struct Capture {
+    screenshot: Entity,
+    /// Set by the observer once the PNG is written (or has failed, which is a missing optimisation
+    /// and no reason to hold the booth).
+    done: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    waited: u32,
+}
+
+/// Frames to wait for a capture before giving the portrait up for the cache. The copy lands a frame
+/// or two after the request; this is for a machine with no GPU path to read back from.
+const CAPTURE_WAIT_FRAMES: u32 = 120;
+
+/// Ask for the readback of `handle`, which the booth camera is drawing into right now.
+fn request_capture(commands: &mut Commands, handle: Handle<Image>, path: PathBuf) -> Capture {
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = done.clone();
+    let screenshot = commands
         .spawn(Screenshot::image(handle))
-        .observe(move |shot: On<ScreenshotCaptured>| write_cached(&shot.image, &path));
+        .observe(move |shot: On<ScreenshotCaptured>| {
+            write_cached(&shot.image, &path);
+            flag.store(true, std::sync::atomic::Ordering::Release);
+        })
+        .id();
+    Capture { screenshot, done, waited: 0 }
 }
 
 /// PNG-encode `image` and write it beside its final name first, so a crash mid-write leaves no half
@@ -291,15 +319,21 @@ pub fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         waited: 0,
         camera: None,
         booth: None,
+        capture: None,
     });
 }
 
 /// A 128 px render target, zeroed.
 ///
 /// `new_target_texture` sets the RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_DST usage a camera target
-/// needs; hand-building the descriptor is the usual way to a silently black thumbnail.
+/// needs; hand-building the descriptor is the usual way to a silently black thumbnail. **COPY_SRC is
+/// added**, because the disk cache reads a finished portrait back with a screenshot, which is a
+/// texture-to-buffer copy with this image as the source — without it the copy is a wgpu validation
+/// error that takes the frame's render with it, and every palette portrait came out blank (the label
+/// booth's `shot_target` is the precedent).
 fn blank_target(images: &mut Assets<Image>) -> Handle<Image> {
     let mut img = Image::new_target_texture(THUMB_PX, THUMB_PX, TextureFormat::Rgba8UnormSrgb, None);
+    img.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     img.data = Some(vec![0; (THUMB_PX * THUMB_PX * 4) as usize]);
     images.add(img)
 }
@@ -445,6 +479,9 @@ fn bake(
         }
         thumbs.settled = 0;
         thumbs.waited = 0;
+        if let Some(capture) = thumbs.capture.take() {
+            commands.entity(capture.screenshot).try_despawn();
+        }
         // Restaged for the right piece next frame.
         return;
     }
@@ -537,6 +574,26 @@ fn bake(
         return;
     }
 
+    // **Take the cache readback before letting go**, with the camera still drawing into the portrait
+    // (see [`Capture`]), and hold the booth on this piece until it lands or gives up.
+    if let Some(capture) = thumbs.capture.as_mut() {
+        capture.waited += 1;
+        let landed = capture.done.load(std::sync::atomic::Ordering::Acquire);
+        if !landed && capture.waited <= CAPTURE_WAIT_FRAMES {
+            return;
+        }
+        if !landed {
+            warn!("`{}`: the portrait readback never landed; it is not cached", d.id);
+        }
+        let screenshot = capture.screenshot;
+        commands.entity(screenshot).try_despawn();
+        thumbs.capture = None;
+    } else if let (Some(path), Some(handle)) = (cache_path(&project.root, &d), thumbs.images.get(&d.id)) {
+        let capture = request_capture(&mut commands, handle.clone(), path);
+        thumbs.capture = Some(capture);
+        return;
+    }
+
     // Park on the scratch target BEFORE letting go of the subject — see the module note.
     if let Some(cam_entity) = thumbs.camera {
         if let Ok((_, _, mut target)) = cams.get_mut(cam_entity) {
@@ -549,10 +606,6 @@ fn bake(
     commands.entity(model).despawn();
     thumbs.model = None;
     thumbs.staging = None;
-    // Keep it for the next launch. After the park above, so the image is no longer being drawn into.
-    if let (Some(path), Some(handle)) = (cache_path(&project.root, &d), thumbs.images.get(&d.id)) {
-        save_portrait(&mut commands, handle.clone(), path);
-    }
     thumbs.baked.insert(d.id.clone());
 }
 
@@ -746,6 +799,7 @@ mod tests {
             waited: 0,
             camera: None,
             booth: None,
+            capture: None,
         }
     }
 
