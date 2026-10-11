@@ -15781,3 +15781,35 @@ fn a_corrupt_cached_portrait_is_ignored() {
         "garbage in the cache must fall through to baking, not count as a portrait"
     );
 }
+
+/// **Palette headings say which kit a group is from, once there are two.** A project that mixes a
+/// first-party kit with a tile set shows each kind once per kit, kits in `kits.ron` order; a project
+/// with one kit keeps the plain kind headings.
+mod palette_headings {
+    use super::*;
+    use bevy_emerge_mapper::editor::palette_headings;
+    use bevy_emerge_mapper::project::Project;
+
+    #[test]
+    fn two_kits_head_their_groups_with_the_kit() {
+        let root = Fixture::new("headsTwo")
+            .descriptor("tile_a", "alpha")
+            .kit("site", "beta", &["site/floor"])
+            .build("m");
+        let project = Project::open(&root, None).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            palette_headings(&project),
+            vec!["furniture · prop".to_owned(), "site · prop".to_owned()],
+            "kits in bind order, each carrying its own `prop` group"
+        );
+    }
+
+    #[test]
+    fn one_kit_keeps_the_plain_kind_headings() {
+        let root = Fixture::new("headsOne")
+            .descriptor("tile_a", "alpha")
+            .build("m");
+        let project = Project::open(&root, None).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(palette_headings(&project), vec!["prop".to_owned()]);
+    }
+}

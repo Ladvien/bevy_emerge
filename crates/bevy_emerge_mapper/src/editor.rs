@@ -1765,28 +1765,66 @@ pub fn palette_indices(
         .collect()
 }
 
+/// The palette's headings, in the order they are drawn, empty ones left out. Public so a test can
+/// read what the panel will say without finding it in the UI tree.
+pub fn palette_headings(project: &Project) -> Vec<String> {
+    categories(project).into_iter().map(|(name, _)| name).collect()
+}
+
+/// **The palette's groups, in drawn order.** Headed by kind alone while the project binds one kit,
+/// and by `kit · kind` once it binds two or more: a project that mixes a first-party kit with an
+/// abstract tile set would otherwise show `building-module` and `landmark` with both kits' pieces
+/// interleaved under them. Kits go in `kits.ron` bind order, and within one the vocabulary's own
+/// kind order, then `unsorted` last. A piece no bound kit defines sorts under an `unsorted` kit,
+/// last of all.
 fn categories(project: &Project) -> Vec<(String, Vec<usize>)> {
-    let mut out: Vec<(String, Vec<usize>)> = project
-        .vocab
-        .kind
-        .names()
-        .map(|n| (n.to_owned(), Vec::new()))
+    let by_kit = project.kits.len() >= 2;
+    let kits: Vec<&str> = if by_kit {
+        project
+            .kits
+            .iter()
+            .map(|k| k.namespace.as_str())
+            .chain(std::iter::once(UNSORTED))
+            .collect()
+    } else {
+        vec![""]
+    };
+    let heading = |kit: &str, kind: &str| {
+        if by_kit {
+            format!("{kit} · {kind}")
+        } else {
+            kind.to_owned()
+        }
+    };
+    let mut out: Vec<(String, Vec<usize>)> = Vec::new();
+    for kit in &kits {
+        for kind in project.vocab.kind.names() {
+            out.push((heading(kit, kind), Vec::new()));
+        }
+        // A home for anything untagged, LAST — it is a to-do list, not a category, and putting it
+        // first would give the least useful group the most valuable position.
+        out.push((heading(kit, UNSORTED), Vec::new()));
+    }
+    let at: std::collections::HashMap<String, usize> = out
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _))| (name.clone(), i))
         .collect();
-    // A home for anything untagged, LAST — it is a to-do list, not a category, and putting it first
-    // would give the least useful group the most valuable position.
-    out.push((UNSORTED.to_owned(), Vec::new()));
 
     for (ix, d) in project.library.descriptors.iter().enumerate() {
-        let key = d.kind.first().map(String::as_str).unwrap_or(UNSORTED);
-        match out.iter_mut().find(|(name, _)| name == key) {
-            Some((_, members)) => members.push(ix),
-            // A token the vocabulary does not have cannot reach here — `Library::resolve` refuses it
-            // at load — but grouping it visibly beats dropping the row from the palette entirely.
-            None => {
-                if let Some((_, members)) = out.iter_mut().find(|(name, _)| name == UNSORTED) {
-                    members.push(ix);
-                }
-            }
+        let kit = if by_kit {
+            project.kit_of(&d.id).unwrap_or(UNSORTED)
+        } else {
+            ""
+        };
+        let kind = d.kind.first().map(String::as_str).unwrap_or(UNSORTED);
+        // A token the vocabulary does not have cannot reach here — `Library::resolve` refuses it at
+        // load — but grouping it visibly beats dropping the row from the palette entirely.
+        let slot = at
+            .get(&heading(kit, kind))
+            .or_else(|| at.get(&heading(kit, UNSORTED)));
+        if let Some(&slot) = slot {
+            out[slot].1.push(ix);
         }
     }
     // Empty categories are noise: the vocabulary has sixteen and a project may use six.
