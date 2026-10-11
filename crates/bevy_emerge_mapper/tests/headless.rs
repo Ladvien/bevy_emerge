@@ -3640,11 +3640,7 @@ fn a_captured_group_is_written_and_reads_back() {
     // Cloned rather than held: `keep_as_group` wants both resources at once, and two live borrows
     // of one world is what `resource_scope` exists to avoid. The map is only read here.
     let open = world.resource::<bevy_emerge_mapper::project::OpenMap>().map.clone();
-    let open = bevy_emerge_mapper::project::OpenMap {
-        map: open,
-        map_path: std::path::PathBuf::from("m.map.ron"),
-        dirty: false,
-    };
+    let open = bevy_emerge_mapper::project::OpenMap::new(open, std::path::PathBuf::from("m.map.ron"));
     let world = app.world_mut();
     let mut project = world.resource_mut::<bevy_emerge_mapper::project::Project>();
     assert!(
@@ -10676,7 +10672,6 @@ fn the_menu_key_saves_and_goes() {
             descriptor: "floor".to_owned(),
             ..Default::default()
         });
-        open.dirty = true;
     }
     chord(&mut app);
     assert!(
@@ -10685,7 +10680,7 @@ fn the_menu_key_saves_and_goes() {
          remove, and `Esc` is the key that still asks"
     );
     assert!(
-        !app.world().resource::<OpenMap>().dirty,
+        !app.world().resource::<OpenMap>().dirty(),
         "the map had unsaved edits and the chord left anyway without writing them. `dirty` is \
          `OpenMap::save`'s own receipt, so this is the assertion that a silent no-op cannot pass"
     );
@@ -10703,11 +10698,7 @@ fn the_menu_key_saves_and_goes() {
     );
     stay(&mut app);
 
-    // **Clean: nothing to write, so it simply goes.**
-    {
-        let mut open = app.world_mut().resource_mut::<OpenMap>();
-        open.dirty = false;
-    }
+    // **Clean: nothing to write, so it simply goes.** The map is already clean after the save.
     chord(&mut app);
     assert!(!leaving(&app), "still no question on a clean map");
     assert!(
@@ -15522,5 +15513,157 @@ fn a_library_row_carries_a_portrait_slot() {
                 .is_some_and(|n| n.width == Val::Px(bevy_emerge_mapper::chrome::THUMB_SLOT))
         });
         assert!(slot, "a MESHES row without a portrait slot");
+    }
+}
+
+/// **"Unsaved" means the map differs from the disk, and nothing else.**
+///
+/// `OpenMap::dirty` used to be a flag set by every edit site, so picking a piece up and putting it
+/// back on its own spot, or placing and then undoing, left the map reading "unsaved" with nothing
+/// to save. The state is derived now; this pins the three ways it used to lie.
+mod replace_and_dirty {
+    use super::*;
+    use bevy_emerge_mapper::editor::{
+        EditorState, drop_for_test, fill_for_test, place_for_test, undo_for_test,
+    };
+    use bevy_emerge_mapper::project::OpenMap;
+
+    fn booted(name: &str, fixture: Fixture) -> App {
+        let root = fixture.build("m");
+        let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+        // The fixture keeps its project alive only until `build`; the map is loaded, so the
+        // directory can go. The name is only for the failure message.
+        let _ = name;
+        for _ in 0..3 {
+            app.update();
+        }
+        app
+    }
+
+    fn ids(app: &App) -> Vec<(String, String)> {
+        app.world()
+            .resource::<OpenMap>()
+            .map
+            .placements
+            .iter()
+            .map(|p| (p.id.clone(), p.descriptor.clone()))
+            .collect()
+    }
+
+    fn dirty(app: &App) -> bool {
+        app.world().resource::<OpenMap>().dirty()
+    }
+
+    fn depth(app: &App) -> usize {
+        app.world().resource::<EditorState>().undo_depth()
+    }
+
+    fn said(app: &App) -> String {
+        app.world().resource::<EditorState>().status.note_text().to_owned()
+    }
+
+    #[test]
+    fn a_piece_put_back_where_it_was_is_not_an_edit() {
+        let mut app = booted(
+            "putback",
+            Fixture::new("putback")
+                .descriptor("tile_a", "alpha")
+                .place("tile_a", (0.5, 0.5)),
+        );
+        assert!(!dirty(&app), "a freshly opened map is clean");
+
+        drop_for_test(app.world_mut(), "tile_a@0", (0.5, 0.5));
+        assert!(!dirty(&app), "dropped on its own spot: nothing changed, nothing to save");
+        assert_eq!(depth(&app), 0, "and nothing to undo");
+        assert!(said(&app).contains("put back where it was"), "said: {}", said(&app));
+
+        drop_for_test(app.world_mut(), "tile_a@0", (3.5, 0.5));
+        assert!(dirty(&app), "a real move is unsaved");
+        assert_eq!(depth(&app), 1);
+        undo_for_test(app.world_mut());
+        assert!(!dirty(&app), "undone back to the file, so no longer unsaved");
+    }
+
+    #[test]
+    fn place_then_undo_leaves_the_map_clean() {
+        let mut app = booted(
+            "placeundo",
+            Fixture::new("placeundo")
+                .descriptor("tile_a", "alpha")
+                .place("tile_a", (0.5, 0.5)),
+        );
+        place_for_test(app.world_mut(), "tile_a", (3.5, 0.5));
+        assert!(dirty(&app));
+        undo_for_test(app.world_mut());
+        assert!(!dirty(&app), "the map is what is on disk again");
+    }
+
+    #[test]
+    fn a_click_replaces_what_it_lands_on_and_one_undo_restores_it() {
+        let mut app = booted(
+            "click",
+            Fixture::new("click")
+                .descriptor("tile_a", "alpha")
+                .descriptor("tile_b", "alpha")
+                .place("tile_a", (0.5, 0.5)),
+        );
+        place_for_test(app.world_mut(), "tile_b", (0.5, 0.5));
+        let after = ids(&app);
+        assert_eq!(after.len(), 1, "replaced, not layered: {after:?}");
+        assert_eq!(after[0].1, "tile_b");
+        assert!(said(&app).contains("replaced `tile_a@0`"), "said: {}", said(&app));
+        assert_eq!(depth(&app), 1, "one act, one undo entry");
+
+        undo_for_test(app.world_mut());
+        assert_eq!(
+            ids(&app),
+            vec![("tile_a@0".to_owned(), "tile_a".to_owned())],
+            "undo puts the occupant back with its own id"
+        );
+        assert!(!dirty(&app));
+    }
+
+    #[test]
+    fn clicking_the_piece_that_is_already_there_changes_nothing() {
+        let mut app = booted(
+            "same",
+            Fixture::new("same")
+                .descriptor("tile_a", "alpha")
+                .place("tile_a", (0.5, 0.5)),
+        );
+        place_for_test(app.world_mut(), "tile_a", (0.5, 0.5));
+        assert!(!dirty(&app), "replacing a piece with itself would only mint a new id");
+        assert_eq!(depth(&app), 0);
+        assert!(said(&app).contains("already there"), "said: {}", said(&app));
+    }
+
+    #[test]
+    fn a_drag_replaces_every_other_tile_under_it_and_one_undo_restores_them() {
+        let mut app = booted(
+            "drag",
+            Fixture::new("drag")
+                .descriptor("tile_a", "alpha")
+                .descriptor("tile_b", "alpha")
+                .place("tile_a", (0.5, 0.5))
+                .place("tile_a", (1.5, 0.5)),
+        );
+        fill_for_test(app.world_mut(), "tile_b", ((0.5, 0.5), (1.5, 0.5)), 1.0);
+        let after = ids(&app);
+        assert!(
+            after.iter().all(|(_, d)| d == "tile_b") && after.len() == 2,
+            "both tiles replaced and none layered: {after:?}"
+        );
+        assert_eq!(depth(&app), 1, "the whole box is one undo");
+
+        undo_for_test(app.world_mut());
+        assert_eq!(
+            ids(&app),
+            vec![
+                ("tile_a@0".to_owned(), "tile_a".to_owned()),
+                ("tile_a@1".to_owned(), "tile_a".to_owned()),
+            ],
+            "both come back, in order, under their own ids"
+        );
+        assert!(!dirty(&app));
     }
 }

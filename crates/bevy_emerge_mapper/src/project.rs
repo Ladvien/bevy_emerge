@@ -566,11 +566,26 @@ pub struct OpenMap {
     pub map: Map,
     /// Where it will be written.
     pub map_path: PathBuf,
-    /// Whether there are edits not yet on disk.
-    pub dirty: bool,
+    /// The map as it is on disk (or as it was when opened). [`OpenMap::dirty`] compares against it.
+    ///
+    /// **Dirty is derived, never flagged.** A boolean set by every edit site said "unsaved" after a
+    /// piece was picked up and put back, and after place-then-undo, because nothing ever cleared it
+    /// when the map went back to what the disk holds. `Map` is `PartialEq`, so the question "do I
+    /// differ from disk" is answerable directly, and no edit site has to remember to ask it.
+    saved: Map,
 }
 
 impl OpenMap {
+    /// An open map with `map` as both its content and its on-disk state: clean.
+    pub fn new(map: Map, map_path: PathBuf) -> OpenMap {
+        OpenMap { saved: map.clone(), map, map_path }
+    }
+
+    /// Whether the map differs from what is on disk.
+    pub fn dirty(&self) -> bool {
+        self.map != self.saved
+    }
+
     /// Open a map by **name**, or start one under that name.
     ///
     /// The name is forced into snake_case rather than checked, so there is no path through this
@@ -645,7 +660,7 @@ impl OpenMap {
             counted.stamps
         );
 
-        Ok(OpenMap { map, map_path, dirty: false })
+        Ok(OpenMap::new(map, map_path))
     }
 
     /// Write the map. Atomic, so a crash mid-write cannot leave half a level on disk.
@@ -681,7 +696,7 @@ impl OpenMap {
         let text = ron::ser::to_string_pretty(&self.map, ron::ser::PrettyConfig::default())
             .map_err(|e| format!("map: serialize: {e}"))?;
         bevy_emerge_core::ron_surgery::save_atomic(&self.map_path, &text)?;
-        self.dirty = false;
+        self.saved = self.map.clone();
         Ok(())
     }
 

@@ -472,19 +472,57 @@ pub fn blocking<'a>(
     tip: (u8, u8),
     on: Option<&str>,
 ) -> Option<&'a Placed> {
-    let guest = plan_box(d, at, yaw, tip)?;
-    map.placements.iter().find(|p| {
-        let Some(pd) = library.get(&p.descriptor) else {
-            return false;
-        };
-        if !same_layer(d, on, pd, p.on.as_deref()) {
-            return false;
-        }
-        match plan_box(pd, p.at, p.yaw, p.tip) {
-            Some(b) => plans_overlap(guest, b),
-            None => false,
-        }
-    })
+    blocker_indices(map, library, d, at, yaw, tip, on)
+        .next()
+        .and_then(|i| map.placements.get(i))
+}
+
+/// **Every placement [`blocking`] would name, as indices into `map.placements`, ascending.**
+///
+/// The same test as `blocking` (same layer, plans overlap), for a caller that replaces what it
+/// lands on instead of refusing: it needs all of them, not the first. `blocking` is this iterator's
+/// first item, so the two cannot disagree about what is in the way.
+pub fn blockers(
+    map: &Map,
+    library: &Library,
+    d: &Descriptor,
+    at: (f32, f32),
+    yaw: f32,
+    tip: (u8, u8),
+    on: Option<&str>,
+) -> Vec<usize> {
+    blocker_indices(map, library, d, at, yaw, tip, on).collect()
+}
+
+fn blocker_indices<'a>(
+    map: &'a Map,
+    library: &'a Library,
+    d: &'a Descriptor,
+    at: (f32, f32),
+    yaw: f32,
+    tip: (u8, u8),
+    on: Option<&'a str>,
+) -> impl Iterator<Item = usize> + 'a {
+    let guest = plan_box(d, at, yaw, tip);
+    map.placements
+        .iter()
+        .enumerate()
+        .filter(move |(_, p)| {
+            let Some(guest) = guest else {
+                return false;
+            };
+            let Some(pd) = library.get(&p.descriptor) else {
+                return false;
+            };
+            if !same_layer(d, on, pd, p.on.as_deref()) {
+                return false;
+            }
+            match plan_box(pd, p.at, p.yaw, p.tip) {
+                Some(b) => plans_overlap(guest, b),
+                None => false,
+            }
+        })
+        .map(|(i, _)| i)
 }
 
 /// What a move changed, so the caller can respawn exactly those entities and undo exactly that edit.
@@ -1278,6 +1316,24 @@ mod tests {
             blocking(&m, &l, &table(), (1.3, 0.0), 90.0, (0, 0), None).is_none(),
             "the turned footprint is the one that counts"
         );
+    }
+
+    /// **`blockers` is every overlap, ascending; `blocking` is its first.** A replacing click needs
+    /// all of them, and the two must never disagree about what is in the way.
+    #[test]
+    fn blockers_lists_every_overlap_in_map_order_and_blocking_is_the_first() {
+        let m = map(vec![
+            at("t1", "table", None),
+            // Past the first table's far edge (0.8) and the guest's near edge: clear.
+            Placed { at: (5.0, 0.0), ..at("far", "table", None) },
+            Placed { at: (1.0, 0.0), ..at("t2", "table", None) },
+        ]);
+        let l = lib(vec![table(), lamp()]);
+        let hit = blockers(&m, &l, &table(), (0.5, 0.0), 0.0, (0, 0), None);
+        assert_eq!(hit, vec![0, 2], "both lapped tables, never the far one, ascending");
+        let first = blocking(&m, &l, &table(), (0.5, 0.0), 0.0, (0, 0), None);
+        assert_eq!(first.map(|p| p.id.as_str()), Some("t1"));
+        assert!(blockers(&m, &l, &table(), (3.0, 0.0), 0.0, (0, 0), None).is_empty());
     }
 
     /// Layers pass each other: the floor tile a crate stands on is not in its way, two lamps

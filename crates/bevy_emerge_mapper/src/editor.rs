@@ -1229,7 +1229,7 @@ pub fn save_and_leave(
     // no `OpenMap` at all (`args::Opened::insert_into` removes it). Nothing open is nothing to
     // write, which is the same reason `leave_for_menu` takes a `dirty: bool` rather than a map.
     if let (Some(open), Some(project)) = (open, project)
-        && open.dirty
+        && open.dirty()
     {
         match open.save(project) {
             // Through `Project::save`, the same door `Cmd+S` uses: validate, then an atomic write.
@@ -2007,7 +2007,6 @@ fn size_edit_keys(
                 axis.set(&mut bounds, want);
                 if bounds != open.map.bounds {
                     open.map.bounds = bounds;
-                    open.dirty = true;
                 }
                 state.status.note(format!(
                     "map is {} x {} x {} m",
@@ -2483,10 +2482,10 @@ fn refresh_status(
                         0 => String::new(),
                         n => format!(", {n} stamped"),
                     };
-                    let unsaved = if open.dirty { ", unsaved" } else { "" };
+                    let unsaved = if open.dirty() { ", unsaved" } else { "" };
                     format!("{} placed{stamps}{unsaved}", counted.placements)
                 },
-                if open.dirty { ACCENT } else { TEXT },
+                if open.dirty() { ACCENT } else { TEXT },
             ),
             // A refusal has to read differently from a success, or "NOT SAVED" scrolls past as if it
             // were a receipt.
@@ -2742,7 +2741,6 @@ fn rename_keys(
                         .note("a map needs a name; nothing was changed".to_owned());
                 } else if name != open.map.name {
                     let was = std::mem::replace(&mut open.map.name, name.clone());
-                    open.dirty = true;
                     // The file follows the name on the next save, and the old one stays where it is
                     // — deleting it here would destroy a file on a keystroke.
                     // The modifier from the census, not typed: this sentence naming a key the build
@@ -3098,6 +3096,7 @@ pub struct PlaceDrag {
 fn box_fill_between(
     commands: &mut Commands,
     assets: &AssetServer,
+    placed: &Query<(Entity, &Placement)>,
     project: &mut Project,
     open: &mut OpenMap,
     state: &mut EditorState,
@@ -3126,27 +3125,62 @@ fn box_fill_between(
             return;
         }
     };
+
+    // **What the fill lands on is replaced, as one click is.** Every new row's blockers, against the
+    // map as it was before the fill, as one set. A blocker with the brush's own descriptor stays:
+    // `box_fill` already skipped the cells that hold the brush, so one that still overlaps a new row
+    // is a neighbour the author laid off-lattice, not something this fill is repainting. The pure
+    // `box_fill` is unchanged and knows nothing of this; replacement is the editor's.
+    let mut doomed: Vec<usize> = filled
+        .placements
+        .iter()
+        .flat_map(|row| {
+            bevy_emerge_core::stack::blockers(
+                &open.map,
+                &project.library,
+                brush,
+                row.at,
+                row.yaw,
+                row.tip,
+                None,
+            )
+        })
+        .filter(|&i| open.map.placements.get(i).is_some_and(|p| p.descriptor != brush.id))
+        .collect();
+    doomed.sort_unstable();
+    doomed.dedup();
+    if let Err(e) = riders_refuse(&open.map, &doomed) {
+        // Refused whole: a fill that stopped at the first host would leave a half-painted box.
+        state.status.note(e);
+        return;
+    }
     state.next_id = n;
+    let removed = take_rows(commands, placed, &mut open.map, &doomed);
 
     let count = filled.placements.len();
     let first = open.map.placements.len();
     open.map.placements.extend(filled.placements);
     // Into the map first, drawn second: how high a piece sits is a question about the finished map.
     spawn_range(commands, assets, project, &*open, state, first);
-    open.dirty = true;
     // **One entry for the whole box**, the rule `RemovedMany` states: one act the author performed is
     // one act to take back.
-    state.record(Undo::Added { count });
+    let replaced = removed.len();
+    state.record(record_added(count, removed));
     // **A truncated fill is a partial result, so it is a problem and not a receipt.** The two
     // branches say different kinds of thing: one reports a box that filled, the other reports a box
     // that stopped early and looks exactly like the first on screen.
+    let over = if replaced == 0 {
+        String::new()
+    } else {
+        format!(", replacing {replaced}")
+    };
     if filled.truncated {
         state.status.problem(format!(
-            "filled {count} — stopped at the {} cell cap",
+            "filled {count}{over} — stopped at the {} cell cap",
             crate::fill::MAX_CELLS
         ));
     } else {
-        state.status.note(format!("filled {count}"));
+        state.status.note(format!("filled {count}{over}"));
     }
 }
 
@@ -3583,7 +3617,6 @@ fn stamp_set(
     let stamped = fresh.len();
     open.map.stamps.extend(fresh);
     spawn_range(commands, assets, project, &*open, state, first);
-    open.dirty = true;
     // One entry for the whole set: one act the author performed is one act to take back. Two lists
     // means a `Group`, whose inverses run in reverse order — the property that keeps `Undo` closed.
     let op = match (count == 0, stamped == 0) {
@@ -3981,7 +4014,6 @@ fn drive_removal(
         },
     };
     state.record(op);
-    open.dirty = true;
     // The whole chord, rendered by the census — naming just the modifier told the author to press
     // `Cmd`, which is not a thing anyone can do.
     let what = match (n, m) {
@@ -4019,7 +4051,6 @@ fn delete_stamp(id: &str,
     state.record(Undo::UnstampedMany {
         items: vec![(index, Box::new(removed))],
     });
-    open.dirty = true;
     state.status.note(format!(
         "removed `{id}` — the whole `{of}`, not a piece of it. {} puts it back",
         keys::chord_text(keys::binding(Action::Undo))
@@ -4116,6 +4147,7 @@ fn drive_place(
     mut drag: ResMut<PlaceDrag>,
     mut gizmos: Gizmos,
     mut compose: ResMut<crate::compose::ComposeState>,
+    placed: Query<(Entity, &Placement)>,
 ) {
     // Placing is one tool among three, and a click belongs to whichever is armed. While removal is
     // armed a click removes and must not also place, or a box dragged over a crowded corner would
@@ -4274,6 +4306,7 @@ fn drive_place(
         box_fill_between(
             &mut commands,
             &assets,
+            &placed,
             &mut project, &mut open,
             &mut state,
             &d,
@@ -4282,7 +4315,24 @@ fn drive_place(
         );
         return;
     }
+    place_one(&mut commands, &assets, &placed, &project, &mut open, &mut state, &d, at, free);
+}
 
+/// **One click: put `d` down at `at`**, replacing what is in its way. Split out of [`drive_place`]
+/// so the commit — heights, host, replacement, undo entry, drawing — is a plain function of the
+/// resources it changes, which a test can call without a camera and a cursor.
+#[allow(clippy::too_many_arguments)]
+fn place_one(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    placed: &Query<(Entity, &Placement)>,
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    d: &bevy_emerge_core::descriptor::Descriptor,
+    at: (f32, f32),
+    free: bool,
+) {
     // **What it lands on.** A piece that mounts on a surface must find one under the cursor; the same
     // question the ghost has been answering while the author moved the mouse here, asked once more at
     // the moment it matters.
@@ -4305,11 +4355,15 @@ fn drive_place(
         };
     let on = host.map(|h| h.id.clone());
 
-    // **Occupied space refuses, and names its occupant.** Flush is fine — kitbashing lays pieces
-    // end to end, and `stack::OVERLAP_EPS` is what keeps "touching" from reading as "overlapping" —
-    // but a piece INSIDE another is an accident that otherwise surfaces as a doubled draw call
-    // nobody can see. Same-layer only: the floor a crate stands on is not in its way.
-    if let Some(block) = bevy_emerge_core::stack::blocking(
+    // **Occupied space is replaced, and the author is told what went.** Flush is fine — kitbashing
+    // lays pieces end to end, and `stack::OVERLAP_EPS` is what keeps "touching" from reading as
+    // "overlapping" — but a piece INSIDE another is an accident that otherwise surfaces as a doubled
+    // draw call nobody can see. Same-layer only: the floor a crate stands on is not in its way.
+    //
+    // It used to refuse, which made repainting a tile a two-step (remove, then place) on every cell.
+    // Replacing is one act and one undo. What still refuses is a piece that carries another: taking
+    // it away would strand its rider, so the author removes the rider first.
+    let blockers = bevy_emerge_core::stack::blockers(
         &open.map,
         &project.library,
         &d,
@@ -4317,18 +4371,28 @@ fn drive_place(
         state.brush_yaw,
         state.brush_tip,
         on.as_deref(),
-    ) {
-        state.status.note(format!(
-            "blocked: `{}` already covers that spot — remove it or place beside it",
-            block.id
-        ));
+    );
+    if let [only] = blockers.as_slice()
+        && let Some(p) = open.map.placements.get(*only)
+        && p.descriptor == d.id
+        && p.at == at
+        && p.yaw == state.brush_yaw
+        && p.tip == state.brush_tip
+    {
+        // Exactly what is there: replacing it would mint a new id and change the file for no change on screen.
+        state.status.note(format!("`{}` is already there", p.id));
         return;
     }
+    if let Err(e) = riders_refuse(&open.map, &blockers) {
+        state.status.note(e);
+        return;
+    }
+    let removed = take_rows(commands, placed, &mut open.map, &blockers);
 
     state.next_id += 1;
     let id = format!("{}@{}", short_id(&d.id), state.next_id);
 
-    let placed = Placed {
+    let placed_row = Placed {
         id: id.clone(),
         descriptor: d.id.clone(),
         at,
@@ -4337,12 +4401,12 @@ fn drive_place(
         on: on.clone(),
         ..Placed::default()
     };
-    open.map.placements.push(placed);
-    open.dirty = true;
-    state.record(Undo::Added { count: 1 });
+    open.map.placements.push(placed_row);
+    let replaced: Vec<String> = removed.iter().map(|(_, p)| p.id.clone()).collect();
+    state.record(record_added(1, removed));
 
     if let Some(e) = spawn_piece(
-        &mut commands,
+        commands,
         &assets,
         &d,
         at,
@@ -4359,10 +4423,82 @@ fn drive_place(
     // happens is the honest alternative: an author who did it by accident finds out immediately, and
     // one who wanted it sees that it worked.
     let how = if free { " free" } else { "" };
-    state.status.note(match on {
-        Some(host) => format!("placed {id} on {host}{how}"),
-        None => format!("placed {id} at ({:.2}, {:.2}){how}", at.0, at.1),
+    state.status.note(match (on, replaced.is_empty()) {
+        (_, false) => format!("replaced {} with {id}{how}", ticked(&replaced)),
+        (Some(host), true) => format!("placed {id} on {host}{how}"),
+        (None, true) => format!("placed {id} at ({:.2}, {:.2}){how}", at.0, at.1),
     });
+}
+
+/// `` `a`, `b` `` — ids for a status line.
+fn ticked(ids: &[String]) -> String {
+    ids.iter()
+        .map(|id| format!("`{id}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// **A piece that carries another is never replaced out from under it.** `Err` names the first host
+/// among `blockers` (indices into `map.placements`) that has a rider. Taking the host away would
+/// either strand the rider in mid-air or delete something the author did not point at, so the
+/// author removes the rider first.
+fn riders_refuse(map: &bevy_emerge_core::map::Map, blockers: &[usize]) -> Result<(), String> {
+    for &i in blockers {
+        let Some(host) = map.placements.get(i) else {
+            continue;
+        };
+        if let Some(rider) = map
+            .placements
+            .iter()
+            .find(|p| p.on.as_deref() == Some(host.id.as_str()))
+        {
+            return Err(format!(
+                "blocked: `{}` carries `{}` — remove it first",
+                host.id, rider.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Take the rows at `indices` (ascending) out of the map and despawn their entities. Returns them
+/// ascending, the order [`Undo::RemovedMany`] puts them back in.
+fn take_rows(
+    commands: &mut Commands,
+    placed: &Query<(Entity, &Placement)>,
+    map: &mut bevy_emerge_core::map::Map,
+    indices: &[usize],
+) -> Vec<(usize, Box<Placed>)> {
+    let mut items: Vec<(usize, Box<Placed>)> = Vec::with_capacity(indices.len());
+    // Descending, so removing an earlier row cannot shift a later one out from under us.
+    for &i in indices.iter().rev() {
+        if i < map.placements.len() {
+            items.push((i, Box::new(map.placements.remove(i))));
+        }
+    }
+    items.reverse();
+    if !items.is_empty() {
+        for (entity, marker) in placed {
+            if items.iter().any(|(_, p)| p.id == marker.0) {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+    items
+}
+
+/// **The undo entry for `count` rows appended after `removed` rows were taken out** — one act, one
+/// entry. Undoing strips the appended rows first (`Added`), then puts the removed ones back at their
+/// own indices (`RemovedMany`): the order [`apply_proposal`] records, and the one [`Undo::Group`]
+/// replays in.
+fn record_added(count: usize, removed: Vec<(usize, Box<Placed>)>) -> Undo {
+    if removed.is_empty() {
+        Undo::Added { count }
+    } else {
+        Undo::Group {
+            ops: vec![Undo::Added { count }, Undo::RemovedMany { items: removed }],
+        }
+    }
 }
 
 /// **Put an armed group down** — one line in `map.stamps`, never the rows it stands for.
@@ -4414,7 +4550,6 @@ fn stamp_here(project: &mut Project,
         return;
     }
     open.map.stamps.push(stamped);
-    open.dirty = true;
     state.record(Undo::Stamped { count: 1 });
     state.status.note(format!("stamped `{of}` as {id}"));
 }
@@ -4727,6 +4862,81 @@ pub fn redo_for_test(world: &mut World) {
         .unwrap_or_else(|e| panic!("redo_for_test: {e}"));
 }
 
+/// One click of the place tool with `descriptor` as the brush, reachable from `tests/headless.rs`.
+///
+/// The click's commit — host, replacement, undo entry, drawing — and not the cursor that aims it:
+/// `view::Pointer` cannot be injected headless, and a test that re-implemented the body would pass
+/// while the real one was broken. Placed at yaw 0 and tip 0, snapped nowhere: `at` is exact.
+pub fn place_for_test(world: &mut World, descriptor: &str, at: (f32, f32)) {
+    use bevy::ecs::system::RunSystemOnce;
+    let descriptor = descriptor.to_owned();
+    world
+        .run_system_once(
+            move |mut commands: Commands,
+                  assets: Res<AssetServer>,
+                  project: Res<Project>,
+                  mut open: ResMut<OpenMap>,
+                  mut state: ResMut<EditorState>,
+                  placed: Query<(Entity, &Placement)>| {
+                let Some(d) = project.library.get(&descriptor).cloned() else {
+                    panic!("place_for_test: no descriptor `{descriptor}` in the library");
+                };
+                state.brush_yaw = 0.0;
+                state.brush_tip = (0, 0);
+                place_one(&mut commands, &assets, &placed, &project, &mut open, &mut state, &d, at, false);
+            },
+        )
+        .unwrap_or_else(|e| panic!("place_for_test: {e}"));
+}
+
+/// A dragged fill of `descriptor` between two corners, reachable from `tests/headless.rs` — the
+/// release path of the place tool, without the mouse. `pitch` is the cell pitch the rung gives.
+pub fn fill_for_test(world: &mut World, descriptor: &str, corners: ((f32, f32), (f32, f32)), pitch: f32) {
+    use bevy::ecs::system::RunSystemOnce;
+    let descriptor = descriptor.to_owned();
+    world
+        .run_system_once(
+            move |mut commands: Commands,
+                  assets: Res<AssetServer>,
+                  mut project: ResMut<Project>,
+                  mut open: ResMut<OpenMap>,
+                  mut state: ResMut<EditorState>,
+                  placed: Query<(Entity, &Placement)>| {
+                let Some(d) = project.library.get(&descriptor).cloned() else {
+                    panic!("fill_for_test: no descriptor `{descriptor}` in the library");
+                };
+                state.brush_yaw = 0.0;
+                state.brush_tip = (0, 0);
+                box_fill_between(&mut commands, &assets, &placed, &mut project, &mut open, &mut state, &d, corners, pitch);
+            },
+        )
+        .unwrap_or_else(|e| panic!("fill_for_test: {e}"));
+}
+
+/// Drop the placement `id` at `at` as the move tool's second click does, reachable from
+/// `tests/headless.rs`. Picks it up first, so the drop is the whole carry.
+pub fn drop_for_test(world: &mut World, id: &str, at: (f32, f32)) {
+    use bevy::ecs::system::RunSystemOnce;
+    let id = id.to_owned();
+    world
+        .run_system_once(
+            move |mut commands: Commands,
+                  assets: Res<AssetServer>,
+                  mut project: ResMut<Project>,
+                  mut open: ResMut<OpenMap>,
+                  mut state: ResMut<EditorState>,
+                  mut drag: ResMut<MoveDrag>,
+                  placed: Query<(Entity, &Placement)>| {
+                let Some(index) = open.map.placements.iter().position(|p| p.id == id) else {
+                    panic!("drop_for_test: no placement `{id}` in the map");
+                };
+                drag.held = Some(Held::Piece(id.clone()));
+                drop_piece(&mut commands, &assets, &placed, &mut project, &mut open, &mut state, &mut drag, index, at, false);
+            },
+        )
+        .unwrap_or_else(|e| panic!("drop_for_test: {e}"));
+}
+
 /// The stamp verb, reachable from `tests/headless.rs`.
 ///
 /// The lib/bin split exists so tests can drive the real thing; this is that split applied to one
@@ -4795,7 +5005,6 @@ pub fn move_stamp_for_test(
         return;
     }
     st.at = to;
-    open.dirty = true;
     state.record(Undo::MovedStamp {
         id: id.to_owned(),
         from,
@@ -5085,7 +5294,7 @@ fn keys(
         // idea of "nothing in hand", decided by a different system in the same frame — so a shared
         // "did anything consume it" rule would be guessing at four answers. The hint line names the
         // key on every tab, which is what keeps the others from being dead ends.
-        leave_for_menu(open.dirty, &mut state, confirm);
+        leave_for_menu(open.dirty(), &mut state, confirm);
         return;
     }
 
@@ -5355,7 +5564,6 @@ fn delete_index(
     // Ascending, which is the order `Undo::RemovedMany` puts them back in — an earlier row returning
     // first shifts the later ones into place.
     items.reverse();
-    open.dirty = true;
     state.status.note(match items.len() {
         1 => format!("removed {head}"),
         n => format!("removed {head} and {} on it", n - 1),
@@ -5495,9 +5703,7 @@ fn apply(
                         .problem(format!("put back, but cannot draw it: {e}"));
                     error!("{e}");
                     // `restore_moved` above ALREADY moved the rows, so the map has changed whatever
-                    // happened to the drawing — skipping the shared dirty write at the tail here left
-                    // a real edit looking saved.
-                    open.dirty = true;
+                    // happened to the drawing.
                     // Nothing goes on the other stack: the map moved but could not be drawn, and
                     // offering to redo a state the author cannot see would compound it.
                     return None;
@@ -5786,7 +5992,6 @@ fn apply(
             }
         }
     };
-    open.dirty = true;
     Some(inverse)
 }
 
@@ -5817,7 +6022,6 @@ fn toggle_pin(
             owned: true,
             because,
         });
-        open.dirty = true;
         state.status.note(format!("unpinned {}", p.id));
     } else {
         let id = p.id.clone();
@@ -5868,7 +6072,6 @@ fn straighten_under_cursor(
     p.yaw = 0.0;
     p.tip = (0, 0);
     let id = p.id.clone();
-    open.dirty = true;
     // One keypress, one entry — `Undo::Group` applies in order and inverts by reversing.
     state.record(Undo::Group {
         ops: vec![
@@ -5918,7 +6121,6 @@ fn turn_under_cursor(
     let was_yaw = p.yaw;
     p.yaw = (p.yaw + step).rem_euclid(360.0);
     let (id, at, yaw, tip, descriptor) = (p.id.clone(), p.at, p.yaw, p.tip, p.descriptor.clone());
-    open.dirty = true;
     state.record(Undo::Turned {
         index,
         yaw: was_yaw,
@@ -6735,7 +6937,6 @@ fn lift_under_cursor(
     }
     p.lift = want;
     let id = p.id.clone();
-    open.dirty = true;
     state.record(Undo::Lifted { index, lift: was });
     let group = with_dependents(&open.map, index);
     match redraw_placements(commands, assets, project, &*open, placed, &group) {
@@ -6815,7 +7016,6 @@ fn tip_under_cursor(
     };
     let was = std::mem::replace(&mut p.tip, want);
     let id = p.id.clone();
-    open.dirty = true;
     state.record(Undo::Tipped { index, tip: was });
     match redraw_placements(commands, assets, project, &*open, placed, &[index]) {
         Ok(()) => {
@@ -7211,7 +7411,6 @@ fn drive_move(
             }
             st.at = at;
             drag.held = None;
-            open.dirty = true;
             state.record(Undo::MovedStamp {
                 id: id.clone(),
                 from,
@@ -7239,84 +7438,112 @@ fn drive_move(
                 snap_level(&keyboard, rung.0),
                 held_span(&project, &open, &drag),
             );
-            // One `deref_mut`, then two disjoint field borrows. `ResMut`'s `Deref` cannot split them
-            // for us, so `(&mut open.map, &project.library)` is a double borrow of the resource.
-            let p = &mut *project;
-            let moved = match bevy_emerge_core::stack::move_placement(&mut open.map, &p.library, index, at)
-            {
-                Ok(moved) => moved,
-                // **Refused, and still in hand.** Dropping it anyway is the behaviour this exists to
-                // avoid: the piece would land somewhere its mount does not hold and read as an
-                // authoring mistake. Keeping hold of it means the next click is another try.
-                Err(e) => {
-                    state.status.note(e);
-                    return;
-                }
-            };
-            open.dirty = true;
-            drag.held = None;
-
-            // Everything that moved is redrawn from the finished map — never by nudging a transform.
-            // `turn_under_cursor` states the rule; this obeys it for a whole group, because a lamp
-            // whose table moved has a new `y` in the data and an entity still standing over the old
-            // spot.
-            let ids: Vec<String> = moved
-                .was
-                .iter()
-                .filter_map(|(i, _, _)| open.map.placements.get(*i).map(|p| p.id.clone()))
-                .collect();
-            for (entity, marker) in &placed {
-                if ids.iter().any(|id| id == &marker.0) {
-                    commands.entity(entity).despawn();
-                }
-            }
-            match heights(&project, &open) {
-                Ok(ys) => {
-                    for (i, _, _) in &moved.was {
-                        let Some(p) = open.map.placements.get(*i) else {
-                            continue;
-                        };
-                        let (id, at, yaw, tip) = (p.id.clone(), p.at, p.yaw, p.tip);
-                        let (Some(d), Some(&y)) =
-                            (project.library.get(&p.descriptor).cloned(), ys.get(*i))
-                        else {
-                            continue;
-                        };
-                        if let Some(e) = spawn_piece(
-                            &mut commands,
-                            &assets,
-                            &d,
-                            at,
-                            yaw,
-                            tip,
-                            open.map.origin,
-                            y,
-                        ) {
-                            commands.entity(e).insert(Placement(id));
-                        }
-                    }
-                }
-                Err(e) => {
-                    state
-                        .status
-                        .problem(format!("moved, but cannot draw it: {e}"));
-                    error!("{e}");
-                    state.record(Undo::Moved { moved });
-                    return;
-                }
-            }
-
-            let carried = moved.was.len();
-            state.record(Undo::Moved { moved });
-            let head = ids.first().cloned().unwrap_or_default();
-            let how = if free { " free" } else { "" };
-            state.status.note(if carried > 1 {
-                format!("moved {head} and {} riding on it{how}", carried - 1)
-            } else {
-                format!("moved {head}{how}")
-            });
+            drop_piece(
+                &mut commands,
+                &assets,
+                &placed,
+                &mut project,
+                &mut open,
+                &mut state,
+                &mut drag,
+                index,
+                at,
+                free,
+            );
         }
     }
+}
+
+/// **Put the piece in hand down at `at`**, taking everything resting on it along. Split out of
+/// [`drive_move`] so the drop is a plain function of what it changes, which a test can call without
+/// a camera and a cursor.
+#[allow(clippy::too_many_arguments)]
+fn drop_piece(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    placed: &Query<(Entity, &Placement)>,
+    project: &mut Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    drag: &mut MoveDrag,
+    index: usize,
+    at: (f32, f32),
+    free: bool,
+) {
+    let Some(row) = open.map.placements.get(index) else {
+        drag.held = None;
+        return;
+    };
+    // Put down where it was picked up: not an edit, and recording one would put an undo step on the
+    // stack that does nothing when taken — the guard the stamp arm of `drive_move` has.
+    if row.at == at {
+        let id = row.id.clone();
+        drag.held = None;
+        state.status.note(format!("`{id}` put back where it was"));
+        return;
+    }
+    let moved = match bevy_emerge_core::stack::move_placement(&mut open.map, &project.library, index, at)
+    {
+        Ok(moved) => moved,
+        // **Refused, and still in hand.** Dropping it anyway is the behaviour this exists to
+        // avoid: the piece would land somewhere its mount does not hold and read as an
+        // authoring mistake. Keeping hold of it means the next click is another try.
+        Err(e) => {
+            state.status.note(e);
+            return;
+        }
+    };
+    drag.held = None;
+
+    // Everything that moved is redrawn from the finished map — never by nudging a transform.
+    // `turn_under_cursor` states the rule; this obeys it for a whole group, because a lamp
+    // whose table moved has a new `y` in the data and an entity still standing over the old
+    // spot.
+    let ids: Vec<String> = moved
+        .was
+        .iter()
+        .filter_map(|(i, _, _)| open.map.placements.get(*i).map(|p| p.id.clone()))
+        .collect();
+    for (entity, marker) in placed {
+        if ids.iter().any(|id| id == &marker.0) {
+            commands.entity(entity).despawn();
+        }
+    }
+    match heights(project, open) {
+        Ok(ys) => {
+            for (i, _, _) in &moved.was {
+                let Some(p) = open.map.placements.get(*i) else {
+                    continue;
+                };
+                let (id, at, yaw, tip) = (p.id.clone(), p.at, p.yaw, p.tip);
+                let (Some(d), Some(&y)) = (project.library.get(&p.descriptor).cloned(), ys.get(*i))
+                else {
+                    continue;
+                };
+                if let Some(e) = spawn_piece(commands, assets, &d, at, yaw, tip, open.map.origin, y) {
+                    commands.entity(e).insert(Placement(id));
+                }
+            }
+        }
+        Err(e) => {
+            state
+                .status
+                .problem(format!("moved, but cannot draw it: {e}"));
+            error!("{e}");
+            state.record(Undo::Moved { moved });
+            return;
+        }
+    }
+
+    let carried = moved.was.len();
+    state.record(Undo::Moved { moved });
+    let head = ids.first().cloned().unwrap_or_default();
+    let how = if free { " free" } else { "" };
+    state.status.note(if carried > 1 {
+        format!("moved {head} and {} riding on it{how}", carried - 1)
+    } else {
+        format!("moved {head}{how}")
+    });
 }
 
 /// **The thing you are pointing at**, given a probe in map space.
@@ -8109,7 +8336,6 @@ fn pin_reason_keys(
                     p.id.clone()
                 });
                 if let Some(id) = pinned_id {
-                    open.dirty = true;
                     state.status.note(format!("pinned {id}: {reason}"));
                 }
             }
@@ -8468,7 +8694,6 @@ fn apply_proposal(
     // path above, which owns its entities.
     let stamped = taken.stamps.len();
     open.map.stamps.extend(taken.stamps);
-    open.dirty = true;
 
     // One act, one entry: undoing a generate first strips the solver rows (the `Added`/`Stamped`),
     // then puts the sketch back at its own indices (the `RemovedMany`/`UnstampedMany`) —
@@ -8560,7 +8785,6 @@ fn flood_from_cursor(
     let first = open.map.placements.len();
     open.map.placements.extend(filled.placements);
     spawn_range(commands, assets, project, &*open, state, first);
-    open.dirty = true;
     // **One undo entry for the whole fill.** A fill is one act to the person who performed it, and an
     // undo stack that made them press Ctrl+Z 1,408 times would be a stack that models the code rather
     // than the work.
@@ -9549,15 +9773,14 @@ mod tests {
             touched: Vec::new(),
             triangles: Vec::new(),
         };
-        let open = OpenMap {
-            map: Map {
+        let open = OpenMap::new(
+            Map {
                 name: "test_map".into(),
                 placements,
                 ..Map::default()
             },
-            map_path: std::path::PathBuf::from("test_map.map.ron"),
-            dirty: false,
-        };
+            std::path::PathBuf::from("test_map.map.ron"),
+        );
         (project, open)
     }
 
@@ -10084,6 +10307,40 @@ mod snap_tests {
         assert!(
             (sx / pitch).fract().abs() < 1e-4 && (sz / pitch).fract().abs() < 1e-4,
             "{sx}, {sz} are not on the tile lattice in MAP space"
+        );
+    }
+}
+
+/// What a replacing click may take away.
+#[cfg(test)]
+mod replace_tests {
+    use super::*;
+    use bevy_emerge_core::map::Map;
+
+    fn row(id: &str, on: Option<&str>) -> Placed {
+        Placed {
+            id: id.to_owned(),
+            descriptor: "thing".to_owned(),
+            on: on.map(str::to_owned),
+            ..Placed::default()
+        }
+    }
+
+    /// **A piece that carries another is never replaced out from under it**, and the refusal names
+    /// both. A lamp on the table being replaced would otherwise hang in the air or vanish without
+    /// the author having pointed at it.
+    #[test]
+    fn a_host_with_a_rider_refuses_and_names_the_rider() {
+        let map = Map {
+            placements: vec![row("table@1", None), row("lamp@2", Some("table@1")), row("chair@3", None)],
+            ..Map::default()
+        };
+        let err = riders_refuse(&map, &[0]).err().unwrap_or_default();
+        assert!(err.contains("`table@1` carries `lamp@2`"), "{err}");
+        assert!(riders_refuse(&map, &[2]).is_ok(), "a piece nothing rests on can go");
+        assert!(
+            riders_refuse(&map, &[2, 0]).is_err(),
+            "one host in the set refuses the whole set"
         );
     }
 }

@@ -301,7 +301,7 @@ impl Plugin for GuidePlugin {
         );
         let map_saved =
             app.register_system(|_: In<Value>, open: Option<Res<OpenMap>>| {
-                open.is_some_and(|o| !o.dirty)
+                open.is_some_and(|o| !o.dirty())
             });
         // **On the measured lattice, which is what accepting a derivation writes** — so this is
         // "the tokens landed", never "a proposal exists"; `edges are staged` is that one.
