@@ -8,11 +8,11 @@
 //!
 //! # What is real here, and why
 //!
-//! **The font, and only the font.** `harness::install_font` reads
-//! `assets/fonts/FiraMono-Regular.ttf` and returns `Err` without it, so a project cannot boot
-//! without one — and `Font::from_bytes` rejects a made-up file, so there is nothing to synthesise.
-//! It is infrastructure rather than corpus: no test asserts anything about it, and no import can
-//! change it.
+//! **The font, and only the font.** `harness::install_font` prefers the project's own
+//! `assets/fonts/FiraMono-Regular.ttf` and falls back to the copy compiled into the crate. A fixture
+//! still borrows the workspace's file, so the tests run the path a project with its own face runs
+//! (`tests/font_fallback.rs` covers the other). It is infrastructure rather than corpus: no test
+//! asserts anything about it, and no import can change it.
 //!
 //! The meshes are built here, in memory, by [`Fixture::pack`].
 //!

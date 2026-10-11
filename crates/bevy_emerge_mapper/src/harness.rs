@@ -191,18 +191,31 @@ pub fn resize_surface(app: &mut App, width: u32, height: u32) -> Result<(), Stri
     Ok(())
 }
 
+/// The face this editor ships, for a project that does not carry its own. FiraMono (SIL OFL 1.1; the
+/// licence text sits beside it in `assets/fonts/`).
+const EMBEDDED_FONT: &[u8] = include_bytes!("../assets/fonts/FiraMono-Regular.ttf");
+
 /// **The shipped face, installed over Bevy's default asset id.**
 ///
 /// Both entry points do this, because it is not cosmetic: the embedded default is 95 codepoints of
 /// ASCII, so every `—` in the editor's copy — and in the refusals `bevy_emerge_core` hands back — draws as
 /// a tofu box. A harness whose text ran through a different font would measure different layout.
+///
+/// **A project's own `assets/fonts/FiraMono-Regular.ttf` wins; a project without one gets the copy
+/// compiled into this crate.** A game that merely *uses* the editor (Sanctuary) has no reason to
+/// carry the editor's font in its own assets, and a project that cannot boot for want of one would
+/// make every consumer vendor a file. Any read error other than "not found" is still an error.
 pub fn install_font(app: &mut App, root: &Path) -> Result<(), String> {
     let path = root.join("assets/fonts/FiraMono-Regular.ttf");
-    let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => EMBEDDED_FONT.to_vec(),
+        Err(e) => return Err(format!("cannot read {}: {e}", path.display())),
+    };
     app.world_mut()
         .resource_mut::<Assets<Font>>()
         .insert(AssetId::default(), Font::from_bytes(bytes))
-        .map_err(|e| format!("cannot install {}: {e}", path.display()))
+        .map_err(|e| format!("cannot install the editor font: {e}"))
 }
 
 /// **A stepped editor**: the real plugins, no window, no device, no sound.
