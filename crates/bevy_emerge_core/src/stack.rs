@@ -33,9 +33,40 @@
 //! the product out by hand and dropped the `scale` factor. One definition now, in the schema layer
 //! both can reach.
 
+use std::borrow::Cow;
+
 use crate::descriptor::{placed_footprint, placed_height, Descriptor, Mount, DecalHost};
 use crate::library::Library;
 use crate::map::{Map, Placed};
+
+/// **The descriptor a placement actually has**: the library's descriptor for `p.descriptor`, layered
+/// with `p.patch` when the placement carries one.
+///
+/// A placement's `patch` is how a mesh-less marker gets its real size (a road is one descriptor and a
+/// different length per placement) and how any piece is overridden for one copy. Every question about
+/// a placed piece — its footprint, its height, what it blocks, what it offers, where a click lands —
+/// is a question about *this* descriptor, so the editor and the solvers all ask it here instead of
+/// reading `library.get(&p.descriptor)` and silently measuring the unpatched piece.
+///
+/// A `Cow` so the common case, no patch, borrows the library's descriptor and clones nothing. `None`
+/// when the library does not define `p.descriptor`.
+pub fn descriptor_of<'a>(library: &'a Library, p: &Placed) -> Option<Cow<'a, Descriptor>> {
+    descriptor_with(library, &p.descriptor, p.patch.as_ref())
+}
+
+/// [`descriptor_of`] for a caller that holds the id and the patch apart from a [`Placed`] — a piece
+/// of a held clone set, a candidate not yet written to the map.
+pub fn descriptor_with<'a>(
+    library: &'a Library,
+    id: &str,
+    patch: Option<&Descriptor>,
+) -> Option<Cow<'a, Descriptor>> {
+    let base = library.get(id)?;
+    Some(match patch {
+        Some(patch) => Cow::Owned(base.patched_with(patch)),
+        None => Cow::Borrowed(base),
+    })
+}
 
 /// The surface class a descriptor needs under it, if it needs one.
 pub fn needs_surface(d: &Descriptor) -> Option<&str> {
@@ -114,9 +145,10 @@ pub fn host_under<'a>(
     needs_surface(guest)?;
     let mut best: Option<(&Placed, f32)> = None;
     for (i, p) in map.placements.iter().enumerate() {
-        let (Some(d), Some(&py)) = (library.get(&p.descriptor), y.get(i)) else {
+        let (Some(d), Some(&py)) = (descriptor_of(library, p), y.get(i)) else {
             continue;
         };
+        let d: &Descriptor = &d;
         // A tipped piece offers no surface: "where is the tabletop of a table on its side" has no
         // answer worth inventing, and its recorded footprint no longer describes what it covers.
         if p.tip != (0, 0) || !offers_for(d, guest) || !covers(d, p.at, p.yaw, probe) {
@@ -172,12 +204,13 @@ fn resolve_one(
         ));
     }
     let p = &map.placements[i];
-    let d = library.get(&p.descriptor).ok_or_else(|| {
+    let d_owned = descriptor_of(library, p).ok_or_else(|| {
         format!(
             "map: placement `{}` names descriptor `{}`, which this library does not define",
             p.id, p.descriptor
         )
     })?;
+    let d: &Descriptor = &d_owned;
 
     // The host, resolved first — the only part of the datum that depends on another placement, and so
     // the only part that can recurse. **Two mounts arrive here and they differ only in how far above
@@ -216,12 +249,13 @@ fn resolve_one(
                     )
                 })?;
             let host = &map.placements[hi];
-            let host_d = library.get(&host.descriptor).ok_or_else(|| {
+            let host_d_owned = descriptor_of(library, host).ok_or_else(|| {
                 format!(
                     "map: host `{}` names descriptor `{}`, which this library does not define",
                     host.id, host.descriptor
                 )
             })?;
+            let host_d: &Descriptor = &host_d_owned;
             // A top lifts by the host's whole height; a face by however far up it the fixture is
             // fixed. Both are measured from the host's own resolved Y, which is what makes either
             // one follow the host when it moves.
@@ -511,9 +545,10 @@ fn blocker_indices<'a>(
             let Some(guest) = guest else {
                 return false;
             };
-            let Some(pd) = library.get(&p.descriptor) else {
+            let Some(pd) = descriptor_of(library, p) else {
                 return false;
             };
+            let pd: &Descriptor = &pd;
             if !same_layer(d, on, pd, p.on.as_deref()) {
                 return false;
             }
@@ -589,12 +624,13 @@ pub fn move_placement(
     // would be worse than redundant: `host_under` does not know to skip the piece it is seating, so a
     // tray would find *itself* under itself, and a mug would hop onto whatever the group happened to
     // pass over. The anchor is the only member whose surroundings actually changed.
-    let anchor_d = library.get(&next.placements[index].descriptor).ok_or_else(|| {
+    let anchor_d_owned = descriptor_of(library, &next.placements[index]).ok_or_else(|| {
         format!(
             "move: `{}` names descriptor `{}`, which the library does not have",
             next.placements[index].id, next.placements[index].descriptor
         )
     })?;
+    let anchor_d: &Descriptor = &anchor_d_owned;
     // **Asked against a map the group is not in.** "What would be under this if the things travelling
     // with it were not there" is the honest question — otherwise a table lands on its own mug, which
     // is the cycle `resolve_y` then refuses.
@@ -1389,6 +1425,90 @@ mod tests {
         assert!(
             blocking(&m, &l, &table(), (1.2, 0.0), 0.0, (0, 0), None).is_some(),
             "upright it is 1.6 wide again and x = 1.2 laps it"
+        );
+    }
+
+    /// What a road placement carries over the one descriptor roads share: a 4 x 20 m strip.
+    fn strip() -> Descriptor {
+        Descriptor {
+            extent: Extent {
+                footprint: Some((4.0, 20.0)),
+                height: Some(1.0),
+            },
+            ..Descriptor::default()
+        }
+    }
+
+    /// **The placement's own descriptor, borrowed unless it is patched.** The unpatched case is every
+    /// placement in every map that has no patch, so it must not clone.
+    #[test]
+    fn the_descriptor_of_a_placement_is_borrowed_unless_patched() {
+        let l = lib(vec![table()]);
+        let plain = at("t1", "table", None);
+        match descriptor_of(&l, &plain) {
+            Some(Cow::Borrowed(d)) => assert_eq!(d.extent.footprint, Some((1.6, 0.8))),
+            other => panic!("an unpatched placement must borrow the library's descriptor: {other:?}"),
+        }
+        let mut long = at("t2", "table", None);
+        long.patch = Some(strip());
+        match descriptor_of(&l, &long) {
+            Some(Cow::Owned(d)) => {
+                assert_eq!(d.id, "table", "a patch that names no id keeps the base's");
+                assert_eq!(d.extent.footprint, Some((4.0, 20.0)));
+                assert_eq!(d.offers.surfaces, vec!["worktop".to_owned()], "inherited");
+            }
+            other => panic!("a patched placement owns its layered descriptor: {other:?}"),
+        }
+        assert!(descriptor_of(&l, &at("x", "nope", None)).is_none());
+    }
+
+    /// **A patched footprint blocks, and is blocked, at its real size.** A road marker is one
+    /// descriptor; its length lives on the placement, and an overlap test that read the library's
+    /// would let anything be put on the far end of a 20 m road.
+    #[test]
+    fn a_patched_footprint_blocks_and_is_blocked_at_its_real_size() {
+        let l = lib(vec![table()]);
+        let probe = (0.0, 8.0);
+
+        // Existing patched strip, new unpatched guest 8 m along it.
+        let mut m = map(vec![at("road", "table", None)]);
+        assert!(blockers(&m, &l, &table(), probe, 0.0, (0, 0), None).is_empty());
+        m.placements[0].patch = Some(strip());
+        assert_eq!(blockers(&m, &l, &table(), probe, 0.0, (0, 0), None), vec![0]);
+        assert!(blocking(&m, &l, &table(), probe, 0.0, (0, 0), None).is_some());
+        // Past the strip's end it is clear again.
+        assert!(blockers(&m, &l, &table(), (0.0, 11.0), 0.0, (0, 0), None).is_empty());
+
+        // New patched guest, existing unpatched piece at the origin: the guest's own length reaches it.
+        let m = map(vec![at("t1", "table", None)]);
+        let guest = table().patched_with(&strip());
+        assert!(blockers(&m, &l, &table(), probe, 0.0, (0, 0), None).is_empty());
+        assert_eq!(blockers(&m, &l, &guest, probe, 0.0, (0, 0), None), vec![0]);
+    }
+
+    /// **Heights and hosts follow the patched piece.** A surface patched taller holds its rider
+    /// higher, and a surface patched into a 4 x 20 m strip holds one 8 m along it.
+    #[test]
+    fn heights_and_hosts_use_the_patched_descriptor() {
+        let l = lib(vec![table(), lamp()]);
+        let mut m = map(vec![at("t1", "table", None), at("l1", "lamp", Some("t1"))]);
+        let plain = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert!((plain[1] - 0.8).abs() < 1e-5, "unpatched: the table's own 0.8 m");
+
+        m.placements[0].patch = Some(strip());
+        let patched = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert!((patched[1] - 1.0).abs() < 1e-5, "patched: the strip's 1.0 m, got {}", patched[1]);
+
+        let probe = (0.0, 8.0);
+        let ys = &patched;
+        let (_, host) = placement_at(&m, &l, ys, &lamp(), probe).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(host.map(|h| h.id.as_str()), Some("t1"), "8 m along the strip is on the strip");
+
+        m.placements[0].patch = None;
+        let ys = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            placement_at(&m, &l, &ys, &lamp(), probe).is_err(),
+            "unpatched, 8 m from the table is bare floor"
         );
     }
 }

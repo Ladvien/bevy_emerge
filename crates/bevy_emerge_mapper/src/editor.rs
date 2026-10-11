@@ -20,6 +20,7 @@ use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as UiButton};
 use bevy_emerge_core::map::Placed;
+use bevy_emerge_core::stack::{descriptor_of, descriptor_with};
 
 use crate::chrome::{
     ACCENT, BOUNDS_LINE, CHIP_PAD, DANGER, DIM, FOCUS_BG, GRID_LINE, HEADER_BG, LABEL, LIST_W,
@@ -357,6 +358,9 @@ pub struct ClonePiece {
     pub note: Option<String>,
     pub owned: bool,
     pub owned_because: Option<String>,
+    /// The placement's own `patch`, carried so a copy of a road is as long as the road it was taken
+    /// from, and measured at that length while it is held.
+    pub patch: Option<bevy_emerge_core::descriptor::Descriptor>,
     pub on: CloneHost,
 }
 
@@ -770,7 +774,7 @@ pub struct Ghost;
 /// Which descriptor the live ghost is showing, so it is rebuilt only when the brush changes —
 /// respawning a GLB every frame would thrash the asset server and never finish loading.
 #[derive(Component)]
-struct GhostOf(usize);
+struct GhostOf(usize, bool);
 
 #[derive(Component)]
 struct Ghosted;
@@ -2182,8 +2186,8 @@ fn draw_edge_faults(
                 .placements
                 .iter()
                 .find(|p| p.id == id)
-                .and_then(|p| project.library.get(&p.descriptor))
-                .and_then(bevy_emerge_core::descriptor::placed_footprint)
+                .and_then(|p| descriptor_of(&project.library, p))
+                .and_then(|d| bevy_emerge_core::descriptor::placed_footprint(&d))
                 .unwrap_or((CELL, CELL));
             gizmos.rect(
                 Isometry3d::new(
@@ -3002,8 +3006,8 @@ pub fn held_span(project: &Project,
     let Some(p) = open.map.placements.iter().find(|p| &p.id == id) else {
         return (0.0, 0.0);
     };
-    match project.library.get(&p.descriptor) {
-        Some(d) => brush_span(d, p.yaw, p.tip),
+    match descriptor_of(&project.library, p) {
+        Some(d) => brush_span(&d, p.yaw, p.tip),
         None => (0.0, 0.0),
     }
 }
@@ -3462,10 +3466,8 @@ fn drive_clone(
         };
         let offset = (p.at.0 - anchor.0, p.at.1 - anchor.1);
         // Bounds from the real footprints, so the marker claims what the stamp will occupy.
-        let (w, depth) = project
-            .library
-            .get(&p.descriptor)
-            .map(|d| crate::fill::cell_extents(d, p.yaw, p.tip))
+        let (w, depth) = descriptor_of(&project.library, p)
+            .map(|d| crate::fill::cell_extents(&d, p.yaw, p.tip))
             .unwrap_or((crate::fill::MIN_CELL, crate::fill::MIN_CELL));
         bx0 = bx0.min(offset.0 - w * 0.5);
         bz0 = bz0.min(offset.1 - depth * 0.5);
@@ -3480,6 +3482,7 @@ fn drive_clone(
             note: p.note.clone(),
             owned: p.owned,
             owned_because: p.owned_because.clone(),
+            patch: p.patch.clone(),
             on,
         });
     }
@@ -3490,10 +3493,8 @@ fn drive_clone(
         let st = &open.map.stamps[i];
         let offset = (st.at.0 - anchor.0, st.at.1 - anchor.1);
         for row in picture.rows.iter().filter(|r| r.stamp == st.id) {
-            let (w, depth) = project
-                .library
-                .get(&row.descriptor)
-                .map(|d| crate::fill::cell_extents(d, row.yaw, row.tip))
+            let (w, depth) = descriptor_with(&project.library, &row.descriptor, row.patch.as_ref())
+                .map(|d| crate::fill::cell_extents(&d, row.yaw, row.tip))
                 .unwrap_or((crate::fill::MIN_CELL, crate::fill::MIN_CELL));
             let ro = (row.at.0 - anchor.0, row.at.1 - anchor.1);
             bx0 = bx0.min(ro.0 - w * 0.5);
@@ -3569,13 +3570,15 @@ fn stamp_set(
     for (i, piece) in set.pieces.iter().enumerate() {
         // The set's own turn, folded in once — see `CloneSet::placed`.
         let (at, yaw) = set.placed(piece, target);
-        let Some(d) = project.library.get(&piece.descriptor) else {
+        let Some(d) = descriptor_with(&project.library, &piece.descriptor, piece.patch.as_ref())
+        else {
             state.status.problem(format!(
                 "stamp refused: `{}` is not in the library any more",
                 piece.descriptor
             ));
             return;
         };
+        let d: &bevy_emerge_core::descriptor::Descriptor = &d;
         let on = match &piece.on {
             CloneHost::Layer => None,
             CloneHost::InSet(h) => Some(new_ids[*h].clone()),
@@ -3619,7 +3622,7 @@ fn stamp_set(
             on,
             owned: piece.owned,
             owned_because: piece.owned_because.clone(),
-            patch: None,
+            patch: piece.patch.clone(),
             note: piece.note.clone(),
         });
     }
@@ -3815,13 +3818,13 @@ fn spawn_range(
         }
     };
     for (i, p) in open.map.placements.iter().enumerate().skip(first) {
-        let (Some(d), Some(&y)) = (project.library.get(&p.descriptor), ys.get(i)) else {
+        let (Some(d), Some(&y)) = (descriptor_of(&project.library, p), ys.get(i)) else {
             continue;
         };
         if let Some(e) = spawn_piece(
             commands,
             assets,
-            d,
+            &d,
             p.at,
             p.yaw,
             p.tip,
@@ -3940,8 +3943,8 @@ fn drive_removal(
         Some(from) => Some(removal_box(from, at, pitch)),
         None => pick_at(&project, &open, at).and_then(|i| {
             let p = open.map.placements.get(i)?;
-            let d = project.library.get(&p.descriptor)?;
-            let (w, depth) = crate::fill::cell_extents(d, p.yaw, p.tip);
+            let d = descriptor_of(&project.library, p)?;
+            let (w, depth) = crate::fill::cell_extents(&d, p.yaw, p.tip);
             Some((
                 p.at.0 - w * 0.5,
                 p.at.1 - depth * 0.5,
@@ -4150,7 +4153,7 @@ fn spawn_existing(
         }
     };
     for (i, p) in open.map.placements.iter().enumerate() {
-        let Some(d) = project.library.get(&p.descriptor) else {
+        let Some(d) = descriptor_of(&project.library, p) else {
             // Loud, not silent: a placement naming a descriptor the library does not have is a hole
             // in the map, and an author must be told which one rather than counting missing crates.
             warn!(
@@ -4163,7 +4166,7 @@ fn spawn_existing(
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
-            d,
+            &d,
             p.at,
             p.yaw,
             p.tip,
@@ -4431,6 +4434,7 @@ fn place_one(
     if let [only] = blockers.as_slice()
         && let Some(p) = open.map.placements.get(*only)
         && p.descriptor == d.id
+        && p.patch.is_none()
         && p.at == at
         && p.yaw == state.brush_yaw
         && p.tip == state.brush_tip
@@ -4717,16 +4721,12 @@ fn redraw_stamps(
     // `linked_spawn`, so despawning it takes the rows — and something for a tool to name.
     let mut instances: std::collections::HashMap<&str, Entity> = std::collections::HashMap::new();
     for (k, p) in expanded.placements.iter().enumerate() {
-        let Some(base) = project.library.get(&p.descriptor) else {
+        let Some(d) = descriptor_of(&project.library, p) else {
             error!(
                 "bevy_emerge_mapper: stamped row `{}` names descriptor `{}`, which the library does not define",
                 p.id, p.descriptor
             );
             continue;
-        };
-        let d = match &p.patch {
-            Some(patch) => base.patched_with(patch),
-            None => base.clone(),
         };
         let Some(&y) = ys.get(k) else {
             continue;
@@ -4789,6 +4789,7 @@ fn redraw_stamps(
                 yaw: p.yaw,
                 tip: p.tip,
                 descriptor: p.descriptor.clone(),
+                patch: p.patch.clone(),
             });
             drawn += 1;
         }
@@ -4863,6 +4864,8 @@ pub struct StampRow {
     /// claim a standing box for a piece lying on its side.
     pub tip: (u8, u8),
     pub descriptor: String,
+    /// The row's own patch, so a patched member is picked and measured at its real size.
+    pub patch: Option<bevy_emerge_core::descriptor::Descriptor>,
 }
 
 /// **What a click on the map is about** — one competition over both lists.
@@ -5742,7 +5745,7 @@ fn apply(
                         };
                         let (id, at, yaw, tip) = (p.id.clone(), p.at, p.yaw, p.tip);
                         let (Some(d), Some(&y)) =
-                            (project.library.get(&p.descriptor).cloned(), ys.get(*i))
+                            (descriptor_of(&project.library, p), ys.get(*i))
                         else {
                             continue;
                         };
@@ -5790,7 +5793,7 @@ fn apply(
                         };
                         let (id, pat, pyaw, ptip) = (p.id.clone(), p.at, p.yaw, p.tip);
                         let (Some(d), Some(&y)) =
-                            (project.library.get(&p.descriptor).cloned(), ys.get(at))
+                            (descriptor_of(&project.library, p), ys.get(at))
                         else {
                             continue;
                         };
@@ -5849,7 +5852,8 @@ fn apply(
                 return None;
             };
             let was = std::mem::replace(&mut p.yaw, yaw);
-            let (id, at, tip, descriptor) = (p.id.clone(), p.at, p.tip, p.descriptor.clone());
+            let (id, at, tip, descriptor, patch) =
+                (p.id.clone(), p.at, p.tip, p.descriptor.clone(), p.patch.clone());
             for (entity, marker) in placed {
                 if marker.0 == id {
                     commands.entity(entity).despawn();
@@ -5862,7 +5866,7 @@ fn apply(
             match heights(project, &*open) {
                 Ok(ys) => {
                     if let (Some(d), Some(&y)) =
-                        (project.library.get(&descriptor).cloned(), ys.get(index))
+                        (descriptor_with(&project.library, &descriptor, patch.as_ref()), ys.get(index))
                     {
                         if let Some(e) =
                             spawn_piece(commands, assets, &d, at, yaw, tip, open.map.origin, y)
@@ -6176,7 +6180,8 @@ fn turn_under_cursor(
     // Recorded before it moves — the entry carries the angle to go back to.
     let was_yaw = p.yaw;
     p.yaw = (p.yaw + step).rem_euclid(360.0);
-    let (id, at, yaw, tip, descriptor) = (p.id.clone(), p.at, p.yaw, p.tip, p.descriptor.clone());
+    let (id, at, yaw, tip, descriptor, patch) =
+        (p.id.clone(), p.at, p.yaw, p.tip, p.descriptor.clone(), p.patch.clone());
     state.record(Undo::Turned {
         index,
         yaw: was_yaw,
@@ -6190,7 +6195,7 @@ fn turn_under_cursor(
     // Redrawn from the finished map, so a piece standing on this one keeps the height it had.
     match heights(project, &*open) {
         Ok(ys) => {
-            if let (Some(d), Some(&y)) = (project.library.get(&descriptor).cloned(), ys.get(index))
+            if let (Some(d), Some(&y)) = (descriptor_with(&project.library, &descriptor, patch.as_ref()), ys.get(index))
             {
                 if let Some(e) =
                     spawn_piece(commands, assets, &d, at, yaw, tip, open.map.origin, y)
@@ -6235,13 +6240,13 @@ fn redraw_placements(
         let Some(p) = open.map.placements.get(i) else {
             continue;
         };
-        let (Some(d), Some(&y)) = (project.library.get(&p.descriptor), ys.get(i)) else {
+        let (Some(d), Some(&y)) = (descriptor_of(&project.library, p), ys.get(i)) else {
             continue;
         };
         if let Some(e) = spawn_piece(
             commands,
             assets,
-            d,
+            &d,
             p.at,
             p.yaw,
             p.tip,
@@ -6378,12 +6383,13 @@ pub fn composition_from_set(
 
     let mut members: Vec<Member> = Vec::new();
     for (i, piece) in set.pieces.iter().enumerate() {
-        let d = library.get(&piece.descriptor).ok_or_else(|| {
+        let d = descriptor_with(library, &piece.descriptor, piece.patch.as_ref()).ok_or_else(|| {
             format!(
                 "`{}` is not in this library any more, so it cannot go in a composition",
                 piece.descriptor
             )
         })?;
+        let d: &bevy_emerge_core::descriptor::Descriptor = &d;
         if bevy_emerge_core::descriptor::placed_height(d).is_none() {
             return Err(format!(
                 "`{}` is unmeasured, so the group has no honest height. Measure it on the tiles tab \
@@ -6421,7 +6427,7 @@ pub fn composition_from_set(
                 id: piece.descriptor.clone(),
                 tip: piece.tip,
                 on,
-                patch: None,
+                patch: piece.patch.clone(),
             },
             // **Relative to the tile's centre, not the drag anchor.** `composition::interface` builds
             // its scratch map at origin zero with `bounds = size`, and `Map::floor_rect` centres on
@@ -6535,7 +6541,7 @@ fn envelope_size(
         ..Map::default()
     };
     for m in members {
-        let Body::Descriptor { id, tip, on, .. } = &m.body else {
+        let Body::Descriptor { id, tip, on, patch } = &m.body else {
             continue;
         };
         scratch.placements.push(Placed {
@@ -6546,6 +6552,7 @@ fn envelope_size(
             tip: *tip,
             lift: m.lift,
             on: on.clone(),
+            patch: patch.clone(),
             ..Placed::default()
         });
     }
@@ -6581,10 +6588,10 @@ fn envelope_size(
         }
     }
     for (i, p) in scratch.placements.iter().enumerate() {
-        let (Some(desc), Some(&y)) = (library.get(&p.descriptor), ys.get(i)) else {
+        let (Some(desc), Some(&y)) = (descriptor_of(library, p), ys.get(i)) else {
             continue;
         };
-        let h = bevy_emerge_core::descriptor::placed_height(desc).unwrap_or(0.0);
+        let h = bevy_emerge_core::descriptor::placed_height(&desc).unwrap_or(0.0);
         top = top.max(y + h);
     }
     Ok((w, top, d))
@@ -6659,6 +6666,7 @@ mod capture_tests {
             note: None,
             owned: false,
             owned_because: None,
+            patch: None,
             on: CloneHost::Layer,
         };
         let mut set = held(vec![piece.clone()], (0.0, 0.0), (1.0, 0.5));
@@ -6701,6 +6709,7 @@ mod capture_tests {
             note: None,
             owned: false,
             owned_because: None,
+            patch: None,
             on: CloneHost::Layer,
         };
         let mut set = held(vec![piece.clone()], (0.0, 0.0), (1.0, 0.5));
@@ -6752,6 +6761,7 @@ mod capture_tests {
             note: None,
             owned: false,
             owned_because: None,
+            patch: None,
             on,
         }
     }
@@ -7057,10 +7067,10 @@ fn tip_under_cursor(
     } else {
         (p.tip.0, (p.tip.1 + 1) % 4)
     };
-    let Some(d) = project.library.get(&p.descriptor) else {
+    let Some(d) = descriptor_of(&project.library, p) else {
         return;
     };
-    if bevy_emerge_core::descriptor::tipped_extents(d, want).is_none() {
+    if bevy_emerge_core::descriptor::tipped_extents(&d, want).is_none() {
         state.status.problem(format!(
             "`{}` is unmeasured — a tip cannot be seated. Measure it on the tiles tab first.",
             p.id
@@ -7572,7 +7582,7 @@ fn drop_piece(
                     continue;
                 };
                 let (id, at, yaw, tip) = (p.id.clone(), p.at, p.yaw, p.tip);
-                let (Some(d), Some(&y)) = (project.library.get(&p.descriptor).cloned(), ys.get(*i))
+                let (Some(d), Some(&y)) = (descriptor_of(&project.library, p), ys.get(*i))
                 else {
                     continue;
                 };
@@ -7625,17 +7635,17 @@ pub fn pick_at(project: &Project,
     open: &OpenMap, probe: (f32, f32)) -> Option<usize> {
     let mut covering: Option<(usize, f32, &str)> = None;
     for (i, p) in open.map.placements.iter().enumerate() {
-        let Some(d) = project.library.get(&p.descriptor) else {
+        let Some(d) = descriptor_of(&project.library, p) else {
             continue;
         };
-        if !bevy_emerge_core::stack::covers(d, p.at, p.yaw, probe) {
+        if !bevy_emerge_core::stack::covers(&d, p.at, p.yaw, probe) {
             continue;
         }
         // **The same box `covers` just tested.** This area is half of the `(area, id)` total key that
         // decides which piece a click grabs, so measuring it differently from the hit test above would
         // rank a scaled piece by a size it does not have — and the smallest-footprint rule exists
         // precisely to pick the piece you can see least of.
-        let area = bevy_emerge_core::descriptor::placed_footprint(d)
+        let area = bevy_emerge_core::descriptor::placed_footprint(&d)
             .map_or(f32::INFINITY, |(w, depth)| w * depth);
         let better = match covering {
             None => true,
@@ -7651,10 +7661,8 @@ pub fn pick_at(project: &Project,
 
     let mut nearest: Option<(usize, f32, &str)> = None;
     for (i, p) in open.map.placements.iter().enumerate() {
-        let reach = project
-            .library
-            .get(&p.descriptor)
-            .map(|d| crate::fill::cell_extents(d, p.yaw, p.tip))
+        let reach = descriptor_of(&project.library, p)
+            .map(|d| crate::fill::cell_extents(&d, p.yaw, p.tip))
             .map_or(crate::fill::MIN_CELL, |(x, z)| x.max(z));
         let d2 = (p.at.0 - probe.0).powi(2) + (p.at.1 - probe.1).powi(2);
         if d2 > reach * reach {
@@ -7753,10 +7761,10 @@ pub fn ray_pick(project: &Project,
     open: &OpenMap, ys: &[f32], origin: Vec3, dir: Vec3) -> Option<usize> {
     let mut best: Option<(usize, f32, &str)> = None;
     for (i, p) in open.map.placements.iter().enumerate() {
-        let (Some(d), Some(&y)) = (project.library.get(&p.descriptor), ys.get(i)) else {
+        let (Some(d), Some(&y)) = (descriptor_of(&project.library, p), ys.get(i)) else {
             continue;
         };
-        let (w, depth) = brush_span(d, p.yaw, p.tip);
+        let (w, depth) = brush_span(&d, p.yaw, p.tip);
         // **The box as the piece is LYING.** `brush_span` turns the floor two; the third turns with
         // them, because a tip is one permutation of all three — a 2.40 m wall on its side is 2.40 m
         // of floor and a hand's breadth tall, and reading the authored height here would leave two
@@ -7765,7 +7773,7 @@ pub fn ray_pick(project: &Project,
         //
         // A piece with no declared height is not invisible to a click — it gets the floor's own
         // thinness, so a decal or a flat tile is still a thing you can point at.
-        let height = bevy_emerge_core::descriptor::tipped_extents(d, p.tip)
+        let height = bevy_emerge_core::descriptor::tipped_extents(&d, p.tip)
             .map_or_else(|| d.extent.height.unwrap_or(0.02), |(_, h, _)| h)
             .max(0.02);
         let centre = Vec3::new(
@@ -7802,13 +7810,13 @@ pub fn pick_subject(project: &Project,
 ) -> Option<Subject> {
     let mut best: Option<(Subject, f32, &str)> = None;
     for (i, p) in open.map.placements.iter().enumerate() {
-        let Some(d) = project.library.get(&p.descriptor) else {
+        let Some(d) = descriptor_of(&project.library, p) else {
             continue;
         };
-        if !bevy_emerge_core::stack::covers(d, p.at, p.yaw, probe) {
+        if !bevy_emerge_core::stack::covers(&d, p.at, p.yaw, probe) {
             continue;
         }
-        let area = bevy_emerge_core::descriptor::placed_footprint(d)
+        let area = bevy_emerge_core::descriptor::placed_footprint(&d)
             .map_or(f32::INFINITY, |(w, depth)| w * depth);
         let better = match &best {
             None => true,
@@ -7819,13 +7827,13 @@ pub fn pick_subject(project: &Project,
         }
     }
     for row in &picture.rows {
-        let Some(d) = project.library.get(&row.descriptor) else {
+        let Some(d) = descriptor_with(&project.library, &row.descriptor, row.patch.as_ref()) else {
             continue;
         };
-        if !bevy_emerge_core::stack::covers(d, row.at, row.yaw, probe) {
+        if !bevy_emerge_core::stack::covers(&d, row.at, row.yaw, probe) {
             continue;
         }
-        let area = bevy_emerge_core::descriptor::placed_footprint(d)
+        let area = bevy_emerge_core::descriptor::placed_footprint(&d)
             .map_or(f32::INFINITY, |(w, depth)| w * depth);
         let better = match &best {
             None => true,
@@ -8010,10 +8018,8 @@ fn cycle_target(
         .iter()
         .enumerate()
         .filter(|(_, p)| {
-            project
-                .library
-                .get(&p.descriptor)
-                .is_some_and(|d| bevy_emerge_core::stack::covers(d, p.at, p.yaw, at))
+            descriptor_of(&project.library, p)
+                .is_some_and(|d| bevy_emerge_core::stack::covers(&d, p.at, p.yaw, at))
         })
         .map(|(i, _)| (i, ys.get(i).copied().unwrap_or(0.0)))
         .collect();
@@ -8062,8 +8068,8 @@ fn drive_target_marker(
 ) {
     let footprint = lock.0.as_ref().and_then(|(id, _)| {
         let p = open.map.placements.iter().find(|p| &p.id == id)?;
-        let d = project.library.get(&p.descriptor)?;
-        let (w, depth) = crate::fill::cell_extents(d, p.yaw, p.tip);
+        let d = descriptor_of(&project.library, p)?;
+        let (w, depth) = crate::fill::cell_extents(&d, p.yaw, p.tip);
         Some((p.at, w, depth))
     });
     if lock.0.is_some() && footprint.is_none() {
@@ -9189,6 +9195,22 @@ fn drive_ghost(
                 // ask for.
                 .map(|ix| (ix, p.yaw, p.tip))
         });
+    // **A carried piece previews as itself, patch and all.** A road in hand is a 4.9 x 20 m strip,
+    // not the one-square descriptor it is a patch of; the ghost, its snap span and its landing are
+    // all measured on the descriptor the placement actually has.
+    let ghost_patch = if carried.is_some() {
+        held.held.as_ref().and_then(|h| match h {
+            Held::Piece(id) => open
+                .map
+                .placements
+                .iter()
+                .find(|p| &p.id == id)
+                .and_then(|p| p.patch.clone()),
+            Held::Stamp(_) => None,
+        })
+    } else {
+        None
+    };
     let subject = brush_ghost_subject(
         state.tool,
         carried,
@@ -9199,9 +9221,17 @@ fn drive_ghost(
         clear(&mut commands);
         return;
     };
-    let Some(d) = project.library.descriptors.get(brush_ix) else {
+    let Some(base) = project.library.descriptors.get(brush_ix) else {
         clear(&mut commands);
         return;
+    };
+    let patched;
+    let d = match &ghost_patch {
+        Some(patch) => {
+            patched = base.patched_with(patch);
+            &patched
+        }
+        None => base,
     };
 
     // **The same expression the commit asks** — see [`brush_at`], which exists because this call site
@@ -9272,9 +9302,13 @@ fn drive_ghost(
         state.hint.clear();
     }
 
-    let existing = ghosts.iter().find(|(_, g)| g.0 == brush_ix).map(|(e, _)| e);
+    let patched_ghost = ghost_patch.is_some();
+    let existing = ghosts
+        .iter()
+        .find(|(_, g)| g.0 == brush_ix && g.1 == patched_ghost)
+        .map(|(e, _)| e);
     for (e, g) in &ghosts {
-        if g.0 != brush_ix {
+        if g.0 != brush_ix || g.1 != patched_ghost {
             commands.entity(e).despawn();
         }
     }
@@ -9297,7 +9331,7 @@ fn drive_ghost(
                 open.map.origin,
                 y,
             ) {
-                commands.entity(e).insert((Ghost, GhostOf(brush_ix)));
+                commands.entity(e).insert((Ghost, GhostOf(brush_ix, patched_ghost)));
             }
         }
     }
@@ -9444,14 +9478,8 @@ fn drive_stamp_ghost(
         .id();
     let mut drawn = 0usize;
     for (k, p) in expansion.placements.iter().enumerate() {
-        let Some(base) = project.library.get(&p.descriptor) else {
+        let Some(d) = descriptor_of(&project.library, p) else {
             continue;
-        };
-        // Patched exactly as the drop patches it: a preview of the unpatched descriptor is a preview
-        // of a different piece.
-        let d = match &p.patch {
-            Some(patch) => base.patched_with(patch),
-            None => base.clone(),
         };
         let Some(&y) = ys.get(k) else {
             continue;
@@ -9571,7 +9599,8 @@ fn drive_clone_ghost(
         .id();
     let mut drawn = 0usize;
     for piece in &set.pieces {
-        let Some(d) = project.library.get(&piece.descriptor) else {
+        let Some(d) = descriptor_with(&project.library, &piece.descriptor, piece.patch.as_ref())
+        else {
             continue;
         };
         // Local to the parent, so moving the set is one write: the parent sits at `target` and each
@@ -9580,7 +9609,7 @@ fn drive_clone_ghost(
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
-            d,
+            &d,
             piece.offset,
             piece.yaw,
             piece.tip,
@@ -9589,7 +9618,7 @@ fn drive_clone_ghost(
         ) {
             commands.entity(e).insert((Ghost, ChildOf(parent))).insert(
                 Transform::from_translation(local).with_rotation(Quat::from_rotation_y(
-                    bevy_emerge::draw_yaw(d, piece.yaw).to_radians(),
+                    bevy_emerge::draw_yaw(&d, piece.yaw).to_radians(),
                 )),
             );
             drawn += 1;

@@ -3463,6 +3463,7 @@ fn the_turn_keys_reach_the_set_in_hand_and_leave_the_brush_alone() {
                 note: None,
                 owned: false,
                 owned_because: None,
+                patch: None,
                 on: bevy_emerge_mapper::editor::CloneHost::Layer,
             }],
             stamps: Vec::new(),
@@ -3659,6 +3660,7 @@ fn a_captured_group_is_written_and_reads_back() {
                 note: None,
                 owned: false,
                 owned_because: None,
+                patch: None,
                 on: bevy_emerge_mapper::editor::CloneHost::Layer,
             },
             bevy_emerge_mapper::editor::ClonePiece {
@@ -3670,6 +3672,7 @@ fn a_captured_group_is_written_and_reads_back() {
                 note: None,
                 owned: false,
                 owned_because: None,
+                patch: None,
                 on: bevy_emerge_mapper::editor::CloneHost::Layer,
             },
         ],
@@ -16104,5 +16107,124 @@ mod block_rules {
             Err(e) => e,
         };
         assert!(e.contains("rules.ron"), "the error must name the file: {e}");
+    }
+}
+
+/// **A placement's `patch` is part of what it is, on every path that measures it.**
+///
+/// The town map places roads and fields as mesh-less markers whose real footprint rides on each
+/// placement's `patch`. Only stamped rows used to apply it, so a plain placement was picked, blocked
+/// and blocking at the library descriptor's 1 x 1 m however long its patch said it was.
+mod patched_placements {
+    use super::*;
+    use bevy_emerge_core::descriptor::{Descriptor, Extent};
+    use bevy_emerge_mapper::editor::{
+        EditorState, StampPicture, Subject, pick_at, pick_subject, place_for_test, ray_pick,
+        undo_for_test,
+    };
+    use bevy_emerge_mapper::project::{OpenMap, Project};
+
+    /// A road: 4 m wide, 20 m long, over the fixture's 1 x 1 m `road` descriptor.
+    fn road_patch() -> Descriptor {
+        Descriptor {
+            extent: Extent {
+                footprint: Some((4.0, 20.0)),
+                height: Some(0.5),
+            },
+            ..Descriptor::default()
+        }
+    }
+
+    /// One `road` at the origin and a `crate` to click with; `patched` gives the road its 4 x 20 m
+    /// footprint after the map has opened, which is how the editor ever meets a patch it did not draw.
+    fn booted(name: &str, patched: bool) -> App {
+        let root = Fixture::new(name)
+            .descriptor("road", "alpha")
+            .descriptor("crate", "alpha")
+            .place("road", (0.0, 0.0))
+            .side(40.0)
+            .build("m");
+        let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+        for _ in 0..3 {
+            app.update();
+        }
+        if patched {
+            app.world_mut().resource_mut::<OpenMap>().map.placements[0].patch = Some(road_patch());
+        }
+        app
+    }
+
+    fn said(app: &App) -> String {
+        app.world().resource::<EditorState>().status.note_text().to_owned()
+    }
+
+    #[test]
+    fn a_patched_placement_is_picked_along_its_whole_length() {
+        let app = booted("patched-pick", true);
+        let (project, open) = (app.world().resource::<Project>(), app.world().resource::<OpenMap>());
+        assert_eq!(pick_at(project, open, (0.0, 8.0)), Some(0), "8 m along a 20 m road");
+        assert_eq!(pick_at(project, open, (1.9, -9.9)), Some(0), "its far corner");
+        // Past its end (10 m) and past `pick_at`'s second pass, which grabs the nearest centre within the
+        // piece's own largest extent (20 m here).
+        assert_eq!(pick_at(project, open, (0.0, 25.0)), None, "past its end it is bare floor");
+        assert_eq!(
+            pick_subject(project, open, &StampPicture::default(), (0.0, 8.0)),
+            Some(Subject::Placement(0))
+        );
+
+        let ys = bevy_emerge_core::stack::resolve_y(&open.map, &project.library)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let from = Vec3::new(open.map.origin.0, 5.0, open.map.origin.2 + 8.0);
+        assert_eq!(
+            ray_pick(project, open, &ys, from, Vec3::NEG_Y),
+            Some(0),
+            "a ray 8 m along the road runs into its box"
+        );
+    }
+
+    #[test]
+    fn an_unpatched_placement_is_measured_exactly_as_before() {
+        let app = booted("unpatched-pick", false);
+        let (project, open) = (app.world().resource::<Project>(), app.world().resource::<OpenMap>());
+        assert_eq!(pick_at(project, open, (0.0, 0.2)), Some(0), "on the 1 x 1 m square");
+        assert_eq!(pick_at(project, open, (0.0, 8.0)), None, "8 m away is nothing");
+        let ys = bevy_emerge_core::stack::resolve_y(&open.map, &project.library)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let from = Vec3::new(open.map.origin.0, 5.0, open.map.origin.2 + 8.0);
+        assert_eq!(ray_pick(project, open, &ys, from, Vec3::NEG_Y), None);
+    }
+
+    #[test]
+    fn a_click_along_a_patched_placement_lands_on_it_and_one_undo_restores_it_patched() {
+        let mut app = booted("patched-click", true);
+        place_for_test(app.world_mut(), "crate", (0.0, 8.0));
+        let after: Vec<String> = app
+            .world()
+            .resource::<OpenMap>()
+            .map
+            .placements
+            .iter()
+            .map(|p| p.descriptor.clone())
+            .collect();
+        assert_eq!(after, vec!["crate".to_owned()], "the road was in the way and was replaced");
+        assert!(said(&app).contains("replaced `road@0`"), "said: {}", said(&app));
+
+        undo_for_test(app.world_mut());
+        let open = app.world().resource::<OpenMap>();
+        assert_eq!(open.map.placements.len(), 1);
+        assert_eq!(
+            open.map.placements[0].patch,
+            Some(road_patch()),
+            "the road comes back with its patch, not as a one-square descriptor"
+        );
+    }
+
+    #[test]
+    fn a_click_8_m_from_an_unpatched_placement_is_not_blocked() {
+        let mut app = booted("unpatched-click", false);
+        place_for_test(app.world_mut(), "crate", (0.0, 8.0));
+        let count = app.world().resource::<OpenMap>().map.placements.len();
+        assert_eq!(count, 2, "nothing was in the way: {}", said(&app));
+        assert!(said(&app).contains("placed"), "said: {}", said(&app));
     }
 }
