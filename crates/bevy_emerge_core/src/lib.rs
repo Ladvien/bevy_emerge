@@ -55,10 +55,10 @@ pub mod rigs;
 pub mod rigs_edit;
 /// The deterministic RNG, re-exported at its original path.
 ///
-/// It lives in the `bevy_emerge_rng` crate now — lifted out so a permissively-licensed sibling could depend
-/// on the same generator without inheriting this crate's GPL. Copying it there instead would have
-/// created a SECOND definition of the stream every reproducibility claim here rests on, which is the
-/// one outcome that had to be avoided. This alias means no caller moved.
+/// It lives in the `bevy_emerge_rng` crate — a leaf with no dependencies of its own, so every crate
+/// here shares the same generator. Copying it instead would create a SECOND definition of the stream
+/// every reproducibility claim here rests on, which is the one outcome that had to be avoided. This
+/// alias means no caller moved.
 pub use bevy_emerge_rng as rng;
 pub mod ron_surgery;
 pub mod smart;

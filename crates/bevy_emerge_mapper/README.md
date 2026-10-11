@@ -4,7 +4,7 @@
 
 A standalone world-building editor: open a project directory, author a map from an asset library, save something any engine can load. A Bevy application in its own right, not a mode of a game.
 
-> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_mapper/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge_mapper/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_mapper/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/emerge-mapper/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ## Four tabs
 
@@ -49,4 +49,4 @@ Boots the shipped editor plugin graph with no window and no wgpu device, steps f
 
 ## License
 
-GPL-3.0-only, with the game it was carved out of.
+MIT OR Apache-2.0, see the repository root's `LICENSE-MIT` and `LICENSE-APACHE`.

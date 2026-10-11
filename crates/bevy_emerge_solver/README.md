@@ -6,7 +6,7 @@ A Boolean satisfiability back-end that answers the same way every run, on every 
 
 ![A dark chessboard cycling through board sizes: at 2x2 and 3x3 the squares turn dull red and the caption reads "no arrangement exists", then from 4x4 up to 12x12 amber discs appear, one per row and column with none sharing a diagonal, the grid growing finer at each step](docs/n_queens.gif)
 
-> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_solver/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge_solver/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_solver/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/deterministic_solver/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ```rust
 use bevy_emerge_solver::{Answer, Budget, Solver};

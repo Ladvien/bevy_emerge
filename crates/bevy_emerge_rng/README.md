@@ -4,7 +4,7 @@
 
 One deterministic RNG for a whole simulation: a seeded ChaCha8 stream, plus the unbiased integer and float draws generators actually need. A run reproduces from a single `u64`, on any platform, at any thread count.
 
-> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_rng/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge_rng/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_rng/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/det_rng/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ## Why this is a crate and not four lines in yours
 

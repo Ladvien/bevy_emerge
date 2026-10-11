@@ -4,7 +4,7 @@
 
 The engine-free half of world building: the asset descriptor and map schemas, a constraint IR with three solver backends, WFC, Poisson/Delaunay geometry, a seeded ChaCha8 RNG, comment-preserving RON surgery, a hand-rolled glTF reader, and animation-clip measurement.
 
-> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_core/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge_core/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_core/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/emerge-core/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ## Why "engine-free" is enforced, not just intended
 
@@ -26,4 +26,4 @@ cargo run -p bevy_emerge_core --example bevy_emerge_rng   # the one seeded gener
 
 ## License
 
-GPL-3.0-only, with the game it was carved out of.
+MIT OR Apache-2.0, see the repository root's `LICENSE-MIT` and `LICENSE-APACHE`.

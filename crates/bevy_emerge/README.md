@@ -4,7 +4,7 @@
 
 The runtime half of emerge: take an `bevy_emerge_core` library plus a map, and put it in a Bevy world.
 
-> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/emerge-bevy/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ## What it does
 
@@ -22,4 +22,4 @@ Builds a library and a map in code, shows a map naming an undefined descriptor b
 
 ## License
 
-GPL-3.0-only, with the game it was carved out of.
+MIT OR Apache-2.0, see the repository root's `LICENSE-MIT` and `LICENSE-APACHE`.

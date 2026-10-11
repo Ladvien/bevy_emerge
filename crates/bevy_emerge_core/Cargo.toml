@@ -3,10 +3,8 @@ name = "bevy_emerge_core"
 version = "0.1.0"
 edition = "2024"
 description = "Engine-free world-building core: constraint IR, solvers, WFC, deterministic RNG."
-# GPL-3.0, same as the game this was carved out of — these are mirrors of the parent repo's history,
-# not independently-licensed libraries. (The crates extracted as general-purpose libraries —
-# bevy_orca, map_elites, bevy_devshot — are MIT OR Apache-2.0 instead, so they can be adopted.)
-license = "GPL-3.0-only"
+# Relicensed MIT OR Apache-2.0 on extraction from foundation_vs_slop (owner decision, Sanctuary decision 0084).
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/Ladvien/bevy_emerge"
 
 # **No `bevy`, and that is the point of the crate.** Everything here is plain data and arithmetic, so
