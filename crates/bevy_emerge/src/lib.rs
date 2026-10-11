@@ -367,8 +367,14 @@ pub fn tip_seat(d: &Descriptor, tip: (u8, u8)) -> f32 {
 
 /// Put one descriptor in the world.
 ///
-/// Returns `None` for a descriptor with no mesh — which is not an error: a descriptor may exist to
-/// carry tags before anyone has given it geometry.
+/// A descriptor with a mesh is a glTF scene. One with **no mesh but a footprint** is drawn as a
+/// footprint marker — a flat coloured slab the size of the footprint with a notch on its front
+/// edge — so a library of abstract cells (a WFC tile set whose pieces are "street", "yard",
+/// "house corner") can be authored and read in the editor before anyone has modelled anything. The
+/// hue comes from the descriptor id, so the same tile is the same colour in every map.
+///
+/// Returns `None` only for a descriptor with neither a mesh nor a footprint — which is not an
+/// error: a descriptor may exist to carry tags before anyone has given it geometry.
 pub fn spawn_descriptor(
     commands: &mut Commands,
     assets: &AssetServer,
@@ -380,27 +386,29 @@ pub fn spawn_descriptor(
     map_origin: (f32, f32, f32),
     y: f32,
 ) -> Option<Entity> {
-    let mesh = d.mesh.as_ref()?;
-    let scene: Handle<WorldAsset> = assets.load(GltfAssetLabel::Scene(0).from_asset(mesh.clone()));
     let scale = d.align.scale.unwrap_or(1.0);
     let stretch = d.align.stretch_y.unwrap_or(1.0);
+    let parent = (
+        Name::new(d.id.clone()),
+        OfDescriptor(d.id.clone()),
+        Tags(masks),
+        // The tip turns the piece in its own frame, the yaw turns the tipped piece, and the
+        // seat keeps the result standing on `y` — see [`tip_seat`].
+        Transform::from_translation(origin_of(at, map_origin, y + tip_seat(d, tip)))
+            .with_rotation(Quat::from_rotation_y(draw_yaw(d, yaw).to_radians()) * tip_quat(tip))
+            // Y is scaled separately: `stretch_y` is a project's architecture policy layered
+            // over the mesh's measured height, not an art correction.
+            .with_scale(Vec3::new(scale, scale * stretch, scale)),
+        Visibility::Inherited,
+    );
+    let Some(mesh) = d.mesh.as_ref() else {
+        let (w, depth) = d.extent.footprint?;
+        return Some(spawn_footprint_marker(commands, assets, &d.id, parent, w, depth));
+    };
+    let scene: Handle<WorldAsset> = assets.load(GltfAssetLabel::Scene(0).from_asset(mesh.clone()));
     Some(
         commands
-            .spawn((
-                Name::new(d.id.clone()),
-                OfDescriptor(d.id.clone()),
-                Tags(masks),
-                // The tip turns the piece in its own frame, the yaw turns the tipped piece, and the
-                // seat keeps the result standing on `y` — see [`tip_seat`].
-                Transform::from_translation(origin_of(at, map_origin, y + tip_seat(d, tip)))
-                    .with_rotation(
-                        Quat::from_rotation_y(draw_yaw(d, yaw).to_radians()) * tip_quat(tip),
-                    )
-                    // Y is scaled separately: `stretch_y` is a project's architecture policy layered
-                    // over the mesh's measured height, not an art correction.
-                    .with_scale(Vec3::new(scale, scale * stretch, scale)),
-                Visibility::Inherited,
-            ))
+            .spawn(parent)
             // **The default rotation rides the mesh child, not the placement.**
             //
             // The parent carries what the *world* says — where the piece stands, which way it was
@@ -415,6 +423,58 @@ pub fn spawn_descriptor(
             ))
             .id(),
     )
+}
+
+/// Thickness of a footprint marker's slab, in metres.
+const MARKER_SLAB: f32 = 0.05;
+/// How much of its cell a marker fills, so two neighbouring markers show a seam.
+const MARKER_FILL: f32 = 0.96;
+/// The front notch: a small block on the front edge, where local +Z — the descriptor's front — is.
+const MARKER_NOTCH: Vec3 = Vec3::new(0.3, 0.08, 0.3);
+
+/// The hue, in degrees, a descriptor's footprint marker is drawn in: a hash of its id, so it is
+/// stable across maps and runs.
+fn marker_hue(id: &str) -> f32 {
+    (bevy_emerge_core::glb::fnv1a(id.as_bytes()) % 360) as f32
+}
+
+/// Spawn `parent` with a footprint marker as its two children: the slab, then the front notch.
+fn spawn_footprint_marker(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    id: &str,
+    parent: impl Bundle,
+    width: f32,
+    depth: f32,
+) -> Entity {
+    let hue = marker_hue(id);
+    let slab = (
+        Mesh3d(assets.add(Mesh::from(Cuboid::new(
+            width * MARKER_FILL,
+            MARKER_SLAB,
+            depth * MARKER_FILL,
+        )))),
+        MeshMaterial3d(assets.add(StandardMaterial {
+            base_color: Color::hsl(hue, 0.55, 0.55),
+            unlit: true,
+            ..default()
+        })),
+        Transform::from_xyz(0.0, MARKER_SLAB * 0.5, 0.0),
+    );
+    let notch = (
+        Mesh3d(assets.add(Mesh::from(Cuboid::new(
+            MARKER_NOTCH.x,
+            MARKER_NOTCH.y,
+            MARKER_NOTCH.z,
+        )))),
+        MeshMaterial3d(assets.add(StandardMaterial {
+            base_color: Color::hsl(hue, 0.55, 0.3),
+            unlit: true,
+            ..default()
+        })),
+        Transform::from_xyz(0.0, MARKER_NOTCH.y * 0.5, depth * 0.5 - 0.2),
+    );
+    commands.spawn(parent).with_child(slab).with_child(notch).id()
 }
 
 /// The mesh's own default rotation as a quaternion, or the identity.
@@ -478,9 +538,10 @@ fn spawn_world(mut commands: Commands, assets: Res<AssetServer>, world: Res<Emer
             Some(&(_, host)) => {
                 commands.entity(guest).insert(MountedOn(host));
             }
-            // Only reachable when the host is a descriptor with no mesh, so nothing was spawned for
-            // it. The guest keeps its resolved height — it is standing on the right surface — but
-            // nothing can answer "what is on this?", and that is worth saying.
+            // Only reachable when the host is a descriptor with neither a mesh nor a footprint, so
+            // nothing was spawned for it. The guest keeps its resolved height — it is standing on
+            // the right surface — but nothing can answer "what is on this?", and that is worth
+            // saying.
             None => warn!(
                 "`{}` rests on `{host_id}`, which spawned no entity — the height is right but the \
                  relationship is missing",
@@ -686,6 +747,45 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
         assert!(w.entry("crate").is_some());
         assert!(w.entry("nothing").is_none());
+    }
+
+    /// **A descriptor with a footprint and no mesh is drawn, and one with neither is not.** A WFC tile
+    /// set has no geometry to load; without a marker its tiles would be invisible in the editor, and
+    /// a placement the author cannot see is one they cannot select, move or delete.
+    #[test]
+    fn a_meshless_descriptor_is_drawn_as_a_footprint_marker() {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>();
+        let assets = app.world().resource::<AssetServer>().clone();
+        let mut tile = descriptor("street");
+        tile.mesh = None;
+        tile.extent = Extent { footprint: Some((2.0, 2.0)), height: Some(0.05) };
+        let mut bare = tile.clone();
+        bare.id = "tag_only".to_owned();
+        bare.extent = Extent::default();
+
+        let (drawn, undrawn) = {
+            let mut commands = app.world_mut().commands();
+            let spawn = |commands: &mut Commands, d: &Descriptor| {
+                spawn_descriptor(commands, &assets, d, Masks::default(), (1.0, 2.0), 0.0, (0, 0), (0.0, 0.0, 0.0), 0.0)
+            };
+            (spawn(&mut commands, &tile), spawn(&mut commands, &bare))
+        };
+        app.world_mut().flush();
+
+        assert!(undrawn.is_none(), "neither mesh nor footprint draws nothing");
+        let drawn = drawn.unwrap_or_else(|| panic!("a footprint with no mesh must still spawn"));
+        let world = app.world();
+        let children: Vec<Entity> =
+            world.get::<Children>(drawn).map(|c| c.iter().collect()).unwrap_or_default();
+        assert_eq!(children.len(), 2, "the slab and the front notch");
+        assert!(children.iter().all(|c| world.get::<Mesh3d>(*c).is_some()));
+        // The notch sits on the descriptor's front (+Z), at the slab's edge.
+        let notch = world.get::<Transform>(children[1]).map(|t| t.translation.z).unwrap_or(0.0);
+        assert!((notch - 0.8).abs() < 1e-5, "notch z {notch}");
+        assert_eq!(world.get::<OfDescriptor>(drawn).map(|o| o.0.as_str()), Some("street"));
     }
 
     /// The mesh's own facing correction is applied on top of the authored yaw. Without it every chair
