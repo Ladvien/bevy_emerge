@@ -239,6 +239,15 @@ fn setup(mut commands: Commands, rig: Res<Rig>, surface: Res<crate::surface::Sur
     ));
 }
 
+/// **The furthest out the rig goes on this map.** [`MAX_ZOOM`] for an ordinary room, and wide enough
+/// to see the whole of a map larger than that (a town 300 m across) with a quarter to spare. The
+/// ceiling used to be the constant, so a map past 80 m could never be seen whole.
+pub(crate) fn max_zoom(open: Option<&crate::project::OpenMap>) -> f32 {
+    open.map_or(MAX_ZOOM, |o| {
+        MAX_ZOOM.max(1.25 * o.map.bounds.0.max(o.map.bounds.2))
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn drive(
     time: Res<Time<Real>>,
@@ -255,6 +264,8 @@ fn drive(
     hovered_ui: Query<&bevy::picking::hover::Hovered>,
     mut rig: ResMut<Rig>,
     camera: Option<Single<(&mut Transform, &mut Projection), With<MainCamera>>>,
+    // The Maps door has one; the other doors have none and keep the plain ceiling.
+    open: Option<Res<crate::project::OpenMap>>,
 ) {
     let Some(camera) = camera else { return };
     let over_ui = hovered_ui.iter().any(|h| h.0);
@@ -264,7 +275,7 @@ fn drive(
     if lines != 0.0 && !over_ui {
         // **A ratio, so a detent is the same gesture at every scale.** Subtracting metres put one
         // wheel stop between the floor and 2 m.
-        rig.height = (rig.height * ZOOM_STEP.powf(-lines)).clamp(MIN_ZOOM, MAX_ZOOM);
+        rig.height = (rig.height * ZOOM_STEP.powf(-lines)).clamp(MIN_ZOOM, max_zoom(open.as_deref()));
     }
 
     let step = TAU / ROTATION_STEPS as f32;
@@ -738,5 +749,25 @@ mod tests {
         assert!(old.dot(right).abs() > 0.5, "the old basis drifted sideways");
         assert!(new.dot(right).abs() < 1e-4, "the new basis does not");
         assert!(new.dot(up) > 0.0, "and still goes away from the viewer");
+    }
+
+    /// **The wheel can take a big map in whole.** The ceiling is the constant for a room and grows
+    /// with the map's longer ground side — with a quarter to spare — so a 300 m town is not stuck at
+    /// 80 m of viewport, and a door with no map keeps the plain ceiling.
+    #[test]
+    fn the_zoom_ceiling_grows_with_the_map_and_never_shrinks_below_the_constant() {
+        let open = |bounds: (f32, f32, f32)| {
+            crate::project::OpenMap::new(
+                bevy_emerge_core::map::Map {
+                    bounds,
+                    ..bevy_emerge_core::map::Map::default()
+                },
+                std::path::PathBuf::from("m.map.ron"),
+            )
+        };
+        assert_eq!(max_zoom(None), MAX_ZOOM);
+        assert_eq!(max_zoom(Some(&open((20.0, 5.0, 12.0)))), MAX_ZOOM, "a room keeps the constant");
+        assert_eq!(max_zoom(Some(&open((300.0, 60.0, 280.0)))), 375.0, "a town sees itself whole");
+        assert_eq!(max_zoom(Some(&open((100.0, 10.0, 300.0)))), 375.0, "the longer side decides");
     }
 }
