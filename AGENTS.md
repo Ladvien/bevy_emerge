@@ -17,6 +17,10 @@ Games depend on these crates by path and the editor runs on a game as its projec
 
 Consumers: Sanctuary (`/Users/ladvien/sanctuary`, decision 0087).
 
+### Iterating from a consumer
+
+A game links only `bevy_emerge_core` (with `bevy_emerge_rng` and `bevy_emerge_solver`); the editor crates are a separate binary run from this repo on the game's project: `cargo run -p bevy_emerge_mapper -- <game-root> <map> --kit <kit>`. So an editor-only change never touches the game's build, while a change to core is picked up by the game's next `cargo` run through its path dependency, with nothing to copy or bump. `cargo run -q -p bevy_emerge_mapper --example boot_headless -- <game-root>` proves a game's project still opens without a window. The per-game loop (what to run, what to commit where) is in the game's `AGENTS.md`; Sanctuary's is under "bevy_emerge: the editor and WFC, evolving with Sanctuary".
+
 ## Rules
 
 - `bevy_emerge_core`, `bevy_emerge_rng` and `bevy_emerge_solver` are engine-free. `bevy_emerge_core/tests/engine_free.rs` fails on any `bevy*` dependency except the exact names in `SIBLING_DEPS`.
