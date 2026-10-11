@@ -1,7 +1,7 @@
 //! **The manifest agrees with the assets it describes.**
 //!
 //! `assets/emerge/rigs.ron` carries numbers that were measured off the GLBs. Before
-//! `emerge_core::clips` existed there was no way to re-check them, so `docs/animation.md` recorded the
+//! `bevy_emerge_core::clips` existed there was no way to re-check them, so `docs/animation.md` recorded the
 //! measuring as *"a manual offline step, not a repo tool"* and the numbers quietly aged: an artist
 //! re-exports a rig, the clip order or a cycle length shifts, and the game keeps animating to the old
 //! table with no error anywhere — a creature that skates or drifts out of phase, which reads as "the
@@ -12,16 +12,16 @@
 
 use std::path::{Path, PathBuf};
 
-use emerge_core::glb::Glb;
-use emerge_core::rig_check::{self, Level};
-use emerge_core::rigs::Rigs;
+use bevy_emerge_core::glb::Glb;
+use bevy_emerge_core::rig_check::{self, Level};
+use bevy_emerge_core::rigs::Rigs;
 
 /// The workspace root — tests run with the crate directory as cwd.
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .unwrap_or_else(|| panic!("emerge-core should sit two levels below the workspace root"))
+        .unwrap_or_else(|| panic!("bevy_emerge_core should sit two levels below the workspace root"))
         .to_path_buf()
 }
 
@@ -40,7 +40,7 @@ fn the_manifest_is_valid() {
 
 /// **Every rig agrees with the asset it names** — the four checks, from the one shared policy.
 ///
-/// This is `emerge_core::rig_check::check_rig`, the exact code path the editor's animation bench
+/// This is `bevy_emerge_core::rig_check::check_rig`, the exact code path the editor's animation bench
 /// runs, so a red here reproduces locally as the same words in the bench and vice versa. The finding
 /// text carries the remedy, which is what makes a finding a usable panic message.
 ///

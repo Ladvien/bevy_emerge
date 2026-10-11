@@ -1,14 +1,14 @@
-# emerge-core — notes for agents
+# bevy_emerge_core — notes for agents
 
 The engine-free half of world building: the asset descriptor and map schemas, a constraint IR with three solver backends, WFC, Poisson/Delaunay geometry, a seeded ChaCha8 RNG, comment-preserving RON surgery, a hand-rolled glTF reader, and animation-clip measurement.
 
 ## Source of truth
 
-The source of truth for this crate is [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) at `crates/emerge-core/`. If you are reading this in a standalone `Ladvien/emerge-core` checkout, that is a read-only `git subtree split` mirror — **changes made here cannot be pulled back**. Make them upstream.
+The source of truth for this crate is [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge) at `crates/bevy_emerge_core/` (MIT OR Apache-2.0, Bevy 0.20). It began as `crates/bevy_emerge_core/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop), history kept; foundation_vs_slop still carries the GPL Bevy 0.19 original until it ports. Make changes here, in their own commits with tests here; a consumer game never vendors or patches a copy.
 
 ## Build and test
 
-A leaf — `serde`, `serde_json`, `ron`, `rand`, `rand_chacha` — so it builds and tests on its own: `cargo test -p emerge-core`.
+A leaf — `serde`, `serde_json`, `ron`, `rand`, `rand_chacha` — so it builds and tests on its own: `cargo test -p bevy_emerge_core`.
 
 ## The non-negotiable: engine-free is enforced, not intended
 

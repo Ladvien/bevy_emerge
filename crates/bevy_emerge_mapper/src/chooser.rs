@@ -45,10 +45,10 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use emerge_core::composition::{Body, Compositions};
-use emerge_core::map::Map;
-use emerge_core::naming;
-use emerge_core::policy::LIBRARY_FILE;
+use bevy_emerge_core::composition::{Body, Compositions};
+use bevy_emerge_core::map::Map;
+use bevy_emerge_core::naming;
+use bevy_emerge_core::policy::LIBRARY_FILE;
 
 use crate::tiles::Door;
 
@@ -207,9 +207,9 @@ impl Catalog {
         // **The binding names a kit, and it is the only name a flat library has.** Read after the
         // scan rather than during it: a directory that is a kit and a directory that is *bound* are
         // two questions, and this screen lists the first while the editor loads the second.
-        let kits_ron = std::fs::read_to_string(base.join(emerge_core::kits::KITS_FILE))
+        let kits_ron = std::fs::read_to_string(base.join(bevy_emerge_core::kits::KITS_FILE))
             .ok()
-            .and_then(|t| emerge_core::kits::Kits::parse(&t).ok());
+            .and_then(|t| bevy_emerge_core::kits::Kits::parse(&t).ok());
         let bindings = kits_ron
             .as_ref()
             .map(|k| k.bind.clone())
@@ -294,7 +294,7 @@ fn read_kit(dir: &Path, flag: Option<String>) -> Result<Option<Kit>, String> {
     }
     let text = std::fs::read_to_string(&library)
         .map_err(|e| format!("cannot read {}: {e}", library.display()))?;
-    let parsed = emerge_core::library::Library::parse(&text)
+    let parsed = bevy_emerge_core::library::Library::parse(&text)
         .map_err(|e| format!("{}: {e}", library.display()))?;
     let pieces = parsed.descriptors.len();
     // A library disagreeing with itself is refused at open by `kits::bound_library`. Here it is a
@@ -381,7 +381,7 @@ fn provided_ids(dir: &Path) -> Result<BTreeSet<String>, String> {
     if library.is_file() {
         let text = std::fs::read_to_string(&library)
             .map_err(|e| format!("cannot read {}: {e}", library.display()))?;
-        let parsed = emerge_core::library::Library::parse(&text)
+        let parsed = bevy_emerge_core::library::Library::parse(&text)
             .map_err(|e| format!("{}: {e}", library.display()))?;
         ids.extend(parsed.descriptors.into_iter().map(|d| d.id));
     }
@@ -438,7 +438,7 @@ fn ids_named(path: &Path) -> Result<BTreeSet<String>, String> {
 ///
 /// Two readers, because there are two formats and one of them belongs to another crate. Maps and
 /// `compositions.ron` are parsed (see [`ids_named`]). The game's kit files under [`GAME_KIT_DIR`]
-/// are read as text: `SiteKit`'s schema lives in the game, `emerge-mapper` does not depend on the
+/// are read as text: `SiteKit`'s schema lives in the game, `bevy_emerge_mapper` does not depend on the
 /// game and must not start, and a quoted-id match over a file that is a list of quoted ids is
 /// exact enough to be worth more than the coupling.
 ///
@@ -580,7 +580,7 @@ pub fn create_kit(root: &Path, raw_name: &str) -> Result<PathBuf, String> {
         "(\n    version: 1,\n    note: Some(\"Empty on purpose — `{name}` is a new kit. Import \
          meshes on the Meshes tab; they land here.\"),\n    descriptors: [],\n)\n"
     );
-    emerge_core::ron_surgery::save_atomic(&dir.join(LIBRARY_FILE), &library)?;
+    bevy_emerge_core::ron_surgery::save_atomic(&dir.join(LIBRARY_FILE), &library)?;
 
     // **No lattice setting here, and that is the change of 2026-08-16.** `face_bands` and
     // `snap_divisor` describe a lattice, and a kit does not have one — a map has exactly one, so
@@ -591,7 +591,7 @@ pub fn create_kit(root: &Path, raw_name: &str) -> Result<PathBuf, String> {
          `Project::open` refuses a rule that matches nothing, so one cannot be added before the \
          pieces it names exist.\"),\n)\n"
     );
-    emerge_core::ron_surgery::save_atomic(&dir.join(emerge_core::policy::POLICY_FILE), &policy)?;
+    bevy_emerge_core::ron_surgery::save_atomic(&dir.join(bevy_emerge_core::policy::POLICY_FILE), &policy)?;
 
     // **And bound, or it is a directory the project does not load.** Making a kit the editor cannot
     // open would be a verb that appears to work and does not — the `--kit` refusal an author would
@@ -608,7 +608,7 @@ pub fn create_kit(root: &Path, raw_name: &str) -> Result<PathBuf, String> {
 ///
 /// The shape `assets/emerge/` *is* a project (`CLAUDE.md`'s Data model); this is the verb that
 /// makes one. Nothing is opened in-process — switching the live root is a separate change — so the
-/// caller reports `emerge-mapper <dir>` and the author runs it.
+/// caller reports `bevy_emerge_mapper <dir>` and the author runs it.
 pub fn create_project(parent: &Path, raw_name: &str, vocab_source: &Path) -> Result<PathBuf, String> {
     let name = naming::to_snake_case(raw_name);
     if name.is_empty() {
@@ -631,10 +631,10 @@ pub fn create_project(parent: &Path, raw_name: &str, vocab_source: &Path) -> Res
     // fixture records: bumping `KITS_VERSION` must not write a file the schema refuses.
     let kits = format!(
         "(version: {}, bind: [], authoring: None, bash: [])",
-        emerge_core::kits::KITS_VERSION
+        bevy_emerge_core::kits::KITS_VERSION
     );
-    std::fs::write(emerge.join(emerge_core::kits::KITS_FILE), kits)
-        .map_err(|e| format!("{}: {e}", emerge.join(emerge_core::kits::KITS_FILE).display()))?;
+    std::fs::write(emerge.join(bevy_emerge_core::kits::KITS_FILE), kits)
+        .map_err(|e| format!("{}: {e}", emerge.join(bevy_emerge_core::kits::KITS_FILE).display()))?;
 
     // **Copy the vocabulary byte-for-byte.** A copy preserves the rationale comments; serializing
     // `Vocabularies` would delete them. The source is the current project's `vocab.ron`, which is
@@ -663,12 +663,12 @@ fn write_bash(path: &Path, bash: Option<&str>) -> Result<(), String> {
     map.validate()?;
     let out = ron::ser::to_string_pretty(&map, ron::ser::PrettyConfig::default())
         .map_err(|e| format!("map: serialize: {e}"))?;
-    emerge_core::ron_surgery::save_atomic(path, &out)
+    bevy_emerge_core::ron_surgery::save_atomic(path, &out)
 }
 
 /// **Add a binding for `name`**, leaving the rest of `kits.ron` as it was.
 fn bind_kit(root: &Path, name: &str) -> Result<(), String> {
-    let path = root.join(EMERGE_DIR).join(emerge_core::kits::KITS_FILE);
+    let path = root.join(EMERGE_DIR).join(bevy_emerge_core::kits::KITS_FILE);
     // **A directory that is not a project hits this first** — `+ new kit` in a bare folder has no
     // `kits.ron` to bind into. A raw io error would read as "the disk failed"; this says what the
     // directory is and what makes one.
@@ -683,8 +683,8 @@ fn bind_kit(root: &Path, name: &str) -> Result<(), String> {
         }
     })?;
     let mut kits =
-        emerge_core::kits::Kits::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    kits.bind.push(emerge_core::kits::Bind {
+        bevy_emerge_core::kits::Kits::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    kits.bind.push(bevy_emerge_core::kits::Bind {
         namespace: name.to_owned(),
         dir: name.to_owned(),
     });
@@ -697,8 +697,8 @@ fn bind_kit(root: &Path, name: &str) -> Result<(), String> {
     let out = kits.to_ron().map_err(|e| format!("{}: {e}", path.display()))?;
     // Parsed back before it is written, so a binding that would refuse to load is refused here —
     // where the author is standing — rather than at the next open.
-    emerge_core::kits::Kits::parse(&out).map_err(|e| format!("{}: {e}", path.display()))?;
-    emerge_core::ron_surgery::save_atomic(&path, &out)
+    bevy_emerge_core::kits::Kits::parse(&out).map_err(|e| format!("{}: {e}", path.display()))?;
+    bevy_emerge_core::ron_surgery::save_atomic(&path, &out)
 }
 
 /// **Point `authoring` at `name`, leaving the rest of `kits.ron` as it was.**
@@ -708,11 +708,11 @@ fn bind_kit(root: &Path, name: &str) -> Result<(), String> {
 /// at the next open. `name` must be bound; the refusal names the bound kits, because "not bound"
 /// without a list is a search.
 fn set_authoring(root: &Path, name: &str) -> Result<(), String> {
-    let path = root.join(EMERGE_DIR).join(emerge_core::kits::KITS_FILE);
+    let path = root.join(EMERGE_DIR).join(bevy_emerge_core::kits::KITS_FILE);
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let mut kits =
-        emerge_core::kits::Kits::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        bevy_emerge_core::kits::Kits::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     if !kits.bind.iter().any(|b| b.dir == name) {
         return Err(format!(
             "`{name}` is not bound in {}. The bound kits are: {}.",
@@ -728,18 +728,18 @@ fn set_authoring(root: &Path, name: &str) -> Result<(), String> {
     let out = kits.to_ron().map_err(|e| format!("{}: {e}", path.display()))?;
     // Parsed back before it is written, so a binding that would refuse to load is refused here —
     // where the author is standing — rather than at the next open.
-    emerge_core::kits::Kits::parse(&out).map_err(|e| format!("{}: {e}", path.display()))?;
-    emerge_core::ron_surgery::save_atomic(&path, &out)
+    bevy_emerge_core::kits::Kits::parse(&out).map_err(|e| format!("{}: {e}", path.display()))?;
+    bevy_emerge_core::ron_surgery::save_atomic(&path, &out)
 }
 
 /// **Drop `name`'s binding.** Called when its directory goes, so the project does not keep asking
 /// for a kit that is not there.
 fn unbind_kit(root: &Path, name: &str) -> Result<(), String> {
-    let path = root.join(EMERGE_DIR).join(emerge_core::kits::KITS_FILE);
+    let path = root.join(EMERGE_DIR).join(bevy_emerge_core::kits::KITS_FILE);
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let mut kits =
-        emerge_core::kits::Kits::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        bevy_emerge_core::kits::Kits::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     // **The kit new work lands in is not deletable while it is that kit.** Removing it would leave
     // `authoring` naming nothing, which `Kits::validate` refuses — so the project would stop opening
     // as a result of a verb that said it had succeeded.
@@ -757,15 +757,15 @@ fn unbind_kit(root: &Path, name: &str) -> Result<(), String> {
     }
     kits.bind.retain(|b| b.dir != name);
     let out = kits.to_ron().map_err(|e| format!("{}: {e}", path.display()))?;
-    emerge_core::kits::Kits::parse(&out).map_err(|e| format!("{}: {e}", path.display()))?;
-    emerge_core::ron_surgery::save_atomic(&path, &out)
+    bevy_emerge_core::kits::Kits::parse(&out).map_err(|e| format!("{}: {e}", path.display()))?;
+    bevy_emerge_core::ron_surgery::save_atomic(&path, &out)
 }
 
 /// **Write a new, empty map into a kit** — the chooser's one creating verb.
 ///
 /// # The name is not defaulted
 ///
-/// `Map::default()` leaves `name` empty on purpose, and `emerge-core` says why at the field:
+/// `Map::default()` leaves `name` empty on purpose, and `bevy_emerge_core` says why at the field:
 /// *"Empty, not 'untitled': a substituted name is a name nobody chose, and the second one collides
 /// with the first."* So this refuses an unusable name by name rather than inventing one, and the
 /// screen keeps the field blank until the author types something. `Map::validate` would refuse it
@@ -804,14 +804,14 @@ pub fn create_map(
     map.validate()?;
     let text = ron::ser::to_string_pretty(&map, ron::ser::PrettyConfig::default())
         .map_err(|e| format!("map: serialize: {e}"))?;
-    emerge_core::ron_surgery::save_atomic(&path, &text)?;
+    bevy_emerge_core::ron_surgery::save_atomic(&path, &text)?;
     Ok(path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use emerge_core::map::Placed;
+    use bevy_emerge_core::map::Placed;
 
     /// A throwaway project root: `assets/emerge/` plus whatever kits a test asks for.
     struct Root(PathBuf);
@@ -828,10 +828,10 @@ mod tests {
             // here, so bumping `KITS_VERSION` failed thirty chooser tests at once with a schema
             // refusal — the fixture disagreeing with the schema it is a fixture for.
             std::fs::write(
-                base.join(emerge_core::kits::KITS_FILE),
+                base.join(bevy_emerge_core::kits::KITS_FILE),
                 format!(
                     "(version: {}, bind: [], authoring: None, bash: [])",
-                    emerge_core::kits::KITS_VERSION
+                    bevy_emerge_core::kits::KITS_VERSION
                 ),
             )
             .unwrap_or_else(|e| panic!("{}: {e}", base.display()));
@@ -845,10 +845,10 @@ mod tests {
 
         /// Bind a directory that already exists, so `Project::open` would load it.
         fn bind(&self, name: &str) {
-            let path = self.0.join(EMERGE_DIR).join(emerge_core::kits::KITS_FILE);
+            let path = self.0.join(EMERGE_DIR).join(bevy_emerge_core::kits::KITS_FILE);
             let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{e}"));
-            let mut k = emerge_core::kits::Kits::parse(&text).unwrap_or_else(|e| panic!("{e}"));
-            k.bind.push(emerge_core::kits::Bind {
+            let mut k = bevy_emerge_core::kits::Kits::parse(&text).unwrap_or_else(|e| panic!("{e}"));
+            k.bind.push(bevy_emerge_core::kits::Bind {
                 namespace: name.to_owned(),
                 dir: name.to_owned(),
             });
@@ -863,16 +863,16 @@ mod tests {
         /// Every namespace named must already be bound, or `Kits::validate` refuses the write here
         /// rather than at the next scan.
         fn bash(&self, name: &str, kits: &[&str]) {
-            let path = self.0.join(EMERGE_DIR).join(emerge_core::kits::KITS_FILE);
+            let path = self.0.join(EMERGE_DIR).join(bevy_emerge_core::kits::KITS_FILE);
             let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{e}"));
-            let mut k = emerge_core::kits::Kits::parse(&text).unwrap_or_else(|e| panic!("{e}"));
-            k.bash.push(emerge_core::kits::Bash {
+            let mut k = bevy_emerge_core::kits::Kits::parse(&text).unwrap_or_else(|e| panic!("{e}"));
+            k.bash.push(bevy_emerge_core::kits::Bash {
                 name: name.to_owned(),
                 kits: kits.iter().map(|s| (*s).to_owned()).collect(),
                 note: None,
             });
             let out = k.to_ron().unwrap_or_else(|e| panic!("{e}"));
-            emerge_core::kits::Kits::parse(&out).unwrap_or_else(|e| panic!("{e}"));
+            bevy_emerge_core::kits::Kits::parse(&out).unwrap_or_else(|e| panic!("{e}"));
             std::fs::write(&path, out).unwrap_or_else(|e| panic!("{e}"));
         }
 
@@ -1123,7 +1123,7 @@ mod tests {
     /// **An unnamed map is refused by name, never substituted.** `Map::default()` leaves the name
     /// empty deliberately — *"a substituted name is a name nobody chose, and the second one collides
     /// with the first"* — and a chooser that filled in `untitled_map` would reintroduce exactly what
-    /// `emerge-core` refuses.
+    /// `bevy_emerge_core` refuses.
     #[test]
     fn an_unnamed_map_is_refused_rather_than_defaulted() {
         let root = Root::new("unnamed");
@@ -1605,7 +1605,7 @@ mod tests {
         );
         assert!(dir.join(LIBRARY_FILE).is_file(), "a kit is its library");
         assert!(
-            dir.join(emerge_core::policy::POLICY_FILE).is_file(),
+            dir.join(bevy_emerge_core::policy::POLICY_FILE).is_file(),
             "and its policy — `Project::open` reads both"
         );
         // No compositions.ron: absence and empty are the same state to `layered_library`, so a file
@@ -1652,7 +1652,7 @@ mod tests {
             dir.display()
         );
         let emerge = dir.join(EMERGE_DIR);
-        assert!(emerge.join(emerge_core::kits::KITS_FILE).is_file(), "kits.ron");
+        assert!(emerge.join(bevy_emerge_core::kits::KITS_FILE).is_file(), "kits.ron");
         assert!(emerge.join("vocab.ron").is_file(), "vocab.ron");
         assert!(
             std::fs::read(emerge.join("vocab.ron")).unwrap_or_else(|e| panic!("{e}"))
@@ -1722,13 +1722,13 @@ mod tests {
         assert!(c.creating.is_none(), "one Enter finishes it");
         let made = parent.join("porch_flow");
         assert!(
-            made.join(EMERGE_DIR).join(emerge_core::kits::KITS_FILE).is_file(),
+            made.join(EMERGE_DIR).join(bevy_emerge_core::kits::KITS_FILE).is_file(),
             "the project landed beside this one: {}",
             made.display()
         );
         let line = c.problem.clone().unwrap_or_default();
         assert!(
-            line.contains("`porch_flow`") && line.contains("emerge-mapper"),
+            line.contains("`porch_flow`") && line.contains("bevy_emerge_mapper"),
             "the status line reports the command: {line}"
         );
         assert!(
@@ -1987,7 +1987,7 @@ mod tests {
         let root = Root::new("policy-panel");
         root.kit(Some("site"), 1);
         // A policy with one exclusion, one patch, and a comment that must survive.
-        let path = root.0.join(EMERGE_DIR).join("site").join(emerge_core::policy::POLICY_FILE);
+        let path = root.0.join(EMERGE_DIR).join("site").join(bevy_emerge_core::policy::POLICY_FILE);
         std::fs::write(
             &path,
             r#"(
@@ -2040,7 +2040,7 @@ mod tests {
 
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{e}"));
         assert!(text.contains("// A comment that must survive"), "the comment stands:\n{text}");
-        let policy = emerge_core::policy::Policy::parse(&text).unwrap_or_else(|e| panic!("{e}"));
+        let policy = bevy_emerge_core::policy::Policy::parse(&text).unwrap_or_else(|e| panic!("{e}"));
         assert!(policy.exclude.is_empty(), "the exclusion is gone");
         assert_eq!(policy.patches.len(), 1, "the patch is untouched");
     }
@@ -2059,7 +2059,7 @@ mod tests {
         // *"A project states its policy, even when its policy is nothing"* — the file is here and
         // it says nothing, which is a different state from the file being missing (that draws an
         // `unreadable` row, and standing on it is right because it is a problem to read).
-        let path = root.0.join(EMERGE_DIR).join("site").join(emerge_core::policy::POLICY_FILE);
+        let path = root.0.join(EMERGE_DIR).join("site").join(bevy_emerge_core::policy::POLICY_FILE);
         std::fs::write(&path, "(\n    version: 2,\n    note: None,\n    patches: [],\n)")
             .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
 
@@ -3204,7 +3204,7 @@ impl Chooser {
         let Some(k) = self.openable_kit() else {
             return ("POLICY".to_owned(), Vec::new());
         };
-        let path = k.dir.join(emerge_core::policy::POLICY_FILE);
+        let path = k.dir.join(bevy_emerge_core::policy::POLICY_FILE);
         let text = match std::fs::read_to_string(&path) {
             Ok(t) => t,
             Err(e) => {
@@ -3218,7 +3218,7 @@ impl Chooser {
                 );
             }
         };
-        let policy = match emerge_core::policy::Policy::parse(&text) {
+        let policy = match bevy_emerge_core::policy::Policy::parse(&text) {
             Ok(p) => p,
             Err(e) => {
                 return (
@@ -3241,8 +3241,8 @@ impl Chooser {
         }
         for patch in &policy.patches {
             let matches = match &patch.matches {
-                emerge_core::policy::Match::Id(id) => format!("Id({id})"),
-                emerge_core::policy::Match::Kind(kind) => format!("Kind({kind})"),
+                bevy_emerge_core::policy::Match::Id(id) => format!("Id({id})"),
+                bevy_emerge_core::policy::Match::Kind(kind) => format!("Kind({kind})"),
             };
             rows.push(Row {
                 left: "patch".to_owned(),
@@ -3390,10 +3390,10 @@ impl Chooser {
                 let k = self
                     .current_kit()
                     .ok_or_else(|| "there is no kit here to remove policy from".to_owned())?;
-                let path = k.dir.join(emerge_core::policy::POLICY_FILE);
+                let path = k.dir.join(bevy_emerge_core::policy::POLICY_FILE);
                 let text = std::fs::read_to_string(&path)
                     .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-                let policy = emerge_core::policy::Policy::parse(&text)
+                let policy = bevy_emerge_core::policy::Policy::parse(&text)
                     .map_err(|e| format!("{}: {e}", path.display()))?;
                 let (_, rows) = self.policy_rows();
                 let row = rows
@@ -3435,17 +3435,17 @@ impl Chooser {
                 PolicyRow::Exclude(pack) => {
                     let text = std::fs::read_to_string(&file)
                         .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
-                    let policy = emerge_core::policy::Policy::parse(&text)
+                    let policy = bevy_emerge_core::policy::Policy::parse(&text)
                         .map_err(|e| format!("{}: {e}", file.display()))?;
                     let mut exclude = policy.exclude.clone();
                     exclude.retain(|p| p != &pack);
-                    let out = emerge_core::policy::rewrite_exclude(&text, &exclude)
+                    let out = bevy_emerge_core::policy::rewrite_exclude(&text, &exclude)
                         .map_err(|e| format!("{}: {e}", file.display()))?;
-                    emerge_core::ron_surgery::save_atomic(&file, &out)?;
+                    bevy_emerge_core::ron_surgery::save_atomic(&file, &out)?;
                     Ok(pack)
                 }
                 PolicyRow::Patch(ordinal) => {
-                    emerge_core::policy::remove_patch(&file, ordinal)?;
+                    bevy_emerge_core::policy::remove_patch(&file, ordinal)?;
                     Ok(format!("patch #{ordinal}"))
                 }
             };
@@ -4012,7 +4012,7 @@ mod screen_tests {
     }
 
     /// A new map's name starts **empty** — `Map::default()` leaves it so on purpose, and a chooser
-    /// that pre-filled `untitled_map` would reintroduce the substituted name `emerge-core` refuses.
+    /// that pre-filled `untitled_map` would reintroduce the substituted name `bevy_emerge_core` refuses.
     #[test]
     fn a_draft_starts_unnamed_and_carries_the_default_bounds() {
         let d = Draft::default();
@@ -4333,7 +4333,7 @@ impl Chooser {
             // **The question lives in the modal now**, so this renders nothing. `crate::confirm`
             // owns the wording, the two answers and the keys that give them; a second copy on the
             // chooser's own band is what a capture on 2026-08-19 showed underneath the panel —
-            // `quit emerge-mapper? Y quits — Esc stays` in the corner while the modal said the
+            // `quit bevy_emerge_mapper? Y quits — Esc stays` in the corner while the modal said the
             // same thing in the middle. Two copies of one question is worse than the one it
             // replaced.
             asking: None,
@@ -4409,9 +4409,9 @@ impl Chooser {
     /// policy — two different questions about the same directory.
     fn excluded_count(&self) -> usize {
         self.current_kit()
-            .map(|k| k.dir.join(emerge_core::policy::POLICY_FILE))
+            .map(|k| k.dir.join(bevy_emerge_core::policy::POLICY_FILE))
             .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|t| emerge_core::policy::Policy::parse(&t).ok())
+            .and_then(|t| bevy_emerge_core::policy::Policy::parse(&t).ok())
             .map_or(0, |p| p.exclude.len())
     }
 
@@ -4721,7 +4721,7 @@ pub fn render(c: &Chooser) -> String {
     };
     // **Left to right, exactly as the columns are drawn** — see `spawn_screen`. A flat rendering
     // that reordered the panels would be a second opinion about the hierarchy.
-    let mut out = String::from("emerge-mapper\n");
+    let mut out = String::from("bevy_emerge_mapper\n");
     if !s.projects.is_empty() {
         out.push_str(&format!("\n{}\n", s.projects_header));
         for r in &s.projects {
@@ -5004,7 +5004,7 @@ fn spawn_screen(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
         //
         // **One honest gap.** A Miller column's selection opens the column to its right, and the
         // KITS→MAPS boundary is that; the PROJECTS→KITS one is not, because nothing opens in this
-        // process — `Enter` on a sibling reports `emerge-mapper <dir>` instead. PROJECTS stands
+        // process — `Enter` on a sibling reports `bevy_emerge_mapper <dir>` instead. PROJECTS stands
         // leftmost for what it *contains*, and the row says so rather than pretending to navigate.
         //
         // **Each column owns what belongs to it.** A map's settings sit under the map list; a kit's
@@ -5078,7 +5078,7 @@ fn spawn_screen(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
 fn spawn_menu_bars(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
     commands.entity(frame.chrome_bar).with_children(|bar| {
         bar.spawn((
-            Text::new("emerge-mapper"),
+            Text::new("bevy_emerge_mapper"),
             crate::chrome::font(crate::chrome::text::BODY),
             TextColor(crate::chrome::LABEL),
         ));
@@ -5744,7 +5744,7 @@ fn keep_field(chooser: &mut Chooser, field: Field) {
     chooser.editing = false;
     if let Some(new) = chooser.creating.clone() {
         // **Only a refusal overwrites the status line.** `make_it`'s project arm sets the
-        // line itself — `run emerge-mapper <dir> to open it` — and `.err()` unconditionally
+        // line itself — `run bevy_emerge_mapper <dir> to open it` — and `.err()` unconditionally
         // would have wiped it the same frame it was written.
         if let Err(e) = make_it(chooser, &new) {
             chooser.problem = Some(e);
@@ -5882,7 +5882,7 @@ pub fn write_settings(chooser: &mut Chooser, draft: &Draft) -> Result<(), String
     }
     let out = ron::ser::to_string_pretty(&map, ron::ser::PrettyConfig::default())
         .map_err(|e| format!("map: serialize: {e}"))?;
-    emerge_core::ron_surgery::save_atomic(&path, &out)?;
+    bevy_emerge_core::ron_surgery::save_atomic(&path, &out)?;
     // Follow a rename, exactly as `Project::save` does — the file a map is in is the file its name
     // says it is.
     //
@@ -5960,7 +5960,7 @@ fn make_it(chooser: &mut Chooser, new: &New) -> Result<(), String> {
             // so the author's next keystroke is in the other terminal. The name is what was
             // typed, and the directory is where it landed.
             chooser.problem = Some(format!(
-                "`{name}` — run `emerge-mapper {}` to open it",
+                "`{name}` — run `bevy_emerge_mapper {}` to open it",
                 dir.display()
             ));
         }
@@ -6166,7 +6166,7 @@ fn drive_chooser(
             chooser.ask = Some(Ask::Quit);
             confirm.ask(
                 crate::confirm::Asked::QuitApp,
-                "Quit emerge-mapper?",
+                "Quit bevy_emerge_mapper?",
                 "Anything already saved stays saved.",
                 "Quit",
                 "Stay",
@@ -6272,7 +6272,7 @@ fn open_the_selection(
                     chooser.problem = None;
                 } else {
                     chooser.problem = Some(format!(
-                        "`{}` — run `emerge-mapper {}` to open it",
+                        "`{}` — run `bevy_emerge_mapper {}` to open it",
                         p.name,
                         p.dir.display()
                     ));

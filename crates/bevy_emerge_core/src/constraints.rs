@@ -455,7 +455,7 @@ impl Problem {
 
     /// **Solve.** `conflicts` bounds the search; 0 is unbounded.
     ///
-    /// The back-end is [`deterministic_solver`], and this is the facade over it — the same shape
+    /// The back-end is [`bevy_emerge_solver`], and this is the facade over it — the same shape
     /// `Stig` and `LightField` use, so swapping the solver is one function rather than every call
     /// site. Nothing above this line knows a solver exists, and the back-end knows nothing about
     /// grids: it is handed clause literals as plain integers.
@@ -486,14 +486,14 @@ impl Problem {
     pub fn solve(&self, conflicts: u64) -> Result<Solution, String> {
         let mut hints = self.prefer.clone();
         hints.resize(self.vars(), None);
-        let mut solver = deterministic_solver::Solver::with_preferences(&hints)?;
+        let mut solver = bevy_emerge_solver::Solver::with_preferences(&hints)?;
         for clause in self.iter_clauses() {
-            let lits: Vec<deterministic_solver::Literal> = clause.iter().map(to_dimacs).collect();
+            let lits: Vec<bevy_emerge_solver::Literal> = clause.iter().map(to_dimacs).collect();
             solver.add_clause(&lits)?;
         }
 
         // One literal per soft constraint: true means "this constraint is enforced".
-        let guards: Vec<deterministic_solver::Literal> =
+        let guards: Vec<bevy_emerge_solver::Literal> =
             self.soft.iter().map(|s| to_dimacs(&Lit::pos(s.guard))).collect();
         let weights: Vec<u32> = self.soft.iter().map(|s| s.weight).collect();
 
@@ -523,25 +523,25 @@ impl Problem {
         // `items` are the literals currently assumed true; `residual` is what each is still worth. A
         // wish drops out of the assumptions when its weight is spent, and counter outputs join as new
         // items as they are created.
-        let mut items: Vec<deterministic_solver::Literal> = guards;
+        let mut items: Vec<bevy_emerge_solver::Literal> = guards;
         let mut residual: Vec<u64> = weights.iter().map(|&w| w as u64).collect();
 
         for _ in 0..max_rounds(self.soft.len()) {
-            let assumed: Vec<deterministic_solver::Literal> = items
+            let assumed: Vec<bevy_emerge_solver::Literal> = items
                 .iter()
                 .zip(&residual)
                 .filter(|&(_, &r)| r > 0)
                 .map(|(&l, _)| l)
                 .collect();
 
-            match solver.solve(&assumed, deterministic_solver::Budget::conflicts(conflicts))? {
-                deterministic_solver::Answer::Satisfied(m) => {
+            match solver.solve(&assumed, bevy_emerge_solver::Budget::conflicts(conflicts))? {
+                bevy_emerge_solver::Answer::Satisfied(m) => {
                     // `from_assignment` re-checks every hard clause and recomputes the cost from the
                     // model itself, so the number returned is what this assignment actually leaves
                     // unmet rather than the bound the search proved along the way.
                     return Solution::from_assignment(self, m.values().to_vec());
                 }
-                deterministic_solver::Answer::Unsatisfiable { core } => {
+                bevy_emerge_solver::Answer::Unsatisfiable { core } => {
                     let found: Vec<usize> = core
                         .iter()
                         .filter_map(|l| items.iter().position(|it| it == l))
@@ -573,7 +573,7 @@ impl Problem {
                     if found.len() > 1 {
                         // The counter runs over the NEGATIONS: `item` asserts the wish is granted, so
                         // `!item` is "this wish was given up", and the outputs count those.
-                        let inputs: Vec<deterministic_solver::Literal> =
+                        let inputs: Vec<bevy_emerge_solver::Literal> =
                             found.iter().filter_map(|&i| items.get(i)).map(|&l| -l).collect();
                         let outputs = totalizer(&mut solver, &inputs)?;
                         // `outputs[0]` is "at least one given up", which this core has just proven.
@@ -584,7 +584,7 @@ impl Problem {
                         }
                     }
                 }
-                deterministic_solver::Answer::Exhausted => {
+                bevy_emerge_solver::Answer::Exhausted => {
                     return Err(format!(
                         "constraints: gave up after {conflicts} conflicts without settling the \
                          question. That is not a statement that no arrangement exists — raise the \
@@ -625,9 +625,9 @@ fn max_rounds(softs: usize) -> usize {
 /// more than `k` wishes, which needs `count ≥ k+1 → out[k]` and nothing else. Adding the converse
 /// would double the clauses to constrain a direction no caller reads.
 fn totalizer(
-    solver: &mut deterministic_solver::Solver,
-    inputs: &[deterministic_solver::Literal],
-) -> Result<Vec<deterministic_solver::Literal>, String> {
+    solver: &mut bevy_emerge_solver::Solver,
+    inputs: &[bevy_emerge_solver::Literal],
+) -> Result<Vec<bevy_emerge_solver::Literal>, String> {
     match inputs {
         [] => Ok(Vec::new()),
         [only] => Ok(vec![*only]),
@@ -662,8 +662,8 @@ fn totalizer(
 
 /// One [`Lit`] as the DIMACS integer the back-end speaks: variable 0 becomes 1, and the sign carries
 /// the polarity.
-fn to_dimacs(l: &Lit) -> deterministic_solver::Literal {
-    let v = l.var().index() as deterministic_solver::Literal + 1;
+fn to_dimacs(l: &Lit) -> bevy_emerge_solver::Literal {
+    let v = l.var().index() as bevy_emerge_solver::Literal + 1;
     if l.is_positive() { v } else { -v }
 }
 

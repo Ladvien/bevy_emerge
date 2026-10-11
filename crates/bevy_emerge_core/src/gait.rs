@@ -1,9 +1,9 @@
 //! The gait cadence policy — the one function that turns ground speed into cycles per second.
 //!
-//! This lives here, engine-free, and not in `emerge-anim` where the runtime consumes it, because two
+//! This lives here, engine-free, and not in `bevy_emerge_anim` where the runtime consumes it, because two
 //! programs must agree on it exactly: the game's pose blender drives every gait clip's seek time from
 //! it, and the editor's animation bench predicts foot skate from it (`rig_check::skate_report`). A
-//! bench that restated the clamp would measure a different game than the one that ships. `emerge-anim`
+//! bench that restated the clamp would measure a different game than the one that ships. `bevy_emerge_anim`
 //! re-exports [`gait_cycles_per_sec`] so the game-side call sites are unchanged.
 
 /// Weights below this snap to exactly `0.0` in the runtime's weight pass, because Bevy's

@@ -10,21 +10,21 @@
 //! and no amount of arithmetic coverage substitutes for. Before the lib/bin split the only way to ask
 //! was to run the editor and look at it, which meant taking over somebody's keyboard and display.
 //!
-//! Run: `cargo run -p emerge-mapper --example boot_headless -- <project-root> [map-name]`
+//! Run: `cargo run -p bevy_emerge_mapper --example boot_headless -- <project-root> [map-name]`
 //!
 //! `<project-root>` is a directory holding `assets/` and the map RON — the same argument the binary
 //! takes. No project is fabricated here: without one, this prints usage and stops.
 
 use std::path::Path;
 
-use emerge_mapper::harness;
+use bevy_emerge_mapper::harness;
 
 const FRAMES: usize = 12;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let Some(root) = args.get(1) else {
-        eprintln!("usage: cargo run -p emerge-mapper --example boot_headless -- <project-root> [map-name]");
+        eprintln!("usage: cargo run -p bevy_emerge_mapper --example boot_headless -- <project-root> [map-name]");
         eprintln!();
         eprintln!("  <project-root>  a directory containing `assets/` and the map RON files");
         eprintln!("  [map-name]      defaults to `untitled_map`; created if the project has none");

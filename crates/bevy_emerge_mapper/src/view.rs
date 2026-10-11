@@ -9,7 +9,7 @@
 //!
 //! **The ground is the map's, not a dev tool's.** This used `bevy::dev_tools::infinite_grid`, whose
 //! own settings block promised *"one metre between minor lines, so the grid IS the snap"* — and
-//! `emerge_core::grid::SNAP` is 0.5, so every square was two cells. It also drew forever, which made
+//! `bevy_emerge_core::grid::SNAP` is 0.5, so every square was two cells. It also drew forever, which made
 //! the ground outside `Map::bounds` look exactly as buildable as the ground inside it. Both are now
 //! `editor::draw_map_grid`, bounded by the map and spaced by the constant that defines a cell.
 //!

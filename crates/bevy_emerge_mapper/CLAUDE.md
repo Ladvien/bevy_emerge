@@ -1,18 +1,18 @@
-# emerge-mapper — notes for agents
+# bevy_emerge_mapper — notes for agents
 
 A standalone world-building editor: open a project directory, author a map from an asset library, save something any engine can load. A Bevy application in its own right, not a mode of a game.
 
 ## Source of truth
 
-The source of truth for this crate is [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) at `crates/emerge-mapper/`. If you are reading this in a standalone `Ladvien/emerge-mapper` checkout, that is a read-only `git subtree split` mirror — **changes made here cannot be pulled back**. Make them upstream.
+The source of truth for this crate is [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge) at `crates/bevy_emerge_mapper/` (MIT OR Apache-2.0, Bevy 0.20). It began as `crates/bevy_emerge_mapper/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop), history kept; foundation_vs_slop still carries the GPL Bevy 0.19 original until it ports. Make changes here, in their own commits with tests here; a consumer game never vendors or patches a copy.
 
 ## Build, run, test
 
-**Not a leaf.** It path-depends on the siblings `emerge-core`, `emerge-bevy`, `emerge-anim` and `bevy_devshot`, so it builds *inside* the workspace:
+**Not a leaf.** It path-depends on the siblings `bevy_emerge_core`, `bevy_emerge`, `bevy_emerge_anim` and `bevy_devshot`, so it builds *inside* the workspace:
 
 ```sh
-cargo run -p emerge-mapper
-cargo test -p emerge-mapper      # includes tests/headless.rs — no GPU, no window
+cargo run -p bevy_emerge_mapper
+cargo test -p bevy_emerge_mapper      # includes tests/headless.rs — no GPU, no window
 ```
 
 ## The non-negotiable: never take over a real keyboard or display
@@ -36,7 +36,7 @@ would be checking that the fixture is what the fixture is. Anything else belongs
 
 **For a measured frame, use the sentinel files.** `src/devshot.rs` reads `drive.request` — whitespace-separated verbs (`tiles`, `map`, `anim`, `compose`, `arm`, `stamp`, `down`, `up`) applied through the same resources the key handlers write — and `bevy_devshot` reads `screenshot.request` beside it. Together those let a capture script reproduce an author's exact steps in a real window without a person at the keyboard. That path is not a convenience: three Site editor bugs were invisible to a green test suite and visible only in a measured frame.
 
-**For an agent driving the editor, there is now BRP.** `cargo run -p emerge-mapper --features debugger` adds `bevy_debugger_bevy::DebuggerPlugin` and the HTTP transport, and points the capture at `src/surface.rs`'s image — the same one the window shows, so `bevy_debugger/input` writes into the editor's input message stream — which Bevy folds into `ButtonInput` — and `bevy_debugger/screenshot` captures offscreen with a region and a zoom.
+**For an agent driving the editor, there is now BRP.** `cargo run -p bevy_emerge_mapper --features debugger` adds `bevy_debugger_bevy::DebuggerPlugin` and the HTTP transport, and points the capture at `src/surface.rs`'s image — the same one the window shows, so `bevy_debugger/input` writes into the editor's input message stream — which Bevy folds into `ButtonInput` — and `bevy_debugger/screenshot` captures offscreen with a region and a zoom.
 
 **An agent can type into a field, and that is new.** Every text handler here reads `MessageReader<KeyboardInput>` and matches `logical_key`, so while injection wrote only `ButtonInput` none of them were reachable — not the characters, and not `Enter` or `Escape` either. `{"kind":"Keyboard","text":"porch_a"}` is now one call and one frame, and `{"kind":"Keyboard","key":"Escape"}` reaches both the dispatcher and the open field, the way a real Escape does. One caveat that is a property of this crate rather than the debugger: **text sent in the same frame as the key that opens a field is held back one frame on purpose**, because every field here drains the stream while shut so the opening keystroke cannot become its first character (the `xseam` bug, `keys.rs`).
 
@@ -66,7 +66,7 @@ Scripts live in `guides/` as JSON, not as constants in the source: an agent post
 
 **One plugin list, two entry points.** `main.rs` and `harness::build_headless` share it — "not a second code path", the same argument the parent repo's `sim_harness.rs` makes.
 
-**Borrowed, not copied.** The editor spawns through `emerge_bevy::spawn_descriptor`, previews rigs through the real `emerge-anim` blender, and captures through `bevy_devshot` — never a local copy of any of them. A map that looked one way here and another in the game would be the whole failure this design exists to prevent.
+**Borrowed, not copied.** The editor spawns through `bevy_emerge::spawn_descriptor`, previews rigs through the real `bevy_emerge_anim` blender, and captures through `bevy_devshot` — never a local copy of any of them. A map that looked one way here and another in the game would be the whole failure this design exists to prevent.
 
 ## Rules
 
@@ -119,7 +119,7 @@ erDiagram
 
 Four facts that trip people up:
 
-- **Kit ≠ mesh folder.** A kit is a *bound* directory (`kits.ron` maps namespace ↔ dir) holding `library.ron` (descriptors) + `project.ron`. The raw GLB packs under `assets/` are just meshes — they become **candidates** when scanned and **descriptors** when imported. One mesh → one descriptor: `emerge_core::import::scan` skips any mesh the library already has, so a candidate and a library entry can never name the same file (`tiles.rs:3238`).
+- **Kit ≠ mesh folder.** A kit is a *bound* directory (`kits.ron` maps namespace ↔ dir) holding `library.ron` (descriptors) + `project.ron`. The raw GLB packs under `assets/` are just meshes — they become **candidates** when scanned and **descriptors** when imported. One mesh → one descriptor: `bevy_emerge_core::import::scan` skips any mesh the library already has, so a candidate and a library entry can never name the same file (`tiles.rs:3238`).
 - **Compositions and maps are project-level, not per-kit.** A tile can seat two kits' pieces, so it cannot live in either kit; a map resolves against the merged library. Both hang off Project, not Kit (`chooser.rs` "The maps are the project's, not a kit's").
 - **Labels are two things.** The durable `LabelOrigin` record on each descriptor (who wrote each axis, which model, when — `descriptor.rs:123`), and the ephemeral suggestion cache at `target/vlm_suggestions.ron` (gitignored) that stages model answers before apply (`labels.rs:39`). The cache is keyed by id for library entries, mesh path for candidates — never an index.
 - **A bash filters what is offered, never what loads.** `bound_library` merges *every* bound kit whatever a map says, so a placement can never be stranded and a composition may still cross kits. `Map::bash` decides only what the palette offers, and `OpenMap::palette_namespaces` unions the namespaces the map already uses back in — which is why naming one cannot break a map. A bash is hand-authored in `kits.ron`; `B` on a map row only picks between the ones declared there.
@@ -131,7 +131,7 @@ updates its own row, so this table is correct after every step rather than only 
 
 | Entity | Navigate | Refine | Link | Holes |
 |---|---|---|---|---|
-| PROJECT | PROJECTS column (`chooser.rs` `projects_rows`) — siblings holding `assets/emerge`, current marked | create via `N` / `Enter` on `+ new project` (`create_project`: kits.ron + byte-copied vocab) | `Enter` on a non-current row reports `emerge-mapper <dir>`; the first kit made becomes the authoring kit | cannot be renamed or deleted — a refusal says to remove the tree from the file system |
+| PROJECT | PROJECTS column (`chooser.rs` `projects_rows`) — siblings holding `assets/emerge`, current marked | create via `N` / `Enter` on `+ new project` (`create_project`: kits.ron + byte-copied vocab) | `Enter` on a non-current row reports `bevy_emerge_mapper <dir>`; the first kit made becomes the authoring kit | cannot be renamed or deleted — a refusal says to remove the tree from the file system |
 | VOCABULARY | tag chips draw the table (`tiles.rs` ~8020) | `+` chip per axis row + `Shift+T` → `token_prompt` (comment-preserving `append_token`) | `toggle_tag` (`tiles.rs:5592`) | `capabilities`/`edge`/`slot` axes drawn by no UI |
 | KIT | KITS column | create + delete; no rename; `A` / click sets authoring (`set_authoring`) | bound in `kits.ron`; a bash names it (`Bash::kits`) | cannot be renamed; a bash is hand-authored in `kits.ron`, with no UI that makes one |
 | POLICY | POLICY panel under the kit list (`chooser.rs` `policy_rows`) | `Delete` removes exclusions and patches by ordinal, through the confirmation | n/a | a patch can be removed but not added |

@@ -41,8 +41,8 @@
 
 use bevy::prelude::*;
 
-use emerge_core::composition::{Body, Composition, Envelope, Member};
-use emerge_core::stack;
+use bevy_emerge_core::composition::{Body, Composition, Envelope, Member};
+use bevy_emerge_core::stack;
 
 /// **The tile being assembled**, and where the cursor is in it.
 #[derive(Resource, Default)]
@@ -152,7 +152,7 @@ pub const ON_STOP: f32 = 1e-4;
 
 /// **A tile member stands up**, because [`Member`] records no tip.
 ///
-/// [`emerge_core::map::Placed`] carries a `tip` and a member does not, so every footprint question
+/// [`bevy_emerge_core::map::Placed`] carries a `tip` and a member does not, so every footprint question
 /// asked about a member here answers for an upright piece. That is the schema's answer rather than
 /// a guess — and it is stated once, under a name, so the day `Member` grows a tip the seven call
 /// sites that would need to change are the seven this constant appears at. A bare `(0, 0)` at each
@@ -169,7 +169,7 @@ pub fn blank(id: &str, height: f32) -> Composition {
     Composition {
         id: id.to_owned(),
         envelope: Envelope::Bounded {
-            size: (emerge_core::grid::TILE, height, emerge_core::grid::TILE),
+            size: (bevy_emerge_core::grid::TILE, height, bevy_emerge_core::grid::TILE),
         },
         members: Vec::new(),
         locations: Vec::new(),
@@ -261,10 +261,10 @@ pub fn flush_reach(size_axis: f32, span_axis: f32) -> f32 {
 /// hardcoding a ceiling height costs — so the vertical stays whatever the map declares.
 pub fn fit_envelope(
     members: &[Member],
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
     height: f32,
 ) -> (f32, f32, f32) {
-    let tile = emerge_core::grid::TILE;
+    let tile = bevy_emerge_core::grid::TILE;
     let mut reach = (0.0f32, 0.0f32);
     for m in members {
         // A hole has no mesh and so no footprint; it is a point, and `validate` already refuses one
@@ -396,7 +396,7 @@ pub fn slot_id(members: &[Member], accepts: &str) -> Result<String, String> {
     while seed.ends_with('_') {
         seed.pop();
     }
-    if !emerge_core::naming::is_id(&seed) {
+    if !bevy_emerge_core::naming::is_id(&seed) {
         return Err(format!(
             "slot token `{accepts}` cannot name a member — ids start with a lowercase letter and              carry only letters, digits and `_`. Rename the token in vocab.ron."
         ));
@@ -415,7 +415,7 @@ pub fn insert_sorted(members: &mut Vec<Member>, m: Member) -> usize {
 
 /// Two plan boxes touch — overlapping, or meeting within a hair.
 ///
-/// A local epsilon because `adjacency::EDGE_EPSILON` is `pub(crate)` to `emerge-core`, and the same
+/// A local epsilon because `adjacency::EDGE_EPSILON` is `pub(crate)` to `bevy_emerge_core`, and the same
 /// millimetre for the same reason: art is authored to look right, so a panel and the fixture on it
 /// meet at a number that came out of a DCC rather than out of arithmetic.
 fn touching(a: ((f32, f32), (f32, f32)), b: ((f32, f32), (f32, f32))) -> bool {
@@ -432,7 +432,7 @@ fn touching(a: ((f32, f32), (f32, f32)), b: ((f32, f32), (f32, f32))) -> bool {
 ///
 /// `Body::Descriptor::on` names *"a sibling `Member::id` this rests on"*, and the assembler wrote
 /// `None` into it for every piece — which means "find a host outside this group". A piece with a
-/// `Mount::OnFace`/`OnSurface` and no host is refused by `stack::resolve_y`, and `emerge-bevy`
+/// `Mount::OnFace`/`OnSurface` and no host is refused by `stack::resolve_y`, and `bevy_emerge`
 /// propagates that, so **the map refuses to load**. The author's own description of this tab —
 /// *"a wall mesh over it, and wall mounted light fixture on the wall mesh"* — was the one clause of
 /// it that could not be authored (FVS-R-24).
@@ -450,8 +450,8 @@ fn touching(a: ((f32, f32), (f32, f32)), b: ((f32, f32), (f32, f32))) -> bool {
 /// face it is being asked about would otherwise host itself the moment [`rebind_hosts`] re-asked.
 pub fn host_for(
     members: &[Member],
-    library: &emerge_core::library::Library,
-    guest: &emerge_core::descriptor::Descriptor,
+    library: &bevy_emerge_core::library::Library,
+    guest: &bevy_emerge_core::descriptor::Descriptor,
     self_id: Option<&str>,
     at: (f32, f32),
     span: (f32, f32),
@@ -565,7 +565,7 @@ pub const BROUGHT_IN: ((f32, f32), f32) = ((0.0, 0.0), 0.0);
 /// save — the same door `place` has always kept, now kept by every verb.
 pub fn rebind_hosts(
     comp: &mut Composition,
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
 ) -> Result<(), String> {
     // Positions as they now stand, so each member resolves against the others' current places rather
     // than against a list being rewritten under it.
@@ -603,7 +603,7 @@ pub const NO_TILE: &str = "no tile open — press N to start one";
 /// composition with no verb able to repair it.
 fn edit<T>(
     build: &mut Build,
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
     act: impl FnOnce(&mut Composition) -> Result<T, String>,
 ) -> Result<T, String> {
     let Some(open) = build.open.as_ref() else {
@@ -636,7 +636,7 @@ pub fn focused(build: &Build) -> bool {
 /// is decided by where things stand rather than by which verb happened to touch it last.
 pub fn place(
     comp: &mut Composition,
-    guest: &emerge_core::descriptor::Descriptor,
+    guest: &bevy_emerge_core::descriptor::Descriptor,
 ) -> Result<usize, String> {
     let Envelope::Bounded { .. } = comp.envelope else {
         return Err(format!(
@@ -782,7 +782,7 @@ pub fn ladder_step(pos: f32, f: f32, divisor: u32, depth: u32, dir: i32) -> f32 
 /// The lift step at this depth, in metres — sub-cell from the start (a third, a ninth, a
 /// twenty-seventh of a cell), because "up one whole tile" is a storey, not an adjustment.
 pub fn lift_pitch(divisor: u32, depth: u32) -> f32 {
-    emerge_core::grid::TILE / divisor.saturating_pow(depth + 1).max(1) as f32
+    bevy_emerge_core::grid::TILE / divisor.saturating_pow(depth + 1).max(1) as f32
 }
 
 /// **Resize the tile to whatever is in it, and keep the cursor inside.**
@@ -796,7 +796,7 @@ pub fn lift_pitch(divisor: u32, depth: u32) -> f32 {
 /// rebuilding forever.
 pub fn refit(
     build: &mut Build,
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
     height: f32,
 ) -> Option<(f32, f32, f32)> {
     let Some(comp) = build.open.as_ref() else {
@@ -831,7 +831,7 @@ pub fn refit(
 /// because `solve` lays prototypes at cell centres and a group that is not one cell across would be
 /// placed at a spacing with nothing to do with its extent.
 pub fn tiles_across(size: (f32, f32, f32)) -> (i32, i32) {
-    let tile = emerge_core::grid::TILE;
+    let tile = bevy_emerge_core::grid::TILE;
     (
         (size.0 / tile).round() as i32,
         (size.2 / tile).round() as i32,
@@ -860,13 +860,13 @@ pub fn is_one_cell(size: (f32, f32, f32)) -> bool {
 /// offset of zero would be worse than saying nothing.
 pub fn what_made_it_big(
     members: &[Member],
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
     size: (f32, f32, f32),
 ) -> Option<String> {
     if is_one_cell(size) {
         return None;
     }
-    let tile = emerge_core::grid::TILE;
+    let tile = bevy_emerge_core::grid::TILE;
     // The axis that is over, and by how far each member reaches along it. Both may be over; name the
     // worse one, because fixing it is the step the author takes next and the other will still be
     // stated by the count.
@@ -2215,7 +2215,7 @@ pub fn naming_keys(
                 let Some(prompt) = build.naming.clone() else {
                     return;
                 };
-                let name = emerge_core::naming::to_snake_case(&prompt.raw);
+                let name = bevy_emerge_core::naming::to_snake_case(&prompt.raw);
                 if name.is_empty() {
                     state
                         .status
@@ -2487,8 +2487,8 @@ pub fn drive_build_preview(
     // `composition::interface` builds, so `stack::resolve_y` answers here exactly as it will in the
     // game. The stage's own offset is applied by `spawn_piece`'s `origin`, so the tile is authored at
     // the origin and drawn four kilometres away.
-    let scratch = emerge_core::map::Map {
-        version: emerge_core::map::MAP_VERSION,
+    let scratch = bevy_emerge_core::map::Map {
+        version: bevy_emerge_core::map::MAP_VERSION,
         name: "build_stage".to_owned(),
         origin: (0.0, 0.0, 0.0),
         bounds: size,
@@ -2501,13 +2501,13 @@ pub fn drive_build_preview(
         Some(i) => comps[i] = comp.clone(),
         None => comps.push(comp.clone()),
     }
-    let stamp = emerge_core::composition::Stamped {
+    let stamp = bevy_emerge_core::composition::Stamped {
         id: "build".to_owned(),
         of: comp.id.clone(),
         ..Default::default()
     };
     let expanded =
-        match emerge_core::composition::expand(&scratch, &[stamp], &comps, &project.library) {
+        match bevy_emerge_core::composition::expand(&scratch, &[stamp], &comps, &project.library) {
             Ok(e) => e,
             // **Named, not swallowed.** A tile that cannot stand up is the author's next problem, and
             // a silently empty stage looks exactly like a tile with nothing in it.
@@ -2522,7 +2522,7 @@ pub fn drive_build_preview(
     with_rows
         .placements
         .extend(expanded.placements.iter().cloned());
-    let ys = match emerge_core::stack::resolve_y(&with_rows, &project.library) {
+    let ys = match bevy_emerge_core::stack::resolve_y(&with_rows, &project.library) {
         Ok(ys) => ys,
         Err(e) => {
             if state.status.line() != e {
@@ -2615,7 +2615,7 @@ pub fn draw_build_grid(
 
     // A third of a cell — the old unit rung, kept as the orientation grid and as the box drawn for
     // a thing with no mesh of its own.
-    let unit = emerge_core::grid::TILE / project.lattice.snap_divisor.max(1) as f32;
+    let unit = bevy_emerge_core::grid::TILE / project.lattice.snap_divisor.max(1) as f32;
 
     // **The focused member and the stops its arrows walk.** The ladder is per axis and per piece —
     // a wall's travel is wider across than along — so the drawn lines ARE the reachable positions,
@@ -2746,8 +2746,8 @@ mod tests {
     /// The drop, through the same door `build_keys` presses `Enter` into.
     fn drop_in(
         b: &mut Build,
-        lib: &emerge_core::library::Library,
-        d: &emerge_core::descriptor::Descriptor,
+        lib: &bevy_emerge_core::library::Library,
+        d: &bevy_emerge_core::descriptor::Descriptor,
     ) -> Result<usize, String> {
         edit(b, lib, |comp| place(comp, d))
     }
@@ -2805,7 +2805,7 @@ mod tests {
         ] {
             if let Ok(id) = slot_id(&ms, token) {
                 assert!(
-                    emerge_core::naming::is_id(&id),
+                    bevy_emerge_core::naming::is_id(&id),
                     "`{token}` produced `{id}`, not an id"
                 );
             }
@@ -2892,7 +2892,7 @@ mod tests {
 
         let comp = b.open.take().expect("still open");
         assert_eq!(comp.members.len(), 2);
-        emerge_core::composition::validate(&[comp], &lib).expect("a built tile is a legal tile")
+        bevy_emerge_core::composition::validate(&[comp], &lib).expect("a built tile is a legal tile")
     }
 
     /// A hole drops with the same gesture and lands inside the envelope — which is what
@@ -2977,27 +2977,27 @@ mod tests {
         );
 
         // **And the tile stands up**, which is the claim that actually matters: `resolve_y` is what
-        // refused before, `emerge-bevy` propagates it with `?`, so this failing is a map that will
+        // refused before, `bevy_emerge` propagates it with `?`, so this failing is a map that will
         // not load. Same two calls the 3-D preview makes, so what passes here is what the author
         // sees on the stage.
-        let scratch = emerge_core::map::Map {
-            version: emerge_core::map::MAP_VERSION,
+        let scratch = bevy_emerge_core::map::Map {
+            version: bevy_emerge_core::map::MAP_VERSION,
             name: "t".to_owned(),
             bounds: (1.0, 2.4, 1.0),
             ..Default::default()
         };
-        let stamp = emerge_core::composition::Stamped {
+        let stamp = bevy_emerge_core::composition::Stamped {
             id: "s".to_owned(),
             of: comp.id.clone(),
             ..Default::default()
         };
-        let expanded = emerge_core::composition::expand(&scratch, &[stamp], &[comp], &lib)
+        let expanded = bevy_emerge_core::composition::expand(&scratch, &[stamp], &[comp], &lib)
             .unwrap_or_else(|e| panic!("the tile must expand: {e}"));
         let mut with_rows = scratch.clone();
         with_rows
             .placements
             .extend(expanded.placements.iter().cloned());
-        let ys = emerge_core::stack::resolve_y(&with_rows, &lib).unwrap_or_else(|e| {
+        let ys = bevy_emerge_core::stack::resolve_y(&with_rows, &lib).unwrap_or_else(|e| {
             panic!("a bound fixture must resolve, or the map will not load: {e}")
         });
 
@@ -3141,7 +3141,7 @@ mod tests {
     /// rather than accumulating.
     #[test]
     fn the_tile_grows_and_shrinks_to_hold_what_is_in_it() {
-        use emerge_core::descriptor::{Descriptor, Extent};
+        use bevy_emerge_core::descriptor::{Descriptor, Extent};
         let piece = |id: &str, w: f32, d: f32| Descriptor {
             id: id.to_owned(),
             extent: Extent {
@@ -3150,12 +3150,12 @@ mod tests {
             },
             ..Default::default()
         };
-        let lib = emerge_core::library::Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+        let lib = bevy_emerge_core::library::Library {
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: vec![piece("small", 0.4, 0.4), piece("pallet", 0.81, 1.21)],
         };
-        let tile = emerge_core::grid::TILE;
+        let tile = bevy_emerge_core::grid::TILE;
 
         // Nothing in it is one cell, not zero.
         assert_eq!(fit_envelope(&[], &lib, 2.4), (tile, 2.4, tile));
@@ -3210,7 +3210,7 @@ mod tests {
     /// from a generate that quietly never uses what they made.
     #[test]
     fn growing_past_one_cell_says_the_solver_will_not_place_it() {
-        use emerge_core::descriptor::{Descriptor, Extent};
+        use bevy_emerge_core::descriptor::{Descriptor, Extent};
         let pallet = Descriptor {
             id: "pallet".to_owned(),
             extent: Extent {
@@ -3219,8 +3219,8 @@ mod tests {
             },
             ..Default::default()
         };
-        let lib = emerge_core::library::Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+        let lib = bevy_emerge_core::library::Library {
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: vec![pallet.clone()],
         };
@@ -3385,7 +3385,7 @@ mod tests {
             2,
             "a refused removal leaves the tile exactly as it was"
         );
-        emerge_core::composition::validate(&[comp], &lib)
+        bevy_emerge_core::composition::validate(&[comp], &lib)
             .expect("and the tile it leaves behind still saves");
     }
 
@@ -3487,7 +3487,7 @@ mod tests {
             Some("wall"),
             "the binding survives a move of the pair"
         );
-        emerge_core::composition::validate(&[comp], &lib).expect("and the tile still saves");
+        bevy_emerge_core::composition::validate(&[comp], &lib).expect("and the tile still saves");
     }
 
     /// **Nothing hosts itself.** A wall offers the face it is asked about, so the moment `on` became
@@ -3495,7 +3495,7 @@ mod tests {
     /// which `composition::validate` refuses by name ("rests on itself").
     #[test]
     fn a_piece_is_never_offered_itself_as_a_host() {
-        use emerge_core::descriptor::{Descriptor, Extent, Mount, Offers};
+        use bevy_emerge_core::descriptor::{Descriptor, Extent, Mount, Offers};
         // One piece that both offers `wall-inner` and mounts to it — the degenerate case.
         let mut post = Descriptor {
             id: "site/post".to_owned(),
@@ -3513,8 +3513,8 @@ mod tests {
             class: "wall-inner".to_owned(),
             height: 1.0,
         });
-        let lib = emerge_core::library::Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+        let lib = bevy_emerge_core::library::Library {
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: vec![post.clone()],
         };
@@ -3528,8 +3528,8 @@ mod tests {
     /// A four-piece kit with a real face relationship: the wall offers `wall-inner`, the sconce
     /// needs it. Built here rather than read from `assets/` — this crate's rule is that tests do not
     /// bind to the shipped corpus.
-    fn kit() -> emerge_core::library::Library {
-        use emerge_core::descriptor::{Descriptor, Extent, Mount, Offers};
+    fn kit() -> bevy_emerge_core::library::Library {
+        use bevy_emerge_core::descriptor::{Descriptor, Extent, Mount, Offers};
         let piece = |id: &str, w: f32, d: f32, h: f32| Descriptor {
             id: id.to_owned(),
             extent: Extent {
@@ -3548,8 +3548,8 @@ mod tests {
             class: "wall-inner".to_owned(),
             height: 1.8,
         });
-        emerge_core::library::Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+        bevy_emerge_core::library::Library {
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: vec![piece("site/floor", 1.0, 1.0, 0.06), wall, sconce],
         }

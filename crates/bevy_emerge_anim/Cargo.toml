@@ -1,5 +1,5 @@
 [package]
-name = "emerge-anim"
+name = "bevy_emerge_anim"
 version = "0.1.0"
 edition = "2024"
 description = "Clip-weight blending on a skinned rig's AnimationPlayer — no transitions, one shared gait phase."
@@ -7,11 +7,11 @@ description = "Clip-weight blending on a skinned rig's AnimationPlayer — no tr
 # not independently-licensed libraries. (The crates extracted as general-purpose libraries —
 # bevy_orca, map_elites, bevy_devshot — are MIT OR Apache-2.0 instead, so they can be adopted.)
 license = "GPL-3.0-only"
-repository = "https://github.com/Ladvien/emerge-anim"
+repository = "https://github.com/Ladvien/bevy_emerge"
 
 # **Its own crate so the editor can drive the REAL blender.** It lived in the game crate, which made it
-# unreachable from `emerge-mapper` — and an animation tab previewing a *copy* of the blend would be the
-# same fork `emerge-bevy`'s header warns about for `spawn_descriptor`: "a map cannot look one way here
+# unreachable from `bevy_emerge_mapper` — and an animation tab previewing a *copy* of the blend would be the
+# same fork `bevy_emerge`'s header warns about for `spawn_descriptor`: "a map cannot look one way here
 # and another in the game". The game re-exports this at `crate::anim`, so no call site moved.
 #
 # `docs/animation.md`'s four determinism rules travel with it: `Update` only, never `FixedUpdate`; no new
@@ -20,11 +20,11 @@ repository = "https://github.com/Ladvien/emerge-anim"
 # `bevy_gltf` is for `rigs::build` (`GltfAssetLabel`) — free at final link, since both binaries
 # already enable full bevy and features unify. `bevy_log` because this crate's own code says
 # `error!`: it always did, and only workspace feature unification ever made that compile — a solo
-# `cargo check -p emerge-anim` was broken until the feature was declared where it is used.
+# `cargo check -p bevy_emerge_anim` was broken until the feature was declared where it is used.
 #
 # **The one manifest that does NOT use `bevy.workspace = true`**, deliberately: this crate needs
 # `default-features = false`, and Cargo ignores a member-level `default-features` when the dependency
 # is inherited — so writing `{ workspace = true, default-features = false }` would silently keep the
 # defaults on. The version is the workspace's; keep them in step by hand when bumping.
 bevy = { version = "0.19.0", default-features = false, features = ["bevy_animation", "bevy_scene", "bevy_gltf", "bevy_log"] }
-emerge-core = { path = "../emerge-core" }
+bevy_emerge_core = { path = "../bevy_emerge_core" }

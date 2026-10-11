@@ -1,6 +1,6 @@
 //! **Tile configuration** — bringing meshes in, and saying what they are.
 //!
-//! The editor's second tab. `emerge_core::import` does the measuring; this is where an author reads
+//! The editor's second tab. `bevy_emerge_core::import` does the measuring; this is where an author reads
 //! it, gives a mesh an id, decides which layer it goes on and what it is tagged as, and accepts it
 //! into the library. Separate from the map tab because they are different jobs with different
 //! controls, and one panel trying to hold both would be a panel that does neither well.
@@ -14,20 +14,20 @@
 //!
 //! **No number appears in this note on purpose.** Three module notes in this crate each stated the
 //! size of the same library, and all three were wrong by the time anyone read them; the panel had
-//! always computed its own. Counts belong to `emerge_core::census`, which derives them from the
+//! always computed its own. Counts belong to `bevy_emerge_core::census`, which derives them from the
 //! catalog, and to nothing else.
 //!
 //! # Findings are shown with their fix
 //!
 //! A warning that does not say what to do about it is a warning that gets read once. Every
-//! [`emerge_core::import::Finding`] that has an obvious remedy carries it, and the panel shows both.
+//! [`bevy_emerge_core::import::Finding`] that has an obvious remedy carries it, and the panel shows both.
 
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as UiButton};
-use emerge_core::descriptor::{Descriptor, mount_label, mount_options};
-use emerge_core::import::{self, Candidate, Severity};
+use bevy_emerge_core::descriptor::{Descriptor, mount_label, mount_options};
+use bevy_emerge_core::import::{self, Candidate, Severity};
 
 use crate::chrome::{
     ACCENT, CHIP_PAD, DANGER, DIM, HEADER_BG, LABEL, MIN_FIELD_H, MUTED, PANEL_BG,
@@ -273,7 +273,7 @@ pub struct ImportState {
 /// library would leave every pre-Accept edit — id, mount, size, height, lattice — outside the history.
 #[derive(Clone)]
 pub struct Snapshot {
-    pub measured: emerge_core::library::Library,
+    pub measured: bevy_emerge_core::library::Library,
     pub candidates: Vec<Candidate>,
     pub cursor: CursorMark,
 }
@@ -775,7 +775,7 @@ fn note_keys(
                 // Empty clears, the same rule the edge and anchor tokens follow — one keystroke path
                 // for setting and unsetting rather than a second control for "remove".
                 d.note = (!text.is_empty()).then(|| text.clone());
-                crate::labels::stamp_human(d, emerge_core::descriptor::Axis::Note);
+                crate::labels::stamp_human(d, bevy_emerge_core::descriptor::Axis::Note);
                 state.record(before);
                 let said = if text.is_empty() {
                     "description cleared".to_owned()
@@ -818,7 +818,7 @@ fn note_keys(
 ///
 /// Width alone determines it — scale is one number by construction, so depth and height follow.
 ///
-/// [`Align::scale`]: emerge_core::descriptor::Align::scale
+/// [`Align::scale`]: bevy_emerge_core::descriptor::Align::scale
 /// **The lift the staged camera is currently framed on.** See `stage_camera`.
 ///
 /// Its own resource so the re-centre fires on a *change* rather than every frame — holding
@@ -1062,7 +1062,7 @@ fn scale_keys(
 /// `library.ron`. A picture at 1.2 m and a sconce at 2.1 m were both a text editor away.
 ///
 /// Only offered for the two mounts that carry a height. For the rest the field is not drawn at all
-/// rather than drawn dead: `emerge_core::descriptor::mount_height` is the one place that decides
+/// rather than drawn dead: `bevy_emerge_core::descriptor::mount_height` is the one place that decides
 /// which those are, and a disabled control is a question the panel does not need to ask.
 #[derive(Resource, Default)]
 pub struct HeightEdit {
@@ -1184,7 +1184,7 @@ fn mount_height_keys(
                 };
                 // Refused by name rather than silently ignored: the field is only drawn for mounts
                 // that carry a height, so reaching here means the mount changed under an open field.
-                let Some(next) = emerge_core::descriptor::with_mount_height(&mount, want) else {
+                let Some(next) = bevy_emerge_core::descriptor::with_mount_height(&mount, want) else {
                     state.status.problem(format!(
                         "`{id}` is not on a wall, so it has no height to set"
                     ));
@@ -1198,7 +1198,7 @@ fn mount_height_keys(
                     return;
                 };
                 d.mount = Some(next);
-                crate::labels::stamp_human(d, emerge_core::descriptor::Axis::Mount);
+                crate::labels::stamp_human(d, bevy_emerge_core::descriptor::Axis::Mount);
                 state.record(before);
                 let said = format!("{id} — {want:.2} m up the wall");
                 state.status.say(persist(&mut project, where_to, said));
@@ -1427,7 +1427,7 @@ fn header_button(row: &mut ChildSpawnerCommands, header: FillHeader, glyph: &str
 }
 
 /// One cell, in words. Used for the status line and the button glyph's tooltip role.
-fn describe_cell(c: &emerge_core::descriptor::SubCell) -> String {
+fn describe_cell(c: &bevy_emerge_core::descriptor::SubCell) -> String {
     let mut parts: Vec<String> = Vec::new();
     if c.solid {
         parts.push("solid".to_owned());
@@ -1444,7 +1444,7 @@ fn describe_cell(c: &emerge_core::descriptor::SubCell) -> String {
 
 /// The glyph a cell button shows. **ASCII only** — `docs/ui.md` §5 records that the shipped face is
 /// checked per glyph and that several obvious box-drawing choices are simply absent from it.
-fn cell_glyph(c: Option<&emerge_core::descriptor::SubCell>) -> &'static str {
+fn cell_glyph(c: Option<&bevy_emerge_core::descriptor::SubCell>) -> &'static str {
     match c {
         None => ".",
         Some(c) if c.solid && c.edge.is_some() => "%",
@@ -1599,7 +1599,7 @@ fn rotate_mesh(
     // reads the divisions they were authored against.
     let div_before = focused_div(state, project).ok();
     let path = project.root.join("assets").join(&mesh);
-    let glb = match emerge_core::glb::Glb::open(&path) {
+    let glb = match bevy_emerge_core::glb::Glb::open(&path) {
         Ok(glb) => glb,
         Err(why) => {
             state.status.problem(format!("{mesh}: {why}"));
@@ -1617,7 +1617,7 @@ fn rotate_mesh(
     // A rotation of nothing is not a rotation — keep the field absent rather than storing an
     // identity nobody authored, so a descriptor that was never turned still says so.
     d.align.rotate = (want != (0, 0, 0)).then_some(want);
-    if let Err(why) = emerge_core::import::remeasure_rotated(d, &glb, before) {
+    if let Err(why) = bevy_emerge_core::import::remeasure_rotated(d, &glb, before) {
         d.align.rotate = before;
         state.status.problem(why);
         return false;
@@ -1692,7 +1692,7 @@ fn held_shift(keyboard: &ButtonInput<KeyCode>) -> bool {
 /// The lattice is only worth authoring if occupancy comes off the mesh: at the shipped divisions a
 /// 3 m wall is 30 cells, and marking those by hand is not something anyone does twice.
 ///
-/// `emerge_core::import::occupancy` explains the method and why it is vertices rather than a
+/// `bevy_emerge_core::import::occupancy` explains the method and why it is vertices rather than a
 /// bounding box. Two rules live here rather than there:
 ///
 /// * **`edge` and `anchor` survive.** Occupancy is a measurement; the tokens are an author's
@@ -1701,7 +1701,7 @@ fn held_shift(keyboard: &ButtonInput<KeyCode>) -> bool {
 ///   cell — the middle of a tabletop — and "27 of 30 cells" is what tells an author to look.
 /// **Edge tokens read off the mesh, waiting for a yes.**
 ///
-/// The proposal half of FVS-R-26. `emerge_core::adjacency::derive_edges` does the reading; this holds
+/// The proposal half of FVS-R-26. `bevy_emerge_core::adjacency::derive_edges` does the reading; this holds
 /// the answer until an author accepts it, on the machine-proposed / human-confirmed pattern
 /// `labels.rs` already runs for the vision model. Nothing here reaches `library.ron`.
 ///
@@ -1724,7 +1724,7 @@ impl Derived {
     /// Stated as a delta rather than a total, because `docs/ui.md` §3.2 asks for the change and
     /// because "propose 48 cells" on a piece that already carries 48 identical tokens reads as work
     /// about to happen when none is.
-    pub fn delta(&self, grid: Option<&emerge_core::descriptor::Subgrid>) -> (usize, usize) {
+    pub fn delta(&self, grid: Option<&bevy_emerge_core::descriptor::Subgrid>) -> (usize, usize) {
         let mut changed = 0;
         let mut same = 0;
         for (at, token) in &self.cells {
@@ -1781,7 +1781,7 @@ fn scan_mesh(project: &mut Project, state: &mut ImportState, kind: ScanKind) -> 
     // transposed lattice. An off-square `rotate` cannot be baked at all, and that refusal is the
     // author's to see rather than something to round away.
     let rotate = match d.align.rotate {
-        Some(r) => match emerge_core::descriptor::quarter_turns_xyz(r, &d.id) {
+        Some(r) => match bevy_emerge_core::descriptor::quarter_turns_xyz(r, &d.id) {
             Ok(q) => q,
             Err(why) => {
                 state.status.problem(why);
@@ -1792,8 +1792,8 @@ fn scan_mesh(project: &mut Project, state: &mut ImportState, kind: ScanKind) -> 
     };
 
     let path = project.root.join("assets").join(&mesh);
-    let cells = match emerge_core::glb::Glb::open(&path)
-        .and_then(|glb| emerge_core::import::occupancy(&glb, div, rotate))
+    let cells = match bevy_emerge_core::glb::Glb::open(&path)
+        .and_then(|glb| bevy_emerge_core::import::occupancy(&glb, div, rotate))
     {
         Ok(cells) => cells,
         Err(why) => {
@@ -1814,7 +1814,7 @@ fn scan_mesh(project: &mut Project, state: &mut ImportState, kind: ScanKind) -> 
         grid.set_solid(at, div);
     }
     d.settle_lattice();
-    let total = emerge_core::descriptor::Subgrid::volume(div);
+    let total = bevy_emerge_core::descriptor::Subgrid::volume(div);
     // **The same rasterisation, read a second way** — and this is what `SubCell::solid` turns out to
     // be for. Its own note records that nothing read it to decide anything (FVS-Q-9, closed *no*);
     // the boundary of a solid lattice is exactly the socket a neighbour has to match, so the scan
@@ -1822,7 +1822,7 @@ fn scan_mesh(project: &mut Project, state: &mut ImportState, kind: ScanKind) -> 
     let proposal = d
         .subgrid
         .as_ref()
-        .map(|g| emerge_core::adjacency::derive_edges(g, div))
+        .map(|g| bevy_emerge_core::adjacency::derive_edges(g, div))
         .unwrap_or_default();
     let id = d.id.clone();
     let said = format!("scanned {mesh}: {} of {total} cells solid", cells.len());
@@ -1844,7 +1844,7 @@ fn scan_mesh(project: &mut Project, state: &mut ImportState, kind: ScanKind) -> 
 /// proposal" would be two things to keep in step, and the whole point of the candidate is that it is
 /// the *same* edit.
 fn apply_edges(
-    d: &mut emerge_core::descriptor::Descriptor,
+    d: &mut bevy_emerge_core::descriptor::Descriptor,
     cells: &[((u32, u32, u32), &'static str)],
 ) -> usize {
     let grid = d.lattice_mut();
@@ -1858,7 +1858,7 @@ fn apply_edges(
                 }
             }
             None => {
-                grid.cells.push(emerge_core::descriptor::SubCell {
+                grid.cells.push(bevy_emerge_core::descriptor::SubCell {
                     at: *at,
                     edge: Some((*token).to_owned()),
                     ..Default::default()
@@ -2202,7 +2202,7 @@ fn apply_verb_to(
 ///
 /// `None` when the cursor is off the piece, over a panel, or on a tab that is not showing one.
 #[derive(Resource, Default)]
-pub struct LatticePick(pub Option<((u32, u32, u32), Option<emerge_core::descriptor::Face>)>);
+pub struct LatticePick(pub Option<((u32, u32, u32), Option<bevy_emerge_core::descriptor::Face>)>);
 
 /// The staged tile's lattice box in world space, or `None` if it has no derivable one.
 ///
@@ -2221,7 +2221,7 @@ pub struct LatticePick(pub Option<((u32, u32, u32), Option<emerge_core::descript
 /// with the field that edits it.
 /// **How high a staged piece stands above the stage floor**, for every tab that stages one.
 ///
-/// The mount's own height, then the mesh's correction on top — the order [`emerge_core::stack::datum`]
+/// The mount's own height, then the mesh's correction on top — the order [`bevy_emerge_core::stack::datum`]
 /// applies them in, which is what a placed piece's `y` is resolved from. Shared by the Meshes stage
 /// and the Tiles ghost because they were 0.31 m apart: the ghost used `build::BROUGHT_IN`'s flat
 /// lift, so the same piece stood at two heights depending on which tab you were looking at.
@@ -2232,7 +2232,7 @@ pub(crate) fn staged_lift(d: &Descriptor) -> f32 {
 fn stage_lift(d: &Descriptor) -> f32 {
     d.mount
         .as_ref()
-        .and_then(emerge_core::descriptor::mount_height)
+        .and_then(bevy_emerge_core::descriptor::mount_height)
         .unwrap_or(0.0)
 }
 
@@ -2248,9 +2248,9 @@ pub(crate) fn stage_box(
     // this says how big the box is; a click is turned into a cell by dividing one by the other, so
     // reading the raw extent here put the cell boundaries somewhere the lattice does not have any —
     // the author clicks one cell and writes another.
-    let (w, dep) = emerge_core::descriptor::placed_footprint(d)?;
+    let (w, dep) = bevy_emerge_core::descriptor::placed_footprint(d)?;
     // The same floor `draw_subgrid` gives a flat piece, so a decal can still be picked.
-    let h = emerge_core::descriptor::placed_height(d)
+    let h = bevy_emerge_core::descriptor::placed_height(d)
         .unwrap_or(0.0)
         .max(0.05);
     // **Lifted with the mesh.** The picker turns a click into a cell by dividing this box by `div`,
@@ -2298,7 +2298,7 @@ fn pick_lattice(
         clear(&mut pick);
         return;
     };
-    let got = emerge_core::descriptor::pick_cell(
+    let got = bevy_emerge_core::descriptor::pick_cell(
         ray.origin.into(),
         Vec3::from(ray.direction).into(),
         origin.into(),
@@ -2514,7 +2514,7 @@ fn cell_keys(
                     ));
                     return;
                 };
-                let token = emerge_core::naming::to_snake_case(&raw);
+                let token = bevy_emerge_core::naming::to_snake_case(&raw);
                 // Before the mutable borrow: the write is range-checked against these. Derived from
                 // **`target`**, the tile this field was opened on, and not from the live selection —
                 // see `ImportState::placed_at_target` for what that cost.
@@ -2646,7 +2646,7 @@ fn on_fill_header(
 fn pending_proposal<'a>(
     state: &ImportState,
     suggestions: Option<&'a crate::labels::Suggestions>,
-    d: &emerge_core::descriptor::Descriptor,
+    d: &bevy_emerge_core::descriptor::Descriptor,
 ) -> Option<&'a crate::labels::Entry> {
     let target = state.target()?;
     let entry = suggestions?.get(&target)?;
@@ -2762,7 +2762,7 @@ fn refresh_cells(
     };
     // A piece with no marked cells reads as an empty lattice rather than as a missing one — the
     // grid is still drawn, it just has nothing in it.
-    let empty = emerge_core::descriptor::Subgrid::default();
+    let empty = bevy_emerge_core::descriptor::Subgrid::default();
     let grid = d.subgrid.as_ref().unwrap_or(&empty);
 
     // **Only which cell is picked.** This used to write `BackgroundColor` and restate
@@ -2848,7 +2848,7 @@ fn refresh_cells(
         scale_edit.active.as_ref().map(|(_, raw)| raw.as_str()),
         match state
             .editing(&project.measured)
-            .and_then(emerge_core::descriptor::placed_footprint)
+            .and_then(bevy_emerge_core::descriptor::placed_footprint)
         {
             Some((w, _)) => (format!("{w:.2}"), TEXT),
             // LABEL, matching what `rebuild_detail` paints for the same fact — the repaint used to
@@ -2874,7 +2874,7 @@ fn refresh_cells(
             state
                 .editing(&project.measured)
                 .and_then(|e| e.mount.as_ref())
-                .and_then(emerge_core::descriptor::mount_height)
+                .and_then(bevy_emerge_core::descriptor::mount_height)
                 .map_or_else(|| "--".to_owned(), |h| format!("{h:.2}")),
             TEXT,
         ),
@@ -2933,7 +2933,7 @@ impl ImportState {
     /// written to avoid.
     pub fn editing<'a>(
         &'a self,
-        library: &'a emerge_core::library::Library,
+        library: &'a bevy_emerge_core::library::Library,
     ) -> Option<&'a Descriptor> {
         match &self.selected_library_id {
             Some(id) => library.get(id),
@@ -2969,7 +2969,7 @@ impl ImportState {
     /// edits live in memory until Accept, a library entry's are the file.
     pub fn editing_mut<'a>(
         &'a mut self,
-        library: &'a mut emerge_core::library::Library,
+        library: &'a mut bevy_emerge_core::library::Library,
     ) -> Option<(&'a mut Descriptor, Persist)> {
         match &self.selected_library_id {
             Some(id) => library
@@ -3072,7 +3072,7 @@ impl ImportState {
     pub fn at_target<'a>(
         &'a mut self,
         target: &EditTarget,
-        library: &'a mut emerge_core::library::Library,
+        library: &'a mut bevy_emerge_core::library::Library,
     ) -> Option<(&'a mut Descriptor, Persist)> {
         match target {
             EditTarget::Library(id) => library
@@ -3128,7 +3128,7 @@ fn write_library(project: &mut Project) -> Result<std::path::PathBuf, String> {
 /// it. A derived layer is not a place to keep anything; this is the only door to the one that is.
 fn commit_measured(
     project: &mut Project,
-    measured: emerge_core::library::Library,
+    measured: bevy_emerge_core::library::Library,
 ) -> Result<std::path::PathBuf, String> {
     // Rebuild the layered view from the edited measurements, and prove it still holds together,
     // before anything touches the disk.
@@ -3152,7 +3152,7 @@ fn commit_measured(
 
     let path = project.library_path.clone();
     let text = measured.to_ron()?;
-    emerge_core::ron_surgery::save_atomic(&path, &text)?;
+    bevy_emerge_core::ron_surgery::save_atomic(&path, &text)?;
 
     // **What the Map has to redraw, worked out by comparison.** The already-placed entities were
     // built from the shapes in `project.library`; anything whose resolved descriptor differs in the
@@ -3186,8 +3186,8 @@ fn commit_measured(
 /// only exists in `old` is a removal, and a removed descriptor has no placements left to redraw —
 /// `commit_measured` refuses a removal the map still uses.
 fn changed_ids(
-    old: &emerge_core::library::Library,
-    new: &emerge_core::library::Library,
+    old: &bevy_emerge_core::library::Library,
+    new: &bevy_emerge_core::library::Library,
 ) -> Vec<String> {
     new.descriptors
         .iter()
@@ -3199,8 +3199,8 @@ fn changed_ids(
 #[cfg(test)]
 mod changed_ids_tests {
     use super::*;
-    use emerge_core::descriptor::Descriptor;
-    use emerge_core::library::Library;
+    use bevy_emerge_core::descriptor::Descriptor;
+    use bevy_emerge_core::library::Library;
 
     fn lib(ds: Vec<Descriptor>) -> Library {
         Library {
@@ -3370,8 +3370,8 @@ impl Axis {
     }
     fn tokens<'a>(
         self,
-        v: &'a emerge_core::vocab::Vocabularies,
-    ) -> &'a emerge_core::vocab::Vocabulary {
+        v: &'a bevy_emerge_core::vocab::Vocabularies,
+    ) -> &'a bevy_emerge_core::vocab::Vocabulary {
         match self {
             Axis::Kind => &v.kind,
             Axis::Effects => &v.effects,
@@ -3379,7 +3379,7 @@ impl Axis {
             Axis::Surfaces => &v.surfaces,
         }
     }
-    fn list<'a>(self, d: &'a mut emerge_core::descriptor::Descriptor) -> &'a mut Vec<String> {
+    fn list<'a>(self, d: &'a mut bevy_emerge_core::descriptor::Descriptor) -> &'a mut Vec<String> {
         match self {
             Axis::Kind => &mut d.kind,
             Axis::Effects => &mut d.effects,
@@ -3391,15 +3391,15 @@ impl Axis {
     /// **This axis as the schema names it**, for the provenance record.
     ///
     /// Two enums, because they are not the same list: this one is *what the tag block draws* — four
-    /// chip rows — and `emerge_core::descriptor::Axis` is *what a labeller can write*, which is those
+    /// chip rows — and `bevy_emerge_core::descriptor::Axis` is *what a labeller can write*, which is those
     /// four plus `mount` and `note`. Folding them together would either put two fields with no chips
     /// into a chip loop or leave the mount and the description with nowhere to be recorded.
-    fn origin(self) -> emerge_core::descriptor::Axis {
+    fn origin(self) -> bevy_emerge_core::descriptor::Axis {
         match self {
-            Axis::Kind => emerge_core::descriptor::Axis::Kind,
-            Axis::Effects => emerge_core::descriptor::Axis::Effects,
-            Axis::Look => emerge_core::descriptor::Axis::Look,
-            Axis::Surfaces => emerge_core::descriptor::Axis::Surfaces,
+            Axis::Kind => bevy_emerge_core::descriptor::Axis::Kind,
+            Axis::Effects => bevy_emerge_core::descriptor::Axis::Effects,
+            Axis::Look => bevy_emerge_core::descriptor::Axis::Look,
+            Axis::Surfaces => bevy_emerge_core::descriptor::Axis::Surfaces,
         }
     }
 }
@@ -4371,11 +4371,11 @@ pub fn exclude_pack(
         exclude.sort();
     }
 
-    let path = project.emerge_dir.join(emerge_core::policy::POLICY_FILE);
+    let path = project.emerge_dir.join(bevy_emerge_core::policy::POLICY_FILE);
     let written = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))
-        .and_then(|text| emerge_core::policy::rewrite_exclude(&text, &exclude))
-        .and_then(|out| emerge_core::ron_surgery::save_atomic(&path, &out));
+        .and_then(|text| bevy_emerge_core::policy::rewrite_exclude(&text, &exclude))
+        .and_then(|out| bevy_emerge_core::ron_surgery::save_atomic(&path, &out));
     match written {
         Err(e) => state.status.problem(format!("not excluded: {e}")),
         Ok(()) => {
@@ -4426,8 +4426,8 @@ fn packs_the_kit_draws_from(project: &Project) -> std::collections::HashSet<Stri
 #[cfg(test)]
 mod pack_fold_tests {
     use super::*;
-    use emerge_core::descriptor::Descriptor;
-    use emerge_core::library::Library;
+    use bevy_emerge_core::descriptor::Descriptor;
+    use bevy_emerge_core::library::Library;
 
     /// **The walk moves the highlight onto the piece it is asking about, and opens the pack that
     /// piece is in.**
@@ -4442,8 +4442,8 @@ mod pack_fold_tests {
     /// to be open.
     #[test]
     fn a_walk_moves_the_highlight_onto_the_piece_it_is_labeling() {
-        use emerge_core::import::Candidate;
-        use emerge_core::policy::Policy;
+        use bevy_emerge_core::import::Candidate;
+        use bevy_emerge_core::policy::Policy;
 
         let mesh = |pack: &str, name: &str| Candidate {
             mesh: format!("{pack}/{name}.glb"),
@@ -4517,7 +4517,7 @@ mod pack_fold_tests {
     fn kit_holding(ids: &[&str]) -> Project {
         let all = [piece("wall", "alpha"), piece("crate", "beta"), piece("lamp", "beta")];
         let measured = Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: all
                 .iter()
@@ -4526,7 +4526,7 @@ mod pack_fold_tests {
                 .collect(),
         };
         let library = Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: all.to_vec(),
         };
@@ -4539,12 +4539,12 @@ mod pack_fold_tests {
             bashes: Vec::new(),
             namespace: "nonexistent".to_owned(),
             library_path: std::path::PathBuf::from("/nonexistent/library.ron"),
-            vocab: emerge_core::vocab::Vocabularies::default(),
-            compositions: emerge_core::composition::Compositions::default(),
+            vocab: bevy_emerge_core::vocab::Vocabularies::default(),
+            compositions: bevy_emerge_core::composition::Compositions::default(),
             library,
             measured,
-            policy: emerge_core::policy::Policy::default(),
-            lattice: emerge_core::kits::Lattice::default(),
+            policy: bevy_emerge_core::policy::Policy::default(),
+            lattice: bevy_emerge_core::kits::Lattice::default(),
             masks: Vec::new(),
             // **No map anywhere in this fixture**, which is the point: the rule under test is about
             // a kit, and the Kits door has no map to consult. See `project::OpenMap`.
@@ -4566,12 +4566,12 @@ mod pack_fold_tests {
     /// `Enter` open one without the mouse.
     #[test]
     fn up_from_the_first_mesh_lands_on_the_heading_above_it() {
-        use emerge_core::import::Candidate;
-        use emerge_core::policy::Policy;
+        use bevy_emerge_core::import::Candidate;
+        use bevy_emerge_core::policy::Policy;
 
         let mesh = |pack: &str, name: &str| Candidate {
             mesh: format!("{pack}/{name}.glb"),
-            proposed: emerge_core::descriptor::Descriptor::default(),
+            proposed: bevy_emerge_core::descriptor::Descriptor::default(),
             measured: None,
             front_detail: None,
             triangles: 0,
@@ -4640,14 +4640,14 @@ mod pack_fold_tests {
     /// adjacent and there is no skipping logic to get wrong.
     #[test]
     fn the_arrows_step_over_a_collapsed_group() {
-        use emerge_core::import::Candidate;
-        use emerge_core::policy::Policy;
+        use bevy_emerge_core::import::Candidate;
+        use bevy_emerge_core::policy::Policy;
 
         // `Candidate` has no `Default` — it is what a measurement produces — so the fields the walk
         // never reads are given their empty values here.
         let mesh = |pack: &str, name: &str| Candidate {
             mesh: format!("{pack}/{name}.glb"),
-            proposed: emerge_core::descriptor::Descriptor::default(),
+            proposed: bevy_emerge_core::descriptor::Descriptor::default(),
             measured: None,
             front_detail: None,
             triangles: 0,
@@ -4689,14 +4689,14 @@ mod pack_fold_tests {
     /// it from `alpha` while the eye was on `gamma`.
     #[test]
     fn the_walk_takes_the_excluded_group_last_and_only_when_it_is_open() {
-        use emerge_core::import::Candidate;
-        use emerge_core::policy::Policy;
+        use bevy_emerge_core::import::Candidate;
+        use bevy_emerge_core::policy::Policy;
 
         // `Candidate` has no `Default` — it is what a measurement produces — so the fields the walk
         // never reads are given their empty values here.
         let mesh = |pack: &str, name: &str| Candidate {
             mesh: format!("{pack}/{name}.glb"),
-            proposed: emerge_core::descriptor::Descriptor::default(),
+            proposed: bevy_emerge_core::descriptor::Descriptor::default(),
             measured: None,
             front_detail: None,
             triangles: 0,
@@ -4739,7 +4739,7 @@ mod pack_fold_tests {
     /// never looked at.
     #[test]
     fn the_walk_skips_whatever_is_folded_away() {
-        use emerge_core::policy::Policy;
+        use bevy_emerge_core::policy::Policy;
         let excluded = Policy {
             exclude: vec!["characters".to_owned()],
             ..Policy::default()
@@ -4807,7 +4807,7 @@ mod pack_fold_tests {
     /// identical to one the scan never found, and `Shift+R` needs a row to stand on to restore it.
     #[test]
     fn an_excluded_pack_leaves_the_list_for_the_group_and_is_still_reachable() {
-        use emerge_core::policy::Policy;
+        use bevy_emerge_core::policy::Policy;
         let policy = Policy {
             exclude: vec!["characters".to_owned()],
             ..Policy::default()
@@ -4994,7 +4994,7 @@ fn rename_candidate(
                 let Some(rename) = state.renaming.take() else {
                     return;
                 };
-                let id = emerge_core::naming::to_snake_case(&rename.raw);
+                let id = bevy_emerge_core::naming::to_snake_case(&rename.raw);
                 if id.is_empty() {
                     state
                         .status
@@ -5108,7 +5108,7 @@ fn step_mount(project: &mut Project, state: &mut ImportState) {
     let had = d
         .mount
         .as_ref()
-        .and_then(emerge_core::descriptor::mount_height);
+        .and_then(bevy_emerge_core::descriptor::mount_height);
     // **Found by kind, not by value.** `Mount` compares its payload too, so once a height is
     // authorable this lookup stops matching the moment it is anything but the list's `1.8` — and a
     // miss here reads as `map_or(0, ..)`, which would silently reset the piece to `on floor`. Asking
@@ -5119,19 +5119,19 @@ fn step_mount(project: &mut Project, state: &mut ImportState) {
         .as_ref()
         .and_then(|m| {
             options.iter().position(|o| match had {
-                Some(h) => emerge_core::descriptor::with_mount_height(o, h).as_ref() == Some(m),
+                Some(h) => bevy_emerge_core::descriptor::with_mount_height(o, h).as_ref() == Some(m),
                 None => o == m,
             })
         })
         .map_or(0, |i| (i + 1) % options.len());
     let mut want = options[next].clone();
     if let Some(h) = had {
-        if let Some(kept) = emerge_core::descriptor::with_mount_height(&want, h) {
+        if let Some(kept) = bevy_emerge_core::descriptor::with_mount_height(&want, h) {
             want = kept;
         }
     }
     d.mount = Some(want);
-    crate::labels::stamp_human(d, emerge_core::descriptor::Axis::Mount);
+    crate::labels::stamp_human(d, bevy_emerge_core::descriptor::Axis::Mount);
     let said = format!("mount: {}", mount_label(d.mount.as_ref()));
     state.record(history_before);
     state.status.say(persist(project, where_to, said));
@@ -5799,7 +5799,7 @@ fn take_out_of_library(id: &str, project: &mut Project) -> Result<std::path::Pat
         .iter()
         .filter(|c| {
             c.members.iter().any(|m| {
-                matches!(&m.body, emerge_core::composition::Body::Descriptor { id: d, .. } if d == id)
+                matches!(&m.body, bevy_emerge_core::composition::Body::Descriptor { id: d, .. } if d == id)
             })
         })
         .map(|c| c.id.as_str())
@@ -5875,7 +5875,7 @@ pub(crate) fn remove_blockers(id: &str, project: &Project) -> Result<Option<Stri
         .iter()
         .filter(|c| {
             c.members.iter().any(|m| {
-                matches!(&m.body, emerge_core::composition::Body::Descriptor { id: d, .. } if d == id)
+                matches!(&m.body, bevy_emerge_core::composition::Body::Descriptor { id: d, .. } if d == id)
             })
         })
         .map(|c| c.id.as_str())
@@ -6352,7 +6352,7 @@ pub(crate) enum ListRow {
 pub(crate) fn candidate_list_rows(
     state: &ImportState,
     filters: &crate::filter::Filters,
-    policy: &emerge_core::policy::Policy,
+    policy: &bevy_emerge_core::policy::Policy,
 ) -> Vec<ListRow> {
     let (offered, excluded) = visible_packs(state, filters, policy);
     let mut out: Vec<ListRow> = Vec::new();
@@ -6379,7 +6379,7 @@ pub(crate) fn candidate_list_rows(
 fn candidate_rows(
     state: &ImportState,
     filters: &crate::filter::Filters,
-    policy: &emerge_core::policy::Policy,
+    policy: &bevy_emerge_core::policy::Policy,
 ) -> Vec<usize> {
     let (offered, excluded) = visible_packs(state, filters, policy);
     let mut out: Vec<usize> = Vec::new();
@@ -6420,7 +6420,7 @@ fn candidate_rows(
 fn visible_packs(
     state: &ImportState,
     filters: &crate::filter::Filters,
-    policy: &emerge_core::policy::Policy,
+    policy: &bevy_emerge_core::policy::Policy,
 ) -> (Vec<(String, Vec<usize>)>, Vec<(String, Vec<usize>)>) {
     let pane = crate::filter::Pane::Candidates;
     let mut offered: Vec<(String, Vec<usize>)> = Vec::new();
@@ -6465,7 +6465,7 @@ fn visible_packs(
 /// invisible is a walk that can import a mesh the author never saw.
 fn pack_is_open(
     state: &ImportState,
-    policy: &emerge_core::policy::Policy,
+    policy: &bevy_emerge_core::policy::Policy,
     pack: &str,
 ) -> bool {
     if policy.excludes(pack) && !state.excluded_open {
@@ -6681,7 +6681,7 @@ pub(crate) fn library_rows<'a>(
     labeled_only: bool,
     // Proposals waiting on a human — a mesh with one is not settled yet. See `composable`.
     pending: Option<&crate::labels::Suggestions>,
-) -> Vec<&'a emerge_core::descriptor::Descriptor> {
+) -> Vec<&'a bevy_emerge_core::descriptor::Descriptor> {
     let pane = crate::filter::Pane::Candidates;
     project
         .library
@@ -6725,7 +6725,7 @@ pub(crate) fn library_rows<'a>(
 /// somebody pressed `U` — and hand-authored labels were never in doubt. The only unsettled state is
 /// a proposal still waiting, which is exactly what is tested.
 pub(crate) fn composable(
-    d: &emerge_core::descriptor::Descriptor,
+    d: &bevy_emerge_core::descriptor::Descriptor,
     pending: Option<&crate::labels::Suggestions>,
 ) -> bool {
     if !crate::labels::judged_enough_to_build_with(d) {
@@ -6984,7 +6984,7 @@ fn drive_preview(
         // bounding box on the placement point *"is what makes the symmetric footprint an accurate
         // reservation"*. Measured over BRP 2026-08-18: that put the same piece 0.42 m from where
         // the Tiles tab stands it, and the Tiles tab is the one telling the truth —
-        // `emerge_bevy::spawn_descriptor` places the file's origin at the placement point and
+        // `bevy_emerge::spawn_descriptor` places the file's origin at the placement point and
         // applies no pivot, and that is the spawner a map placement AND a tile member both go
         // through. So the correction was compensating here for something the game never does, and
         // the preview promised a position nothing would honour.
@@ -6996,7 +6996,7 @@ fn drive_preview(
         // exactly what it will do in the game.
         //
         // **The transform a real placement applies**, which is `(scale, scale * stretch_y, scale)`
-        // — see `emerge_bevy::spawn_descriptor`.
+        // — see `bevy_emerge::spawn_descriptor`.
         let want = Transform::from_xyz(
             STAGE.x,
             STAGE.y + staged_lift(d),
@@ -7007,7 +7007,7 @@ fn drive_preview(
             a.scale.unwrap_or(1.0) * a.stretch_y.unwrap_or(1.0),
             a.scale.unwrap_or(1.0),
         ));
-        (mesh, want, emerge_bevy::mesh_rotation(d))
+        (mesh, want, bevy_emerge::mesh_rotation(d))
     };
 
     for (e, of, _) in &previews {
@@ -7168,7 +7168,7 @@ fn drive_preview(
             want,
             Visibility::Inherited,
         ))
-        // **The mesh child carries `align.rotate`**, the same way `emerge_bevy::spawn_world` does —
+        // **The mesh child carries `align.rotate`**, the same way `bevy_emerge::spawn_world` does —
         // see its note on why the export correction belongs here and not on the parent.
         //
         // This was `Transform::default()`, so the one tab that *has* the rotate chips and the
@@ -7204,11 +7204,11 @@ fn draw_subgrid(state: Res<ImportState>, project: Res<Project>, mut gizmos: Gizm
     let Some(desc) = state.placed(&project) else {
         return;
     };
-    let Some((w, d)) = emerge_core::descriptor::placed_footprint(desc) else {
+    let Some((w, d)) = bevy_emerge_core::descriptor::placed_footprint(desc) else {
         return;
     };
-    let h = emerge_core::descriptor::placed_height(desc).unwrap_or(0.0);
-    let empty = emerge_core::descriptor::Subgrid::default();
+    let h = bevy_emerge_core::descriptor::placed_height(desc).unwrap_or(0.0);
+    let empty = bevy_emerge_core::descriptor::Subgrid::default();
     let g = desc.subgrid.as_ref().unwrap_or(&empty);
     let Ok((dx, dy, dz)) = project.divisions_of(desc) else {
         return;
@@ -7265,10 +7265,10 @@ fn draw_preview_footprint(state: Res<ImportState>, project: Res<Project>, mut gi
     // placement rules will reserve", and after `stack::covers` learned about `align.scale` that is the
     // placed footprint — drawing the measured one would have shown an author a reservation nothing
     // uses, on the one tab where the size is now editable.
-    let Some((w, d)) = emerge_core::descriptor::placed_footprint(desc) else {
+    let Some((w, d)) = bevy_emerge_core::descriptor::placed_footprint(desc) else {
         return;
     };
-    let height = emerge_core::descriptor::placed_height(desc).unwrap_or(0.0);
+    let height = bevy_emerge_core::descriptor::placed_height(desc).unwrap_or(0.0);
     let lift = stage_lift(desc);
 
     // **The ground, when the piece is not on it.** A lifted piece with nothing under it just looks
@@ -7298,16 +7298,16 @@ fn draw_preview_footprint(state: Res<ImportState>, project: Res<Project>, mut gi
         FOOTPRINT,
     );
     // The cells it will actually occupy.
-    let (cx, _) = emerge_core::grid::cells(w);
-    let (cz, _) = emerge_core::grid::cells(d);
+    let (cx, _) = bevy_emerge_core::grid::cells(w);
+    let (cz, _) = bevy_emerge_core::grid::cells(d);
     gizmos.rect(
         Isometry3d::new(
             STAGE + up + Vec3::new(0.0, 0.01, 0.0),
             Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
         ),
         Vec2::new(
-            cx as f32 * emerge_core::grid::SNAP,
-            cz as f32 * emerge_core::grid::SNAP,
+            cx as f32 * bevy_emerge_core::grid::SNAP,
+            cz as f32 * bevy_emerge_core::grid::SNAP,
         ),
         CELLS,
     );
@@ -7540,7 +7540,7 @@ fn on_shelf_click(
     // The census counts, never a panel — `census_is_the_one_counter` forbids reading
     // `compositions.compositions.len()` here, and it is the number `Action::KitEnter` guards on.
     let kit_len =
-        emerge_core::census::of_catalog(&project.library, &project.compositions.compositions)
+        bevy_emerge_core::census::of_catalog(&project.library, &project.compositions.compositions)
             .compositions;
     match chip.0 {
         Shelf::Candidates => {
@@ -8413,7 +8413,7 @@ fn rebuild_candidates(
     // rendering `compositions.compositions.len()` itself. The TILES chip count includes the
     // named-but-unsaved draft, because the Tiles page draws it as a row — the same
     // `build::page_len` the page's own walk clamps to, so the strip and the list agree.
-    let tiles_n = emerge_core::census::of_catalog(&project.library, &project.compositions.compositions)
+    let tiles_n = bevy_emerge_core::census::of_catalog(&project.library, &project.compositions.compositions)
         .compositions
         + usize::from(crate::build::draft(&build, &project).is_some());
     // The tile list is not text-filtered, so shown and total are the same number and the chip
@@ -8545,7 +8545,7 @@ fn build_detail(p: &mut ChildSpawnerCommands, build: &crate::build::Build, proje
         );
         return;
     };
-    let emerge_core::composition::Envelope::Bounded { size } = comp.envelope else {
+    let bevy_emerge_core::composition::Envelope::Bounded { size } = comp.envelope else {
         line(p, format!("`{}` claims no tile", comp.id), DANGER, crate::chrome::text::LABEL);
         return;
     };
@@ -8648,9 +8648,9 @@ fn build_detail(p: &mut ChildSpawnerCommands, build: &crate::build::Build, proje
         // Angle brackets for a hole, so a row that is a *place for* something never reads as a thing
         // that is there — the same shape `compose::describe_member` uses.
         let what = match &m.body {
-            emerge_core::composition::Body::Descriptor { id, .. } => id.clone(),
-            emerge_core::composition::Body::Composition { id } => format!("[{id}]"),
-            emerge_core::composition::Body::Slot { accepts } => format!("<{accepts}>"),
+            bevy_emerge_core::composition::Body::Descriptor { id, .. } => id.clone(),
+            bevy_emerge_core::composition::Body::Composition { id } => format!("[{id}]"),
+            bevy_emerge_core::composition::Body::Slot { accepts } => format!("<{accepts}>"),
         };
         let yaw = if m.yaw == 0.0 {
             String::new()
@@ -8797,7 +8797,7 @@ fn rebuild_detail(
             // empty field reads as "waiting for you" rather than as the id having been wiped.
             let (id_text, id_tint) = match &state.renaming {
                 Some(raw) => (
-                    format!("id  {}_", emerge_core::naming::to_snake_case(&raw.raw)),
+                    format!("id  {}_", bevy_emerge_core::naming::to_snake_case(&raw.raw)),
                     ACCENT,
                 ),
                 None => (format!("id  {}", d.id), TEXT),
@@ -8959,7 +8959,7 @@ fn rebuild_detail(
             // the same call `on_note_click` makes. Reading the layered `placed` here would show a
             // width a project patch supplied and then write the author's answer one level below it.
             // Not `placed` as a name — that is already the layered *descriptor* in this scope.
-            let placed_fp = emerge_core::descriptor::placed_footprint(d);
+            let placed_fp = bevy_emerge_core::descriptor::placed_footprint(d);
             let (width_text, width_tint) = crate::chrome::field_text(
                 scale_edit.active.as_ref().map(|(_, raw)| raw.as_str()),
                 match placed_fp {
@@ -8975,11 +8975,11 @@ fn rebuild_detail(
             // the block that was candidates-only is what split this in the first place.
             let size_note = match placed_fp {
                 Some((w, dep)) => {
-                    let tall = emerge_core::descriptor::placed_height(d)
+                    let tall = bevy_emerge_core::descriptor::placed_height(d)
                         .map(|h| format!(" x {h:.2}"))
                         .unwrap_or_default();
-                    let (cells_x, _) = emerge_core::grid::cells(w);
-                    let (cells_z, _) = emerge_core::grid::cells(dep);
+                    let (cells_x, _) = bevy_emerge_core::grid::cells(w);
+                    let (cells_z, _) = bevy_emerge_core::grid::cells(dep);
                     // The two facts that are not the size and are not always there: what a resize
                     // baked, and which way a turn left the piece. Suffixes rather than rows —
                     // stating them costs a clause; giving each a row of its own is the block this
@@ -9144,7 +9144,7 @@ fn rebuild_detail(
             // Drawn only when the mount carries a height — `mount_height` is the one place that
             // decides which those are, so this cannot drift from the schema. A dead field beside
             // `on floor` would be the panel asking a question with no answer.
-            if let Some(now) = d.mount.as_ref().and_then(emerge_core::descriptor::mount_height) {
+            if let Some(now) = d.mount.as_ref().and_then(bevy_emerge_core::descriptor::mount_height) {
                 let (height_text, height_tint) = crate::chrome::field_text(
                     height_edit.active.as_ref().map(|(_, raw)| raw.as_str()),
                     (format!("{now:.2}"), TEXT),
@@ -9316,7 +9316,7 @@ fn rebuild_detail(
                         .labels
                         .as_ref()
                         .and_then(|l| l.by.get(axis.origin()))
-                        != Some(emerge_core::descriptor::By::Human);
+                        != Some(bevy_emerge_core::descriptor::By::Human);
                     crate::chrome::section(p, axis.label());
                     // **An axis the filter emptied keeps its heading, says `-`, and still offers `+`.**
                     //
@@ -9529,7 +9529,7 @@ fn rebuild_detail(
                 }
             };
             let (dx, dy, dz) = div;
-            let empty = emerge_core::descriptor::Subgrid::default();
+            let empty = bevy_emerge_core::descriptor::Subgrid::default();
             let grid = d.subgrid.as_ref().unwrap_or(&empty);
             let marked = grid.cells.len();
 
@@ -9539,7 +9539,7 @@ fn rebuild_detail(
             // size and the project's `divisions`, which is what lets an edge token on a 3 m wall
             // mean the same thing as one on a 0.5 m chair. The subunit's size in millimetres is
             // there because that is the number an author placing a token actually needs.
-            let subunit_mm = emerge_core::grid::SNAP / project.lattice.face_bands as f32 * 1000.0;
+            let subunit_mm = bevy_emerge_core::grid::SNAP / project.lattice.face_bands as f32 * 1000.0;
             p.spawn((
                 Text::new(format!("{dx} x {dy} x {dz} cells of {subunit_mm:.0} mm")),
                 TextColor(TEXT),
@@ -9552,9 +9552,9 @@ fn rebuild_detail(
                     // and a row telling an author to go and edit a file that no longer holds the
                     // number is worse than a row saying nothing.
                     "{marked} of {} marked — {} division(s) per {:.1} m tile, from the map",
-                    emerge_core::descriptor::Subgrid::volume(div),
+                    bevy_emerge_core::descriptor::Subgrid::volume(div),
                     project.lattice.face_bands,
-                    emerge_core::grid::SNAP,
+                    bevy_emerge_core::grid::SNAP,
                 )),
                 TextColor(DIM),
                 crate::chrome::font(crate::chrome::text::HINT),
@@ -9852,7 +9852,7 @@ fn rebuild_detail(
 /// **What `M` does to an authored wall height.** See `cycle_mount`.
 #[cfg(test)]
 mod mount_cycle_tests {
-    use emerge_core::descriptor::{
+    use bevy_emerge_core::descriptor::{
         DecalHost, Mount, mount_height, mount_options, with_mount_height,
     };
 
@@ -9929,11 +9929,11 @@ mod scale_field_tests {
     fn piece(w: f32, dep: f32, h: f32, scale: Option<f32>) -> Descriptor {
         Descriptor {
             id: "p".into(),
-            extent: emerge_core::descriptor::Extent {
+            extent: bevy_emerge_core::descriptor::Extent {
                 footprint: Some((w, dep)),
                 height: Some(h),
             },
-            align: emerge_core::descriptor::Align {
+            align: bevy_emerge_core::descriptor::Align {
                 scale,
                 ..Default::default()
             },
@@ -10028,7 +10028,7 @@ mod scale_field_tests {
     fn the_one_shipped_scaled_piece_reads_as_placed() {
         let d = piece(0.306, 0.106, 0.178, Some(0.6));
         assert_eq!(
-            emerge_core::descriptor::placed_footprint(&d),
+            bevy_emerge_core::descriptor::placed_footprint(&d),
             Some((0.306, 0.106)),
             "the reservation is the extent — the scale is a render instruction, not a multiplier"
         );
@@ -10080,9 +10080,9 @@ mod righting_tests {
 #[cfg(test)]
 mod write_library_tests {
     use super::*;
-    use emerge_core::descriptor::{Align, Descriptor, Extent};
-    use emerge_core::library::{LIBRARY_VERSION, Library};
-    use emerge_core::policy::{Match, Patch, Policy};
+    use bevy_emerge_core::descriptor::{Align, Descriptor, Extent};
+    use bevy_emerge_core::library::{LIBRARY_VERSION, Library};
+    use bevy_emerge_core::policy::{Match, Patch, Policy};
 
     /// The mesh is authored at 1.00 m; this facility builds its walls to 2.40 m.
     const AUTHORED_HEIGHT: f32 = 1.0;
@@ -10096,7 +10096,7 @@ mod write_library_tests {
                 footprint: Some((3.0, 0.5)),
                 height: Some(AUTHORED_HEIGHT),
             },
-            mount: Some(emerge_core::descriptor::Mount::OnFloor),
+            mount: Some(bevy_emerge_core::descriptor::Mount::OnFloor),
             ..Descriptor::default()
         }
     }
@@ -10130,7 +10130,7 @@ mod write_library_tests {
         let library = policy.apply(&measured).unwrap_or_else(|e| panic!("{e}"));
         Project {
             // A test project stamps nothing; empty is the same state as a file with none in it.
-            compositions: emerge_core::composition::Compositions::default(),
+            compositions: bevy_emerge_core::composition::Compositions::default(),
             root: dir.to_path_buf(),
             emerge_dir: dir.to_path_buf(),
             project_dir: dir.to_path_buf(),
@@ -10138,7 +10138,7 @@ mod write_library_tests {
             // **One kit, itself.** Not empty: `merged_with` rebuilds the palette from these layers,
             // so a Project holding none would merge to nothing and the first import in a test would
             // look like it had deleted the library.
-            kits: vec![emerge_core::kits::KitLayer {
+            kits: vec![bevy_emerge_core::kits::KitLayer {
                 dir: dir.to_path_buf(),
                 namespace: "test".to_owned(),
                 measured: measured.clone(),
@@ -10147,13 +10147,13 @@ mod write_library_tests {
             }],
             // A test project declares no combinations; every map in it offers every bound kit.
             bashes: Vec::new(),
-            lattice: emerge_core::kits::Lattice::default(),
+            lattice: bevy_emerge_core::kits::Lattice::default(),
             // `wall()`'s id carries no namespace, so the directory is what a tile is named after.
             namespace: dir
                 .file_name()
                 .map_or_else(|| "emerge".to_owned(), |n| n.to_string_lossy().into_owned()),
             library_path: dir.join("library.ron"),
-            vocab: emerge_core::vocab::Vocabularies::default(),
+            vocab: bevy_emerge_core::vocab::Vocabularies::default(),
             measured,
             library,
             policy,
@@ -10164,7 +10164,7 @@ mod write_library_tests {
     }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("emerge_mapper_{name}_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("bevy_emerge_mapper_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
         dir
@@ -10221,7 +10221,7 @@ mod write_library_tests {
     ///
     /// Driven through `commit_measured` rather than through the observer, because the defect was the
     /// *destination* of the write and that is what this pins. Which key reaches it is
-    /// `crates/emerge-mapper/tests/headless.rs`' concern.
+    /// `crates/bevy_emerge_mapper/tests/headless.rs`' concern.
     #[test]
     fn an_accepted_import_lands_in_the_measurements_file() {
         let dir = temp_dir("import_lands");
@@ -10235,7 +10235,7 @@ mod write_library_tests {
                 footprint: Some((0.5, 0.5)),
                 height: Some(0.5),
             },
-            mount: Some(emerge_core::descriptor::Mount::OnFloor),
+            mount: Some(bevy_emerge_core::descriptor::Mount::OnFloor),
             ..Descriptor::default()
         });
         commit_measured(&mut project, trial).unwrap_or_else(|e| panic!("{e}"));

@@ -136,7 +136,7 @@ impl Plugin for SurfacePlugin {
             // **A known crash lives here, and two fixes have been tried and eliminated. Read this
             // before trying a third.**
             //
-            // Booting straight into a door (`emerge-mapper . <map>`) dies inside two seconds,
+            // Booting straight into a door (`bevy_emerge_mapper . <map>`) dies inside two seconds,
             // reproduced 4/4, while booting through the chooser never does, 0/4:
             //
             // ```text
@@ -210,7 +210,7 @@ impl Plugin for SurfacePlugin {
 /// legend to stand in at all, so the geometry the headless ratchets policed was one the windowed
 /// app never renders — the first real-window capture showed the legend buried under the piece
 /// list's boxes while every test was green. This is a 16:9 the docks leave a real stage inside;
-/// `emerge_mapper::harness::resize_surface` is how a test asks for another shape.
+/// `bevy_emerge_mapper::harness::resize_surface` is how a test asks for another shape.
 const INITIAL_W: u32 = 1536;
 const INITIAL_H: u32 = 864;
 
@@ -234,7 +234,7 @@ fn spawn_surface(world: &mut World) {
     };
     let mut image = Image {
         texture_descriptor: TextureDescriptor {
-            label: Some("emerge-mapper surface"),
+            label: Some("bevy_emerge_mapper surface"),
             size,
             dimension: TextureDimension::D2,
             format: TextureFormat::Bgra8UnormSrgb,
@@ -490,7 +490,7 @@ fn fit_surface_to_window(
 /// # The viewport is clamped to the image, and that is a crash fix
 ///
 /// Reproduced 2026-09-03, twice out of two, by booting straight into a door
-/// (`emerge-mapper . <map>`): the application died inside two seconds with
+/// (`bevy_emerge_mapper . <map>`): the application died inside two seconds with
 ///
 /// ```text
 /// Attachments have differing sizes: the depth attachment's texture view has extent

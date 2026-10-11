@@ -78,7 +78,7 @@ impl Asked {
     /// *"destructive, and only destructive"*).
     ///
     /// Every question used to render its agreeing button filled `DANGER`, whichever question it
-    /// was — so `Quit emerge-mapper?`, whose own body says *"anything already saved stays
+    /// was — so `Quit bevy_emerge_mapper?`, whose own body says *"anything already saved stays
     /// saved"*, was as red as deleting a kit directory. That is how an author learns to ignore red.
     fn destructive(self) -> bool {
         match self {

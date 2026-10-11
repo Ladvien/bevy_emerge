@@ -8,12 +8,12 @@
 //! Why it matters: a transition would *restart* a clip, and a restarted clip slides the foot that was
 //! planted. Crossfading by weight alone is what keeps contact through a walk→run change.
 //!
-//! Run: `cargo run -p emerge-anim --example blend_weights`
+//! Run: `cargo run -p bevy_emerge_anim --example blend_weights`
 
-use emerge_anim::blend::{
+use bevy_emerge_anim::blend::{
     dir_weights, locomotion_weights, tier_weights, travel_angle, LOCO_SLOTS, MOVE_BAND, RUN_BAND,
 };
-use emerge_anim::wrap01;
+use bevy_emerge_anim::wrap01;
 
 const SLOTS: [&str; LOCO_SLOTS] =
     ["idle", "idle_alert", "walk", "run", "walk_bk", "run_bk", "strafe_L", "strafe_R"];

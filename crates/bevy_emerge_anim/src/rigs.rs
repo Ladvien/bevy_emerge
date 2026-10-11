@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 
-use emerge_core::rigs::{Playback, Rig};
+use bevy_emerge_core::rigs::{Playback, Rig};
 
 use crate::Slot;
 

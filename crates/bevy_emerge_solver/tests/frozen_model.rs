@@ -27,7 +27,7 @@
 //! deliberately, and then re-pin. It must never be re-pinned as a reflex — `assert_eq!` on a hash is
 //! only worth having if updating it costs a thought.
 
-use deterministic_solver::{Answer, Budget, Literal, Solver};
+use bevy_emerge_solver::{Answer, Budget, Literal, Solver};
 
 /// FNV-1a over the assignment.
 ///

@@ -150,8 +150,8 @@ flush edge and the `KIT · scp` bleed in the first place. A fix that compiles an
 was never looked at is not done.
 
 **Baseline**, measured on a clean worktree of `HEAD` and re-measured after pulling 13 commits (which
-touched neither `emerge-mapper` nor `emerge-core`, so every `file:line` above still resolves):
-`emerge-mapper --test headless` at **152 passed / 4 failed**, every other binary green.
+touched neither `bevy_emerge_mapper` nor `bevy_emerge_core`, so every `file:line` above still resolves):
+`bevy_emerge_mapper --test headless` at **152 passed / 4 failed**, every other binary green.
 
 ### S1 — Scrolling: two rows of context, and a page-jump re-centres *(A: M3, T5)*
 
@@ -236,7 +236,7 @@ the finding describes it, with no design question outstanding.
 ---
 ## Part 3 — What changed
 
-**Baseline was `emerge-mapper --test headless` at 152 passed / 4 failed.** It is now **155 / 1** —
+**Baseline was `bevy_emerge_mapper --test headless` at 152 passed / 4 failed.** It is now **155 / 1** —
 three tests un-blinded and none broken. The one red is `no_two_leaders_cross`, a badge-placement
 test that was failing before this work and is untouched by it.
 

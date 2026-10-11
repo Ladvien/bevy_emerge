@@ -482,7 +482,7 @@ impl Interface {
 /// against it rather than re-derived: Bevy's yaw turns +X toward −Z, so getting the sign wrong here
 /// mirrors every composition without failing anything.
 ///
-/// **Public because a turned *loose set* has to agree with a turned stamp.** `emerge-mapper`'s clone
+/// **Public because a turned *loose set* has to agree with a turned stamp.** `bevy_emerge_mapper`'s clone
 /// tool rotates a captured group about its anchor, and a second copy of this sign convention is how
 /// a set stamped at 90° would come out mirrored against a composition stamped at 90° — the failure
 /// this comment already warns about, one caller further out.
@@ -684,7 +684,7 @@ impl Composition {
         // is about *stamping*. That was true, and it was the wrong conclusion, for two reasons found
         // afterwards.
         //
-        // **The blast radius is the map, not the stamp.** `editor::redraw_stamps` and `emerge-bevy`
+        // **The blast radius is the map, not the stamp.** `editor::redraw_stamps` and `bevy_emerge`
         // both expand a map's stamps in ONE call, and the editor despawns every stamped row *before*
         // that call can fail — so a single empty composition takes every stamped row in the map off
         // the screen, and the saved file will not load in the game either. A per-stamp refusal
@@ -1854,7 +1854,7 @@ mod tests {
     /// another, which the stamp-time check can only report against the outer id. `expand` catches a
     /// caller that built compositions in memory and never came through the door.
     ///
-    /// The reason the load-time check is the important one: `redraw_stamps` and `emerge-bevy` expand
+    /// The reason the load-time check is the important one: `redraw_stamps` and `bevy_emerge` expand
     /// a whole map in ONE call, and the editor despawns every stamped row before that call can fail.
     /// One empty composition therefore costs every stamped row in the map, not just its own.
     #[test]

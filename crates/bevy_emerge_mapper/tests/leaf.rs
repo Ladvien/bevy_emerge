@@ -9,8 +9,8 @@
 //! # Two things this deliberately does not do
 //!
 //! It does not forbid `bevy` — this crate *is* a Bevy application, which is the difference between it
-//! and `emerge-core`'s `engine_free.rs`. And it does not check the game's own manifest: the editor is
-//! not a dependency of the game, and `cargo tree -i emerge-mapper` is what would notice if that
+//! and `bevy_emerge_core`'s `engine_free.rs`. And it does not check the game's own manifest: the editor is
+//! not a dependency of the game, and `cargo tree -i bevy_emerge_mapper` is what would notice if that
 //! changed.
 //!
 //! # Optional dependencies are dependencies
@@ -30,13 +30,13 @@
 
 use std::collections::BTreeSet;
 
-/// Every crate `emerge-mapper` may depend on directly, and why it is allowed.
+/// Every crate `bevy_emerge_mapper` may depend on directly, and why it is allowed.
 ///
 /// Adding a row here is the deliberate edit. Removing the need for one is better.
 const ALLOWED: &[(&str, &str)] = &[
-    ("emerge-core", "the engine-free schema, solvers and validation"),
-    ("emerge-bevy", "the one spawner, so a map cannot look one way here and another in the game"),
-    ("emerge-anim", "the game's real pose blender, so the bench previews what the game plays"),
+    ("bevy_emerge_core", "the engine-free schema, solvers and validation"),
+    ("bevy_emerge", "the one spawner, so a map cannot look one way here and another in the game"),
+    ("bevy_emerge_anim", "the game's real pose blender, so the bench previews what the game plays"),
     ("bevy_devshot", "the one capture rig"),
     ("bevy", "this is a Bevy application"),
     (
@@ -99,7 +99,7 @@ fn the_editor_depends_on_nothing_it_has_not_argued_for() {
     let extra: Vec<&String> = declared.iter().filter(|d| !allowed.contains(d.as_str())).collect();
     assert!(
         extra.is_empty(),
-        "emerge-mapper declares {extra:?}, which nothing in this test argues for. Widening the \
+        "bevy_emerge_mapper declares {extra:?}, which nothing in this test argues for. Widening the \
          boundary is fine — add the crate to ALLOWED with the sentence that says why it earns its \
          place, and that sentence is what a reviewer reads."
     );

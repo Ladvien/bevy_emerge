@@ -16,7 +16,7 @@
 //!
 //! Terminal output, no GPU.
 
-use deterministic_solver::{Answer, Budget, Literal, Solver};
+use bevy_emerge_solver::{Answer, Budget, Literal, Solver};
 
 fn main() {
     let sizes: Vec<usize> = match std::env::args().nth(1).and_then(|a| a.parse().ok()) {

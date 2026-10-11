@@ -1,6 +1,6 @@
 //! **The animation bench** — what a rig's clips are, and whether the asset still agrees.
 //!
-//! The editor's third tab. `emerge_core::clips` measures a GLB and `assets/emerge/rigs.ron` records
+//! The editor's third tab. `bevy_emerge_core::clips` measures a GLB and `assets/emerge/rigs.ron` records
 //! what the game plays; this is where an author sees both at once. `docs/animation.md` names the gap
 //! it closes: getting a gait's `(duration, phase_offset, cycle_distance)` was *"a manual offline step,
 //! not a repo tool"*, and `src/site/staff_anim.rs` calls that measuring *"the largest hidden cost in
@@ -20,8 +20,8 @@
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as UiButton};
-use emerge_core::rig_check::{Level, Staleness};
-use emerge_core::rigs::{Playback, Rigs};
+use bevy_emerge_core::rig_check::{Level, Staleness};
+use bevy_emerge_core::rigs::{Playback, Rigs};
 
 use crate::chrome::{ACCENT, DANGER, DIM, LABEL, PAD, ROW_BG, ROW_SELECTED, TEXT};
 use crate::tiles::{AnimRoot, Mode};
@@ -229,8 +229,8 @@ impl Plugin for AnimTabPlugin {
             .init_resource::<crate::anim_cache::BenchCache>()
             .init_resource::<crate::anim_stage::BenchCamera>()
             // The editor registers the game's blend pass once, here — the staged figure is driven
-            // by the REAL machinery, which is the whole reason emerge-anim is a crate.
-            .add_plugins(emerge_anim::PoseBlendPlugin)
+            // by the REAL machinery, which is the whole reason bevy_emerge_anim is a crate.
+            .add_plugins(bevy_emerge_anim::PoseBlendPlugin)
             .add_systems(
                 OnEnter(crate::screen::Screen::Editor),
                 (
@@ -289,8 +289,8 @@ impl Plugin for AnimTabPlugin {
                         crate::anim_stage::cycle_cam_preset.in_set(crate::keys::Phase::Act),
                         crate::anim_stage::drive_bench_scrub
                             .in_set(crate::keys::Phase::Act)
-                            .after(emerge_anim::PoseAttachSet)
-                            .before(emerge_anim::PoseBlendSet),
+                            .after(bevy_emerge_anim::PoseAttachSet)
+                            .before(bevy_emerge_anim::PoseBlendSet),
                         crate::anim_stage::refresh_scrub_ui,
                         crate::anim_plots::drive_plot_hover,
                     ),
@@ -435,7 +435,7 @@ fn commit_text(
 ) -> Result<(), String> {
     let parsed = Rigs::parse(&new_text)?;
     let path = root.join("assets/emerge/rigs.ron");
-    emerge_core::ron_surgery::save_atomic(&path, &new_text)?;
+    bevy_emerge_core::ron_surgery::save_atomic(&path, &new_text)?;
     bench.rigs = Some(parsed);
     bench.text = Some(new_text);
     Ok(())
@@ -445,7 +445,7 @@ fn commit_text(
 ///
 /// Measures the asset NOW (hash, clips, checks in one motion, so the provenance stamps exactly the
 /// bytes the numbers came from), rewrites each unkept gait slot's measured fields through
-/// [`emerge_core::rigs_edit::RigDoc`], stamps provenance, and refuses the whole write unless the
+/// [`bevy_emerge_core::rigs_edit::RigDoc`], stamps provenance, and refuses the whole write unless the
 /// edited text parses back to precisely the value it built in memory — `replace_field`'s key search
 /// is textual, and corruption must be refused, never written.
 fn adopt(
@@ -470,13 +470,13 @@ fn adopt(
     }
 
     let path = root.join("assets").join(&rig.mesh);
-    let (glb, hash) = emerge_core::glb::Glb::open_fingerprinted(&path)?;
-    let clip_infos = emerge_core::clips::clips(&glb);
-    let current = emerge_core::rig_check::staleness(&rig, hash)
-        == emerge_core::rig_check::Staleness::Current;
-    let report = emerge_core::rig_check::check_rig(&glb, &rig, current);
+    let (glb, hash) = bevy_emerge_core::glb::Glb::open_fingerprinted(&path)?;
+    let clip_infos = bevy_emerge_core::clips::clips(&glb);
+    let current = bevy_emerge_core::rig_check::staleness(&rig, hash)
+        == bevy_emerge_core::rig_check::Staleness::Current;
+    let report = bevy_emerge_core::rig_check::check_rig(&glb, &rig, current);
 
-    let mut doc = emerge_core::rigs_edit::RigDoc::open(&text, &name)?;
+    let mut doc = bevy_emerge_core::rigs_edit::RigDoc::open(&text, &name)?;
     // The in-memory expectation the written text must parse back to.
     let mut trial = rigs.clone();
     let trial_rig = trial
@@ -509,18 +509,18 @@ fn adopt(
             continue;
         };
         let mut adopted = (d0, p0, c0);
-        let dur = emerge_core::ron_surgery::fmt_f32(m.duration);
+        let dur = bevy_emerge_core::ron_surgery::fmt_f32(m.duration);
         doc.edit_slot_field(i, "duration", &dur)?;
         adopted.0 = m.duration;
         wrote += 1;
         if let Some(ph) = m.phase_offset {
-            doc.edit_slot_field(i, "phase_offset", &emerge_core::ron_surgery::fmt_f32(ph))?;
+            doc.edit_slot_field(i, "phase_offset", &bevy_emerge_core::ron_surgery::fmt_f32(ph))?;
             adopted.1 = ph;
             wrote += 1;
         }
         if let Some(raw) = m.cycle_distance {
             let world = raw * rig.scale;
-            doc.edit_slot_field(i, "cycle_distance", &emerge_core::ron_surgery::fmt_f32(world))?;
+            doc.edit_slot_field(i, "cycle_distance", &bevy_emerge_core::ron_surgery::fmt_f32(world))?;
             adopted.2 = world;
             wrote += 1;
         }
@@ -547,20 +547,20 @@ fn adopt(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| "the system clock is before 1970")?
         .as_secs();
-    let stamp = emerge_core::rigs::Provenance {
-        glb_fnv1a: emerge_core::rigs::fingerprint_string(hash),
+    let stamp = bevy_emerge_core::rigs::Provenance {
+        glb_fnv1a: bevy_emerge_core::rigs::fingerprint_string(hash),
         clips: clip_infos.len(),
         clip_names: clip_infos
             .iter()
             .map(|c| c.name.clone().unwrap_or_default())
             .collect(),
-        tool: emerge_core::rigs::BENCH_TOOL_VERSION,
-        date: emerge_core::rig_check::civil_date_utc(secs),
+        tool: bevy_emerge_core::rigs::BENCH_TOOL_VERSION,
+        date: bevy_emerge_core::rig_check::civil_date_utc(secs),
     };
     trial_rig.provenance = Some(stamp.clone());
     doc.set_rig_field(
         "provenance",
-        &emerge_core::rigs_edit::provenance_value(&stamp),
+        &bevy_emerge_core::rigs_edit::provenance_value(&stamp),
     )?;
 
     let new_text = doc.render();
@@ -816,8 +816,8 @@ fn rebuild_list(
 /// A field that could not be measured is simply absent rather than printed as a guess. The one
 /// extension point for per-slot measured data — the skate summary rides here too.
 fn slot_measured_line(
-    m: &emerge_core::rig_check::SlotMeasure,
-    skate: Option<&emerge_core::rig_check::SkateReport>,
+    m: &bevy_emerge_core::rig_check::SlotMeasure,
+    skate: Option<&bevy_emerge_core::rig_check::SkateReport>,
     scale: f32,
 ) -> String {
     let mut line = format!("measured: {:.3}s", m.duration);
@@ -828,7 +828,7 @@ fn slot_measured_line(
         line.push_str(&format!("  {:.3}m", cd * scale));
     }
     if let Some(sk) = skate {
-        if sk.max_skate > emerge_core::rig_check::SKATE_FLOOR {
+        if sk.max_skate > bevy_emerge_core::rig_check::SKATE_FLOOR {
             line.push_str(&format!(
                 "  skate up to {:.2} u/s over {:.0}% of drive",
                 sk.max_skate,
@@ -904,8 +904,8 @@ fn rebuild_slots(
                     // 2026-08-17). `rig_check`'s middle tier is worded "worth checking", so it IS
                     // the vocabulary's Warn.
                     let (tint, word) = crate::chrome::severity_style(match report.worst {
-                        Level::Bad => emerge_core::import::Severity::Blocking,
-                        _ => emerge_core::import::Severity::Warn,
+                        Level::Bad => bevy_emerge_core::import::Severity::Blocking,
+                        _ => bevy_emerge_core::import::Severity::Warn,
                     });
                     let first = report
                         .findings
@@ -1340,7 +1340,7 @@ mod measured_line_tests {
 
     #[test]
     fn the_measured_line_scales_distances_and_omits_what_could_not_be_measured() {
-        let full = emerge_core::rig_check::SlotMeasure {
+        let full = bevy_emerge_core::rig_check::SlotMeasure {
             slot: 2,
             duration: 1.402,
             cycle_distance: Some(1.227),
@@ -1350,7 +1350,7 @@ mod measured_line_tests {
         let line = slot_measured_line(&full, None, 1.13);
         assert_eq!(line, "measured: 1.402s  ph +0.020  1.387m");
 
-        let bare = emerge_core::rig_check::SlotMeasure {
+        let bare = bevy_emerge_core::rig_check::SlotMeasure {
             slot: 0,
             duration: 0.75,
             cycle_distance: None,
@@ -1359,10 +1359,10 @@ mod measured_line_tests {
         assert_eq!(slot_measured_line(&bare, None, 1.13), "measured: 0.750s");
 
         // A skating slot says so on the same line; a skate-free one stays quiet.
-        let skating = emerge_core::rig_check::skate_report(2, 1.402, 1.387, (0.9, 6.0));
+        let skating = bevy_emerge_core::rig_check::skate_report(2, 1.402, 1.387, (0.9, 6.0));
         let line = slot_measured_line(&full, Some(&skating), 1.13);
         assert!(line.contains("skate up to"), "{line}");
-        let quiet = emerge_core::rig_check::skate_report(2, 1.402, 1.387, (0.9, 1.2));
+        let quiet = bevy_emerge_core::rig_check::skate_report(2, 1.402, 1.387, (0.9, 1.2));
         let line = slot_measured_line(&full, Some(&quiet), 1.13);
         assert!(!line.contains("skate"), "{line}");
     }
@@ -1446,11 +1446,11 @@ mod write_back_tests {
             .get("valkyrie")
             .and_then(|r| r.provenance.as_ref())
             .unwrap_or_else(|| panic!("no provenance written"));
-        let (_, live) = emerge_core::glb::Glb::open_fingerprinted(
+        let (_, live) = bevy_emerge_core::glb::Glb::open_fingerprinted(
             &dir.join("assets/characters/valkyrie.glb"),
         )
         .unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(stamp.glb_fnv1a, emerge_core::rigs::fingerprint_string(live));
+        assert_eq!(stamp.glb_fnv1a, bevy_emerge_core::rigs::fingerprint_string(live));
         assert_eq!(stamp.clips, 20);
 
         // Undo restores the file byte-identically, through the same commit door.

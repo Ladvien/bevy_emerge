@@ -1,6 +1,6 @@
 //! **The crate boundary, enforced.**
 //!
-//! `emerge-core` exists so that the constraint IR, the solvers, WFC and the seeded RNG can be consumed
+//! `bevy_emerge_core` exists so that the constraint IR, the solvers, WFC and the seeded RNG can be consumed
 //! by the game, by the offline search, and by a standalone editor without any of them agreeing on a
 //! renderer. That property was a *comment* for months — `ir.rs` has said "Nothing here imports
 //! `bevy::`" since long before there was a crate — and a comment cannot fail a build.
@@ -26,15 +26,15 @@
 
 use std::path::{Path, PathBuf};
 
-/// Everything `emerge-core` is allowed to depend on. Data and arithmetic, nothing that draws.
+/// Everything `bevy_emerge_core` is allowed to depend on. Data and arithmetic, nothing that draws.
 ///
-/// # `det_rng`, and why it widened nothing
+/// # `bevy_emerge_rng`, and why it widened nothing
 ///
-/// The seeded RNG used to be `emerge-core/src/rng.rs`; it was lifted into a sibling crate so a
+/// The seeded RNG used to be `bevy_emerge_core/src/rng.rs`; it was lifted into a sibling crate so a
 /// permissively-licensed consumer could depend on the generator without taking this crate, and
-/// `emerge-core` re-exports it (`pub use det_rng as rng`) so no call site moved.
+/// `bevy_emerge_core` re-exports it (`pub use bevy_emerge_rng as rng`) so no call site moved.
 ///
-/// It is on this list because **the dependency surface did not actually grow**: `det_rng`'s own
+/// It is on this list because **the dependency surface did not actually grow**: `bevy_emerge_rng`'s own
 /// manifest declares `rand` and `rand_chacha` and nothing else, both of which are already here. The
 /// same code is reachable at a different address. It also carries its own `tests/leaf.rs`, so the
 /// boundary is policed on that side rather than taken on trust from here.
@@ -42,10 +42,10 @@ use std::path::{Path, PathBuf};
 /// That is the argument this list is supposed to cost. A dependency that pulled in anything not
 /// already on this line would need a different one.
 ///
-/// # `deterministic_solver`, and the different argument it needs
+/// # `bevy_emerge_solver`, and the different argument it needs
 ///
 /// It is the one entry here that genuinely GROWS the surface — by two crates, itself and `batsat`
-/// (which brings only `bit-vec`). So the `det_rng` argument above does not cover it, and this is the
+/// (which brings only `bit-vec`). So the `bevy_emerge_rng` argument above does not cover it, and this is the
 /// one it needs instead.
 ///
 /// **What this list defends is not dependency count.** The test's own purpose, stated at the top, is
@@ -62,18 +62,51 @@ use std::path::{Path, PathBuf};
 /// stack most likely to be replaced — see `docs/research/2026-08-10-solver-choice.md` §6, which
 /// argues its own recommendation might not survive a hard instance. Naming a workspace sibling means
 /// the swap is one file in one crate, and that sibling carries its OWN `tests/leaf.rs` pinned to
-/// `["batsat"]` — precisely the arrangement the `det_rng` note above blesses, where the boundary is
+/// `["batsat"]` — precisely the arrangement the `bevy_emerge_rng` note above blesses, where the boundary is
 /// policed on that side rather than taken on trust from here.
 ///
 /// The alternative considered was `varisat`, which would have grown the surface by **thirty-two**
 /// crates including two `syn` majors, `regex` and a proc-macro toolchain. That is the comparison that
 /// makes this a paragraph rather than an argument.
 const ALLOWED_DEPS: &[&str] =
-    &["serde", "serde_json", "ron", "rand", "rand_chacha", "det_rng", "deterministic_solver"];
+    &["serde", "serde_json", "ron", "rand", "rand_chacha", "bevy_emerge_rng", "bevy_emerge_solver"];
 
 /// Crate names that would mean the boundary has been crossed, checked as substrings so
 /// `bevy_math`/`bevy_ecs` are caught as readily as `bevy`.
 const FORBIDDEN_DEP_MARKERS: &[&str] = &["bevy", "avian", "wgpu", "winit"];
+
+/// **Crate names that contain the marker `bevy` and are not an engine.** This crate and its two
+/// engine-free siblings are all named `bevy_emerge_*`, so the substring `bevy` alone no longer
+/// separates "an engine crate" from "us". Exactly these identifiers are exempt, matched whole (an
+/// identifier boundary on both sides) so `bevy`, `bevy_ecs` or a hypothetical `bevy_emerge_mapper`
+/// still trip the check. Adding a name here is a design decision, like widening `ALLOWED_DEPS`.
+const SIBLING_DEPS: &[&str] = &["bevy_emerge_rng", "bevy_emerge_solver"];
+
+/// This crate's own name, which source text (a `use`, a message) may spell.
+const OWN_NAME: &str = "bevy_emerge_core";
+
+/// `line` with every whole-identifier occurrence of this crate's name or a [`SIBLING_DEPS`] name
+/// removed.
+fn without_sibling_names(line: &str) -> String {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = line.to_owned();
+    for name in SIBLING_DEPS.iter().copied().chain([OWN_NAME]) {
+        let mut from = 0;
+        while let Some(found) = out[from..].find(name) {
+            let start = from + found;
+            let end = start + name.len();
+            let before = out[..start].chars().next_back();
+            let after = out[end..].chars().next();
+            if before.is_some_and(is_ident) || after.is_some_and(is_ident) {
+                from = end;
+                continue;
+            }
+            out.replace_range(start..end, "");
+            from = start;
+        }
+    }
+    out
+}
 
 fn crate_root() -> PathBuf {
     // Cargo runs a test binary with the cwd set to its own package root.
@@ -158,8 +191,9 @@ fn no_source_file_reaches_for_an_engine() {
         };
         let code = strip_comments(&text);
         for (n, line) in code.lines().enumerate() {
+            let checked = without_sibling_names(line);
             for marker in FORBIDDEN_DEP_MARKERS {
-                if line.contains(marker) {
+                if checked.contains(marker) {
                     offenders.push(format!(
                         "{}:{} — {}",
                         path.strip_prefix(crate_root()).unwrap_or(path).display(),
@@ -173,7 +207,7 @@ fn no_source_file_reaches_for_an_engine() {
 
     assert!(
         offenders.is_empty(),
-        "emerge-core must stay engine-free, but {} line(s) reference an engine crate.\n  {}\n\n\
+        "bevy_emerge_core must stay engine-free, but {} line(s) reference an engine crate.\n  {}\n\n\
          This crate is what lets the game, the headless search and the standalone editor share the \
          placement stack without agreeing on a renderer. If a type genuinely needs to cross the \
          boundary, the answer is a plain-data type here and a conversion on the far side — not a \
@@ -186,14 +220,14 @@ fn no_source_file_reaches_for_an_engine() {
 #[test]
 fn the_dependency_list_stays_closed() {
     let manifest = std::fs::read_to_string(crate_root().join("Cargo.toml"))
-        .expect("emerge-core must have a Cargo.toml");
+        .expect("bevy_emerge_core must have a Cargo.toml");
 
     // Only the `[dependencies]` table — a dev-dependency on something heavier would be a different
     // (and much less alarming) conversation.
     let deps = manifest
         .split("[dependencies]")
         .nth(1)
-        .expect("emerge-core must declare a [dependencies] table");
+        .expect("bevy_emerge_core must declare a [dependencies] table");
     let deps = deps.split("\n[").next().unwrap_or(deps);
 
     for line in deps.lines() {
@@ -215,15 +249,20 @@ fn the_dependency_list_stays_closed() {
         }
         assert!(
             ALLOWED_DEPS.contains(&name),
-            "emerge-core declares `{name}`, which is not in its allowed set {ALLOWED_DEPS:?}.\n\
+            "bevy_emerge_core declares `{name}`, which is not in its allowed set {ALLOWED_DEPS:?}.\n\
              Widening this is a design decision, not a convenience — see \
              docs/2026-08-03-emerge-mapper-plan.md. If it is genuinely warranted, add it to ALLOWED_DEPS in \
              this test in the same commit, so the change is visible in review."
         );
+        // The two engine-free siblings are named `bevy_emerge_*`; the exact names are exempt, nothing
+        // that merely starts with `bevy` is.
+        if SIBLING_DEPS.contains(&name) {
+            continue;
+        }
         for marker in FORBIDDEN_DEP_MARKERS {
             assert!(
                 !name.contains(marker),
-                "emerge-core declares `{name}` — the crate exists precisely so it does not depend on \
+                "bevy_emerge_core declares `{name}` — the crate exists precisely so it does not depend on \
                  an engine."
             );
         }

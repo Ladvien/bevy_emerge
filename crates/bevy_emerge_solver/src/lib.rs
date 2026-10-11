@@ -190,7 +190,7 @@ impl Solver {
     /// `Err` past `u32::MAX` variables, which is where the representation runs out of names.
     pub fn with_preferences(prefer: &[Option<bool>]) -> Result<Self, String> {
         let n = u32::try_from(prefer.len()).map_err(|_| {
-            format!("deterministic_solver: {} variables is more than can be named", prefer.len())
+            format!("bevy_emerge_solver: {} variables is more than can be named", prefer.len())
         })?;
         let mut inner = BatSolver::new(pinned_opts(), Budgeted { learnt: 0, limit: 0 });
         // Allocate every variable up front so a model is always full-width, even for a variable that
@@ -230,7 +230,7 @@ impl Solver {
     /// may be interleaved freely with [`Solver::solve`].
     pub fn add_var(&mut self) -> Result<Literal, String> {
         let idx = u32::try_from(self.vars.len())
-            .map_err(|_| "deterministic_solver: too many variables to name another".to_owned())?;
+            .map_err(|_| "bevy_emerge_solver: too many variables to name another".to_owned())?;
         let v = self.inner.var_of_int(idx);
         self.vars.push(v);
         Ok((idx + 1) as Literal)
@@ -292,12 +292,12 @@ impl Solver {
     /// Translate one DIMACS literal, rejecting the two ways it can be malformed.
     fn literal(&self, l: Literal) -> Result<Lit, String> {
         if l == 0 {
-            return Err("deterministic_solver: 0 is not a literal".to_owned());
+            return Err("bevy_emerge_solver: 0 is not a literal".to_owned());
         }
         let v = l.unsigned_abs();
         let Some(&var) = v.checked_sub(1).and_then(|i| self.vars.get(i as usize)) else {
             return Err(format!(
-                "deterministic_solver: literal {l} names variable {v}, past the {} declared",
+                "bevy_emerge_solver: literal {l} names variable {v}, past the {} declared",
                 self.vars.len()
             ));
         };

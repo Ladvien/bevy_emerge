@@ -338,7 +338,7 @@ impl Plugin for LabelsPlugin {
 /// righting-turn relabel, so there is exactly one way a labeling request begins.
 pub(crate) fn request_photos(
     target: EditTarget,
-    d: &emerge_core::descriptor::Descriptor,
+    d: &bevy_emerge_core::descriptor::Descriptor,
     tasks: &LabelTasks,
     rig: &mut ShotRig,
 ) -> String {
@@ -515,7 +515,7 @@ pub(crate) fn spawn_request(
             let cfg = VlmConfig::load(&root)?;
             let bytes = std::fs::read(&mesh_abs)
                 .map_err(|e| format!("cannot read {}: {e}", mesh_abs.display()))?;
-            let fingerprint = emerge_core::glb::fnv1a(&bytes);
+            let fingerprint = bevy_emerge_core::glb::fnv1a(&bytes);
             let pngs = [encode_png(&images[0])?, encode_png(&images[1])?];
             let (suggestion, provenance) = vlm::label_with_retry(&cfg, &pngs, &vocab, &ctx, date)?;
             Ok::<_, vlm::LabelFailure>((suggestion, provenance, fingerprint))
@@ -631,7 +631,7 @@ pub(crate) fn date_today() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    emerge_core::rig_check::civil_date_utc(secs)
+    bevy_emerge_core::rig_check::civil_date_utc(secs)
 }
 
 /// The booth's raw RGBA readback as PNG bytes — runs on the task thread, not in a frame.
@@ -652,7 +652,7 @@ fn encode_png(image: &Image) -> Result<Vec<u8>, String> {
 /// in-use room/group names (so the model converges on existing free text instead of coining
 /// synonyms).
 fn prompt_ctx(
-    d: &emerge_core::descriptor::Descriptor,
+    d: &bevy_emerge_core::descriptor::Descriptor,
     mesh: &str,
     project: &Project,
 ) -> vlm::PromptCtx {
@@ -675,9 +675,9 @@ fn prompt_ctx(
     vlm::PromptCtx {
         id: d.id.clone(),
         mesh: mesh.to_owned(),
-        footprint: emerge_core::descriptor::placed_footprint(d),
+        footprint: bevy_emerge_core::descriptor::placed_footprint(d),
         height: d.extent.height,
-        mount_now: emerge_core::descriptor::mount_label(d.mount.as_ref()),
+        mount_now: bevy_emerge_core::descriptor::mount_label(d.mount.as_ref()),
         kind_now: d.kind.clone(),
         effects_now: d.effects.clone(),
         look_now: d.look.clone(),
@@ -700,12 +700,12 @@ fn prompt_ctx(
 
 /// A tiny read-and-measure step, named so the expression above reads as one thought.
 trait OpenGlb {
-    fn pipe_open(&self) -> Option<emerge_core::glb::Glb>;
+    fn pipe_open(&self) -> Option<bevy_emerge_core::glb::Glb>;
 }
 
 impl OpenGlb for std::path::PathBuf {
-    fn pipe_open(&self) -> Option<emerge_core::glb::Glb> {
-        emerge_core::glb::Glb::open(self).ok()
+    fn pipe_open(&self) -> Option<bevy_emerge_core::glb::Glb> {
+        bevy_emerge_core::glb::Glb::open(self).ok()
     }
 }
 
@@ -720,7 +720,7 @@ pub const PROPOSALS_PATH: &str = "slop/llm/vocab_proposals.ron";
 const PROPOSALS_README: &str = "PROPOSALS ONLY - nothing loads this file. Adopting a token is a \
     human edit: append a row to assets/emerge/vocab.ron (append-only; bits come from position), \
     and for a `surfaces` token ALSO add the row to \
-    crates/emerge-core/src/placement/surfaces.rs SURFACE_CLASSES. See docs/llm_rule_authoring.md.";
+    crates/bevy_emerge_core/src/placement/surfaces.rs SURFACE_CLASSES. See docs/llm_rule_authoring.md.";
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ProposalsFile {
@@ -813,7 +813,7 @@ fn record_proposals(root: &std::path::Path, entry: &Entry, asset: &str) {
             if let Some(dir) = path.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
-            if let Err(e) = emerge_core::ron_surgery::save_atomic(&path, &text) {
+            if let Err(e) = bevy_emerge_core::ron_surgery::save_atomic(&path, &text) {
                 warn!("could not write {PROPOSALS_PATH}: {e}");
             }
         }
@@ -914,7 +914,7 @@ impl LabelQueue {
 /// Does this descriptor still need judgement? The batch's membership test: any judgement axis
 /// empty, or no description. (Mount is deliberately not in the test — `unset` is common on
 /// candidates and the per-item `L` covers it.)
-pub(crate) fn needs_labels(d: &emerge_core::descriptor::Descriptor) -> bool {
+pub(crate) fn needs_labels(d: &bevy_emerge_core::descriptor::Descriptor) -> bool {
     d.kind.is_empty() && d.effects.is_empty() && d.look.is_empty() && d.note.is_none()
 }
 
@@ -935,7 +935,7 @@ pub(crate) fn needs_labels(d: &emerge_core::descriptor::Descriptor) -> bool {
 /// So: **any mark means judged** (stop asking), and **a name and a description mean usable** (start
 /// offering). `effects` is deliberately absent from this one, for the reason above — requiring it
 /// would keep every crate and barrel out of the palette permanently.
-pub(crate) fn judged_enough_to_build_with(d: &emerge_core::descriptor::Descriptor) -> bool {
+pub(crate) fn judged_enough_to_build_with(d: &bevy_emerge_core::descriptor::Descriptor) -> bool {
     !d.kind.is_empty() && d.note.is_some()
 }
 
@@ -1315,7 +1315,7 @@ pub(crate) fn paint_labels_badge(
 /// **Recompute the derived half of `effects` from `kind`, using the vocabulary's own rule.**
 ///
 /// The rule itself is `implies` on a `kind` token in `vocab.ron`, resolved by
-/// [`emerge_core::vocab::Vocabularies::implied_effects`]. It was a five-row `IMPLIED_BY_KIND` table
+/// [`bevy_emerge_core::vocab::Vocabularies::implied_effects`]. It was a five-row `IMPLIED_BY_KIND` table
 /// in this file until 2026-08-19, which put game-design semantics — *a bed restores stamina* —
 /// inside the editor's labeller. Two consequences, and the second is the one that mattered:
 ///
@@ -1333,8 +1333,8 @@ pub(crate) fn paint_labels_badge(
 /// `light` to `decor` must stop claiming to use electricity, or the tag becomes a thing that can
 /// only ever be turned on.
 pub(crate) fn settle_implied_effects(
-    d: &mut emerge_core::descriptor::Descriptor,
-    vocab: &emerge_core::vocab::Vocabularies,
+    d: &mut bevy_emerge_core::descriptor::Descriptor,
+    vocab: &bevy_emerge_core::vocab::Vocabularies,
 ) {
     d.effects = settled_effects(&d.kind, &d.effects, vocab);
 }
@@ -1346,8 +1346,8 @@ pub(crate) fn settle_implied_effects(
 /// second undoes the first; this is the one definition they share so they cannot drift on what
 /// "settled" means.
 pub(crate) fn settle_library(
-    library: &mut emerge_core::library::Library,
-    vocab: &emerge_core::vocab::Vocabularies,
+    library: &mut bevy_emerge_core::library::Library,
+    vocab: &bevy_emerge_core::vocab::Vocabularies,
 ) -> usize {
     let mut settled = 0usize;
     for d in &mut library.descriptors {
@@ -1374,7 +1374,7 @@ pub(crate) fn settle_library(
 ///
 /// # It used to be able to answer twice, and one of the answers was wrong
 ///
-/// [`emerge_core::vocab::Vocabularies::implied_effects`] returned a `Result`, and this function
+/// [`bevy_emerge_core::vocab::Vocabularies::implied_effects`] returned a `Result`, and this function
 /// opened with `let Ok(want) = … else { return effects.to_vec(); }` — a second execution path that
 /// handed the authored list back **unsettled**, which is a plausible wrong answer rather than a
 /// refusal. The comment on it argued the arm was unreachable because `Project::open` had already
@@ -1386,7 +1386,7 @@ pub(crate) fn settle_library(
 pub(crate) fn settled_effects(
     kind: &[String],
     effects: &[String],
-    vocab: &emerge_core::vocab::Vocabularies,
+    vocab: &bevy_emerge_core::vocab::Vocabularies,
 ) -> Vec<String> {
     let want = vocab.implied_effects(kind);
     let derived = |e: &str| {
@@ -1413,12 +1413,12 @@ pub(crate) fn settled_effects(
 }
 
 pub fn apply_fields(
-    d: &mut emerge_core::descriptor::Descriptor,
+    d: &mut bevy_emerge_core::descriptor::Descriptor,
     s: &Suggestion,
     stamp: &Provenance,
-    vocab: &emerge_core::vocab::Vocabularies,
+    vocab: &bevy_emerge_core::vocab::Vocabularies,
 ) {
-    use emerge_core::descriptor::{Axis, AxisOrigin, By, LabelOrigin};
+    use bevy_emerge_core::descriptor::{Axis, AxisOrigin, By, LabelOrigin};
 
     // **The record is rebuilt, not merged into.** An apply replaces every axis it carries, so a
     // stale `Human` left on one of them from a hand edit two minutes ago would name the wrong author
@@ -1531,10 +1531,10 @@ pub fn apply_fields(
 /// `at` moves to today even when a model wrote the rest, because the date answers *when was this
 /// piece last touched by anyone*, which is the question somebody triaging a kit actually has.
 pub(crate) fn stamp_human(
-    d: &mut emerge_core::descriptor::Descriptor,
-    axis: emerge_core::descriptor::Axis,
+    d: &mut bevy_emerge_core::descriptor::Descriptor,
+    axis: bevy_emerge_core::descriptor::Axis,
 ) {
-    use emerge_core::descriptor::{By, LabelOrigin};
+    use bevy_emerge_core::descriptor::{By, LabelOrigin};
 
     let today = date_today();
     let record = d.labels.get_or_insert_with(|| LabelOrigin {
@@ -1607,7 +1607,7 @@ mod tests {
         );
 
         // And the apply agrees, token for token and in the same order.
-        let mut d = emerge_core::descriptor::Descriptor {
+        let mut d = bevy_emerge_core::descriptor::Descriptor {
             kind: bed,
             ..Default::default()
         };
@@ -1660,7 +1660,7 @@ mod tests {
     /// the table: what it adds, what it takes away again, and what it leaves alone.
     #[test]
     fn a_kind_implies_the_effects_no_render_can_show() {
-        use emerge_core::descriptor::Descriptor;
+        use bevy_emerge_core::descriptor::Descriptor;
         let v = vocab();
         let effects = |d: &Descriptor| d.effects.clone();
 
@@ -1728,7 +1728,7 @@ mod tests {
         // `Result` to catch an implication naming a token the `effects` axis does not hold. That
         // check moved to `Vocabularies::validate_tables`, which `parse` runs and `ron::from_str`
         // does not, so going around `parse` was the one thing making this test unable to fail.
-        let v = emerge_core::vocab::Vocabularies::parse(&text).unwrap_or_else(|e| {
+        let v = bevy_emerge_core::vocab::Vocabularies::parse(&text).unwrap_or_else(|e| {
             panic!("the shipped vocabulary must load, and every `implies` in it must resolve: {e}")
         });
         assert!(
@@ -1737,40 +1737,40 @@ mod tests {
         );
     }
 
-    fn vocab() -> emerge_core::vocab::Vocabularies {
-        emerge_core::vocab::Vocabularies {
-            kind: emerge_core::vocab::Vocabulary {
+    fn vocab() -> bevy_emerge_core::vocab::Vocabularies {
+        bevy_emerge_core::vocab::Vocabularies {
+            kind: bevy_emerge_core::vocab::Vocabulary {
                 tokens: vec![
-                    emerge_core::vocab::Token {
+                    bevy_emerge_core::vocab::Token {
                         name: "light".to_owned(),
                         note: "casts light".to_owned(),
                         // The rule under test, stated where the shipped file states it.
                         implies: vec!["uses-electricity".to_owned()],
                     },
-                    emerge_core::vocab::Token {
+                    bevy_emerge_core::vocab::Token {
                         name: "bed".to_owned(),
                         note: "a thing to lie on".to_owned(),
                         implies: vec!["stamina-recharge".to_owned()],
                     },
-                    emerge_core::vocab::Token {
+                    bevy_emerge_core::vocab::Token {
                         name: "seating".to_owned(),
                         note: "a thing to sit on".to_owned(),
                         implies: Vec::new(),
                     },
                 ],
             },
-            effects: emerge_core::vocab::Vocabulary::of(&[
+            effects: bevy_emerge_core::vocab::Vocabulary::of(&[
                 ("emit", "lights the room"),
                 ("uses-electricity", "stops working when the power does"),
                 ("stamina-recharge", "restores stamina to whoever uses it"),
             ]),
-            look: emerge_core::vocab::Vocabulary::of(&[("metal", "bare metal")]),
-            surfaces: emerge_core::vocab::Vocabulary::of(&[("support", "a top")]),
-            capabilities: emerge_core::vocab::Vocabulary::of(&[]),
+            look: bevy_emerge_core::vocab::Vocabulary::of(&[("metal", "bare metal")]),
+            surfaces: bevy_emerge_core::vocab::Vocabulary::of(&[("support", "a top")]),
+            capabilities: bevy_emerge_core::vocab::Vocabulary::of(&[]),
             // The edge axis and the slot axis. A labeller proposes nothing on either, so both are
             // empty here — and empty is not permissive: an invented token is refused, naming the axis.
-            edge: emerge_core::vocab::Vocabulary::default(),
-            slot: emerge_core::vocab::Vocabulary::default(),
+            edge: bevy_emerge_core::vocab::Vocabulary::default(),
+            slot: bevy_emerge_core::vocab::Vocabulary::default(),
         }
     }
 
@@ -1791,7 +1791,7 @@ mod tests {
             effects: vec!["emit".to_owned()],
             look: vec![],
             offers_surfaces: vec![],
-            mount: Some(emerge_core::descriptor::Mount::OnWall { height: 1.8 }),
+            mount: Some(bevy_emerge_core::descriptor::Mount::OnWall { height: 1.8 }),
             front: None,
             needs_turn: None,
             note: Some("A small lamp.".to_owned()),
@@ -1813,7 +1813,7 @@ mod tests {
                 attempts: 1,
             },
             mesh: "characters/valkyrie.glb".to_owned(),
-            fingerprint: emerge_core::glb::fnv1a(&bytes),
+            fingerprint: bevy_emerge_core::glb::fnv1a(&bytes),
         }
     }
 
@@ -1947,12 +1947,12 @@ mod tests {
     /// relabeled."* Re-labelling is now a thing you ask for — see [`LabelQueue::ask`].
     #[test]
     fn needs_labels_is_nothing_marked_at_all() {
-        let d = emerge_core::descriptor::Descriptor::default();
+        let d = bevy_emerge_core::descriptor::Descriptor::default();
         assert!(needs_labels(&d), "a piece with no judgement at all needs labels");
 
         // Each axis on its own is enough to count as judged.
         for mark in [0, 1, 2, 3] {
-            let mut d = emerge_core::descriptor::Descriptor::default();
+            let mut d = bevy_emerge_core::descriptor::Descriptor::default();
             match mark {
                 0 => d.kind = vec!["light".to_owned()],
                 1 => d.effects = vec!["emit".to_owned()],
@@ -1964,7 +1964,7 @@ mod tests {
 
         // **The case the old rule got wrong**, stated as its own assertion because it is the whole
         // reason this changed: a prop the model judged and correctly gave no effects.
-        let judged = emerge_core::descriptor::Descriptor {
+        let judged = bevy_emerge_core::descriptor::Descriptor {
             kind: vec!["prop".to_owned()],
             look: vec!["wood".to_owned()],
             note: Some("a crate".to_owned()),
@@ -2084,11 +2084,11 @@ mod tests {
     /// suggestion does not carry is untouched.
     #[test]
     fn apply_replaces_axes_and_touches_only_what_the_suggestion_carries() {
-        let mut d = emerge_core::descriptor::Descriptor::default();
+        let mut d = bevy_emerge_core::descriptor::Descriptor::default();
         d.kind = vec!["table".to_owned()];
         d.look = vec!["worn".to_owned()];
         d.note = Some("hand-written".to_owned());
-        d.mount = Some(emerge_core::descriptor::Mount::OnFloor);
+        d.mount = Some(bevy_emerge_core::descriptor::Mount::OnFloor);
         d.placement.rooms = vec!["office".to_owned()];
         d.placement.group = Some("desk_set".to_owned());
 
@@ -2112,7 +2112,7 @@ mod tests {
         );
         assert_eq!(
             d.mount,
-            Some(emerge_core::descriptor::Mount::OnWall { height: 1.8 }),
+            Some(bevy_emerge_core::descriptor::Mount::OnWall { height: 1.8 }),
             "a carried mount overwrites"
         );
         assert_eq!(
@@ -2136,7 +2136,7 @@ mod tests {
         // `suggestion_keys` intercepts it before `apply_fields` is reached, turns the piece
         // through `rotate_mesh` (the same re-measure the N/P keys run), and re-asks the model.
         let mut s = suggestion();
-        s.front = Some(emerge_core::descriptor::Face::South);
+        s.front = Some(bevy_emerge_core::descriptor::Face::South);
         s.needs_turn = Some(crate::vlm::NeedsTurn {
             axis: "x".to_owned(),
             turns: 2,
@@ -2145,7 +2145,7 @@ mod tests {
         let before_align_rotate = d.align.rotate;
         let before_extent = d.extent.clone();
         apply_fields(&mut d, &s, &stamp(), &vocab());
-        assert_eq!(d.align.front, Some(emerge_core::descriptor::Face::South));
+        assert_eq!(d.align.front, Some(bevy_emerge_core::descriptor::Face::South));
         assert_eq!(d.align.rotate, before_align_rotate, "no rotation applied");
         assert_eq!(d.extent, before_extent, "no re-measure smuggled in");
     }
@@ -2164,9 +2164,9 @@ mod tests {
     /// human because one word was retyped.
     #[test]
     fn an_apply_says_a_model_wrote_it_and_a_hand_edit_claims_one_axis() {
-        use emerge_core::descriptor::{Axis, By};
+        use bevy_emerge_core::descriptor::{Axis, By};
 
-        let mut d = emerge_core::descriptor::Descriptor::default();
+        let mut d = bevy_emerge_core::descriptor::Descriptor::default();
         assert!(
             d.labels.is_none(),
             "no record is the honest starting state — not `Human`"
@@ -2243,9 +2243,9 @@ mod tests {
     /// model is no longer the one talking.
     #[test]
     fn a_second_model_keeps_the_hand_edits_and_drops_the_first_models_claims() {
-        use emerge_core::descriptor::{Axis, By};
+        use bevy_emerge_core::descriptor::{Axis, By};
 
-        let mut d = emerge_core::descriptor::Descriptor::default();
+        let mut d = bevy_emerge_core::descriptor::Descriptor::default();
         apply_fields(&mut d, &suggestion(), &stamp(), &vocab());
         // The author rewrites the description; everything else is still `stub`'s.
         stamp_human(&mut d, Axis::Note);
@@ -2285,7 +2285,7 @@ mod tests {
 
         // Same model, second answer, no mount in it: the claim stands, because it is still that
         // model's claim. This is the branch the unconditional copy got right.
-        let mut same = emerge_core::descriptor::Descriptor::default();
+        let mut same = bevy_emerge_core::descriptor::Descriptor::default();
         apply_fields(&mut same, &suggestion(), &stamp(), &vocab());
         let mut quiet = suggestion();
         quiet.mount = None;
@@ -2306,9 +2306,9 @@ mod tests {
     /// *"a machine decided this and you have not"*, about a value no machine was asked about.
     #[test]
     fn an_effect_only_the_vocabulary_asked_for_is_credited_to_nobody() {
-        use emerge_core::descriptor::{Axis, By};
+        use bevy_emerge_core::descriptor::{Axis, By};
 
-        let mut d = emerge_core::descriptor::Descriptor::default();
+        let mut d = bevy_emerge_core::descriptor::Descriptor::default();
         let mut s = suggestion();
         s.kind = vec!["bed".to_owned()];
         s.effects = vec![];
@@ -2347,21 +2347,21 @@ mod tests {
     /// could never CLEAR one: `Align::front`'s `None` *means* symmetric and `vlm.rs` instructs the
     /// model to answer `null` for a symmetric mesh, so the answer that mattered most was the one
     /// answer that could not land. Symmetry is a property of the vertex buffer; two three-quarter
-    /// renders cannot settle it, and `emerge-bevy` turns the piece by `front.yaw_degrees()` — so a
+    /// renders cannot settle it, and `bevy_emerge` turns the piece by `front.yaw_degrees()` — so a
     /// wrong front is a mesh standing the wrong way round in the world, not a cosmetic note.
     #[test]
     fn a_model_fills_an_unmeasured_front_and_never_argues_with_a_measured_one() {
-        use emerge_core::descriptor::Face;
+        use bevy_emerge_core::descriptor::Face;
 
         // Unmeasured: the model's judgement is the only one there is, so it lands.
-        let mut d = emerge_core::descriptor::Descriptor::default();
+        let mut d = bevy_emerge_core::descriptor::Descriptor::default();
         let mut s = suggestion();
         s.front = Some(Face::South);
         apply_fields(&mut d, &s, &stamp(), &vocab());
         assert_eq!(d.align.front, Some(Face::South));
 
         // Measured, and the model disagrees: the measurement stands and the apply says so.
-        let mut d = emerge_core::descriptor::Descriptor::default();
+        let mut d = bevy_emerge_core::descriptor::Descriptor::default();
         d.align.front = Some(Face::East);
         apply_fields(&mut d, &s, &stamp(), &vocab());
         assert_eq!(

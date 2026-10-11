@@ -1,10 +1,10 @@
 [package]
-name = "det_rng"
+name = "bevy_emerge_rng"
 version = "0.1.0"
 edition = "2024"
 description = "One deterministic RNG for a whole simulation: a seeded ChaCha8 stream plus the unbiased integer and float draws generators actually need, reproducible from a single u64 across platforms and thread counts."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/Ladvien/det_rng"
+repository = "https://github.com/Ladvien/bevy_emerge"
 keywords = ["random", "deterministic", "reproducible", "chacha", "simulation"]
 categories = ["algorithms", "simulation", "game-development"]
 publish = false

@@ -8,9 +8,9 @@
 //! step. That single constraint is enough to produce coherent coastlines, which is the point — WFC is
 //! finite-domain constraint solving, not a texture trick (Karth & Smith 2017).
 //!
-//! Run: `cargo run -p emerge-core --example wfc_grid`
+//! Run: `cargo run -p bevy_emerge_core --example wfc_grid`
 
-use emerge_core::wfc::collapse_grid;
+use bevy_emerge_core::wfc::collapse_grid;
 
 const W: usize = 64;
 const H: usize = 22;

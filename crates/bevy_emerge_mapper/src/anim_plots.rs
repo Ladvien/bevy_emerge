@@ -13,10 +13,10 @@
 //!
 //! CPU-rasterized into stable [`Image`] handles (the `thumbs` idiom: handles never change identity,
 //! data is rewritten), shown as `ImageNode`s in the pane. The raster arithmetic lives engine-free in
-//! `emerge_core::plot`; this module owns only sizes, colors, and the phase convention.
+//! `bevy_emerge_core::plot`; this module owns only sizes, colors, and the phase convention.
 //!
 //! **Why not more than 128 bins**: `PHASE_BINS` is the *measurement* grid — contact labels,
-//! stance fractions and phase offsets are all born bin-quantized in `emerge_core::clips` — so a
+//! stance fractions and phase offsets are all born bin-quantized in `bevy_emerge_core::clips` — so a
 //! render-only densification has nothing denser to draw, and raising the core constant changes
 //! measurement semantics (a `BENCH_TOOL_VERSION` bump orphaning every provenance stamp). The
 //! display is not the bottleneck: 128 bins across 712 raster px is over 5 px per bin.
@@ -26,9 +26,9 @@ use bevy::image::Image;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
-use emerge_core::clips::GaitCurves;
-use emerge_core::plot::Raster;
-use emerge_core::rigs::Playback;
+use bevy_emerge_core::clips::GaitCurves;
+use bevy_emerge_core::plot::Raster;
+use bevy_emerge_core::rigs::Playback;
 
 use crate::anim_tab::BenchState;
 use crate::anim_watch::BenchReports;
@@ -142,7 +142,7 @@ pub(crate) fn hover_bin(centered_x: f32) -> Option<usize> {
     if !(0.0..=1.0).contains(&frac) {
         return None;
     }
-    let bins = emerge_core::clips::PHASE_BINS;
+    let bins = bevy_emerge_core::clips::PHASE_BINS;
     Some(((frac * bins as f32) as usize).min(bins - 1))
 }
 
@@ -174,7 +174,7 @@ pub(crate) fn drive_plot_hover(
     // The overlay: transparent but for one vertical cursor line.
     let mut r = Raster::new(PLOT_W as usize, PLOT_H as usize, [0, 0, 0, 0]);
     if let Some(b) = bin {
-        let bins = emerge_core::clips::PHASE_BINS;
+        let bins = bevy_emerge_core::clips::PHASE_BINS;
         let x = (b * PLOT_W as usize / bins).min(PLOT_W as usize - 1);
         r.vspan(x, 0, PLOT_H as usize - 1, GRID);
     }
@@ -191,7 +191,7 @@ pub(crate) fn drive_plot_hover(
             let report = selected.and_then(|n| reports.by_rig.get(n));
             match (rig, report) {
                 (Some(rig), Some(report)) => {
-                    let bins = emerge_core::clips::PHASE_BINS;
+                    let bins = bevy_emerge_core::clips::PHASE_BINS;
                     let mut heights = Vec::new();
                     let mut speeds = Vec::new();
                     for (i, slot) in rig.slots.iter().enumerate() {
@@ -352,7 +352,7 @@ fn world_curves(
     declared_cycle: f32,
     c: &GaitCurves,
     scale: f32,
-    measure: Option<&emerge_core::rig_check::SlotMeasure>,
+    measure: Option<&bevy_emerge_core::rig_check::SlotMeasure>,
 ) -> SlotCurves {
     // The measured variant: the SAME bins rotated to the measured offset, and the measured cycle
     // distance for the trace arrow. Built only when it would draw something the declared curves do
@@ -361,7 +361,7 @@ fn world_curves(
         let m_offset = m.phase_offset?;
         let half_bin = 0.5 / c.foot_height.len().max(1) as f32;
         let offset_differs =
-            emerge_core::clips::signed_offset((m_offset - declared_offset).rem_euclid(1.0)).abs()
+            bevy_emerge_core::clips::signed_offset((m_offset - declared_offset).rem_euclid(1.0)).abs()
                 >= half_bin;
         let m_cycle = m.cycle_distance.map(|d| d * scale).unwrap_or(declared_cycle);
         let cycle_differs = (m_cycle - declared_cycle).abs() > 0.01 * declared_cycle.max(1.0e-3);
@@ -415,7 +415,7 @@ mod hover_tests {
 
     #[test]
     fn hover_bins_cover_the_node_and_refuse_the_outside() {
-        let bins = emerge_core::clips::PHASE_BINS;
+        let bins = bevy_emerge_core::clips::PHASE_BINS;
         // The node's left edge is centered -0.5, its right edge +0.5.
         assert_eq!(hover_bin(-0.5), Some(0));
         assert_eq!(hover_bin(0.0), Some(bins / 2));
@@ -512,7 +512,7 @@ fn paint_drift(
     images: &mut Assets<Image>,
 ) {
     let mut r = Raster::new(PLOT_W as usize, PLOT_H as usize, BG);
-    let threshold = emerge_core::rig_check::ROOT_MOTION_EPS * scale;
+    let threshold = bevy_emerge_core::rig_check::ROOT_MOTION_EPS * scale;
     let (_, measured_hi) = range(slots, |s| &s.drift);
     let hi = (2.0 * threshold).max(measured_hi);
     let threshold_row = ((1.0 - threshold / hi) * (PLOT_H - 1) as f32) as usize;

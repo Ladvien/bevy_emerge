@@ -34,8 +34,8 @@
 //!   (OVAL-Prompt, Tong et al. 2024 — F 0.39 without retry, 0.71 with). Bounded at one retry:
 //!   same endpoint, same schema, same gate, and the gate's second verdict is final.
 
-use emerge_core::descriptor::{DecalHost, Face, Mount, mount_label, mount_options};
-use emerge_core::vocab::{Vocabularies, Vocabulary, nearest};
+use bevy_emerge_core::descriptor::{DecalHost, Face, Mount, mount_label, mount_options};
+use bevy_emerge_core::vocab::{Vocabularies, Vocabulary, nearest};
 
 /// Where and what to ask. Endpoint, model and key are environment config so the bmb tunnel and
 /// Ollama Cloud are the same code path with different values.
@@ -213,13 +213,13 @@ impl VlmConfig {
 
 /// How sure the model said it was — display only, never a branch.
 ///
-/// **Defined in `emerge-core` now**, because a descriptor carries one: since 2026-08-20 the record
+/// **Defined in `bevy_emerge_core` now**, because a descriptor carries one: since 2026-08-20 the record
 /// of who wrote a label survives the keypress that applies it
-/// (`emerge_core::descriptor::LabelOrigin`), and the confidence is part of that record. A type two
+/// (`bevy_emerge_core::descriptor::LabelOrigin`), and the confidence is part of that record. A type two
 /// crates share belongs in the one they both depend on; re-exported here so every `vlm::Confidence`
 /// in this crate still resolves, and so the JSON the model answers with parses against the same
 /// three variants it always did.
-pub use emerge_core::descriptor::Confidence;
+pub use bevy_emerge_core::descriptor::Confidence;
 
 /// A vocabulary addition the model wanted and could not have — the only legal exit for an
 /// out-of-vocab idea. Flagged for a human; never enters the axes.
@@ -354,7 +354,7 @@ pub struct PromptCtx {
     pub rooms_in_use: Vec<String>,
     pub groups_in_use: Vec<String>,
     /// **What the MESH says about its own front**, measured off the vertices by
-    /// `emerge_core::glb::Glb::derive_front` — not something the model is asked to see.
+    /// `bevy_emerge_core::glb::Glb::derive_front` — not something the model is asked to see.
     ///
     /// `Some(Some(face))` measured and asymmetric; `Some(None)` measured **symmetric**, so there is
     /// no front to claim; `None` could not be measured at all (no mesh, unreadable file).
@@ -1014,13 +1014,13 @@ pub fn validate(raw: RawSuggestion, vocab: &Vocabularies) -> Result<Suggestion, 
     let rooms: Vec<String> = raw
         .rooms
         .iter()
-        .map(|r| emerge_core::naming::to_snake_case(r))
+        .map(|r| bevy_emerge_core::naming::to_snake_case(r))
         .filter(|r| !r.is_empty())
         .collect();
     let group = raw
         .group
         .as_deref()
-        .map(emerge_core::naming::to_snake_case)
+        .map(bevy_emerge_core::naming::to_snake_case)
         .filter(|g| !g.is_empty());
     let axis_of = |name: &str| -> Option<&Vocabulary> {
         match name {
@@ -1045,7 +1045,7 @@ pub fn validate(raw: RawSuggestion, vocab: &Vocabularies) -> Result<Suggestion, 
         }
         token_proposals.push(TokenProposal {
             axis: p.axis.clone(),
-            token: emerge_core::naming::to_snake_case(&p.token),
+            token: bevy_emerge_core::naming::to_snake_case(&p.token),
             why: p.why.clone(),
         });
     }

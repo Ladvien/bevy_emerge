@@ -54,16 +54,16 @@ fn workspace() -> PathBuf {
         .unwrap_or_else(|e| panic!("cannot resolve the workspace root: {e}"))
 }
 
-/// **A minimal binary glTF**, laid out the way `emerge_core::glb` reads one: a JSON chunk then a BIN
+/// **A minimal binary glTF**, laid out the way `bevy_emerge_core::glb` reads one: a JSON chunk then a BIN
 /// chunk, each padded to four bytes.
 ///
-/// The same construction `emerge-core`'s own `glb` tests use to exercise the reader "without shipping
+/// The same construction `bevy_emerge_core`'s own `glb` tests use to exercise the reader "without shipping
 /// a fixture asset" — restated here rather than reached for, because that one is private to a
 /// `#[cfg(test)]` module in another crate.
 fn glb(width: f32, height: f32, depth: f32) -> Vec<u8> {
     let (hx, hz) = (width * 0.5, depth * 0.5);
     // **All eight corners.** `derive_front` compares centroids, so a two-vertex "box" is a diagonal
-    // and is not symmetric — a mistake `emerge-core`'s fixture made first and its own test caught.
+    // and is not symmetric — a mistake `bevy_emerge_core`'s fixture made first and its own test caught.
     let mut bin = Vec::new();
     for x in [-hx, hx] {
         for y in [0.0f32, height] {
@@ -250,7 +250,7 @@ impl Fixture {
             &path,
             format!(
                 "(version: {}, bind: [{list}], bash: [], authoring: Some(\"{authoring}\"))",
-                emerge_core::kits::KITS_VERSION
+                bevy_emerge_core::kits::KITS_VERSION
             ),
         )
         .unwrap_or_else(|e| panic!("{path:?}: {e}"));
@@ -312,7 +312,7 @@ impl Fixture {
              lattice with nothing in it, and the refusal then arrives from `Project::open` instead \
              of from here. Name the number of cells the test is about."
         );
-        self = self.sized_descriptor(id, pack, run as f32 * emerge_core::grid::SNAP, 1.0);
+        self = self.sized_descriptor(id, pack, run as f32 * bevy_emerge_core::grid::SNAP, 1.0);
         if let Some(last) = self.descriptors.last_mut() {
             let was = "subgrid: None";
             assert!(
@@ -522,7 +522,7 @@ impl Fixture {
         self.sunk_descriptor(id, pack, 0.0)
     }
 
-    /// The same, recessed into its own floor by `y_offset` metres — `emerge_core::stack::datum`'s
+    /// The same, recessed into its own floor by `y_offset` metres — `bevy_emerge_core::stack::datum`'s
     /// ordinary case, and the thing a backdrop has to sit under.
     pub fn sunk_descriptor(mut self, id: &str, pack: &str, y_offset: f32) -> Fixture {
         self.descriptors
@@ -730,7 +730,7 @@ impl Fixture {
             emerge.join("kits.ron"),
             format!(
                 "(version: {}, bind: [{bind}], bash: [{bash}], authoring: Some(\"{DEFAULT_KIT}\"))",
-                emerge_core::kits::KITS_VERSION
+                bevy_emerge_core::kits::KITS_VERSION
             ),
         )
         .unwrap_or_else(|e| panic!("{e}"));

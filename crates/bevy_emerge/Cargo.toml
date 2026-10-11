@@ -1,5 +1,5 @@
 [package]
-name = "emerge-bevy"
+name = "bevy_emerge"
 version = "0.1.0"
 edition = "2024"
 description = "The runtime half of emerge: load a library and a map, and put it in a Bevy world."
@@ -7,12 +7,12 @@ description = "The runtime half of emerge: load a library and a map, and put it 
 # not independently-licensed libraries. (The crates extracted as general-purpose libraries —
 # bevy_orca, map_elites, bevy_devshot — are MIT OR Apache-2.0 instead, so they can be adopted.)
 license = "GPL-3.0-only"
-repository = "https://github.com/Ladvien/emerge-bevy"
+repository = "https://github.com/Ladvien/bevy_emerge"
 
-# **The only crate in the set that knows what a renderer is on purpose.** `emerge-core` is the schema
-# and the solvers and has no engine (`crates/emerge-core/tests/engine_free.rs` fails the build if that
-# stops being true); this turns its data into entities. The game and `emerge-mapper` both depend on
+# **The only crate in the set that knows what a renderer is on purpose.** `bevy_emerge_core` is the schema
+# and the solvers and has no engine (`crates/bevy_emerge_core/tests/engine_free.rs` fails the build if that
+# stops being true); this turns its data into entities. The game and `bevy_emerge_mapper` both depend on
 # THIS rather than each growing a spawner, so a map looks the same in the editor and in play.
 [dependencies]
-emerge-core = { path = "../emerge-core" }
+bevy_emerge_core = { path = "../bevy_emerge_core" }
 bevy = { workspace = true, features = ["jpeg"] }

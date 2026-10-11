@@ -1,7 +1,7 @@
 //! **The expressive range of the composition grammar, read against thresholds committed first.**
 //!
 //! ```text
-//! cargo run -p emerge-core --example expressive_range
+//! cargo run -p bevy_emerge_core --example expressive_range
 //! ```
 //!
 //! Smith & Whitehead's method (`10.1145/1814256.1814260`): generate a population, score each artefact
@@ -23,13 +23,13 @@
 
 use std::collections::BTreeMap;
 
-use emerge_core::composition::{Compositions, Interface};
-use emerge_core::constraints::{self, GridProblem};
-use emerge_core::grammar::{self, Composed, Grammar, Prototype};
-use emerge_core::library::Library;
-use emerge_core::map::Map;
-use emerge_core::range::{self, Faces, Measured, BINS, OPENING_MAX, RANGES};
-use emerge_core::wfc::{E, N, S, W};
+use bevy_emerge_core::composition::{Compositions, Interface};
+use bevy_emerge_core::constraints::{self, GridProblem};
+use bevy_emerge_core::grammar::{self, Composed, Grammar, Prototype};
+use bevy_emerge_core::library::Library;
+use bevy_emerge_core::map::Map;
+use bevy_emerge_core::range::{self, Faces, Measured, BINS, OPENING_MAX, RANGES};
+use bevy_emerge_core::wfc::{E, N, S, W};
 
 /// The region every solve runs on, in cells — `site_67`'s slab. Pre-registered in §4.5.
 const REGION: usize = 12;
@@ -80,7 +80,7 @@ enum Generator {
 
 /// How much of the region the `rooms` arm asks to close, and what the wish is worth.
 ///
-/// The same numbers `emerge-mapper` ships (`editor.rs`), so this measures the generator an author
+/// The same numbers `bevy_emerge_mapper` ships (`editor.rs`), so this measures the generator an author
 /// actually drives rather than a tuned variant of it.
 const ROOMS_WISH: f32 = 0.25;
 const ROOMS_WEIGHT: u32 = 200;
@@ -95,7 +95,7 @@ impl Generator {
     }
 }
 
-/// The kit's edge token for a wall. Named here rather than in `emerge_core::range`, which never learns
+/// The kit's edge token for a wall. Named here rather than in `bevy_emerge_core::range`, which never learns
 /// a kit's vocabulary — the same seam `agrees` is passed through.
 const WALL: &str = "wall";
 /// A gap under a lintel this tall or more is a doorway; less is a plinth, not something to walk under.
@@ -137,7 +137,7 @@ fn main() {
         &library,
         1,
         CELL,
-        emerge_core::composition::agrees,
+        bevy_emerge_core::composition::agrees,
     ) {
         Ok(c) => c,
         Err(e) => return eprintln!("the kit does not learn a grammar: {e}"),

@@ -1,5 +1,5 @@
 [package]
-name = "emerge-mapper"
+name = "bevy_emerge_mapper"
 version = "0.1.0"
 edition = "2024"
 description = "A standalone world-building editor: author maps from an asset library, save what a game can load."
@@ -7,15 +7,15 @@ description = "A standalone world-building editor: author maps from an asset lib
 # not independently-licensed libraries. (The crates extracted as general-purpose libraries —
 # bevy_orca, map_elites, bevy_devshot — are MIT OR Apache-2.0 instead, so they can be adopted.)
 license = "GPL-3.0-only"
-repository = "https://github.com/Ladvien/emerge-mapper"
+repository = "https://github.com/Ladvien/bevy_emerge"
 
-# **This is the application; `emerge-core` is the part with no engine in it.** The split is not
-# decoration — `crates/emerge-core/tests/engine_free.rs` fails the build if anything in the core
+# **This is the application; `bevy_emerge_core` is the part with no engine in it.** The split is not
+# decoration — `crates/bevy_emerge_core/tests/engine_free.rs` fails the build if anything in the core
 # reaches for `bevy`, which is what lets the same schema, solvers and validation run in the game, in
 # the headless search, and in here without the three agreeing on a renderer.
 #
 # `docs/2026-08-03-emerge-mapper-plan.md` is the design.
-# **Agent debugging over BRP** (`cargo run -p emerge-mapper --features debugger`).
+# **Agent debugging over BRP** (`cargo run -p bevy_emerge_mapper --features debugger`).
 #
 # The root `CLAUDE.md` says an agent looking at or driving this project uses `bevy_debugger_mcp` and
 # nothing else, and then carved this crate out as a `bevy_devshot` caller — because it had no BRP of
@@ -49,21 +49,21 @@ default = ["debugger"]
 debugger = ["bevy/bevy_remote", "dep:bevy_debugger_bevy"]
 
 [dependencies]
-emerge-core = { path = "../emerge-core" }
-# The runtime half. The editor spawns pieces through `emerge_bevy::spawn_descriptor` rather than its
+bevy_emerge_core = { path = "../bevy_emerge_core" }
+# The runtime half. The editor spawns pieces through `bevy_emerge::spawn_descriptor` rather than its
 # own copy, so a map cannot look one way here and another in the game — the failure `bake.rs` and
 # `site_editor::source_map` demonstrated by independently growing the same RON writer.
-emerge-bevy = { path = "../emerge-bevy" }
+bevy_emerge = { path = "../bevy_emerge" }
 # The game's own pose blender. The bench previews through THIS rather than a copy, on the same
-# argument `emerge-bevy` makes for `spawn_descriptor`: a rig cannot move one way here and another in
+# argument `bevy_emerge` makes for `spawn_descriptor`: a rig cannot move one way here and another in
 # the game if there is only one blender.
-emerge-anim = { path = "../emerge-anim" }
+bevy_emerge_anim = { path = "../bevy_emerge_anim" }
 # The editor is a Bevy app in its own right, not a mode of the game. `sim_harness.rs` is the precedent
 # the plan cites for two binaries over one plugin graph — "not a second code path".
 # `jpeg` because the shipped kits embed PBR textures as JPEG and Bevy's defaults cover only PNG.
 #
 # `bevy_dev_tools` was here for `infinite_grid` and is gone with it: the dev tool's grid drew at 1.0 m
-# while `emerge_core::grid::SNAP` is 0.5, and drew forever, so the ground outside `Map::bounds` looked
+# while `bevy_emerge_core::grid::SNAP` is 0.5, and drew forever, so the ground outside `Map::bounds` looked
 # as buildable as the ground inside. `editor::draw_map_grid` is bounded by the map and spaced by the
 # constant that defines a cell.
 # **`bevy_feathers` is on for its MACHINERY, not for its greys.** `docs/ui.md` §5 says of it "its
@@ -90,7 +90,7 @@ serde.workspace = true
 ureq = { version = "3", features = ["json"] }
 serde_json.workspace = true
 # Base64 data-URI image parts for the chat request; `image` encodes the booth's RGBA readback to
-# PNG. Both already in the build graph (serde_json via emerge-core, base64/image via bevy).
+# PNG. Both already in the build graph (serde_json via bevy_emerge_core, base64/image via bevy).
 base64 = "0.22"
 image.workspace = true
 # Cmd+C on the detail pane — the pane's text into the system clipboard, so an author can hand a
@@ -100,4 +100,4 @@ arboard = { version = "3", default-features = false }
 # of an ordinary build — `cargo tree -i bevy_debugger_bevy` finds no package without the feature, and
 # neither does `bevy_remote`. A path dep into the vendored copy, never a pinned rev: the pin is what
 # turned a one-line fix into a cross-repo errand, which is why the debugger lives in this tree now.
-bevy_debugger_bevy = { path = "../bevy_debugger_mcp/crates/bevy_debugger_bevy", optional = true }
+bevy_debugger_bevy = { path = "../bevy_debugger_bevy", optional = true }

@@ -1,10 +1,10 @@
-# emerge-bevy
+# bevy_emerge
 
 > ⚠️ **Vibe Coded** — written by an AI agent working from a human's direction. It is used in a shipping game and covered by tests, but it has had no line-by-line human audit. Read it before you trust it.
 
-The runtime half of emerge: take an `emerge-core` library plus a map, and put it in a Bevy world.
+The runtime half of emerge: take an `bevy_emerge_core` library plus a map, and put it in a Bevy world.
 
-> **This repo is a read-only mirror.** It is split out of [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with `git subtree split`, history intact. It depends on sibling crates by workspace path, so it builds *inside* that workspace, not on its own. Issues and PRs belong upstream.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ## What it does
 
@@ -15,7 +15,7 @@ This is the only crate in the emerge set that knows what a renderer is, on purpo
 ## Examples
 
 ```sh
-cargo run -p emerge-bevy --example spawn_headless
+cargo run -p bevy_emerge --example spawn_headless
 ```
 
 Builds a library and a map in code, shows a map naming an undefined descriptor being refused at load, then hands the valid one to `EmergePlugin` and counts the spawned entities. Runs with `WgpuSettings { backends: None }`, so it needs no GPU and no asset on disk — what is being demonstrated is placement, not pixels.

@@ -24,7 +24,7 @@ use crate::anim_watch::{BenchGeneration, BenchReports, RigReport};
 use crate::project::Project;
 
 /// Bumped when the cache's own shape changes. The `tool` field guards the *measurements'* meaning
-/// ([`emerge_core::rigs::BENCH_TOOL_VERSION`]); this guards the container.
+/// ([`bevy_emerge_core::rigs::BENCH_TOOL_VERSION`]); this guards the container.
 pub const CACHE_VERSION: u32 = 1;
 
 /// The cache file, relative to the project root.
@@ -42,7 +42,7 @@ struct CacheFile {
 struct CacheEntry {
     /// The whole manifest entry the report was measured under — equality on load is what makes
     /// invalidation exact.
-    rig: emerge_core::rigs::Rig,
+    rig: bevy_emerge_core::rigs::Rig,
     report: RigReport,
 }
 
@@ -69,13 +69,13 @@ fn warm_reports(root: &std::path::Path) -> BTreeMap<String, RigReport> {
     let Ok(file) = ron::from_str::<CacheFile>(&text) else {
         return out; // an older/foreign shape re-measures; it does not complain
     };
-    if file.version != CACHE_VERSION || file.tool != emerge_core::rigs::BENCH_TOOL_VERSION {
+    if file.version != CACHE_VERSION || file.tool != bevy_emerge_core::rigs::BENCH_TOOL_VERSION {
         return out;
     }
     let Ok(manifest_text) = std::fs::read_to_string(root.join("assets/emerge/rigs.ron")) else {
         return out;
     };
-    let Ok(rigs) = emerge_core::rigs::Rigs::parse(&manifest_text) else {
+    let Ok(rigs) = bevy_emerge_core::rigs::Rigs::parse(&manifest_text) else {
         return out;
     };
     for (name, entry) in file.entries {
@@ -92,7 +92,7 @@ fn warm_reports(root: &std::path::Path) -> BTreeMap<String, RigReport> {
         let Ok(bytes) = std::fs::read(&mesh) else {
             continue;
         };
-        if emerge_core::glb::fnv1a(&bytes) != recorded {
+        if bevy_emerge_core::glb::fnv1a(&bytes) != recorded {
             continue; // the asset was re-exported while the editor was closed
         }
         out.insert(name, entry.report);
@@ -158,7 +158,7 @@ pub(crate) fn save_bench_cache(
     }
     let file = CacheFile {
         version: CACHE_VERSION,
-        tool: emerge_core::rigs::BENCH_TOOL_VERSION,
+        tool: bevy_emerge_core::rigs::BENCH_TOOL_VERSION,
         entries,
     };
     let Ok(text) = ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default()) else {
@@ -213,10 +213,10 @@ mod tests {
 
     fn valkyrie_report_and_rig(
         root: &std::path::Path,
-    ) -> (RigReport, emerge_core::rigs::Rig) {
+    ) -> (RigReport, bevy_emerge_core::rigs::Rig) {
         let text = std::fs::read_to_string(root.join("assets/emerge/rigs.ron"))
             .unwrap_or_else(|e| panic!("{e}"));
-        let rigs = emerge_core::rigs::Rigs::parse(&text).unwrap_or_else(|e| panic!("{e}"));
+        let rigs = bevy_emerge_core::rigs::Rigs::parse(&text).unwrap_or_else(|e| panic!("{e}"));
         let rig = rigs
             .get("valkyrie")
             .cloned()
@@ -228,7 +228,7 @@ mod tests {
     fn write_cache(root: &std::path::Path, entries: BTreeMap<String, CacheEntry>) {
         let file = CacheFile {
             version: CACHE_VERSION,
-            tool: emerge_core::rigs::BENCH_TOOL_VERSION,
+            tool: bevy_emerge_core::rigs::BENCH_TOOL_VERSION,
             entries,
         };
         let text = ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default())
@@ -289,7 +289,7 @@ mod tests {
         entries.insert("valkyrie".to_owned(), CacheEntry { rig, report });
         let file = CacheFile {
             version: CACHE_VERSION + 1,
-            tool: emerge_core::rigs::BENCH_TOOL_VERSION,
+            tool: bevy_emerge_core::rigs::BENCH_TOOL_VERSION,
             entries,
         };
         let text = ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default())

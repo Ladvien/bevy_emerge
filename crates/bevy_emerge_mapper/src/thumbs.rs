@@ -103,7 +103,7 @@ impl Thumbnails {
     }
 
     /// The first descriptor with no portrait yet, if any. The whole of "what is left to do".
-    fn pending(&self, library: &emerge_core::library::Library) -> Option<usize> {
+    fn pending(&self, library: &bevy_emerge_core::library::Library) -> Option<usize> {
         library
             .descriptors
             .iter()
@@ -459,7 +459,7 @@ pub(crate) fn aim_and_span(lo: Vec3, hi: Vec3) -> (Vec3, f32) {
 fn stage(
     commands: &mut Commands,
     assets: &AssetServer,
-    d: &emerge_core::descriptor::Descriptor,
+    d: &bevy_emerge_core::descriptor::Descriptor,
 ) -> Option<Entity> {
     let mesh = d.mesh.as_ref()?;
     Some(stage_mesh(

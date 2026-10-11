@@ -11,7 +11,7 @@
 //! This tab does not yet author a composition — `compositions.ron` is hand-written, and that is
 //! deliberate rather than unfinished. Building the group-from-selection verb before anything could
 //! *read* a group would have meant an authoring surface whose output nothing validated; the order
-//! here is the same one `emerge-core` took, where the schema and its expander shipped before the file
+//! here is the same one `bevy_emerge_core` took, where the schema and its expander shipped before the file
 //! did. What this tab does is make the file's consequences visible, which is the thing that was
 //! impossible before it.
 //!
@@ -28,7 +28,7 @@
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 
-use emerge_core::composition::{self, Band, Composition, Envelope};
+use bevy_emerge_core::composition::{self, Band, Composition, Envelope};
 
 use crate::chrome::{ACCENT, DANGER, DIM, TEXT};
 use crate::keys::{self, Action};
@@ -89,7 +89,7 @@ pub struct ComposeState {
     /// **The armed group** — by id, never by index.
     ///
     /// An index would silently re-point the moment `compositions.ron` gained a row above it, which is
-    /// the same argument [`emerge_core::composition::Override`] makes about naming a member. The id
+    /// the same argument [`bevy_emerge_core::composition::Override`] makes about naming a member. The id
     /// costs one lookup at stamp time and cannot go stale.
     pub armed: Option<String>,
     /// **What was last stood up**, so nothing is respawned unless the picture actually changed.
@@ -485,11 +485,11 @@ fn measure_budget(project: Res<Project>, mut budget: ResMut<Budget>) {
         *budget = Budget::default();
         return;
     }
-    match emerge_core::grammar::from_compositions(
+    match bevy_emerge_core::grammar::from_compositions(
         comps,
         &project.library,
         project.lattice.face_bands,
-        emerge_core::grid::TILE,
+        bevy_emerge_core::grid::TILE,
         // The same substitutable rule the generate path passes, so the count an author reads is the
         // count a solve will spend rather than a second opinion about it.
         composition::agrees,
@@ -499,7 +499,7 @@ fn measure_budget(project: Res<Project>, mut budget: ResMut<Budget>) {
                 line: format!(
                     "  {} of {} solver prototypes, from {tiles} bounded tile(s)",
                     c.grammar.len(),
-                    emerge_core::grammar::MAX_PROTOTYPES,
+                    bevy_emerge_core::grammar::MAX_PROTOTYPES,
                 ),
                 over: false,
             };
@@ -755,7 +755,7 @@ const STRIP: (f32, f32) = (
 
 /// Air between one slot and the next, in metres. `SNAP`, so the strip's own pitch is on the lattice
 /// everything else here already uses rather than being a second quantum.
-const SLOT_GAP: f32 = emerge_core::grid::SNAP;
+const SLOT_GAP: f32 = bevy_emerge_core::grid::SNAP;
 
 /// Where one composition stands on the carousel.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -836,7 +836,7 @@ impl Carousel {
 pub fn footprint(
     c: &Composition,
     comps: &[Composition],
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
 ) -> Result<((f32, f32), (f32, f32)), String> {
     match c.envelope {
         Envelope::Bounded { size } => Ok(((0.0, 0.0), (size.0, size.2))),
@@ -857,7 +857,7 @@ pub fn footprint(
             let (centre, (w, d)) = span.map_or(((0.0, 0.0), (0.0, 0.0)), |(x0, x1, z0, z1)| {
                 (((x0 + x1) * 0.5, (z0 + z1) * 0.5), (x1 - x0, z1 - z0))
             });
-            let floor = emerge_core::grid::SNAP;
+            let floor = bevy_emerge_core::grid::SNAP;
             Ok((centre, (w.max(floor), d.max(floor))))
         }
     }
@@ -887,7 +887,7 @@ pub fn footprint(
 pub fn height_of(
     c: &Composition,
     comps: &[Composition],
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
 ) -> Result<f32, String> {
     match c.envelope {
         Envelope::Bounded { size } => Ok(size.1),
@@ -901,7 +901,7 @@ pub fn height_of(
             for m in &c.members {
                 tallest = tallest.max(m.lift + stacked_height(c, m, &own, 0)?);
             }
-            Ok(tallest.max(emerge_core::grid::SNAP))
+            Ok(tallest.max(bevy_emerge_core::grid::SNAP))
         }
     }
 }
@@ -945,7 +945,7 @@ fn member_height(
     c: &Composition,
     m: &composition::Member,
     comps: &[Composition],
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
 ) -> Result<f32, String> {
     match &m.body {
         composition::Body::Descriptor { id, patch, .. } => {
@@ -956,7 +956,7 @@ fn member_height(
                 Some(p) => base.patched_with(p),
                 None => base.clone(),
             };
-            emerge_core::descriptor::placed_height(&d)
+            bevy_emerge_core::descriptor::placed_height(&d)
                 .ok_or_else(|| format!("`{}` holds `{}`, which is unmeasured", c.id, m.id))
         }
         composition::Body::Composition { id } => {
@@ -1004,7 +1004,7 @@ struct Measured {
 /// re-centring a block that changed width.
 pub fn lay_out(
     comps: &[Composition],
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
     selected: usize,
 ) -> Carousel {
     if comps.is_empty() {
@@ -1322,8 +1322,8 @@ fn restage_group(
         };
         // **Origin zero**: the pieces come out in the group's own space, and the parent below puts
         // that space on the strip at the slot's scale.
-        let scratch = emerge_core::map::Map {
-            version: emerge_core::map::MAP_VERSION,
+        let scratch = bevy_emerge_core::map::Map {
+            version: bevy_emerge_core::map::MAP_VERSION,
             name: "compose_stage".to_owned(),
             origin: (0.0, 0.0, 0.0),
             bounds: size,
@@ -1337,7 +1337,7 @@ fn restage_group(
             locations: Vec::new(),
             note: None,
         };
-        let stamp = emerge_core::composition::Stamped {
+        let stamp = bevy_emerge_core::composition::Stamped {
             id: "staged".to_owned(),
             of: c.id.clone(),
             at: (0.0, 0.0),
@@ -1354,7 +1354,7 @@ fn restage_group(
         };
         let mut with_rows = scratch.clone();
         with_rows.placements.extend(expanded.placements.iter().cloned());
-        let ys = match emerge_core::stack::resolve_y(&with_rows, &project.library) {
+        let ys = match bevy_emerge_core::stack::resolve_y(&with_rows, &project.library) {
             Ok(ys) => ys,
             Err(e) => {
                 refused.push(format!("`{}` has no height: {e}", c.id));
@@ -1405,7 +1405,7 @@ fn restage_group(
                 // The stage must show what the map will: paint decides what is seen where two members
                 // coincide, and a preview that ignores it is a preview that lies.
                 if p.paint != 0 {
-                    commands.entity(e).insert(emerge_bevy::Paint(p.paint));
+                    commands.entity(e).insert(bevy_emerge::Paint(p.paint));
                 }
                 commands.entity(parent).add_child(e);
             }
@@ -1461,7 +1461,7 @@ fn draw_stage(
     carousel: Res<StagedCarousel>,
     mut gizmos: Gizmos,
 ) {
-    let step = emerge_core::grid::SNAP;
+    let step = bevy_emerge_core::grid::SNAP;
     for slot in &carousel.0.slots {
         let Some(c) = project.compositions.compositions.get(slot.index) else {
             continue;
@@ -1754,7 +1754,7 @@ pub fn pick_along(
 ///
 /// No count and no badge is stored: staleness and the interface are recomputed from the library and
 /// the composition set each time this runs, so a panel cannot disagree with the files it is about.
-/// That is the same discipline `emerge_core::census` applies to counts, for the same reason.
+/// That is the same discipline `bevy_emerge_core::census` applies to counts, for the same reason.
 fn rebuild(
     mut commands: Commands,
     state: Res<ComposeState>,
@@ -2073,7 +2073,7 @@ mod line_tests {
 /// One lattice step, in the frame [`composition::Member::at`] is written in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Nudge {
-    /// −Z, matching [`emerge_core::wfc`]'s `N`.
+    /// −Z, matching [`bevy_emerge_core::wfc`]'s `N`.
     Forward,
     Back,
     Left,
@@ -2100,7 +2100,7 @@ pub fn turned_footprint((w, d): (f32, f32), yaw_deg: f32) -> (f32, f32) {
 pub fn member_footprint(
     m: &composition::Member,
     comps: &[Composition],
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
 ) -> Result<(f32, f32), String> {
     match &m.body {
         composition::Body::Descriptor { id, tip, patch, .. } => {
@@ -2111,7 +2111,7 @@ pub fn member_footprint(
                 Some(p) => base.patched_with(p),
                 None => base.clone(),
             };
-            let (w, _, dep) = emerge_core::descriptor::tipped_extents(&d, *tip)
+            let (w, _, dep) = bevy_emerge_core::descriptor::tipped_extents(&d, *tip)
                 .ok_or_else(|| format!("`{}` is unmeasured, so it cannot be seated", m.id))?;
             Ok(turned_footprint((w, dep), m.yaw))
         }
@@ -2140,7 +2140,7 @@ pub fn member_footprint(
 ///
 /// # The lattice is not defined here
 ///
-/// Horizontal steps are [`emerge_core::grid::SNAP`] and vertical ones are `SNAP / divisions` — the
+/// Horizontal steps are [`bevy_emerge_core::grid::SNAP`] and vertical ones are `SNAP / divisions` — the
 /// exact quanta [`crate::editor`]'s `snap` and `lift_step` already apply to every `Placed`. A second
 /// quantum for the same act is the mistake `editor::Rung`'s note records: the drawn grid said 1.0 m
 /// while the snap was 0.5 m, and an author cannot see which one a piece obeyed.
@@ -2165,7 +2165,7 @@ pub fn seated(
     nudge: Nudge,
     lift_step: f32,
 ) -> Result<((f32, f32), f32), String> {
-    use emerge_core::grid::SNAP;
+    use bevy_emerge_core::grid::SNAP;
     let (dx, dz, dy) = match nudge {
         Nudge::Forward => (0.0, -SNAP, 0.0),
         Nudge::Back => (0.0, SNAP, 0.0),
@@ -2217,7 +2217,7 @@ pub fn seated(
 ///
 /// Measured on the shipped site kit while authoring real tiles: `site/wall` is **0.1 m** thick, so
 /// sitting it flush inside a 1 m tile puts its centre at **0.45** — not a multiple of
-/// [`emerge_core::grid::SNAP`], and therefore unreachable by [`seated`] however many times you press.
+/// [`bevy_emerge_core::grid::SNAP`], and therefore unreachable by [`seated`] however many times you press.
 /// A uniform grid is the right primitive for furniture and the wrong one for architecture.
 ///
 /// So the offset comes from the member's **own measured thickness** rather than from a step: this is
@@ -2270,7 +2270,7 @@ pub fn flushed(
 ///
 /// The **spatial** number, never the face one. Edge tokens belong to a face and space belongs to a
 /// volume; one number serving both meant a finer seat cost a re-index of every authored token.
-/// [`emerge_core::policy::Policy::face_bands`] carries that argument.
+/// [`bevy_emerge_core::policy::Policy::face_bands`] carries that argument.
 ///
 /// # It is the same ladder the Map places on, and that is the change
 ///
@@ -2281,20 +2281,20 @@ pub fn flushed(
 ///
 /// Seats are multiples of this from the envelope's centre in X/Z and its floor in Y, so the centre is
 /// always a seat and nudging out and back returns exactly.
-pub fn seat_step(project: &Project, level: emerge_core::grid::SnapLevel) -> f32 {
+pub fn seat_step(project: &Project, level: bevy_emerge_core::grid::SnapLevel) -> f32 {
     level.pitch(project.lattice.snap_divisor)
 }
 
 /// The authoring grid, rounded the way [`crate::editor`] rounds it. One rule, two callers.
 fn snap_to(v: f32) -> f32 {
-    (v / emerge_core::grid::SNAP).round() * emerge_core::grid::SNAP
+    (v / bevy_emerge_core::grid::SNAP).round() * bevy_emerge_core::grid::SNAP
 }
 
 /// **Turn a member, landing on a multiple of `step`.**
 ///
 /// Rounds the *result* rather than adding to whatever was there, so a member that arrived at 47°
 /// from somewhere else comes back onto the lattice with one press instead of staying 2° off forever.
-/// That matters because [`emerge_core::adjacency::quarter_turns`] refuses a yaw off the quarters and
+/// That matters because [`bevy_emerge_core::adjacency::quarter_turns`] refuses a yaw off the quarters and
 /// names the piece — a tokened member stuck at 47° makes the whole group's interface underivable.
 pub fn turned(yaw: f32, step: f32, dir: f32) -> f32 {
     if !(step.is_finite() && step > 0.0) {
@@ -2445,10 +2445,10 @@ fn detail(lines: &mut Vec<Line>, c: &Composition, comps: &[Composition], project
                 DIM,
             ));
             for (dir, name) in [
-                (emerge_core::wfc::N, "north"),
-                (emerge_core::wfc::E, "east"),
-                (emerge_core::wfc::S, "south"),
-                (emerge_core::wfc::W, "west"),
+                (bevy_emerge_core::wfc::N, "north"),
+                (bevy_emerge_core::wfc::E, "east"),
+                (bevy_emerge_core::wfc::S, "south"),
+                (bevy_emerge_core::wfc::W, "west"),
             ] {
                 for (i, line) in face_rows(&iface.faces[dir]).into_iter().enumerate() {
                     // **A face is a label/value row now, not a monospace-padded string.**
@@ -2535,7 +2535,7 @@ fn face_rows(bands: &[Band]) -> Vec<String> {
 #[cfg(test)]
 mod face_row_tests {
     use super::face_rows;
-    use emerge_core::composition::Band;
+    use bevy_emerge_core::composition::Band;
 
     fn band(y: (f32, f32), lat: (f32, f32), token: Option<&str>) -> Band {
         Band { y, lat, token: token.map(str::to_owned) }
@@ -2588,7 +2588,7 @@ mod face_row_tests {
 #[cfg(test)]
 mod seating_tests {
     use super::{member_footprint, seated, turned, turned_footprint, Nudge};
-    use emerge_core::composition::{Body, Composition, Envelope, Member};
+    use bevy_emerge_core::composition::{Body, Composition, Envelope, Member};
 
     fn bay() -> Envelope {
         Envelope::Bounded { size: (3.0, 2.0, 3.0) }
@@ -2688,8 +2688,8 @@ mod seating_tests {
     /// A nested group's footprint is its own envelope; an anchored child is refused by name.
     #[test]
     fn a_nested_group_is_measured_by_its_envelope_and_an_anchored_one_refuses() {
-        let lib = emerge_core::library::Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+        let lib = bevy_emerge_core::library::Library {
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: Vec::new(),
         };
@@ -2722,7 +2722,7 @@ mod seating_tests {
 #[cfg(test)]
 mod flush_tests {
     use super::{flushed, Nudge};
-    use emerge_core::composition::Envelope;
+    use bevy_emerge_core::composition::Envelope;
 
     /// **The case step 4 was written to find.** `site/wall` is 0.1 m thick; flush inside a 1 m tile
     /// puts it at 0.45, which is not a multiple of `grid::SNAP` and so is unreachable by seating.
@@ -2736,7 +2736,7 @@ mod flush_tests {
         assert!((x - wall.0 * 0.5 + 0.5).abs() < 1e-6, "west face at {}", x - wall.0 * 0.5);
         // And it is not on the seating lattice, which is the whole point.
         assert!(
-            (x / emerge_core::grid::SNAP).fract().abs() > 1e-6,
+            (x / bevy_emerge_core::grid::SNAP).fract().abs() > 1e-6,
             "if this were on the lattice the flush verb would be unnecessary"
         );
     }
@@ -2803,7 +2803,7 @@ mod flush_tests {
 
 #[cfg(test)]
 mod paint_tests {
-    use emerge_core::composition::{Body, Composition, Compositions, Envelope, Member, Stamped};
+    use bevy_emerge_core::composition::{Body, Composition, Compositions, Envelope, Member, Stamped};
 
     fn member(id: &str, paint: i8) -> Member {
         Member {
@@ -2824,7 +2824,7 @@ mod paint_tests {
     #[test]
     fn an_unpainted_member_writes_nothing() {
         let set = Compositions {
-            version: emerge_core::composition::COMPOSITIONS_VERSION,
+            version: bevy_emerge_core::composition::COMPOSITIONS_VERSION,
             note: None,
             compositions: vec![Composition {
                 id: "bay".to_owned(),
@@ -2845,8 +2845,8 @@ mod paint_tests {
     /// Paint reaches the rows the game spawns, or the field decides nothing.
     #[test]
     fn paint_survives_expand_onto_the_placed_row() {
-        let lib = emerge_core::library::Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+        let lib = bevy_emerge_core::library::Library {
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: vec![super::tests_support::wall()],
         };
@@ -2857,8 +2857,8 @@ mod paint_tests {
             locations: Vec::new(),
             note: None,
         };
-        let map = emerge_core::map::Map {
-            version: emerge_core::map::MAP_VERSION,
+        let map = bevy_emerge_core::map::Map {
+            version: bevy_emerge_core::map::MAP_VERSION,
             name: "m".to_owned(),
             origin: (0.0, 0.0, 0.0),
             bounds: (8.0, 2.4, 8.0),
@@ -2869,7 +2869,7 @@ mod paint_tests {
             note: None,
         };
         let stamps = vec![Stamped { id: "s".to_owned(), of: "bay".to_owned(), ..Default::default() }];
-        let out = emerge_core::composition::expand(&map, &stamps, &[comp], &lib)
+        let out = bevy_emerge_core::composition::expand(&map, &stamps, &[comp], &lib)
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(out.placements.len(), 1);
         assert_eq!(out.placements[0].paint, 2, "paint has to reach the row the game spawns");
@@ -2879,12 +2879,12 @@ mod paint_tests {
 #[cfg(test)]
 mod carousel_tests {
     use super::{footprint, framing_height, height_of, lay_out, slot_at, MINIATURE, WINGS};
-    use emerge_core::composition::{Body, Composition, Envelope, Member};
-    use emerge_core::grid::SNAP;
+    use bevy_emerge_core::composition::{Body, Composition, Envelope, Member};
+    use bevy_emerge_core::grid::SNAP;
 
-    fn lib() -> emerge_core::library::Library {
-        emerge_core::library::Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+    fn lib() -> bevy_emerge_core::library::Library {
+        bevy_emerge_core::library::Library {
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: vec![super::tests_support::wall()],
         }
@@ -3121,7 +3121,7 @@ mod carousel_tests {
     fn a_stacked_member_is_measured_through_its_host() {
         // `wall` is 1 × 1 × 1 in the fixture library, so a stack of two stands 2 m tall.
         let mut top = member("top", "wall", (0.0, 0.0));
-        if let emerge_core::composition::Body::Descriptor { on, .. } = &mut top.body {
+        if let bevy_emerge_core::composition::Body::Descriptor { on, .. } = &mut top.body {
             *on = Some("base".to_owned());
         }
         let comps = vec![anchored("stack", vec![member("base", "wall", (0.0, 0.0)), top])];
@@ -3138,7 +3138,7 @@ mod carousel_tests {
     #[test]
     fn a_member_seated_on_a_missing_host_refuses_and_names_it() {
         let mut orphan = member("lamp", "wall", (0.0, 0.0));
-        if let emerge_core::composition::Body::Descriptor { on, .. } = &mut orphan.body {
+        if let bevy_emerge_core::composition::Body::Descriptor { on, .. } = &mut orphan.body {
             *on = Some("table_that_is_not_here".to_owned());
         }
         let comps = vec![anchored("orphaned", vec![orphan])];
@@ -3276,7 +3276,7 @@ mod carousel_tests {
 
 #[cfg(test)]
 mod tests_support {
-    use emerge_core::descriptor::{Align, Descriptor, Extent};
+    use bevy_emerge_core::descriptor::{Align, Descriptor, Extent};
 
     /// A minimal measured piece, so the paint tests need no fixture on disk.
     pub fn wall() -> Descriptor {

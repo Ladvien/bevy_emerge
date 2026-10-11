@@ -1,17 +1,17 @@
-# emerge-mapper
+# bevy_emerge_mapper
 
 > ⚠️ **Vibe Coded** — written by an AI agent working from a human's direction. It is used in a shipping game and covered by tests, but it has had no line-by-line human audit. Read it before you trust it.
 
 A standalone world-building editor: open a project directory, author a map from an asset library, save something any engine can load. A Bevy application in its own right, not a mode of a game.
 
-> **This repo is a read-only mirror.** It is split out of [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with `git subtree split`, history intact. It depends on sibling crates by workspace path, so it builds *inside* that workspace, not on its own. Issues and PRs belong upstream.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_mapper/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge_mapper/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ## Four tabs
 
 - **Map** — palette, ghost, place, fill, undo.
 - **Tiles** — mesh import, measurement review, descriptor authoring, and a vision-LLM labeler whose suggestions stage behind the same commit door a human edit goes through.
 - **Compose** — reusable groups a map holds a *reference* to rather than a copy of: members, the edge tokens their boundary derives, where those members disagree, and which were built against a descriptor that has since changed.
-- **Anim** — a rig bench: measure GLB clips, compare against `rigs.ron`, plot diagnostics, and scrub a staged figure driven by the **real** `emerge-anim` blender rather than a preview copy of it. Last, because the other three are three views of building a level and this is a different job.
+- **Anim** — a rig bench: measure GLB clips, compare against `rigs.ron`, plot diagnostics, and scrub a staged figure driven by the **real** `bevy_emerge_anim` blender rather than a preview copy of it. Last, because the other three are three views of building a level and this is a different job.
 
 ## Every refusal sticks, and can be copied
 
@@ -42,7 +42,7 @@ say so, which is the half no machine can answer and the reason a person is in th
 ## Examples
 
 ```sh
-cargo run -p emerge-mapper --example boot_headless -- <project-root> [map-name]
+cargo run -p bevy_emerge_mapper --example boot_headless -- <project-root> [map-name]
 ```
 
 Boots the shipped editor plugin graph with no window and no wgpu device, steps frames, and reports that nothing panicked. That question has teeth in Bevy 0.19, where a missing `Res<T>` panics its system rather than skipping it. A real project directory is required — inventing one here would be a second source of truth for what a project looks like.

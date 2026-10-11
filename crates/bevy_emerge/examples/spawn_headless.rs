@@ -9,15 +9,15 @@
 //! build and `Assets<Mesh>` exists, but no adapter, device or queue is created. Mesh handles resolve
 //! to nothing here — which is fine, because what is being demonstrated is placement, not pixels.
 //!
-//! Run: `cargo run -p emerge-bevy --example spawn_headless`
+//! Run: `cargo run -p bevy_emerge --example spawn_headless`
 
 use bevy::prelude::*;
-use emerge_bevy::{draw_yaw, origin_of, EmergePlugin, EmergeWorld, Placement};
-use emerge_core::descriptor::{Descriptor, Extent, Face};
-use emerge_core::kits::Lattice;
-use emerge_core::library::{Library, LIBRARY_VERSION};
-use emerge_core::map::{Map, Placed};
-use emerge_core::vocab::Vocabularies;
+use bevy_emerge::{draw_yaw, origin_of, EmergePlugin, EmergeWorld, Placement};
+use bevy_emerge_core::descriptor::{Descriptor, Extent, Face};
+use bevy_emerge_core::kits::Lattice;
+use bevy_emerge_core::library::{Library, LIBRARY_VERSION};
+use bevy_emerge_core::map::{Map, Placed};
+use bevy_emerge_core::vocab::Vocabularies;
 
 fn descriptor(id: &str, front: Option<Face>) -> Descriptor {
     let mut d = Descriptor {
@@ -34,7 +34,7 @@ fn placed(id: &str, descriptor: &str, at: (f32, f32), yaw: f32) -> Placed {
     Placed { id: id.to_owned(), descriptor: descriptor.to_owned(), at, yaw, ..Placed::default() }
 }
 
-/// The headless `App`, built the way `emerge-mapper`'s harness builds one.
+/// The headless `App`, built the way `bevy_emerge_mapper`'s harness builds one.
 fn headless_app() -> App {
     let mut app = App::new();
     app.add_plugins(
@@ -55,7 +55,7 @@ fn headless_app() -> App {
             .disable::<bevy::winit::WinitPlugin>()
             .disable::<bevy::audio::AudioPlugin>()
             // With no render device there is no render app, so a few plugins log an error about
-            // its absence. That is expected here and only obscures the output. `emerge-mapper`'s
+            // its absence. That is expected here and only obscures the output. `bevy_emerge_mapper`'s
             // harness drops the log plugin for the same reason.
             .disable::<bevy::log::LogPlugin>(),
     )

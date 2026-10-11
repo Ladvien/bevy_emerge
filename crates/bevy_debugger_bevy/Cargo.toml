@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.95"
 description = "Companion Bevy plugin for bevy_debugger_mcp — registers custom BRP methods for screenshot, inspection, and headless input injection"
+repository = "https://github.com/Ladvien/bevy_emerge"
 license = "MIT OR Apache-2.0"
 publish = false
 keywords = ["bevy", "debugging", "mcp", "brp", "gamedev"]

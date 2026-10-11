@@ -88,12 +88,12 @@ impl Plugin for GuidePlugin {
         });
         let one_cell = app.register_system(|_: In<Value>, build: Res<Build>| {
             build.open.as_ref().is_some_and(|c| match c.envelope {
-                emerge_core::composition::Envelope::Bounded { size } => {
+                bevy_emerge_core::composition::Envelope::Bounded { size } => {
                     crate::build::is_one_cell(size)
                 }
                 // An `Anchored` composition claims no tile, so "is it one cell" has no answer for
                 // it. Answering false is right: the step that asks this wants a solver prototype.
-                emerge_core::composition::Envelope::Anchored => false,
+                bevy_emerge_core::composition::Envelope::Anchored => false,
             })
         });
 
@@ -150,7 +150,7 @@ impl Plugin for GuidePlugin {
                     c.members
                         .iter()
                         .filter(|m| match &m.body {
-                            emerge_core::composition::Body::Descriptor { id, .. } => {
+                            bevy_emerge_core::composition::Body::Descriptor { id, .. } => {
                                 ids.is_empty() || ids.iter().any(|want| want == id)
                             }
                             _ => ids.is_empty(),

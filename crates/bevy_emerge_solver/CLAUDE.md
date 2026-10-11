@@ -1,14 +1,14 @@
-# deterministic_solver — notes for agents
+# bevy_emerge_solver — notes for agents
 
 A Boolean satisfiability back-end: clauses in, bits out, incrementally, under assumptions.
 
 ## Source of truth
 
-The source of truth for this crate is [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) at `crates/deterministic_solver/`. If you are reading this in a standalone `Ladvien/deterministic_solver` checkout, that is a read-only `git subtree split` mirror — **changes made here cannot be pulled back**. Make them upstream.
+The source of truth for this crate is [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge) at `crates/bevy_emerge_solver/` (MIT OR Apache-2.0, Bevy 0.20). It began as `crates/bevy_emerge_solver/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop), history kept; foundation_vs_slop still carries the GPL Bevy 0.19 original until it ports. Make changes here, in their own commits with tests here; a consumer game never vendors or patches a copy.
 
 ## Build and test
 
-A leaf — `batsat`, and nothing else — so it builds and tests on its own: `cargo test -p deterministic_solver`.
+A leaf — `batsat`, and nothing else — so it builds and tests on its own: `cargo test -p bevy_emerge_solver`.
 
 ## The non-negotiable: the answer is a function of the input, and nothing else
 
@@ -43,7 +43,7 @@ This crate decides. It does not optimise, and it must not learn to: there is no 
 
 What it owes such a loop is the three primitives one is built from: **assumptions** and an **unsatisfiable core**, both on `solve`, plus **`add_var`** so the loop can grow the counters it could not have known to ask for when the problem was built. A caller guards each soft constraint with an indicator, assumes the indicators, and prices whatever the core names.
 
-`emerge-core::constraints::Problem::solve` is the caller that does this, core-guided (OLL). It lives there and not here because the weights mean something only to whoever chose them.
+`bevy_emerge_core::constraints::Problem::solve` is the caller that does this, core-guided (OLL). It lives there and not here because the weights mean something only to whoever chose them.
 
 **`with_preferences` is the fourth primitive, and it is not part of that loop.** A per-variable first guess steers which model comes back without changing which models exist. It exists because the alternative — expressing a preference as a soft constraint — makes the optimiser prove the result is *closest* to the wish-list, and that measured 9,171 ms against 15 ms on a real 12×12 tile problem. If a caller wants variety rather than optimality, this is the mechanism; `unmet` then reports only the wishes someone actually asked to have minimised.
 

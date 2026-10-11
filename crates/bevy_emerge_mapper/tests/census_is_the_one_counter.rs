@@ -1,13 +1,13 @@
-//! **Nothing outside `emerge_core::census` counts the catalog.**
+//! **Nothing outside `bevy_emerge_core::census` counts the catalog.**
 //!
-//! A module is not a discipline. `emerge_core::census` exists because three module notes in this crate
+//! A module is not a discipline. `bevy_emerge_core::census` exists because three module notes in this crate
 //! each stated the size of the same library and all three disagreed — and because a composition layer
 //! multiplies the problem: one library gave one count, but a library plus compositions plus a map that
 //! stamps them gives *described*, *composed*, *stamped*, and every panel wanting to say "N of M" is a
 //! place to compute one slightly differently.
 //!
 //! Adding the module prevents nothing on its own. This is what prevents it, on the precedent of the
-//! ratchets this project already trusts: `emerge-core`'s `engine_free.rs`, the key census's collision
+//! ratchets this project already trusts: `bevy_emerge_core`'s `engine_free.rs`, the key census's collision
 //! test, and the twelve-row display ceiling. Each turns a rule that was a comment into a rule that can
 //! fail a build.
 //!
@@ -118,10 +118,10 @@ fn no_panel_counts_the_catalog_for_itself() {
 /// The forbidden list is only meaningful if the thing it points at exists.
 #[test]
 fn the_census_answers_everything_this_test_forbids() {
-    let library = emerge_core::library::Library::default();
-    let map = emerge_core::map::Map::default();
-    let catalog = emerge_core::census::of_catalog(&library, &[]);
-    let counted = emerge_core::census::of_map(&map);
+    let library = bevy_emerge_core::library::Library::default();
+    let map = bevy_emerge_core::map::Map::default();
+    let catalog = bevy_emerge_core::census::of_catalog(&library, &[]);
+    let counted = bevy_emerge_core::census::of_map(&map);
     // Naming each field is the point: if one is removed, this stops compiling and the row above it in
     // FORBIDDEN has to be reconsidered rather than quietly pointing at nothing.
     assert_eq!(

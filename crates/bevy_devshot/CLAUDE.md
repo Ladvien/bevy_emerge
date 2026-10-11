@@ -4,7 +4,7 @@ A frame on demand: `touch screenshot.request` and the next frame writes `screens
 
 ## Source of truth
 
-The source of truth for this crate is [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) at `crates/bevy_devshot/`. If you are reading this in a standalone `Ladvien/bevy_devshot` checkout, that is a read-only `git subtree split` mirror — **changes made here cannot be pulled back**. Make them upstream.
+The source of truth for this crate is [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge) at `crates/bevy_devshot/` (MIT OR Apache-2.0, Bevy 0.20). It began as `crates/bevy_devshot/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop), history kept; foundation_vs_slop still carries the GPL Bevy 0.19 original until it ports. Make changes here, in their own commits with tests here; a consumer game never vendors or patches a copy.
 
 ## Build and test
 
@@ -31,4 +31,4 @@ The whole API is one `Path::exists` per frame. Keep it that way — a watcher th
 
 ## In the monorepo
 
-The game reaches this as `crate::devshot` (`src/lib.rs:52`); `emerge-mapper` depends on it directly. The root `CLAUDE.md` §Screenshots explains the capture workflow and the `debug_screenshots/` convention; neither it nor `TESTING.md` is part of this mirror.
+The game reaches this as `crate::devshot` (`src/lib.rs:52`); `bevy_emerge_mapper` depends on it directly. The root `CLAUDE.md` §Screenshots explains the capture workflow and the `debug_screenshots/` convention; neither it nor `TESTING.md` is part of this mirror.

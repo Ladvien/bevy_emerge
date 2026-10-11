@@ -57,12 +57,12 @@ impl Opened {
 ///
 /// `--door` is required for anything but the Maps door, because a bare positional cannot say which
 /// door it names. A missing `--door` with a map name is the Maps door, which is what
-/// `emerge-mapper . site_67` always meant.
+/// `bevy_emerge_mapper . site_67` always meant.
 /// **What an argv says, split once.**
 ///
 /// Every question this module answers — where the root is, whether a door was named, which door —
 /// is answered off this one split. Three hand-rolled scans is how `root_of` came to treat `--kit`'s
-/// *value* as the first positional: `emerge-mapper --kit site` pointed Bevy's asset root at
+/// *value* as the first positional: `bevy_emerge_mapper --kit site` pointed Bevy's asset root at
 /// `./site/assets` while `open` correctly resolved the project at `.`, and every mesh 404'd. The
 /// module note promised "one thing to get wrong rather than two that agree until they do not"; this
 /// is that one thing.

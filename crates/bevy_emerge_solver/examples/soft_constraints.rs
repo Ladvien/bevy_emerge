@@ -20,7 +20,7 @@
 //! The scenario: seat five guests at a table, where some pairs want to sit together and one guest
 //! refuses to sit with another. Not every wish can be granted.
 
-use deterministic_solver::{Answer, Budget, Literal, Solver};
+use bevy_emerge_solver::{Answer, Budget, Literal, Solver};
 
 const GUESTS: [&str; 5] = ["Ada", "Bo", "Cy", "Di", "Eli"];
 /// Two seats. `seat(g)` true means guest `g` sits on the left.

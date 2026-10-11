@@ -9,10 +9,10 @@
 //!
 //! Bridson, "Fast Poisson Disk Sampling in Arbitrary Dimensions", SIGGRAPH 2007.
 //!
-//! Run: `cargo run -p emerge-core --example poisson`
+//! Run: `cargo run -p bevy_emerge_core --example poisson`
 
-use emerge_core::geom::{delaunay_edges, poisson_disk, prune_to_max_degree, Point};
-use emerge_core::rng::seeded;
+use bevy_emerge_core::geom::{delaunay_edges, poisson_disk, prune_to_max_degree, Point};
+use bevy_emerge_core::rng::seeded;
 
 const W: f64 = 72.0;
 const H: f64 = 24.0;

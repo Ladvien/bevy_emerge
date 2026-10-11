@@ -19,8 +19,8 @@
 
 mod fixtures;
 
-use emerge_mapper::harness;
-use emerge_mapper::screen::{ownership, OWNERSHIP};
+use bevy_emerge_mapper::harness;
+use bevy_emerge_mapper::screen::{ownership, OWNERSHIP};
 use fixtures::Fixture;
 
 /// The editor's own resources, as the World reports them after a real boot.
@@ -42,7 +42,7 @@ fn editors_resources(fixture: &str) -> Vec<String> {
         .iter_resources()
         .map(|(info, _)| info.name().to_string())
         // Bevy's own resources are Bevy's business; a door change is this crate's question.
-        .filter(|n| n.starts_with("emerge_mapper::"))
+        .filter(|n| n.starts_with("bevy_emerge_mapper::"))
         .collect();
     names.sort();
     names
@@ -96,7 +96,7 @@ fn the_classification_names_nothing_that_is_gone() {
 /// cheaper, which is the bug this file is about, written down as a decision.
 #[test]
 fn the_working_state_is_named_as_such() {
-    use emerge_mapper::screen::Ownership;
+    use bevy_emerge_mapper::screen::Ownership;
     let doors = OWNERSHIP
         .iter()
         .filter(|(_, c)| *c == Ownership::Door)
@@ -123,12 +123,12 @@ fn the_working_state_is_named_as_such() {
 /// whole file is about — so the list and the table are compared in both directions.
 #[test]
 fn the_door_resets_what_it_says_it_owns() {
-    use emerge_mapper::screen::{door_state_type_paths, Ownership};
+    use bevy_emerge_mapper::screen::{door_state_type_paths, Ownership};
 
     // `Frame` is the one deliberate absence. It holds entity ids from the screen that spawned them,
     // so re-initialising it would be meaningless — `chrome::spawn_frame` replaces it wholesale on
     // every entry, which is a stronger guarantee than a reset. The table says the same thing.
-    const REPLACED_ON_ENTRY: &[&str] = &["emerge_mapper::chrome::Frame"];
+    const REPLACED_ON_ENTRY: &[&str] = &["bevy_emerge_mapper::chrome::Frame"];
 
     let declared: Vec<&str> = OWNERSHIP
         .iter()

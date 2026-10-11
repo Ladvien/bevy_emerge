@@ -1,7 +1,7 @@
 //! **The checkpoint: does the constraint encoding mean the same thing WFC's tables mean?**
 //!
 //! ```text
-//! cargo run -p emerge-core --example faithful_port
+//! cargo run -p bevy_emerge_core --example faithful_port
 //! ```
 //!
 //! `docs/2026-08-10-constraint-solver-plan.md` §3 puts this before any global constraint is written:
@@ -35,13 +35,13 @@
 //! Then the solved grid is measured with the same [`range::measure`] the expressive-range run uses,
 //! so the *kind* of output is on the record too.
 
-use emerge_core::composition::{Compositions, Interface};
-use emerge_core::constraints::GridProblem;
-use emerge_core::grammar::{self, Composed, Grammar};
-use emerge_core::library::Library;
-use emerge_core::map::Map;
-use emerge_core::range::{self, Faces};
-use emerge_core::wfc::{E, N, S, W};
+use bevy_emerge_core::composition::{Compositions, Interface};
+use bevy_emerge_core::constraints::GridProblem;
+use bevy_emerge_core::grammar::{self, Composed, Grammar};
+use bevy_emerge_core::library::Library;
+use bevy_emerge_core::map::Map;
+use bevy_emerge_core::range::{self, Faces};
+use bevy_emerge_core::wfc::{E, N, S, W};
 
 /// `site_67`'s slab, the region the expressive-range run used. Same region, so the two are comparable.
 const REGION: usize = 12;
@@ -68,7 +68,7 @@ fn main() {
         &library,
         1,
         CELL,
-        emerge_core::composition::agrees,
+        bevy_emerge_core::composition::agrees,
     ) {
         Ok(c) => c,
         Err(e) => return eprintln!("the kit does not learn a grammar: {e}"),

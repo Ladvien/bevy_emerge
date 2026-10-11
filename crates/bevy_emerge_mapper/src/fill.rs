@@ -33,8 +33,8 @@
 
 use std::collections::HashSet;
 
-use emerge_core::descriptor::Descriptor;
-use emerge_core::map::{Map, Placed};
+use bevy_emerge_core::descriptor::Descriptor;
+use bevy_emerge_core::map::{Map, Placed};
 
 /// The most placements one fill may create. See the module note on why it is loud.
 pub const MAX_CELLS: usize = 4096;
@@ -83,7 +83,7 @@ pub fn covered_rect(from: (f32, f32), at: (f32, f32), extents: (f32, f32)) -> (f
 ///
 /// # The tip is the same question asked about the other two axes
 ///
-/// [`emerge_core::map::Placed::tip`]'s own doc names this function as where the axis-swap lesson is
+/// [`bevy_emerge_core::map::Placed::tip`]'s own doc names this function as where the axis-swap lesson is
 /// recorded — and for a long time it recorded only half of it, swapping X against Z for yaw and
 /// ignoring the tip entirely. A tipped piece lies down: its height becomes one of its floor
 /// dimensions, so a 2.40 m wall tipped a quarter turn covers 2.40 m of floor and a lattice built
@@ -93,7 +93,7 @@ pub fn cell_extents(d: &Descriptor, yaw_deg: f32, tip: (u8, u8)) -> (f32, f32) {
     // **The placed footprint** — `stack::covers` reserves that box, so a fill stepping on the measured
     // one would lay a scaled piece down at a pitch its own reservation disagrees with.
     let (w, depth) =
-        emerge_core::descriptor::tipped_footprint(d, tip).unwrap_or((MIN_CELL, MIN_CELL));
+        bevy_emerge_core::descriptor::tipped_footprint(d, tip).unwrap_or((MIN_CELL, MIN_CELL));
     let quarter = (yaw_deg.rem_euclid(360.0) / 90.0).round() as i32 % 4;
     let (x, z) = if quarter % 2 == 1 {
         (depth, w)
@@ -111,7 +111,7 @@ fn snap_cell(v: f32) -> f32 {
 /// **The lattice a fill steps on — the one a click lands on.**
 ///
 /// Cell `k` sits at `k * step + phase`, and `phase` is half the brush's turned footprint, because
-/// that is exactly what [`emerge_core::grid::snap_corner`] leaves behind: it puts a piece's minimum
+/// that is exactly what [`bevy_emerge_core::grid::snap_corner`] leaves behind: it puts a piece's minimum
 /// corner on a multiple of the pitch, so its centre is that multiple plus half its span. Inverting it
 /// is `round`, not `floor`, for the same reason `snap_corner` rounds — the cell you are in is the one
 /// whose landing you are nearest.
@@ -179,7 +179,7 @@ impl Lattice {
         )
     }
 
-    /// Where a piece in that cell lands — a point [`emerge_core::grid::snap_corner`] would also answer.
+    /// Where a piece in that cell lands — a point [`bevy_emerge_core::grid::snap_corner`] would also answer.
     fn centre(&self, c: (i64, i64)) -> (f32, f32) {
         (
             c.0 as f32 * self.step.0 + self.phase.0,
@@ -450,10 +450,10 @@ mod tests {
             (0.0, 0.75, 2.0, 1.25)
         );
     }
-    use emerge_core::descriptor::Extent;
+    use bevy_emerge_core::descriptor::Extent;
     /// The tile rung, which is what every fill in these tests is driven at — the rung an author is on
     /// unless they are holding a modifier, and the only one a cell-sized piece may use.
-    use emerge_core::grid::TILE;
+    use bevy_emerge_core::grid::TILE;
 
     /// A brush that has not been tipped — the state every test below but the tipping ones is about.
     /// Spelled rather than defaulted so a test that *means* upright and one that merely forgot to
@@ -505,7 +505,7 @@ mod tests {
     /// front, rather than a per-cell decision the caller then ignored.
     #[test]
     fn a_surface_piece_cannot_be_filled_with() {
-        use emerge_core::descriptor::Mount;
+        use bevy_emerge_core::descriptor::Mount;
         let lamp = Descriptor {
             id: "lamp_tall".into(),
             mount: Some(Mount::OnSurface {
@@ -685,7 +685,7 @@ mod tests {
     /// to write thousands of undrawable rows.
     #[test]
     fn a_surface_piece_cannot_be_box_filled_with_either() {
-        use emerge_core::descriptor::Mount;
+        use bevy_emerge_core::descriptor::Mount;
         let lamp = Descriptor {
             id: "lamp_tall".into(),
             mount: Some(Mount::OnSurface {

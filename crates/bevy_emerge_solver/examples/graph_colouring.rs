@@ -11,7 +11,7 @@
 //!
 //! Terminal output, no GPU — `docs/bevy_plugins.md`'s preference, and a solver has nothing to draw.
 
-use deterministic_solver::{Answer, Budget, Literal, Solver};
+use bevy_emerge_solver::{Answer, Budget, Literal, Solver};
 
 /// The mainland states, in a fixed order so the variable numbering is stable.
 const REGIONS: [&str; 6] = ["WA", "NT", "SA", "Q", "NSW", "V"];

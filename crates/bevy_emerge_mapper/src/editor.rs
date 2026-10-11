@@ -19,7 +19,7 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button as UiButton};
-use emerge_core::map::Placed;
+use bevy_emerge_core::map::Placed;
 
 use crate::chrome::{
     ACCENT, BOUNDS_LINE, CHIP_PAD, DANGER, DIM, FOCUS_BG, GRID_LINE, HEADER_BG, LABEL, LIST_W,
@@ -31,12 +31,12 @@ use crate::view::{MainCamera, cursor_ground};
 
 /// **The authoring grid, from the one place that defines it.**
 ///
-/// This was `const SNAP: f32 = 0.5` — a second copy of `emerge_core::grid::SNAP`, in the one file
+/// This was `const SNAP: f32 = 0.5` — a second copy of `bevy_emerge_core::grid::SNAP`, in the one file
 /// that snaps, while `lift_step` two thousand lines below already used the real one. `grid`'s own
 /// module note says why that is not allowed: *"Nothing here is clever. It is here so there is
 /// exactly one of it."* It had already drifted from a third statement of the same fact — the drawn
 /// grid, which `view.rs` set to 1.0 m under a comment insisting it was the snap.
-use emerge_core::grid::{self, SnapLevel};
+use bevy_emerge_core::grid::{self, SnapLevel};
 /// Yaw snap, degrees.
 const YAW_STEP: f32 = 15.0;
 
@@ -327,9 +327,9 @@ pub struct MoveDrag {
 /// missing `Placement` on stamped rows used to prevent by making it unreachable.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Held {
-    /// A loose placement, by [`emerge_core::map::Placed::id`]. Its riders come with it.
+    /// A loose placement, by [`bevy_emerge_core::map::Placed::id`]. Its riders come with it.
     Piece(String),
-    /// A stamp, by [`emerge_core::composition::Stamped::id`]. Moving it writes `Stamped::at`; the
+    /// A stamp, by [`bevy_emerge_core::composition::Stamped::id`]. Moving it writes `Stamped::at`; the
     /// rows follow because `redraw_stamps` rebuilds them from the list.
     Stamp(String),
 }
@@ -386,14 +386,14 @@ pub enum CloneHost {
 /// kind would silently repoint every host a captured set carries.
 #[derive(Clone)]
 pub struct CloneStamp {
-    /// The [`emerge_core::composition::Composition`] id this instances.
+    /// The [`bevy_emerge_core::composition::Composition`] id this instances.
     pub of: String,
     /// From the set's anchor, in map metres — the same frame [`ClonePiece::offset`] uses.
     pub offset: (f32, f32),
     pub yaw: f32,
     /// Carried verbatim: an override is a statement about *this* instance, and a copy that dropped
     /// them would be a different nurse station wearing the same name.
-    pub overrides: Vec<emerge_core::composition::Override>,
+    pub overrides: Vec<bevy_emerge_core::composition::Override>,
     pub owned: bool,
     pub owned_because: Option<String>,
     pub note: Option<String>,
@@ -418,23 +418,23 @@ pub struct CloneSet {
 impl CloneSet {
     /// **Where a piece lands and which way it faces**, with the set's own turn folded in.
     ///
-    /// Through `emerge_core::composition::rotate_xz` — the function a *stamp* rotates by — rather
+    /// Through `bevy_emerge_core::composition::rotate_xz` — the function a *stamp* rotates by — rather
     /// than a local copy of the sign convention. Bevy's yaw turns +X toward −Z, and a second copy of
     /// that is how a set turned 90° would come out mirrored against a composition turned 90°.
     pub fn placed(&self, piece: &ClonePiece, target: (f32, f32)) -> ((f32, f32), f32) {
-        let off = emerge_core::composition::rotate_xz(piece.offset, self.yaw);
+        let off = bevy_emerge_core::composition::rotate_xz(piece.offset, self.yaw);
         (
             (target.0 + off.0, target.1 + off.1),
-            emerge_core::composition::add_yaw(piece.yaw, self.yaw),
+            bevy_emerge_core::composition::add_yaw(piece.yaw, self.yaw),
         )
     }
 
     /// [`Self::placed`] for a carried stamp — the same turn, applied to a whole instance.
     pub fn placed_stamp(&self, st: &CloneStamp, target: (f32, f32)) -> ((f32, f32), f32) {
-        let off = emerge_core::composition::rotate_xz(st.offset, self.yaw);
+        let off = bevy_emerge_core::composition::rotate_xz(st.offset, self.yaw);
         (
             (target.0 + off.0, target.1 + off.1),
-            emerge_core::composition::add_yaw(st.yaw, self.yaw),
+            bevy_emerge_core::composition::add_yaw(st.yaw, self.yaw),
         )
     }
 
@@ -442,7 +442,7 @@ impl CloneSet {
     /// is not a rectangle, so the box the author sees is the rotated one's **bounds** — which is what
     /// a box drawn on the ground can honestly show.
     pub fn bounds(&self, target: (f32, f32)) -> (f32, f32, f32, f32) {
-        let c = emerge_core::composition::rotate_xz(self.centre_off, self.yaw);
+        let c = bevy_emerge_core::composition::rotate_xz(self.centre_off, self.yaw);
         let (cx, cz) = (target.0 + c.0, target.1 + c.1);
         let corners = [
             (-self.half.0, -self.half.1),
@@ -452,7 +452,7 @@ impl CloneSet {
         ];
         let (mut hx, mut hz) = (0.0f32, 0.0f32);
         for corner in corners {
-            let r = emerge_core::composition::rotate_xz(corner, self.yaw);
+            let r = bevy_emerge_core::composition::rotate_xz(corner, self.yaw);
             hx = hx.max(r.0.abs());
             hz = hz.max(r.1.abs());
         }
@@ -518,9 +518,9 @@ enum Undo {
     RemovedMany { items: Vec<(usize, Box<Placed>)> },
     /// Put a moved group back where it came from. **One entry for the whole group** — the piece and
     /// everything that was riding on it — on the same argument `RemovedMany` makes: one act the
-    /// author performed is one act to take back. `emerge_core::stack::Moved` records what changed and
+    /// author performed is one act to take back. `bevy_emerge_core::stack::Moved` records what changed and
     /// `restore_moved` is its inverse, so the undo cannot drift from the move.
-    Moved { moved: emerge_core::stack::Moved },
+    Moved { moved: bevy_emerge_core::stack::Moved },
     /// Remove exactly these rows again — the inverse of [`Undo::RemovedMany`].
     ///
     /// **Not `Added { count }`.** That one removes the *last* `count`, which is right for a place or a
@@ -551,7 +551,7 @@ enum Undo {
     /// Put stamps back at their original indices — the inverse of [`Undo::Stamped`], on exactly the
     /// argument [`Undo::RemovedMany`] makes about rows.
     UnstampedMany {
-        items: Vec<(usize, Box<emerge_core::composition::Stamped>)>,
+        items: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)>,
     },
     /// **Take these exact stamps off the list** — the inverse of [`Undo::UnstampedMany`], and the
     /// stamp-side twin of [`Undo::RemoveAt`].
@@ -815,7 +815,7 @@ enum Field {
     Under,
     /// **Where the map disagrees with the tokens the tiles declare.**
     ///
-    /// See `emerge_core::adjacency`. A standing readout rather than a message, because a fault is a
+    /// See `bevy_emerge_core::adjacency`. A standing readout rather than a message, because a fault is a
     /// state the map is in — it does not happen once and stop being true, so putting it on
     /// [`Self::Last`] would let the next action erase it.
     Edges,
@@ -2098,14 +2098,14 @@ fn refresh_size(
 /// Recomputed only when the project changes — it is O(placements^2) in the worst case and the answer
 /// cannot move while nothing has been placed, turned or removed.
 #[derive(Resource, Default)]
-pub struct EdgeFaults(pub Vec<emerge_core::adjacency::Fault>);
+pub struct EdgeFaults(pub Vec<bevy_emerge_core::adjacency::Fault>);
 
 fn check_edges(project: Res<Project>,
     open: Res<OpenMap>, mut faults: ResMut<EdgeFaults>) {
     // The **layered** library, because that is what the map places — and this project's divisions,
     // because a face's length is derived from a piece's size and how finely the project divides.
     faults.0 =
-        emerge_core::adjacency::faults(&open.map, &project.library, project.lattice.face_bands);
+        bevy_emerge_core::adjacency::faults(&open.map, &project.library, project.lattice.face_bands);
 }
 
 /// Outline both halves of every fault, so the sentence in the panel has something to point at.
@@ -2136,7 +2136,7 @@ fn draw_edge_faults(
                 .iter()
                 .find(|p| p.id == id)
                 .and_then(|p| project.library.get(&p.descriptor))
-                .and_then(emerge_core::descriptor::placed_footprint)
+                .and_then(bevy_emerge_core::descriptor::placed_footprint)
                 .unwrap_or((CELL, CELL));
             gizmos.rect(
                 Isometry3d::new(
@@ -2200,7 +2200,7 @@ pub struct Proposed {
     /// clears the unpinned stamps rather than the unpinned placements.
     pub composes: bool,
     pub placements: Vec<Placed>,
-    pub stamps: Vec<emerge_core::composition::Stamped>,
+    pub stamps: Vec<bevy_emerge_core::composition::Stamped>,
 }
 
 /// The proposal in hand, or `None`. `None` is a real state: it is what makes the Map's key list show
@@ -2458,7 +2458,7 @@ fn refresh_status(
                 // A caret, so an empty field reads as "waiting for you" rather than as the name
                 // having been wiped.
                 Some(raw) => (
-                    format!("{}_", emerge_core::naming::to_snake_case(raw)),
+                    format!("{}_", bevy_emerge_core::naming::to_snake_case(raw)),
                     ACCENT,
                 ),
                 None => (open.map.name.clone(), TEXT),
@@ -2472,13 +2472,13 @@ fn refresh_status(
             // the naming rule teaches itself.
             Field::Yaw => (format!("{} deg", state.brush_yaw), TEXT),
             Field::Map => (
-                // Counted by `emerge_core::census`, never here — see
+                // Counted by `bevy_emerge_core::census`, never here — see
                 // `tests/census_is_the_one_counter.rs` for why a rendered count is the one that
                 // drifts. Stamps are named separately because a stamp is one reference however many
                 // rows it stands for, and folding them into "placed" would make the number disagree
                 // with what is on screen.
                 {
-                    let counted = emerge_core::census::of_map(&open.map);
+                    let counted = bevy_emerge_core::census::of_map(&open.map);
                     let stamps = match counted.stamps {
                         0 => String::new(),
                         n => format!(", {n} stamped"),
@@ -2735,7 +2735,7 @@ fn rename_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = state.renaming.take().unwrap_or_default();
-                let name = emerge_core::naming::to_snake_case(&raw);
+                let name = bevy_emerge_core::naming::to_snake_case(&raw);
                 if name.is_empty() {
                     state
                         .status
@@ -2851,7 +2851,7 @@ pub fn with_thousands(n: usize) -> String {
 /// Calibrated on the shipped kit rather than picked: its median is 1,526 triangles and its
 /// second-densest piece is 7,996, so 20k is well clear of everything except the one genuine outlier.
 fn cost_tint(triangles: usize) -> Color {
-    if triangles > emerge_core::import::BUSY_TRIANGLES {
+    if triangles > bevy_emerge_core::import::BUSY_TRIANGLES {
         DANGER
     } else if triangles > 5_000 {
         ACCENT
@@ -2880,9 +2880,9 @@ fn snap_point(project: &Project, v: f32, level: SnapLevel) -> f32 {
 /// upright case is kept from ever consulting a height it does not need.
 ///
 /// The two turns compose in the order they are drawn — tip in the piece's own frame first, then yaw
-/// about +Y — which is the order [`emerge_core::map::Placed::tip`] documents.
-pub fn brush_span(d: &emerge_core::descriptor::Descriptor, yaw: f32, tip: (u8, u8)) -> (f32, f32) {
-    match emerge_core::descriptor::tipped_footprint(d, tip) {
+/// about +Y — which is the order [`bevy_emerge_core::map::Placed::tip`] documents.
+pub fn brush_span(d: &bevy_emerge_core::descriptor::Descriptor, yaw: f32, tip: (u8, u8)) -> (f32, f32) {
+    match bevy_emerge_core::descriptor::tipped_footprint(d, tip) {
         Some(fp) => crate::compose::turned_footprint(fp, yaw),
         None => (0.0, 0.0),
     }
@@ -2897,13 +2897,13 @@ pub fn brush_span(d: &emerge_core::descriptor::Descriptor, yaw: f32, tip: (u8, u
 /// resurrected by a second mount kind the guard had never heard of. A third one must not be able to
 /// do it again, so "does this need a host" has exactly one answer here.
 ///
-/// [`emerge_core::stack`] keeps the two apart deliberately — they answer different questions and a
+/// [`bevy_emerge_core::stack`] keeps the two apart deliberately — they answer different questions and a
 /// caller that wants the datum needs to know which — so this composes them rather than replacing
 /// them.
-pub fn mount_class(d: &emerge_core::descriptor::Descriptor) -> Option<&str> {
+pub fn mount_class(d: &bevy_emerge_core::descriptor::Descriptor) -> Option<&str> {
     match (
-        emerge_core::stack::needs_surface(d),
-        emerge_core::stack::needs_face(d),
+        bevy_emerge_core::stack::needs_surface(d),
+        bevy_emerge_core::stack::needs_face(d),
     ) {
         (Some(class), _) => Some(class),
         (None, Some((class, _))) => Some(class),
@@ -2930,7 +2930,7 @@ pub fn stamp_snap(
             .find(|c| &c.id == id)
     });
     match armed.map(|c| &c.envelope) {
-        Some(emerge_core::composition::Envelope::Bounded { size }) => {
+        Some(bevy_emerge_core::composition::Envelope::Bounded { size }) => {
             (SnapLevel::Tile, (size.0, size.2))
         }
         _ => (snap_level(keyboard, rung), (0.0, 0.0)),
@@ -3059,7 +3059,7 @@ pub fn map_at(project: &Project,
 /// that must agree, updated by hand, is the shape of defect that comes back — so this is the one
 /// expression, and the disagreement is now unrepresentable rather than merely fixed.
 ///
-/// **Yaw is the authored one, never [`emerge_bevy::draw_yaw`].** `draw_yaw` adds the mesh's `front`
+/// **Yaw is the authored one, never [`bevy_emerge::draw_yaw`].** `draw_yaw` adds the mesh's `front`
 /// correction for *rendering*; snapping by it would put preview and commit back on different lattices
 /// for exactly the pieces that carry one.
 pub fn brush_at(
@@ -3069,7 +3069,7 @@ pub fn brush_at(
     rung: SnapLevel,
     anchor: &FineAnchor,
     hit: Vec3,
-    d: &emerge_core::descriptor::Descriptor,
+    d: &bevy_emerge_core::descriptor::Descriptor,
     yaw: f32,
     tip: (u8, u8),
 ) -> (f32, f32) {
@@ -3101,7 +3101,7 @@ fn box_fill_between(
     project: &mut Project,
     open: &mut OpenMap,
     state: &mut EditorState,
-    brush: &emerge_core::descriptor::Descriptor,
+    brush: &bevy_emerge_core::descriptor::Descriptor,
     corners: ((f32, f32), (f32, f32)),
     pitch: f32,
 ) {
@@ -3490,7 +3490,7 @@ fn stamp_set(
             CloneHost::Layer => None,
             CloneHost::InSet(h) => Some(new_ids[*h].clone()),
             CloneHost::Outside => {
-                match emerge_core::stack::host_under(&open.map, &project.library, &ys, d, at) {
+                match bevy_emerge_core::stack::host_under(&open.map, &project.library, &ys, d, at) {
                     Some((host, _)) => Some(host.id.clone()),
                     None => {
                         state.status.problem(format!(
@@ -3503,7 +3503,7 @@ fn stamp_set(
                 }
             }
         };
-        if let Some(block) = emerge_core::stack::blocking(
+        if let Some(block) = bevy_emerge_core::stack::blocking(
             &open.map,
             &project.library,
             d,
@@ -3538,7 +3538,7 @@ fn stamp_set(
     // nothing has been committed when it refuses.
     let mut trial = open.map.clone();
     trial.placements.extend(rows.iter().cloned());
-    if let Err(e) = emerge_core::stack::resolve_y(&trial, &project.library) {
+    if let Err(e) = bevy_emerge_core::stack::resolve_y(&trial, &project.library) {
         state.status.problem(format!("stamp refused: {e}"));
         return;
     }
@@ -3548,7 +3548,7 @@ fn stamp_set(
     // geometry would flatten the reference `stamping_writes_a_reference_and_undo_takes_it_back`
     // exists to protect — the instance is the thing that was picked up, so the instance is the
     // thing put down.
-    let mut fresh: Vec<emerge_core::composition::Stamped> = Vec::with_capacity(set.stamps.len());
+    let mut fresh: Vec<bevy_emerge_core::composition::Stamped> = Vec::with_capacity(set.stamps.len());
     for cs in &set.stamps {
         if !project
             .compositions
@@ -3564,7 +3564,7 @@ fn stamp_set(
         }
         n += 1;
         let (at, yaw) = set.placed_stamp(cs, target);
-        fresh.push(emerge_core::composition::Stamped {
+        fresh.push(bevy_emerge_core::composition::Stamped {
             id: format!("{}@{}", short_id(&cs.of), n),
             of: cs.of.clone(),
             at,
@@ -3664,28 +3664,28 @@ fn sense_fine_anchor(
     ));
 }
 
-/// Put a piece in the world — **through `emerge-bevy`**, which is also what the game uses.
+/// Put a piece in the world — **through `bevy_emerge`**, which is also what the game uses.
 ///
 /// The editor used to own this arithmetic. It cannot: a preview that disagrees with the runtime by
 /// half a degree of `front` or a centimetre of `y_offset` is a preview that lies, and the only way to
-/// be sure two places agree is for there to be one place. `emerge_bevy::spawn_descriptor` is it.
+/// be sure two places agree is for there to be one place. `bevy_emerge::spawn_descriptor` is it.
 pub(crate) fn spawn_piece(
     commands: &mut Commands,
     assets: &AssetServer,
-    d: &emerge_core::descriptor::Descriptor,
+    d: &bevy_emerge_core::descriptor::Descriptor,
     at: (f32, f32),
     yaw: f32,
     tip: (u8, u8),
     origin: (f32, f32, f32),
     y: f32,
 ) -> Option<Entity> {
-    emerge_bevy::spawn_descriptor(
+    bevy_emerge::spawn_descriptor(
         commands,
         assets,
         d,
         // The editor draws before tags matter; the runtime resolves them from the library. Defaulting
         // here keeps the signature honest rather than pretending the editor knows.
-        emerge_core::vocab::Masks::default(),
+        bevy_emerge_core::vocab::Masks::default(),
         at,
         yaw,
         tip,
@@ -3702,7 +3702,7 @@ pub(crate) fn spawn_piece(
 /// when the real problem is the shelf it names.
 fn heights(project: &Project,
     open: &OpenMap) -> Result<Vec<f32>, String> {
-    emerge_core::stack::resolve_y(&open.map, &project.library)
+    bevy_emerge_core::stack::resolve_y(&open.map, &project.library)
 }
 
 /// Draw the placements from `first` onward — what a fill or a generate just added.
@@ -3916,7 +3916,7 @@ fn drive_removal(
         .iter()
         .enumerate()
         .filter(|(_, p)| p.at.0 >= x0 && p.at.0 <= x1 && p.at.1 >= z0 && p.at.1 <= z1)
-        .flat_map(|(i, _)| emerge_core::stack::group_of(&open.map, i))
+        .flat_map(|(i, _)| bevy_emerge_core::stack::group_of(&open.map, i))
         .collect();
     doomed.sort_unstable();
     doomed.dedup();
@@ -3957,7 +3957,7 @@ fn drive_removal(
     // Descending here too, and after the placements: taking a stamp off `map.stamps` does not shift
     // `map.placements`, so the two lists are independent — but within the stamp list the same rule
     // applies, and getting it wrong is silent.
-    let mut taken: Vec<(usize, Box<emerge_core::composition::Stamped>)> =
+    let mut taken: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)> =
         Vec::with_capacity(stamps.len());
     for i in stamps.iter().rev() {
         taken.push((*i, Box::new(open.map.stamps.remove(*i))));
@@ -4036,7 +4036,7 @@ fn delete_stamp(id: &str,
 /// were all still in the file — the screen and the map disagreeing, the exact failure the one-path
 /// rule exists to prevent. Seeding past the largest `@n` in the file makes minted ids unique by
 /// construction; ids with no `@n` tail (hand-authored names) cannot collide with minted ones.
-pub fn next_id_after(map: &emerge_core::map::Map) -> u32 {
+pub fn next_id_after(map: &bevy_emerge_core::map::Map) -> u32 {
     // **Both lists, because both are minted from this one counter.** `stamp_here` names a stamp
     // `<short>@<n>` from the same `next_id` a placement uses, so scanning only `placements` seeds the
     // counter below every stamp id the file already carries — and the next stamp collides with one,
@@ -4294,7 +4294,7 @@ fn drive_place(
         }
     };
     let (y, host) =
-        match emerge_core::stack::placement_at(&open.map, &project.library, &ys, &d, at) {
+        match bevy_emerge_core::stack::placement_at(&open.map, &project.library, &ys, &d, at) {
             Ok(found) => found,
             // Refused, not floored. Dropping it at floor level is the behaviour this replaced: the
             // piece appears, in the wrong place, and looks like an authoring mistake.
@@ -4309,7 +4309,7 @@ fn drive_place(
     // end to end, and `stack::OVERLAP_EPS` is what keeps "touching" from reading as "overlapping" —
     // but a piece INSIDE another is an accident that otherwise surfaces as a doubled draw call
     // nobody can see. Same-layer only: the floor a crate stands on is not in its way.
-    if let Some(block) = emerge_core::stack::blocking(
+    if let Some(block) = bevy_emerge_core::stack::blocking(
         &open.map,
         &project.library,
         &d,
@@ -4394,7 +4394,7 @@ fn stamp_here(project: &mut Project,
     state.next_id += 1;
     let id = format!("{}@{}", short_id(&of), state.next_id);
 
-    let stamped = emerge_core::composition::Stamped {
+    let stamped = bevy_emerge_core::composition::Stamped {
         id: id.clone(),
         of: of.clone(),
         at,
@@ -4406,7 +4406,7 @@ fn stamp_here(project: &mut Project,
     let mut trial = open.map.clone();
     trial.stamps.push(stamped.clone());
     if let Err(e) =
-        emerge_core::composition::expand(&trial, &trial.stamps, &comps, &project.library)
+        bevy_emerge_core::composition::expand(&trial, &trial.stamps, &comps, &project.library)
     {
         state
             .status
@@ -4433,15 +4433,15 @@ fn stamp_here(project: &mut Project,
 /// `tests/headless.rs`, which is another crate — the reason `stamp_here_for_test`, `ghost_anchor`
 /// and `palette_indices` are public.
 pub fn stamped_heights(
-    map: &emerge_core::map::Map,
-    library: &emerge_core::library::Library,
-    expanded: &emerge_core::composition::Expansion,
+    map: &bevy_emerge_core::map::Map,
+    library: &bevy_emerge_core::library::Library,
+    expanded: &bevy_emerge_core::composition::Expansion,
 ) -> Result<Vec<f32>, String> {
     let mut scratch = map.clone();
     scratch
         .placements
         .extend(expanded.placements.iter().cloned());
-    let mut ys = emerge_core::stack::resolve_y(&scratch, library)?;
+    let mut ys = bevy_emerge_core::stack::resolve_y(&scratch, library)?;
     // The map's own rows first, the expansion's after — so what is returned is indexed by the
     // expansion alone and no caller has to know where the join was.
     Ok(ys.split_off(map.placements.len()))
@@ -4491,7 +4491,7 @@ fn redraw_stamps(
     if open.map.stamps.is_empty() {
         return;
     }
-    let expanded = match emerge_core::composition::expand(
+    let expanded = match bevy_emerge_core::composition::expand(
         &open.map,
         &open.map.stamps,
         &project.compositions.compositions,
@@ -4502,7 +4502,7 @@ fn redraw_stamps(
         // load in the game either, and an empty patch of floor is not how anybody should find out.
         Err(e) => {
             state.status.problem(format!("stamps do not resolve: {e}"));
-            error!("emerge-mapper: {e}");
+            error!("bevy_emerge_mapper: {e}");
             return;
         }
     };
@@ -4515,7 +4515,7 @@ fn redraw_stamps(
             state
                 .status
                 .problem(format!("stamped rows have no height: {e}"));
-            error!("emerge-mapper: {e}");
+            error!("bevy_emerge_mapper: {e}");
             return;
         }
     };
@@ -4528,7 +4528,7 @@ fn redraw_stamps(
     for (k, p) in expanded.placements.iter().enumerate() {
         let Some(base) = project.library.get(&p.descriptor) else {
             error!(
-                "emerge-mapper: stamped row `{}` names descriptor `{}`, which the library does not define",
+                "bevy_emerge_mapper: stamped row `{}` names descriptor `{}`, which the library does not define",
                 p.id, p.descriptor
             );
             continue;
@@ -4544,7 +4544,7 @@ fn redraw_stamps(
         // consumer splits `<stamp>/<member>` back apart — its own doc says so.
         let Some((stamp_id, _member)) = expanded.from.get(&p.id) else {
             error!(
-                "emerge-mapper: expanded row `{}` has no provenance — it belongs to no stamp, which \
+                "bevy_emerge_mapper: expanded row `{}` has no provenance — it belongs to no stamp, which \
                  `expand` is not supposed to be able to produce",
                 p.id
             );
@@ -4589,7 +4589,7 @@ fn redraw_stamps(
             };
             commands.entity(e).insert((StampedPiece, ChildOf(parent)));
             if p.paint != 0 {
-                commands.entity(e).insert(emerge_bevy::Paint(p.paint));
+                commands.entity(e).insert(bevy_emerge::Paint(p.paint));
             }
             picture.rows.push(StampRow {
                 stamp: stamp_id.clone(),
@@ -4602,9 +4602,9 @@ fn redraw_stamps(
             drawn += 1;
         }
     }
-    let counted = emerge_core::census::of_map(&open.map);
+    let counted = bevy_emerge_core::census::of_map(&open.map);
     info!(
-        "emerge-mapper: redrew {drawn} stamped row(s) from {} stamp(s)",
+        "bevy_emerge_mapper: redrew {drawn} stamped row(s) from {} stamp(s)",
         counted.stamps
     );
 }
@@ -5252,7 +5252,7 @@ fn keys(
     }
 
     // **G continues the layout.** Learn the grammar from what is already placed, then fill the free
-    // cells with more of it — see `emerge_core::grammar`.
+    // cells with more of it — see `bevy_emerge_core::grammar`.
     if keys::just_pressed(&keyboard, *live, Action::GenerateDeclared) {
         generate_from(&project, &open, &mut state, proposal, Source::Declared);
     }
@@ -5334,7 +5334,7 @@ fn delete_index(
     //
     // The same set the move tool carries, from the same function, so "this piece and what it holds up"
     // means one thing in both verbs.
-    let group = emerge_core::stack::group_of(&open.map, index);
+    let group = bevy_emerge_core::stack::group_of(&open.map, index);
     let head = open.map.placements[index].id.clone();
 
     // **Back to front.** Removing an earlier row shifts every later one down, so a forward pass would
@@ -5441,7 +5441,7 @@ fn apply(
         Undo::Moved { moved } => {
             // **The inverse is where they are NOW**, read before the restore puts them back. `moved`
             // records where they came *from*; redoing needs where they went *to*.
-            let now = emerge_core::stack::Moved {
+            let now = bevy_emerge_core::stack::Moved {
                 was: moved
                     .was
                     .iter()
@@ -5457,7 +5457,7 @@ fn apply(
             // `restore_moved` is the recorded inverse, so the undo cannot drift from the move: it
             // replays exactly the `(at, on)` pairs the move displaced, rather than recomputing where
             // things "should" go and hoping the two agree.
-            emerge_core::stack::restore_moved(&mut open.map, &moved);
+            bevy_emerge_core::stack::restore_moved(&mut open.map, &moved);
             let ids: Vec<String> = moved
                 .was
                 .iter()
@@ -5692,7 +5692,7 @@ fn apply(
         Undo::Stamped { count } => {
             let n = open.map.stamps.len();
             let from = n.saturating_sub(count);
-            let items: Vec<(usize, Box<emerge_core::composition::Stamped>)> = open
+            let items: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)> = open
                 .map
                 .stamps
                 .drain(from..)
@@ -5730,7 +5730,7 @@ fn apply(
             // place that turns a stamp list into pictures rather than two that could disagree.
             let mut ordered = indices.clone();
             ordered.sort_unstable();
-            let mut items: Vec<(usize, Box<emerge_core::composition::Stamped>)> =
+            let mut items: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)> =
                 Vec::with_capacity(ordered.len());
             for i in ordered.iter().rev() {
                 if *i >= open.map.stamps.len() {
@@ -6076,18 +6076,18 @@ fn redraw_edited(
 pub fn composition_from_set(
     set: &CloneSet,
     id: &str,
-    library: &emerge_core::library::Library,
+    library: &bevy_emerge_core::library::Library,
     // **The composition set, because a captured stamp names one.** Refused at the door rather than
     // trusted: `policy::layered_library` hard-refuses a composition whose member is missing, so
     // writing a group that names a composition nobody defines produces a project that will not open
     // at all — the failure `take_out_of_library` already guards from the other side.
-    compositions: &emerge_core::composition::Compositions,
-) -> Result<emerge_core::composition::Composition, String> {
-    use emerge_core::composition::{Body, Composition, Envelope, Member};
+    compositions: &bevy_emerge_core::composition::Compositions,
+) -> Result<bevy_emerge_core::composition::Composition, String> {
+    use bevy_emerge_core::composition::{Body, Composition, Envelope, Member};
 
     // Forced into snake_case rather than checked — the map-name rule, so there is no spelling the
     // filesystem and the schema disagree about.
-    let id = emerge_core::naming::to_snake_case(id);
+    let id = bevy_emerge_core::naming::to_snake_case(id);
     if id.is_empty() {
         return Err(
             "a group needs a name. Names are snake_case — letters, digits, single \
@@ -6126,7 +6126,7 @@ pub fn composition_from_set(
                 piece.descriptor
             )
         })?;
-        if emerge_core::descriptor::placed_height(d).is_none() {
+        if bevy_emerge_core::descriptor::placed_height(d).is_none() {
             return Err(format!(
                 "`{}` is unmeasured, so the group has no honest height. Measure it on the tiles tab \
                  first.",
@@ -6243,8 +6243,8 @@ pub fn composition_from_set(
 }
 
 /// Does this piece's height depend on the ceiling — i.e. on the very bounds being derived?
-fn mounts_against_the_ceiling(d: &emerge_core::descriptor::Descriptor) -> bool {
-    use emerge_core::descriptor::{DecalHost, Mount};
+fn mounts_against_the_ceiling(d: &bevy_emerge_core::descriptor::Descriptor) -> bool {
+    use bevy_emerge_core::descriptor::{DecalHost, Mount};
     matches!(
         d.mount,
         Some(Mount::OnCeiling)
@@ -6264,12 +6264,12 @@ fn mounts_against_the_ceiling(d: &emerge_core::descriptor::Descriptor) -> bool {
 /// `bounds.1`.
 fn envelope_size(
     set: &CloneSet,
-    members: &[emerge_core::composition::Member],
-    library: &emerge_core::library::Library,
-    compositions: &emerge_core::composition::Compositions,
+    members: &[bevy_emerge_core::composition::Member],
+    library: &bevy_emerge_core::library::Library,
+    compositions: &bevy_emerge_core::composition::Compositions,
 ) -> Result<(f32, f32, f32), String> {
-    use emerge_core::composition::Body;
-    use emerge_core::map::{Map, Placed};
+    use bevy_emerge_core::composition::Body;
+    use bevy_emerge_core::map::{Map, Placed};
 
     let (w, d) = (set.half.0 * 2.0, set.half.1 * 2.0);
     let mut scratch = Map {
@@ -6291,7 +6291,7 @@ fn envelope_size(
             ..Placed::default()
         });
     }
-    let ys = emerge_core::stack::resolve_y(&scratch, library)
+    let ys = bevy_emerge_core::stack::resolve_y(&scratch, library)
         .map_err(|e| format!("the group's members do not stand up: {e}"))?;
     let mut top = 0.0f32;
     // **A nested composition is measured through its own envelope**, not skipped. This loop used to
@@ -6309,12 +6309,12 @@ fn envelope_size(
             .find(|c| &c.id == id)
             .ok_or_else(|| format!("`{id}` is not a composition, so the group has no height"))?;
         match nested.envelope {
-            emerge_core::composition::Envelope::Bounded { size } => {
+            bevy_emerge_core::composition::Envelope::Bounded { size } => {
                 top = top.max(m.lift + size.1);
             }
             // Refused by name rather than measured at zero: an `Anchored` group claims no tile, so
             // there is no honest number to fold into a `Bounded` one that contains it.
-            emerge_core::composition::Envelope::Anchored => {
+            bevy_emerge_core::composition::Envelope::Anchored => {
                 return Err(format!(
                     "`{id}` is anchored, so it claims no space and a group cannot take its size \
                      from it. Give it a bounded envelope first."
@@ -6326,7 +6326,7 @@ fn envelope_size(
         let (Some(desc), Some(&y)) = (library.get(&p.descriptor), ys.get(i)) else {
             continue;
         };
-        let h = emerge_core::descriptor::placed_height(desc).unwrap_or(0.0);
+        let h = bevy_emerge_core::descriptor::placed_height(desc).unwrap_or(0.0);
         top = top.max(y + h);
     }
     Ok((w, top, d))
@@ -6335,9 +6335,9 @@ fn envelope_size(
 #[cfg(test)]
 mod capture_tests {
     use super::*;
-    use emerge_core::composition::{Body, Envelope};
-    use emerge_core::descriptor::{Descriptor, Extent, Mount};
-    use emerge_core::library::Library;
+    use bevy_emerge_core::composition::{Body, Envelope};
+    use bevy_emerge_core::descriptor::{Descriptor, Extent, Mount};
+    use bevy_emerge_core::library::Library;
 
     /// A measured piece, `w × h × d`, standing on the floor.
     fn piece_desc(id: &str, w: f32, h: f32, d: f32) -> Descriptor {
@@ -6355,7 +6355,7 @@ mod capture_tests {
 
     fn lib(ds: Vec<Descriptor>) -> Library {
         Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: None,
             descriptors: ds,
         }
@@ -6373,9 +6373,9 @@ mod capture_tests {
 
     /// No compositions — the capture tests are about loose pieces, and a nested member is covered
     /// by its own test where the set actually holds a stamp.
-    fn no_compositions() -> emerge_core::composition::Compositions {
-        emerge_core::composition::Compositions {
-            version: emerge_core::composition::COMPOSITIONS_VERSION,
+    fn no_compositions() -> bevy_emerge_core::composition::Compositions {
+        bevy_emerge_core::composition::Compositions {
+            version: bevy_emerge_core::composition::COMPOSITIONS_VERSION,
             note: None,
             compositions: Vec::new(),
         }
@@ -6411,12 +6411,12 @@ mod capture_tests {
 
         // The preview: parent transform, then the child at its own untouched local offset.
         let (root, spin) = ghost_anchor(&set, target, origin);
-        let local = emerge_bevy::origin_of(piece.offset, (0.0, 0.0, 0.0), piece.lift);
+        let local = bevy_emerge::origin_of(piece.offset, (0.0, 0.0, 0.0), piece.lift);
         let previewed = root + spin * local;
 
         // The drop: the same piece, positioned by the arithmetic `stamp_set` uses.
         let (at, _) = set.placed(&piece, target);
-        let landed = emerge_bevy::origin_of(at, origin, piece.lift);
+        let landed = bevy_emerge::origin_of(at, origin, piece.lift);
 
         assert!(
             (previewed - landed).length() < 1e-4,
@@ -6664,7 +6664,7 @@ mod capture_tests {
 
 /// `root` and everything that (transitively) rests on it, as indices into the placement list —
 /// what a lift must redraw, because raising the table moves the lamp, and the candle on the lamp.
-fn with_dependents(map: &emerge_core::map::Map, root: usize) -> Vec<usize> {
+fn with_dependents(map: &bevy_emerge_core::map::Map, root: usize) -> Vec<usize> {
     let mut out = vec![root];
     let mut ids: Vec<&str> = map
         .placements
@@ -6701,7 +6701,7 @@ fn lift_step(project: &Project, level: SnapLevel) -> f32 {
 
 /// **Raise or lower the placement under the cursor by one subgrid unit.**
 ///
-/// This writes [`emerge_core::map::Placed::lift`] — the one deliberate amendment to "the height
+/// This writes [`bevy_emerge_core::map::Placed::lift`] — the one deliberate amendment to "the height
 /// comes from the mount, never from the author". The datum still comes from `stack::resolve_y`,
 /// which is why everything resting on this piece is redrawn with it: the lamp follows the table.
 #[allow(clippy::too_many_arguments)]
@@ -6760,7 +6760,7 @@ fn lift_under_cursor(
 /// Set dressing, with two refusals that are the schema's own rather than this function's taste:
 /// a piece something rests on cannot tip (its guests' heights name a surface that would no longer
 /// exist — `stack::host_under` skips tipped hosts for the same reason), and an unmeasured piece
-/// cannot tip (`emerge_bevy::tip_seat` cannot seat bounds it does not know, so the mesh would sink
+/// cannot tip (`bevy_emerge::tip_seat` cannot seat bounds it does not know, so the mesh would sink
 /// through the floor).
 #[allow(clippy::too_many_arguments)]
 fn tip_under_cursor(
@@ -6803,7 +6803,7 @@ fn tip_under_cursor(
     let Some(d) = project.library.get(&p.descriptor) else {
         return;
     };
-    if emerge_core::descriptor::tipped_extents(d, want).is_none() {
+    if bevy_emerge_core::descriptor::tipped_extents(d, want).is_none() {
         state.status.problem(format!(
             "`{}` is unmeasured — a tip cannot be seated. Measure it on the tiles tab first.",
             p.id
@@ -6877,7 +6877,7 @@ fn hide_carried(
             .placements
             .iter()
             .position(|p| &p.id == id)
-            .map(|ix| emerge_core::stack::group_of(&open.map, ix))
+            .map(|ix| bevy_emerge_core::stack::group_of(&open.map, ix))
             .unwrap_or_default()
             .into_iter()
             .filter_map(|i| open.map.placements.get(i).map(|p| p.id.clone()))
@@ -7242,7 +7242,7 @@ fn drive_move(
             // One `deref_mut`, then two disjoint field borrows. `ResMut`'s `Deref` cannot split them
             // for us, so `(&mut open.map, &project.library)` is a double borrow of the resource.
             let p = &mut *project;
-            let moved = match emerge_core::stack::move_placement(&mut open.map, &p.library, index, at)
+            let moved = match bevy_emerge_core::stack::move_placement(&mut open.map, &p.library, index, at)
             {
                 Ok(moved) => moved,
                 // **Refused, and still in hand.** Dropping it anyway is the behaviour this exists to
@@ -7345,14 +7345,14 @@ pub fn pick_at(project: &Project,
         let Some(d) = project.library.get(&p.descriptor) else {
             continue;
         };
-        if !emerge_core::stack::covers(d, p.at, p.yaw, probe) {
+        if !bevy_emerge_core::stack::covers(d, p.at, p.yaw, probe) {
             continue;
         }
         // **The same box `covers` just tested.** This area is half of the `(area, id)` total key that
         // decides which piece a click grabs, so measuring it differently from the hit test above would
         // rank a scaled piece by a size it does not have — and the smallest-footprint rule exists
         // precisely to pick the piece you can see least of.
-        let area = emerge_core::descriptor::placed_footprint(d)
+        let area = bevy_emerge_core::descriptor::placed_footprint(d)
             .map_or(f32::INFINITY, |(w, depth)| w * depth);
         let better = match covering {
             None => true,
@@ -7482,7 +7482,7 @@ pub fn ray_pick(project: &Project,
         //
         // A piece with no declared height is not invisible to a click — it gets the floor's own
         // thinness, so a decal or a flat tile is still a thing you can point at.
-        let height = emerge_core::descriptor::tipped_extents(d, p.tip)
+        let height = bevy_emerge_core::descriptor::tipped_extents(d, p.tip)
             .map_or_else(|| d.extent.height.unwrap_or(0.02), |(_, h, _)| h)
             .max(0.02);
         let centre = Vec3::new(
@@ -7522,10 +7522,10 @@ pub fn pick_subject(project: &Project,
         let Some(d) = project.library.get(&p.descriptor) else {
             continue;
         };
-        if !emerge_core::stack::covers(d, p.at, p.yaw, probe) {
+        if !bevy_emerge_core::stack::covers(d, p.at, p.yaw, probe) {
             continue;
         }
-        let area = emerge_core::descriptor::placed_footprint(d)
+        let area = bevy_emerge_core::descriptor::placed_footprint(d)
             .map_or(f32::INFINITY, |(w, depth)| w * depth);
         let better = match &best {
             None => true,
@@ -7539,10 +7539,10 @@ pub fn pick_subject(project: &Project,
         let Some(d) = project.library.get(&row.descriptor) else {
             continue;
         };
-        if !emerge_core::stack::covers(d, row.at, row.yaw, probe) {
+        if !bevy_emerge_core::stack::covers(d, row.at, row.yaw, probe) {
             continue;
         }
-        let area = emerge_core::descriptor::placed_footprint(d)
+        let area = bevy_emerge_core::descriptor::placed_footprint(d)
             .map_or(f32::INFINITY, |(w, depth)| w * depth);
         let better = match &best {
             None => true,
@@ -7687,7 +7687,7 @@ fn under_cursor_target(
     //
     // A map whose heights do not resolve has a bigger problem than a pick, and answering `None` is
     // the honest thing: the verbs above say "nothing here" rather than acting on a guess.
-    let ys = emerge_core::stack::resolve_y(&open.map, &project.library).ok()?;
+    let ys = bevy_emerge_core::stack::resolve_y(&open.map, &project.library).ok()?;
     let (origin, dir) = crate::view::cursor_ray(pointer.0, cam, cam_tf)?;
     ray_pick(project, &*open, &ys, origin, dir)
 }
@@ -7730,7 +7730,7 @@ fn cycle_target(
             project
                 .library
                 .get(&p.descriptor)
-                .is_some_and(|d| emerge_core::stack::covers(d, p.at, p.yaw, at))
+                .is_some_and(|d| bevy_emerge_core::stack::covers(d, p.at, p.yaw, at))
         })
         .map(|(i, _)| (i, ys.get(i).copied().unwrap_or(0.0)))
         .collect();
@@ -8182,24 +8182,24 @@ fn generate_from(project: &Project,
     // tile presents a wall — so an enclosure wish is expressible for the composition source and for
     // no other. `learn` and `declared` carry an empty list rather than a different shape.
     type Built = (
-        emerge_core::grammar::Grammar,
+        bevy_emerge_core::grammar::Grammar,
         Vec<String>,
-        Vec<Option<emerge_core::composition::Interface>>,
+        Vec<Option<bevy_emerge_core::composition::Interface>>,
     );
     let built: Result<Built, String> = match source {
         Source::Learned => {
-            emerge_core::grammar::learn(&open.map, CELL).map(|g| (g, Vec::new(), Vec::new()))
+            bevy_emerge_core::grammar::learn(&open.map, CELL).map(|g| (g, Vec::new(), Vec::new()))
         }
         Source::Declared => {
-            emerge_core::grammar::declared(&project.library, project.lattice.face_bands, CELL)
+            bevy_emerge_core::grammar::declared(&project.library, project.lattice.face_bands, CELL)
                 .map(|g| (g, Vec::new(), Vec::new()))
         }
-        Source::Composed => emerge_core::grammar::from_compositions(
+        Source::Composed => bevy_emerge_core::grammar::from_compositions(
             &project.compositions.compositions,
             &project.library,
             project.lattice.face_bands,
             CELL,
-            emerge_core::composition::agrees,
+            bevy_emerge_core::composition::agrees,
         )
         .map(|c| (c.grammar, c.skipped, c.faces)),
     };
@@ -8211,7 +8211,7 @@ fn generate_from(project: &Project,
             // unfocused devshot can see — so without this an agent driving the editor cannot tell a
             // refusal from a keystroke that never arrived, which are opposite diagnoses.
             // `redraw_stamps` has paired the two since it was written; this path had not.
-            error!("emerge-mapper: {e}");
+            error!("bevy_emerge_mapper: {e}");
             state.status.problem(e);
             return;
         }
@@ -8232,7 +8232,7 @@ fn generate_from(project: &Project,
     // that invariant is what keeps the reference model a reference.
     let mut scratch = open.map.clone();
     if !scratch.stamps.is_empty() {
-        match emerge_core::composition::expand(
+        match bevy_emerge_core::composition::expand(
             &open.map,
             &open.map.stamps,
             &project.compositions.compositions,
@@ -8240,7 +8240,7 @@ fn generate_from(project: &Project,
         ) {
             Ok(e) => scratch.placements.extend(e.placements),
             Err(e) => {
-                error!("emerge-mapper: cannot generate around the stamps: {e}");
+                error!("bevy_emerge_mapper: cannot generate around the stamps: {e}");
                 state
                     .status
                     .problem(format!("cannot generate around the stamps: {e}"));
@@ -8262,22 +8262,22 @@ fn generate_from(project: &Project,
     };
     let outcome = match source {
         Source::Composed => {
-            let wishes = emerge_core::grammar::Wishes {
+            let wishes = bevy_emerge_core::grammar::Wishes {
                 enclosure: ENCLOSURE_WISH,
                 enclosure_weight: Some(ENCLOSURE_WEIGHT),
             };
-            emerge_core::grammar::solve_constrained(
+            bevy_emerge_core::grammar::solve_constrained(
                 &scratch, &grammar, &faces, &wishes, CELL, state.seed, &mut mint,
             )
         }
         Source::Learned | Source::Declared => {
-            emerge_core::grammar::solve(&scratch, &grammar, CELL, state.seed, &mut mint)
+            bevy_emerge_core::grammar::solve(&scratch, &grammar, CELL, state.seed, &mut mint)
         }
     };
     let solved = match outcome {
         Ok(s) => s,
         Err(e) => {
-            error!("emerge-mapper: {e}");
+            error!("bevy_emerge_mapper: {e}");
             state.status.problem(e);
             return;
         }
@@ -8430,7 +8430,7 @@ fn apply_proposal(
             .map(|(i, p)| (i, Box::new(p.clone())))
             .collect()
     };
-    let unstamped: Vec<(usize, Box<emerge_core::composition::Stamped>)> = if composes {
+    let unstamped: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)> = if composes {
         open
             .map
             .stamps
@@ -8696,7 +8696,7 @@ fn drive_ghost(
     // under Place, the held piece's own under Move, which is exactly what `held_span` snaps by.
     let at = brush_at(&project, &open, &keyboard, rung.0, &anchor, hit, d, want_yaw, want_tip,
     );
-    let yaw = emerge_bevy::draw_yaw(d, want_yaw);
+    let yaw = bevy_emerge::draw_yaw(d, want_yaw);
 
     // **The ghost asks the question the drop will ask** — against a map the carried group is NOT in.
     //
@@ -8714,7 +8714,7 @@ fn drive_ghost(
         Some(Held::Piece(id)) => {
             let mut reduced = open.map.clone();
             if let Some(ix) = reduced.placements.iter().position(|p| &p.id == id) {
-                let mut group = emerge_core::stack::group_of(&reduced, ix);
+                let mut group = bevy_emerge_core::stack::group_of(&reduced, ix);
                 group.sort_unstable();
                 for i in group.iter().rev() {
                     reduced.placements.remove(*i);
@@ -8730,14 +8730,14 @@ fn drive_ghost(
     // author sees the answer before committing to it rather than placing and then wondering. When
     // there is no surface under a piece that needs one there is nothing truthful to draw — showing it
     // on the floor would be a preview of something that will not happen.
-    let ys = match emerge_core::stack::resolve_y(probe_map, &project.library) {
+    let ys = match bevy_emerge_core::stack::resolve_y(probe_map, &project.library) {
         Ok(ys) => ys,
         Err(_) => {
             clear(&mut commands);
             return;
         }
     };
-    let (y, _) = match emerge_core::stack::placement_at(probe_map, &project.library, &ys, d, at) {
+    let (y, _) = match bevy_emerge_core::stack::placement_at(probe_map, &project.library, &ys, d, at) {
         Ok(found) => found,
         // **The reason, while the cursor is still there.** `docs/ui.md` §1.4: an unmet condition is an
         // instruction. A ghost that simply vanishes over bare floor reads as the editor being broken;
@@ -8769,7 +8769,7 @@ fn drive_ghost(
     match existing {
         Some(e) => {
             if let Ok(mut tf) = transforms.get_mut(e) {
-                tf.translation = emerge_bevy::origin_of(at, open.map.origin, y);
+                tf.translation = bevy_emerge::origin_of(at, open.map.origin, y);
                 tf.rotation = Quat::from_rotation_y(yaw.to_radians());
             }
         }
@@ -8894,14 +8894,14 @@ fn drive_stamp_ghost(
 
     // A scratch stamp, expanded against the real map: the rows the drop would produce, before it
     // produces them. Not written anywhere — `expand` takes the map by reference and answers.
-    let scratch = emerge_core::composition::Stamped {
+    let scratch = bevy_emerge_core::composition::Stamped {
         id: "ghost".to_owned(),
         of: armed.clone(),
         at,
         yaw,
         ..Default::default()
     };
-    let Ok(expansion) = emerge_core::composition::expand(
+    let Ok(expansion) = bevy_emerge_core::composition::expand(
         &open.map,
         std::slice::from_ref(&scratch),
         &project.compositions.compositions,
@@ -8956,7 +8956,7 @@ fn drive_stamp_ghost(
             // `Ghost` so `fade_ghost` makes it translucent through the one path that already exists.
             commands.entity(e).insert((Ghost, ChildOf(parent)));
             if p.paint != 0 {
-                commands.entity(e).insert(emerge_bevy::Paint(p.paint));
+                commands.entity(e).insert(bevy_emerge::Paint(p.paint));
             }
             drawn += 1;
         }
@@ -9063,7 +9063,7 @@ fn drive_clone_ghost(
         };
         // Local to the parent, so moving the set is one write: the parent sits at `target` and each
         // piece sits at its own offset from it.
-        let local = emerge_bevy::origin_of(piece.offset, (0.0, 0.0, 0.0), piece.lift);
+        let local = bevy_emerge::origin_of(piece.offset, (0.0, 0.0, 0.0), piece.lift);
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
@@ -9076,7 +9076,7 @@ fn drive_clone_ghost(
         ) {
             commands.entity(e).insert((Ghost, ChildOf(parent))).insert(
                 Transform::from_translation(local).with_rotation(Quat::from_rotation_y(
-                    emerge_bevy::draw_yaw(d, piece.yaw).to_radians(),
+                    bevy_emerge::draw_yaw(d, piece.yaw).to_radians(),
                 )),
             );
             drawn += 1;
@@ -9105,7 +9105,7 @@ fn drive_clone_ghost(
 /// fades them, and clears them when the cursor leaves the world. Those are frame questions.
 pub fn ghost_anchor(set: &CloneSet, target: (f32, f32), origin: (f32, f32, f32)) -> (Vec3, Quat) {
     (
-        emerge_bevy::origin_of(target, origin, 0.0),
+        bevy_emerge::origin_of(target, origin, 0.0),
         Quat::from_rotation_y(set.yaw.to_radians()),
     )
 }
@@ -9216,9 +9216,9 @@ fn fade_ghost(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use emerge_core::descriptor::{Descriptor, Extent};
-    use emerge_core::library::{LIBRARY_VERSION, Library};
-    use emerge_core::map::{Map, Placed};
+    use bevy_emerge_core::descriptor::{Descriptor, Extent};
+    use bevy_emerge_core::library::{LIBRARY_VERSION, Library};
+    use bevy_emerge_core::map::{Map, Placed};
 
     /// **The deletion box lands on the grid `J` is showing.**
     ///
@@ -9518,7 +9518,7 @@ mod tests {
     ) -> (Project, OpenMap) {
         let project = Project {
             // A test project stamps nothing; empty is the same state as a file with none in it.
-            compositions: emerge_core::composition::Compositions::default(),
+            compositions: bevy_emerge_core::composition::Compositions::default(),
             root: std::path::PathBuf::from("."),
             emerge_dir: std::path::PathBuf::from("assets/emerge"),
             project_dir: std::path::PathBuf::from("assets/emerge"),
@@ -9529,7 +9529,7 @@ mod tests {
             // These descriptors carry no namespace, so the directory is what a tile is named after.
             namespace: "emerge".to_owned(),
             library_path: std::path::PathBuf::from("assets/emerge/library.ron"),
-            vocab: emerge_core::vocab::Vocabularies::default(),
+            vocab: bevy_emerge_core::vocab::Vocabularies::default(),
             // No policy, so the measurements and the layered library are the same set — which is
             // what these tests are about. `write_library`'s own tests are the ones that pull them
             // apart.
@@ -9543,8 +9543,8 @@ mod tests {
                 note: None,
                 descriptors,
             },
-            policy: emerge_core::policy::Policy::default(),
-            lattice: emerge_core::kits::Lattice::default(),
+            policy: bevy_emerge_core::policy::Policy::default(),
+            lattice: bevy_emerge_core::kits::Lattice::default(),
             masks: Vec::new(),
             touched: Vec::new(),
             triangles: Vec::new(),
@@ -9677,7 +9677,7 @@ mod tests {
 #[cfg(test)]
 mod snap_tests {
     use super::*;
-    use emerge_core::map::Map;
+    use bevy_emerge_core::map::Map;
 
     fn project_at(origin: (f32, f32, f32)) -> (Project, OpenMap) {
         let (p, mut open) = tests::project(Vec::new(), Vec::new());
@@ -9864,7 +9864,7 @@ mod snap_tests {
     /// solver cells, then a one-cell hole.
     #[test]
     fn three_tiles_aimed_carelessly_still_abut() {
-        use emerge_core::composition::{Composition, Envelope};
+        use bevy_emerge_core::composition::{Composition, Envelope};
         let (mut p, open) = tests::project(Vec::new(), Vec::new());
         p.compositions.compositions = vec![Composition {
             id: "site/tile_wall_n".into(),
@@ -9923,7 +9923,7 @@ mod snap_tests {
     /// ride the ladder like any prop.
     #[test]
     fn a_bounded_stamp_is_pinned_to_the_tile_but_an_anchored_one_is_not() {
-        use emerge_core::composition::{Composition, Envelope};
+        use bevy_emerge_core::composition::{Composition, Envelope};
         let (mut p, _open) = tests::project(Vec::new(), Vec::new());
         p.compositions.compositions = vec![
             Composition {

@@ -1,13 +1,13 @@
-//! **emerge-bevy** — turning a library and a map into entities.
+//! **bevy_emerge** — turning a library and a map into entities.
 //!
-//! `emerge-core` is the schema, the solvers and the validation, and it has no engine in it;
-//! `crates/emerge-core/tests/engine_free.rs` fails the build if that stops being true. This is the
+//! `bevy_emerge_core` is the schema, the solvers and the validation, and it has no engine in it;
+//! `crates/bevy_emerge_core/tests/engine_free.rs` fails the build if that stops being true. This is the
 //! other side: one function that puts a [`Descriptor`] in a world, and a plugin that puts a whole
 //! [`Map`] there.
 //!
 //! # One spawner, two callers
 //!
-//! `emerge-mapper` shows you a map and the game plays it, and they must agree about what a placement
+//! `bevy_emerge_mapper` shows you a map and the game plays it, and they must agree about what a placement
 //! looks like down to the last degree of yaw. The way to guarantee that is not care — it is having
 //! one function. `sim_harness.rs` is the precedent this project already trusts: the same plugin graph
 //! from two entry points, *"not a second code path"*.
@@ -37,12 +37,12 @@ use std::collections::HashMap;
 use bevy::asset::AssetId;
 use bevy::pbr::{MeshMaterial3d, StandardMaterial};
 use bevy::prelude::*;
-use emerge_core::descriptor::Descriptor;
-use emerge_core::kits::Lattice;
-use emerge_core::library::Library;
-use emerge_core::map::Map;
-use emerge_core::smart::{self, Actor, Booking, Cast, RoleMasks, Seat, Unfilled};
-use emerge_core::vocab::{Masks, Vocabularies};
+use bevy_emerge_core::descriptor::Descriptor;
+use bevy_emerge_core::kits::Lattice;
+use bevy_emerge_core::library::Library;
+use bevy_emerge_core::map::Map;
+use bevy_emerge_core::smart::{self, Actor, Booking, Cast, RoleMasks, Seat, Unfilled};
+use bevy_emerge_core::vocab::{Masks, Vocabularies};
 
 /// The library, map and vocabulary a world was built from.
 #[derive(Resource)]
@@ -53,7 +53,7 @@ pub struct EmergeWorld {
     /// Per-descriptor masks, in library order — resolved once at load.
     pub masks: Vec<Masks>,
     /// World Y for every placement, in map order — resolved once at load by
-    /// [`emerge_core::stack::resolve_y`], because a piece's height can depend on a piece authored
+    /// [`bevy_emerge_core::stack::resolve_y`], because a piece's height can depend on a piece authored
     /// later in the file.
     pub y: Vec<f32>,
     /// Every role's capability requirement, resolved once at load.
@@ -90,12 +90,12 @@ impl EmergeWorld {
     /// The expanded rows are folded into [`Self::map`] rather than kept beside it, because every
     /// reader downstream indexes `map.placements` in step with [`Self::y`]. What is *not* done is
     /// writing them back to disk: `Map::stamps` is what the file holds, and
-    /// `emerge_core::composition::expand` is the only thing that turns it into rows.
+    /// `bevy_emerge_core::composition::expand` is the only thing that turns it into rows.
     pub fn with_compositions(
         library: Library,
         mut map: Map,
         vocab: Vocabularies,
-        compositions: &[emerge_core::composition::Composition],
+        compositions: &[bevy_emerge_core::composition::Composition],
         lattice: Lattice,
     ) -> Result<EmergeWorld, String> {
         let masks = library.resolve(&vocab)?;
@@ -106,7 +106,7 @@ impl EmergeWorld {
         // the question asked of a whole map, and asking it twice about two different maps is two
         // answers where the schema promises one.
         if !map.stamps.is_empty() {
-            let expanded = emerge_core::composition::expand(&map, &map.stamps, compositions, &library)
+            let expanded = bevy_emerge_core::composition::expand(&map, &map.stamps, compositions, &library)
                 .map_err(|e| format!("map `{}`: {e}", map.name))?;
             map.placements.extend(expanded.placements);
             map.locations.extend(expanded.locations);
@@ -121,7 +121,7 @@ impl EmergeWorld {
         //
         // **Passed in rather than read off the map**, since the same day's second correction: the
         // lattice is the *project's* (`kits.ron`), because a tile's adjacency contract cannot depend
-        // on which map happens to be open. See `emerge_core::kits::Lattice`.
+        // on which map happens to be open. See `bevy_emerge_core::kits::Lattice`.
         library.validate_lattices(lattice.face_bands)?;
         let known: Vec<&str> = library.descriptors.iter().map(|d| d.id.as_str()).collect();
         let missing: Vec<&str> = map
@@ -140,7 +140,7 @@ impl EmergeWorld {
         // **Every height, now.** A map whose stacking cannot be resolved is refused here rather than
         // discovered as a lamp inside a table — the same argument the missing-descriptor check above
         // makes, applied to the axis the schema could describe and nothing implemented.
-        let y = emerge_core::stack::resolve_y(&map, &library)?;
+        let y = bevy_emerge_core::stack::resolve_y(&map, &library)?;
         // Roles and seats resolved with everything else, so a misspelled capability or a location
         // governing a prop nobody placed is refused here rather than surfacing as a scene that
         // silently never starts — the least debuggable shape a content bug takes.
@@ -212,7 +212,7 @@ pub struct MountedOn(pub Entity);
 pub struct Supporting(Vec<Entity>);
 
 /// Spawns an [`EmergeWorld`] when one is inserted.
-/// **Paint order, carried onto a spawned piece** — see [`emerge_core::map::Placed::paint`].
+/// **Paint order, carried onto a spawned piece** — see [`bevy_emerge_core::map::Placed::paint`].
 ///
 /// Put on the root a piece spawns as; [`apply_paint`] finds it by walking up from each material the
 /// glTF scene brings in, because those arrive frames later than the entity does.
@@ -308,7 +308,7 @@ impl Plugin for EmergePlugin {
 /// # Y comes from the stack, not from here
 ///
 /// The height a piece sits at depends on the map's ceiling and on whatever it is resting on, neither
-/// of which is knowable from the descriptor alone. [`emerge_core::stack::resolve_y`] answers it for a
+/// of which is knowable from the descriptor alone. [`bevy_emerge_core::stack::resolve_y`] answers it for a
 /// whole map at once; this takes the answer. The version that tried to decide it here matched two
 /// mount variants and sent the rest to `_ => 0.0`, which put every `OnSurface` piece in the library on
 /// the floor.
@@ -347,8 +347,8 @@ pub fn tip_seat(d: &Descriptor, tip: (u8, u8)) -> f32 {
         return 0.0;
     }
     let (Some((w, depth)), Some(h)) = (
-        emerge_core::descriptor::placed_footprint(d),
-        emerge_core::descriptor::placed_height(d),
+        bevy_emerge_core::descriptor::placed_footprint(d),
+        bevy_emerge_core::descriptor::placed_height(d),
     ) else {
         return 0.0;
     };
@@ -572,7 +572,7 @@ impl SmartObjects {
         location: &str,
         verb: &str,
         actors: &[Actor],
-        rng: &mut impl emerge_core::rng::DetRng,
+        rng: &mut impl bevy_emerge_core::rng::DetRng,
     ) -> Result<Cast, Unfilled> {
         let Some(loc) = world.map.locations.iter().find(|l| l.id == location) else {
             return Err(Unfilled::Role {
@@ -627,9 +627,9 @@ impl SmartObjects {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use emerge_core::descriptor::Extent;
-    use emerge_core::library::LIBRARY_VERSION;
-    use emerge_core::map::Placed;
+    use bevy_emerge_core::descriptor::Extent;
+    use bevy_emerge_core::library::LIBRARY_VERSION;
+    use bevy_emerge_core::map::Placed;
 
     fn descriptor(id: &str) -> Descriptor {
         Descriptor {
@@ -693,7 +693,7 @@ mod tests {
     #[test]
     fn the_draw_yaw_adds_the_meshs_front_correction() {
         let mut d = descriptor("chair");
-        d.align.front = Some(emerge_core::descriptor::Face::East);
+        d.align.front = Some(bevy_emerge_core::descriptor::Face::East);
         assert_eq!(draw_yaw(&d, 0.0), 90.0);
         assert_eq!(draw_yaw(&d, 45.0), 135.0);
 
@@ -707,9 +707,9 @@ mod tests {
 
     /// A galley: one table with `seats` chairs, and one `eat` interaction wanting diners.
     fn galley(seats: usize) -> EmergeWorld {
-        use emerge_core::descriptor::{Offers, Socket};
-        use emerge_core::map::{Effect, Interaction, Location, RoleKind, RoleSlot};
-        use emerge_core::vocab::{Vocabulary, Vocabularies};
+        use bevy_emerge_core::descriptor::{Offers, Socket};
+        use bevy_emerge_core::map::{Effect, Interaction, Location, RoleKind, RoleSlot};
+        use bevy_emerge_core::vocab::{Vocabulary, Vocabularies};
 
         let mut table = descriptor("table");
         table.offers = Offers {
@@ -771,7 +771,7 @@ mod tests {
     }
 
     fn diners(n: u64) -> Vec<Actor> {
-        use emerge_core::vocab::Can;
+        use bevy_emerge_core::vocab::Can;
         (1..=n).map(|id| Actor { id, can: Can(1) }).collect()
     }
 
@@ -792,7 +792,7 @@ mod tests {
                 &offers[0].location,
                 "eat",
                 &diners(1),
-                &mut emerge_core::rng::seeded(4),
+                &mut bevy_emerge_core::rng::seeded(4),
             )
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(cast.filled.len(), 1);
@@ -815,7 +815,7 @@ mod tests {
                 "galley_table_1",
                 "eat",
                 &diners(4),
-                &mut emerge_core::rng::seeded(4),
+                &mut bevy_emerge_core::rng::seeded(4),
             )
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(cast.filled.len(), 4);
@@ -855,7 +855,7 @@ mod tests {
                 "galley_table_1",
                 "eat",
                 &diners(4),
-                &mut emerge_core::rng::seeded(9),
+                &mut bevy_emerge_core::rng::seeded(9),
             )
             .unwrap_or_else(|e| panic!("{e}"));
         let second = smart
@@ -864,7 +864,7 @@ mod tests {
                 "galley_table_2",
                 "eat",
                 &diners(4),
-                &mut emerge_core::rng::seeded(9),
+                &mut bevy_emerge_core::rng::seeded(9),
             )
             .unwrap_or_else(|e| panic!("{e}"));
 
@@ -919,7 +919,7 @@ mod tests {
     /// The first version added only the origin's Y and used `at` directly for X and Z — correct for
     /// exactly one map, the one at the origin, which is the only one the editor ever authors.
     ///
-    /// Y is not this function's to decide any more. It comes from `emerge_core::stack`, which is where
+    /// Y is not this function's to decide any more. It comes from `bevy_emerge_core::stack`, which is where
     /// the layer rules and their tests live — this only has to carry it through.
     #[test]
     fn a_map_origin_moves_the_whole_map_on_every_axis() {

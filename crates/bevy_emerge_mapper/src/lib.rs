@@ -1,19 +1,19 @@
-//! **emerge-mapper** — a standalone world-building editor.
+//! **bevy_emerge_mapper** — a standalone world-building editor.
 //!
 //! It opens a *project directory*, not a game: `emerge/vocab.ron` says what tokens exist,
 //! `emerge/library.ron` says what can be placed, meshes resolve under the same root, and the map it
-//! writes is `emerge_core::map::Map` — which any engine can read, because the schema crate has no
-//! engine in it. `crates/emerge-core/tests/engine_free.rs` fails the build if that stops being true.
+//! writes is `bevy_emerge_core::map::Map` — which any engine can read, because the schema crate has no
+//! engine in it. `crates/bevy_emerge_core/tests/engine_free.rs` fails the build if that stops being true.
 //!
 //! ```text
-//! emerge-mapper [project-dir] [map-name] [--kit <name>]
+//! bevy_emerge_mapper [project-dir] [map-name] [--kit <name>]
 //! ```
 //!
-//! The second argument is a **name**, not a filename: `emerge-mapper . site_67` opens (or starts)
+//! The second argument is a **name**, not a filename: `bevy_emerge_mapper . site_67` opens (or starts)
 //! `assets/emerge/site_67.map.ron`. Names are snake_case and are *forced* into it rather than
 //! checked, so there is no path through this program on which a map is called something the
 //! filesystem and the schema disagree about. Both arguments default, so a bare
-//! `cargo run -p emerge-mapper` from the workspace root opens the shipped library.
+//! `cargo run -p bevy_emerge_mapper` from the workspace root opens the shipped library.
 //!
 //! # Why it is a separate binary and not a mode of the game
 //!
@@ -21,7 +21,7 @@
 //! code path"*. An editor welded into the game inherits the game's title screen, its save system, its
 //! camera rules and its notion of what a level is — which is exactly how the F7 Site editor ended up
 //! only able to edit one hub. The reusable part is the schema and the solvers, and those live in
-//! `emerge-core` where a second game can have them.
+//! `bevy_emerge_core` where a second game can have them.
 //!
 //! # Before writing any Bevy here, read the vendored 0.19 source
 //!

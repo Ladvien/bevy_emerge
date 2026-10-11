@@ -16,10 +16,10 @@
 use std::path::{Path, PathBuf};
 
 use bevy::prelude::*;
-use emerge_core::library::Library;
-use emerge_core::map::{Map, MAP_VERSION};
-use emerge_core::naming;
-use emerge_core::vocab::{Masks, Vocabularies};
+use bevy_emerge_core::library::Library;
+use bevy_emerge_core::map::{Map, MAP_VERSION};
+use bevy_emerge_core::naming;
+use bevy_emerge_core::vocab::{Masks, Vocabularies};
 
 /// Where a project's own files live, under its root. Inside `assets/` rather than beside it, so a
 /// descriptor's `mesh` path means the same thing to this editor and to the game that loads the map.
@@ -80,7 +80,7 @@ pub struct Project {
     ///
     /// Read from `compositions.ron` beside the library, or empty when the project has none — which is
     /// the same state as a file with none in it, not a degraded one.
-    pub compositions: emerge_core::composition::Compositions,
+    pub compositions: bevy_emerge_core::composition::Compositions,
     /// The measurements with [`Self::policy`] applied — what the game would place, and what every
     /// reader here (the palette, the preview, the flood fill, the fault check) uses.
     ///
@@ -91,29 +91,29 @@ pub struct Project {
     /// Per-kit and not merged, because `Policy::apply` refuses a rule that matches nothing: a kit's
     /// patches name a kit's pieces, so layering one project-wide would refuse to open the moment two
     /// kits were bound.
-    pub policy: emerge_core::policy::Policy,
+    pub policy: bevy_emerge_core::policy::Policy,
     /// **The grid every kit, tile and map in this project shares** — `kits.ron`'s
-    /// [`emerge_core::kits::Lattice`].
+    /// [`bevy_emerge_core::kits::Lattice`].
     ///
     /// Held here rather than on the map, which is where it lived for part of
     /// 2026-08-16. A map has exactly one lattice, but so does the project, and
     /// `composition::interface` takes the band count as an argument — so two maps at different
     /// counts gave the same tile two different adjacency contracts. It is also the only form the
     /// doors that author tiles can ask, since they have no map open at all.
-    pub lattice: emerge_core::kits::Lattice,
+    pub lattice: bevy_emerge_core::kits::Lattice,
     /// **Every bound kit, layered**, in `kits.ron` order.
     ///
     /// Held so an edit to the authoring kit can rebuild [`Self::library`] without re-reading the
     /// other kits off disk — `commit_measured` validates before it writes, so the file it would
     /// re-read is still the old one at the moment the merge is needed.
-    pub kits: Vec<emerge_core::kits::KitLayer>,
+    pub kits: Vec<bevy_emerge_core::kits::KitLayer>,
     /// **The named combinations a map may draw on** — `kits.ron`'s `bash`, in file order.
     ///
     /// Held beside [`Self::kits`] because it is read at the same two moments: `OpenMap::open`
     /// refuses a map naming one this project does not declare, and `palette_namespaces` resolves
     /// the name a map does carry. A bash names namespaces, and `Kits::validate` has already refused
     /// one naming a namespace nothing binds — so every name in here is loaded.
-    pub bashes: Vec<emerge_core::kits::Bash>,
+    pub bashes: Vec<bevy_emerge_core::kits::Bash>,
     /// Per-descriptor token masks, in library order — resolved once at load so the palette and the
     /// placement rules never re-resolve the same strings.
     pub masks: Vec<Masks>,
@@ -148,10 +148,10 @@ impl Project {
     pub fn open(root: &Path, kit: Option<&str>) -> Result<Project, String> {
         // **The binding is the project's, not a kit's.** `kits.ron` says which directory provides
         // which namespace — `site/` and `site_greybox/` both provide `site/*`, so this is a question
-        // no directory can answer about itself. See `emerge_core::kits`.
+        // no directory can answer about itself. See `bevy_emerge_core::kits`.
         let project_dir = root.join(EMERGE_DIR);
-        let kits_path = project_dir.join(emerge_core::kits::KITS_FILE);
-        let kits = emerge_core::kits::Kits::parse(&read(&kits_path)?)
+        let kits_path = project_dir.join(bevy_emerge_core::kits::KITS_FILE);
+        let kits = bevy_emerge_core::kits::Kits::parse(&read(&kits_path)?)
             .map_err(|e| format!("{}: {e}", kits_path.display()))?;
 
         // **`--kit` chooses where new work lands, not what the palette can show.**
@@ -202,8 +202,8 @@ impl Project {
         // Every bound kit, each layered with its **own** policy, merged into the one library a map
         // resolves against — plus the project's compositions, validated against that merge because
         // it is the only library that can answer for a tile seating two kits' pieces.
-        let bound = emerge_core::kits::bound_library(&project_dir, &kits)?;
-        let emerge_core::kits::Bound {
+        let bound = bevy_emerge_core::kits::bound_library(&project_dir, &kits)?;
+        let bevy_emerge_core::kits::Bound {
             kits: layers,
             mut library,
             compositions,
@@ -274,7 +274,7 @@ impl Project {
                 format!(
                     "{}: {e}",
                     project_dir
-                        .join(emerge_core::composition::Compositions::FILE)
+                        .join(bevy_emerge_core::composition::Compositions::FILE)
                         .display()
                 )
             })?;
@@ -282,8 +282,8 @@ impl Project {
         let maps_dir = project_dir.join(MAPS_DIR);
 
         // Counts come from the one census, never from a `.len()` written here — see
-        // `emerge_core::census` for the drift that discipline exists to prevent.
-        let catalog = emerge_core::census::of_catalog(&library, &compositions.compositions);
+        // `bevy_emerge_core::census` for the drift that discipline exists to prevent.
+        let catalog = bevy_emerge_core::census::of_catalog(&library, &compositions.compositions);
         info!(
             "project: {} — {} descriptor(s), {} composition(s), {} bound kit(s)",
             root.display(),
@@ -299,8 +299,8 @@ impl Project {
                 d.mesh
                     .as_deref()
                     .map(|m| root.join("assets").join(m))
-                    .and_then(|path| emerge_core::glb::Glb::open(&path).ok())
-                    .map_or(0, |g| emerge_core::import::triangles(&g))
+                    .and_then(|path| bevy_emerge_core::glb::Glb::open(&path).ok())
+                    .map_or(0, |g| bevy_emerge_core::import::triangles(&g))
             })
             .collect();
 
@@ -331,15 +331,15 @@ impl Project {
     /// draw, and the grid a write is range-checked against cannot come out different.
     pub fn divisions_of(
         &self,
-        d: &emerge_core::descriptor::Descriptor,
+        d: &bevy_emerge_core::descriptor::Descriptor,
     ) -> Result<(u32, u32, u32), String> {
-        emerge_core::descriptor::divisions(d, self.lattice.face_bands)
+        bevy_emerge_core::descriptor::divisions(d, self.lattice.face_bands)
     }
 
     /// Re-read `assets/emerge/vocab.ron` and re-resolve the masks. Adopts only on success.
     ///
     /// The editor holds a parsed copy of the vocabulary and the resolved masks, so a token appended
-    /// on disk (by [`emerge_core::vocab::append_token`]) is invisible until this runs. Appending
+    /// on disk (by [`bevy_emerge_core::vocab::append_token`]) is invisible until this runs. Appending
     /// never changes an existing bit, so already-resolved masks stay correct — the re-resolve is
     /// for the new token's own mask, and the swap is all-or-nothing so a bad file cannot leave the
     /// project half-updated.
@@ -377,7 +377,7 @@ impl Project {
             }
         }
         let merged = Library {
-            version: emerge_core::library::LIBRARY_VERSION,
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
             note: self.library.note.clone(),
             descriptors,
         };
@@ -460,9 +460,9 @@ impl Project {
                     .find(|c| c.id == s.of)
                     .is_some_and(|c| {
                         c.members.iter().any(|m| match &m.body {
-                            emerge_core::composition::Body::Descriptor { id: d, .. } => d == id,
-                            emerge_core::composition::Body::Composition { .. }
-                            | emerge_core::composition::Body::Slot { .. } => false,
+                            bevy_emerge_core::composition::Body::Descriptor { id: d, .. } => d == id,
+                            bevy_emerge_core::composition::Body::Composition { .. }
+                            | bevy_emerge_core::composition::Body::Slot { .. } => false,
                         })
                     })
             });
@@ -486,8 +486,8 @@ impl Project {
                 d.mesh
                     .as_deref()
                     .map(|m| self.root.join("assets").join(m))
-                    .and_then(|path| emerge_core::glb::Glb::open(&path).ok())
-                    .map_or(0, |g| emerge_core::import::triangles(&g))
+                    .and_then(|path| bevy_emerge_core::glb::Glb::open(&path).ok())
+                    .map_or(0, |g| bevy_emerge_core::import::triangles(&g))
             })
             .collect();
     }
@@ -515,7 +515,7 @@ impl Project {
     /// live set is what makes a refusal leave the project exactly as it was.
     pub fn commit_composition(
         &mut self,
-        comp: emerge_core::composition::Composition,
+        comp: bevy_emerge_core::composition::Composition,
     ) -> Result<(), String> {
         let mut proposed = self.compositions.clone();
         match proposed.compositions.iter().position(|c| c.id == comp.id) {
@@ -525,16 +525,16 @@ impl Project {
         // Canonical order, so one set has one encoding and a diff shows what changed rather than
         // where it was inserted.
         proposed.compositions.sort_by(|a, b| a.id.cmp(&b.id));
-        emerge_core::composition::validate(&proposed.compositions, &self.library)?;
+        bevy_emerge_core::composition::validate(&proposed.compositions, &self.library)?;
 
         // **The project's collection, not the authoring kit's.** A tile may seat `site/wall` beside
         // `lab/bench`, so it belongs to neither kit — filing it under whichever one happened to be
         // open is what made a tile authored in one kit invisible to every map in another.
         let path = self
             .project_dir
-            .join(emerge_core::composition::Compositions::FILE);
+            .join(bevy_emerge_core::composition::Compositions::FILE);
         let text = proposed.to_ron()?;
-        emerge_core::ron_surgery::save_atomic(&path, &text)
+        bevy_emerge_core::ron_surgery::save_atomic(&path, &text)
             .map_err(|e| format!("NOT WRITTEN: {e}"))?;
         self.compositions = proposed;
         Ok(())
@@ -607,7 +607,7 @@ impl OpenMap {
                 version: MAP_VERSION,
                 name: name.clone(),
                 note: Some(format!(
-                    "Authored in emerge-mapper. Library: {}.",
+                    "Authored in bevy_emerge_mapper. Library: {}.",
                     project.library_path.display()
                 )),
                 ..Map::default()
@@ -637,7 +637,7 @@ impl OpenMap {
             ));
         }
 
-        let counted = emerge_core::census::of_map(&map);
+        let counted = bevy_emerge_core::census::of_map(&map);
         info!(
             "map: {} — {} placement(s), {} stamp(s)",
             map_path.display(),
@@ -651,7 +651,7 @@ impl OpenMap {
     /// Write the map. Atomic, so a crash mid-write cannot leave half a level on disk.
     ///
     /// Serialized by an ordinary serializer with no comment-preserving pass, because an emerge map
-    /// keeps its prose in `note:` fields — see `emerge_core::map`. That is the whole reason the
+    /// keeps its prose in `note:` fields — see `bevy_emerge_core::map`. That is the whole reason the
     /// decision was made that way.
     pub fn save(&mut self, project: &Project) -> Result<(), String> {
         self.map.validate()?;
@@ -659,9 +659,9 @@ impl OpenMap {
         // own shape and stops there; it does not expand stamps, so a map whose group no longer
         // resolves passed this door and was written with a cheerful "saved" — and then failed at
         // `FVS_EMERGE_MAP` load with "the map has holes". The editor saying saved while the game says
-        // broken is the exact drift the shared `emerge-core` validation exists to prevent.
+        // broken is the exact drift the shared `bevy_emerge_core` validation exists to prevent.
         if !self.map.stamps.is_empty() {
-            emerge_core::composition::expand(
+            bevy_emerge_core::composition::expand(
                 &self.map,
                 &self.map.stamps,
                 &project.compositions.compositions,
@@ -680,7 +680,7 @@ impl OpenMap {
         self.map_path = project.maps_dir.join(naming::map_file_name(&self.map.name));
         let text = ron::ser::to_string_pretty(&self.map, ron::ser::PrettyConfig::default())
             .map_err(|e| format!("map: serialize: {e}"))?;
-        emerge_core::ron_surgery::save_atomic(&self.map_path, &text)?;
+        bevy_emerge_core::ron_surgery::save_atomic(&self.map_path, &text)?;
         self.dirty = false;
         Ok(())
     }
@@ -689,7 +689,7 @@ impl OpenMap {
     /// **The namespaces this map's content already names** — derived every time, never stored.
     ///
     /// Placements name a descriptor directly; a stamp names a composition, whose members name
-    /// descriptors, so both are walked. `emerge_core::census` makes the same argument for counts and
+    /// descriptors, so both are walked. `bevy_emerge_core::census` makes the same argument for counts and
     /// this is the same discipline: a set that could be cached is a set that can be wrong, and this
     /// one decides whether a checkbox is allowed to be unticked.
     pub fn namespaces_in_use(&self, project: &Project) -> std::collections::BTreeSet<String> {
@@ -713,9 +713,9 @@ impl OpenMap {
             };
             for m in &c.members {
                 match &m.body {
-                    emerge_core::composition::Body::Descriptor { id, .. }
-                    | emerge_core::composition::Body::Composition { id } => add(id.as_str()),
-                    emerge_core::composition::Body::Slot { .. } => {}
+                    bevy_emerge_core::composition::Body::Descriptor { id, .. }
+                    | bevy_emerge_core::composition::Body::Composition { id } => add(id.as_str()),
+                    bevy_emerge_core::composition::Body::Slot { .. } => {}
                 }
             }
         }
@@ -725,7 +725,7 @@ impl OpenMap {
 
     /// **What the palette offers**: the bash the map names, plus whatever the map already uses.
     ///
-    /// [`emerge_core::map::Map::bash`] `None` means *all bound kits* — the state a new map starts
+    /// [`bevy_emerge_core::map::Map::bash`] `None` means *all bound kits* — the state a new map starts
     /// in, and the state a project declaring no bashes leaves every map in.
     ///
     /// **The union with [`Self::namespaces_in_use`] is what makes this safe to edit.** Naming a

@@ -21,7 +21,7 @@ use std::time::SystemTime;
 
 use bevy::prelude::*;
 
-use emerge_core::rig_check::{Finding, Level, Staleness};
+use bevy_emerge_core::rig_check::{Finding, Level, Staleness};
 
 use crate::anim_tab::BenchState;
 use crate::tiles::Mode;
@@ -121,13 +121,13 @@ pub struct RigReport {
     pub diff: Vec<String>,
     /// Phase-gridded curves per gait slot `(slot index, curves)` — the plots' input, a by-product
     /// of the FK the checks already ran. Empty for a rig with no gaits (or no contact joint).
-    pub curves: Vec<(usize, emerge_core::clips::GaitCurves)>,
+    pub curves: Vec<(usize, bevy_emerge_core::clips::GaitCurves)>,
     /// The measured numbers per gait slot, straight from `check_rig` — what the ghost stages, the
     /// plots overlay, and the measured sub-line prints. Used to be dropped on the floor here while
     /// `adopt` re-measured from scratch.
-    pub slots: Vec<emerge_core::rig_check::SlotMeasure>,
+    pub slots: Vec<bevy_emerge_core::rig_check::SlotMeasure>,
     /// The skate arithmetic per gait slot — empty when the rig declares no `drive_speed`.
-    pub skates: Vec<emerge_core::rig_check::SkateReport>,
+    pub skates: Vec<bevy_emerge_core::rig_check::SkateReport>,
     /// The most severe finding level, for summaries and the badge.
     pub worst: Level,
 }
@@ -155,13 +155,13 @@ impl BenchReports {
 pub struct BenchGeneration(pub u32);
 
 /// **One rig, measured.** The policy is `rig_check::check_rig` — the same call CI makes.
-pub(crate) fn measure_rig(root: &std::path::Path, rig: &emerge_core::rigs::Rig) -> RigReport {
+pub(crate) fn measure_rig(root: &std::path::Path, rig: &bevy_emerge_core::rigs::Rig) -> RigReport {
     let path = root.join("assets").join(&rig.mesh);
-    let (glb, hash) = match emerge_core::glb::Glb::open_fingerprinted(&path) {
+    let (glb, hash) = match bevy_emerge_core::glb::Glb::open_fingerprinted(&path) {
         Ok(pair) => pair,
         Err(e) => {
             let findings = vec![Finding::bad(format!("cannot read {}: {e}", rig.mesh))];
-            let worst = emerge_core::rig_check::worst(&findings);
+            let worst = bevy_emerge_core::rig_check::worst(&findings);
             return RigReport {
                 fingerprint: None,
                 staleness: None,
@@ -176,28 +176,28 @@ pub(crate) fn measure_rig(root: &std::path::Path, rig: &emerge_core::rigs::Rig) 
             };
         }
     };
-    let clips = emerge_core::clips::clips(&glb);
-    let staleness = emerge_core::rig_check::staleness(rig, hash);
+    let clips = bevy_emerge_core::clips::clips(&glb);
+    let staleness = bevy_emerge_core::rig_check::staleness(rig, hash);
     let diff = match (staleness, &rig.provenance) {
         (Staleness::Stale, Some(p)) => {
-            emerge_core::rig_check::clip_list_diff(&p.clip_names, &clips)
+            bevy_emerge_core::rig_check::clip_list_diff(&p.clip_names, &clips)
         }
         _ => Vec::new(),
     };
     let report =
-        emerge_core::rig_check::check_rig(&glb, rig, staleness == Staleness::Current);
-    let worst = emerge_core::rig_check::worst(&report.findings);
+        bevy_emerge_core::rig_check::check_rig(&glb, rig, staleness == Staleness::Current);
+    let worst = bevy_emerge_core::rig_check::worst(&report.findings);
     // The plots' curves — same FK, same anchors, gathered while the file is open.
     let mut curves = Vec::new();
     if rig.has_gaits() {
-        if let Some(foot) = emerge_core::clips::node_index(&glb, rig.contact_joint()) {
-            let root = emerge_core::clips::node_index(&glb, rig.root_node());
+        if let Some(foot) = bevy_emerge_core::clips::node_index(&glb, rig.contact_joint()) {
+            let root = bevy_emerge_core::clips::node_index(&glb, rig.root_node());
             for (i, slot) in rig.slots.iter().enumerate() {
-                if !matches!(slot.playback, emerge_core::rigs::Playback::Gait { .. }) {
+                if !matches!(slot.playback, bevy_emerge_core::rigs::Playback::Gait { .. }) {
                     continue;
                 }
                 if let Some(c) =
-                    emerge_core::clips::gait_curves(&glb, slot.clip, foot, root, rig.contact_eps)
+                    bevy_emerge_core::clips::gait_curves(&glb, slot.clip, foot, root, rig.contact_eps)
                 {
                     curves.push((i, c));
                 }
@@ -208,16 +208,16 @@ pub(crate) fn measure_rig(root: &std::path::Path, rig: &emerge_core::rigs::Rig) 
         // with no contact claim. One ordered selection rule: the conventional contact joint when
         // the asset has it, else the best measured candidate, else no curve.
         for (i, slot) in rig.slots.iter().enumerate() {
-            if !matches!(slot.playback, emerge_core::rigs::Playback::Free { .. }) {
+            if !matches!(slot.playback, bevy_emerge_core::rigs::Playback::Free { .. }) {
                 continue;
             }
-            let joint = emerge_core::clips::node_index(&glb, rig.contact_joint()).or_else(|| {
-                emerge_core::clips::contact_candidates(&glb, slot.clip)
+            let joint = bevy_emerge_core::clips::node_index(&glb, rig.contact_joint()).or_else(|| {
+                bevy_emerge_core::clips::contact_candidates(&glb, slot.clip)
                     .first()
-                    .and_then(|(name, _)| emerge_core::clips::node_index(&glb, name))
+                    .and_then(|(name, _)| bevy_emerge_core::clips::node_index(&glb, name))
             });
             let Some(joint) = joint else { continue };
-            if let Some(c) = emerge_core::clips::joint_curves(&glb, slot.clip, joint) {
+            if let Some(c) = bevy_emerge_core::clips::joint_curves(&glb, slot.clip, joint) {
                 curves.push((i, c));
             }
         }

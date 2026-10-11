@@ -87,7 +87,7 @@ fn panel_source() -> String {
 fn every_control_the_census_names_is_attached_to_something() {
     let src = panel_source();
     let mut orphans = Vec::new();
-    for id in emerge_mapper::keys::ControlId::ALL {
+    for id in bevy_emerge_mapper::keys::ControlId::ALL {
         // **The id named anywhere in panel source, not only inside `Control(`.**
         //
         // The first cut matched `Control(…ControlId::X)` literally and flagged three ids that are
@@ -129,12 +129,12 @@ fn the_scan_actually_finds_attachments() {
     let src = panel_source();
     let n = src.matches("chrome::Control(").count() + src.matches("Control(keys::ControlId::").count();
     assert!(
-        n >= emerge_mapper::keys::ControlId::ALL.len(),
+        n >= bevy_emerge_mapper::keys::ControlId::ALL.len(),
         "the scan found {n} `chrome::Control(..)` attachment(s) across the panels, fewer than the \
          {} ids the census names — the matcher has stopped seeing them, or the panels have stopped \
          making them. One site may serve several ids (`editor::Field::control` and \
          `tiles::CellVerb::control` each map a set onto one insert), so this is a floor rather than \
          a count.",
-        emerge_mapper::keys::ControlId::ALL.len()
+        bevy_emerge_mapper::keys::ControlId::ALL.len()
     );
 }

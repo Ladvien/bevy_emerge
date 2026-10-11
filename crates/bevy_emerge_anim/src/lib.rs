@@ -59,10 +59,10 @@ const MAX_FRAME_DT: f32 = 1.0 / 30.0;
 const FADE_TAU: f32 = 0.08;
 
 /// The cadence policy is shared with the editor's animation bench (which predicts foot skate from
-/// it), so it lives engine-free in `emerge_core::gait` — see that module for why. Re-exported here
+/// it), so it lives engine-free in `bevy_emerge_core::gait` — see that module for why. Re-exported here
 /// so the game's `crate::anim::gait_cycles_per_sec` call sites are unchanged.
-pub use emerge_core::gait::gait_cycles_per_sec;
-use emerge_core::gait::WEIGHT_EPS;
+pub use bevy_emerge_core::gait::gait_cycles_per_sec;
+use bevy_emerge_core::gait::WEIGHT_EPS;
 
 /// How a slot's clip time is driven. One variant per slot — this is data describing the clip, not a
 /// choice of code path.
@@ -479,7 +479,7 @@ pub fn apply_pose_blenders(
                 // pins it. A free clip is the opposite by design — Bevy's `advance_animations` ticks
                 // it at `speed` and this module only ever touches its weight — so [`hold_phase`] did
                 // not reach it at all, and the bench's `Space` froze the walk while the idle kept
-                // going. Measured in `emerge-mapper`: two captures 2 s apart differed by ~150,000
+                // going. Measured in `bevy_emerge_mapper`: two captures 2 s apart differed by ~150,000
                 // pixels with the phase held.
                 //
                 // Speed, not a seek: a free clip has no φ to hold it at, and rewinding one is the
@@ -522,7 +522,7 @@ mod tests {
     use super::*;
 
     // The pure cadence tests (authored speed → 1× cadence, both clamp ends, zero-weight → 0.0)
-    // moved to `emerge_core::gait` with the function they exercise.
+    // moved to `bevy_emerge_core::gait` with the function they exercise.
 
     #[test]
     fn phase_wraps_into_the_unit_interval() {
@@ -712,7 +712,7 @@ mod tests {
     /// The half `hold_phase` did not cover. A gait is a paused clip whose seek time this module
     /// owns, so pinning φ pins it; a free clip is ticked by Bevy at its authored speed and never
     /// looked at φ at all. The bench's `Space` therefore froze the walk and left the idle running —
-    /// measured in `emerge-mapper` as ~150,000 pixels of change per two seconds with the phase held.
+    /// measured in `bevy_emerge_mapper` as ~150,000 pixels of change per two seconds with the phase held.
     ///
     /// Asserted on `speed` rather than on the pose, because speed is the thing this module writes
     /// and a rewind is what it must never do: the clip stops where it stands.

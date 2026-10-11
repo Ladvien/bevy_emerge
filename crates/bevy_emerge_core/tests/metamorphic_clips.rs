@@ -16,10 +16,10 @@
 //! that `clips.rs` reads. That duplication is deliberate: the helpers must not be the code under
 //! test.
 
-use emerge_core::clips::{self, PHASE_BINS};
-use emerge_core::glb::Glb;
-use emerge_core::rig_check::{self, Level};
-use emerge_core::rigs::Rigs;
+use bevy_emerge_core::clips::{self, PHASE_BINS};
+use bevy_emerge_core::glb::Glb;
+use bevy_emerge_core::rig_check::{self, Level};
+use bevy_emerge_core::rigs::Rigs;
 
 /// The valkyrie's clip indices, per `assets/emerge/rigs.ron`: walk is the phase reference.
 const WALK: usize = 5;
@@ -37,7 +37,7 @@ fn valkyrie() -> Glb {
     Glb::open(&root().join("assets/characters/valkyrie.glb")).unwrap_or_else(|e| panic!("{e}"))
 }
 
-fn valkyrie_rig() -> emerge_core::rigs::Rig {
+fn valkyrie_rig() -> bevy_emerge_core::rigs::Rig {
     let text = std::fs::read_to_string(root().join("assets/emerge/rigs.ron"))
         .unwrap_or_else(|e| panic!("{e}"));
     Rigs::parse(&text)

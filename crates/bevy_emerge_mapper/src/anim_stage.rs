@@ -2,11 +2,11 @@
 //!
 //! Everything else in the bench inspects the asset; this is the one surface that plays it, and it
 //! plays it faithfully: every clip resident on one `AnimationPlayer`, one `AnimationGraph` from the
-//! same `emerge_anim::rigs::build` the game spawns with, weights and one shared phase moved by the
+//! same `bevy_emerge_anim::rigs::build` the game spawns with, weights and one shared phase moved by the
 //! same `apply_pose_blenders` pass — no transitions, nothing rewound, ever. What a conventional
 //! "play clip N" preview cannot show is exactly what this can: whether the *set* reads together.
 //!
-//! Scrubbing pins the phase through [`emerge_anim::PoseBlender::hold_phase`] — the runtime's cadence
+//! Scrubbing pins the phase through [`bevy_emerge_anim::PoseBlender::hold_phase`] — the runtime's cadence
 //! clamp floors at half nominal, so zero ground speed alone would still walk — and the one
 //! `set_seek_time` formula stays the only author of clip time.
 //!
@@ -18,7 +18,7 @@
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
-use emerge_core::rigs::Playback;
+use bevy_emerge_core::rigs::Playback;
 
 use crate::anim_tab::BenchState;
 use crate::chrome::{DIM, LABEL, ROW_BG, ROW_SELECTED, TEXT};
@@ -199,10 +199,10 @@ pub(crate) fn create_ghost_material(
 /// to the world units the manifest declares. A field that could not be measured keeps its declared
 /// value — the same fallback-free rule adopt itself applies by only writing what was measured.
 pub(crate) fn measured_rig(
-    rig: &emerge_core::rigs::Rig,
-    measured: &[emerge_core::rig_check::SlotMeasure],
+    rig: &bevy_emerge_core::rigs::Rig,
+    measured: &[bevy_emerge_core::rig_check::SlotMeasure],
     excluded: &std::collections::BTreeSet<usize>,
-) -> emerge_core::rigs::Rig {
+) -> bevy_emerge_core::rigs::Rig {
     let mut out = rig.clone();
     let scale = out.scale;
     for (i, slot) in out.slots.iter_mut().enumerate() {
@@ -284,14 +284,14 @@ pub(crate) fn drive_bench_ghost(
     }
 
     let staged = measured_rig(&rig, &measured, &excluded);
-    let (graph, slots) = emerge_anim::rigs::build(&staged, &assets, &mut graphs);
+    let (graph, slots) = bevy_emerge_anim::rigs::build(&staged, &assets, &mut graphs);
     let scene: Handle<WorldAsset> =
         assets.load(GltfAssetLabel::Scene(0).from_asset(rig.mesh.clone()));
     commands
         .spawn((
             BenchGhost,
             key,
-            emerge_anim::BlendSource { graph, slots },
+            bevy_emerge_anim::BlendSource { graph, slots },
             Transform::from_translation(BENCH_STAGE).with_scale(Vec3::splat(rig.scale)),
             Visibility::Inherited,
         ))
@@ -311,8 +311,8 @@ pub(crate) fn drive_bench_ghost(
 #[cfg(test)]
 mod measured_rig_tests {
     use super::*;
-    use emerge_core::rig_check::SlotMeasure;
-    use emerge_core::rigs::{Rig, SlotDef};
+    use bevy_emerge_core::rig_check::SlotMeasure;
+    use bevy_emerge_core::rigs::{Rig, SlotDef};
 
     fn gait_slot(clip: usize) -> SlotDef {
         SlotDef {
@@ -471,13 +471,13 @@ pub(crate) fn drive_bench_stage(
     scrub.mixed = gaits.clone();
     scrub.solo = if gaits.is_empty() { Some(0) } else { None };
 
-    let (graph, slots) = emerge_anim::rigs::build(&rig, &assets, &mut graphs);
+    let (graph, slots) = bevy_emerge_anim::rigs::build(&rig, &assets, &mut graphs);
     let scene: Handle<WorldAsset> = assets.load(GltfAssetLabel::Scene(0).from_asset(mesh.clone()));
     commands
         .spawn((
             BenchStage,
             BenchStageOf(mesh),
-            emerge_anim::BlendSource { graph, slots },
+            bevy_emerge_anim::BlendSource { graph, slots },
             Transform::from_translation(BENCH_STAGE).with_scale(Vec3::splat(rig.scale)),
             Visibility::Inherited,
         ))
@@ -517,7 +517,7 @@ pub(crate) fn drive_bench_scrub(
     bench: Option<Res<BenchState>>,
     mut scrub: ResMut<BenchScrub>,
     mut blenders: Query<
-        (&mut emerge_anim::PoseBlender, Has<BenchGhost>),
+        (&mut bevy_emerge_anim::PoseBlender, Has<BenchGhost>),
         Or<(With<BenchStage>, With<BenchGhost>)>,
     >,
 ) {
@@ -534,7 +534,7 @@ pub(crate) fn drive_bench_scrub(
             1.0
         };
         let dir = (fwd as i8 - back as i8) as f32;
-        scrub.phase = emerge_anim::wrap01(scrub.phase + dir * SCRUB_RATE / fine * time.delta_secs());
+        scrub.phase = bevy_emerge_anim::wrap01(scrub.phase + dir * SCRUB_RATE / fine * time.delta_secs());
     }
 
     let Some(bench) = bench else { return };
@@ -715,7 +715,7 @@ pub(crate) fn refresh_scrub_ui(
 }
 
 /// The chip row and scrub line, spawned into the pane by `rebuild_slots`.
-pub(crate) fn spawn_chips(p: &mut ChildSpawnerCommands, rig: &emerge_core::rigs::Rig) {
+pub(crate) fn spawn_chips(p: &mut ChildSpawnerCommands, rig: &bevy_emerge_core::rigs::Rig) {
     crate::chrome::section(p, "STAGE");
     p.spawn(Node {
         flex_direction: FlexDirection::Row,

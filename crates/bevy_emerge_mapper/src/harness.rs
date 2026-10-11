@@ -194,7 +194,7 @@ pub fn resize_surface(app: &mut App, width: u32, height: u32) -> Result<(), Stri
 /// **The shipped face, installed over Bevy's default asset id.**
 ///
 /// Both entry points do this, because it is not cosmetic: the embedded default is 95 codepoints of
-/// ASCII, so every `—` in the editor's copy — and in the refusals `emerge-core` hands back — draws as
+/// ASCII, so every `—` in the editor's copy — and in the refusals `bevy_emerge_core` hands back — draws as
 /// a tofu box. A harness whose text ran through a different font would measure different layout.
 pub fn install_font(app: &mut App, root: &Path) -> Result<(), String> {
     let path = root.join("assets/fonts/FiraMono-Regular.ttf");

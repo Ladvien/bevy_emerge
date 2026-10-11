@@ -1,10 +1,10 @@
-# det_rng
+# bevy_emerge_rng
 
 > ⚠️ **Vibe Coded** — written by an AI agent working from a human's direction. It is used in a shipping game and covered by tests, but it has had no line-by-line human audit. Read it before you trust it.
 
 One deterministic RNG for a whole simulation: a seeded ChaCha8 stream, plus the unbiased integer and float draws generators actually need. A run reproduces from a single `u64`, on any platform, at any thread count.
 
-> **This repo is a read-only mirror.** It is split out of [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with `git subtree split`, history intact. Issues and PRs belong upstream.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_rng/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge_rng/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ## Why this is a crate and not four lines in yours
 
@@ -15,7 +15,7 @@ The moment a second module needs a random integer, the temptation is to write a 
 So: one type, one place, and any consumer that needs a draw takes this.
 
 ```rust
-use det_rng::{DetRng, seeded};
+use bevy_emerge_rng::{DetRng, seeded};
 
 let mut rng = seeded(0xD06F_00D);
 let roll = rng.below(6);        // unbiased, in [0, 6)
@@ -52,7 +52,7 @@ The upstream project freezes the first draws of every generator in a test and tr
 ## Examples
 
 ```sh
-cargo run -p det_rng --example reproducible
+cargo run -p bevy_emerge_rng --example reproducible
 ```
 
 Prints two runs from one seed and diffs them draw for draw, checks that a neighbouring seed does *not* agree, and rolls a hundred thousand dice to show `below` is uniform. Terminal only — no window, no GPU.

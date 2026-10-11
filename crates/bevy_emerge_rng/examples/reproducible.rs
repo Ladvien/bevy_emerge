@@ -8,9 +8,9 @@
 //! two. `below` uses a rejecting range sampler because that is correct for any source width, not
 //! because you could catch the difference here. Overstating that would be the easy thing to write.
 //!
-//! Run: `cargo run -p det_rng --example reproducible`
+//! Run: `cargo run -p bevy_emerge_rng --example reproducible`
 
-use det_rng::{DetRng, seeded};
+use bevy_emerge_rng::{DetRng, seeded};
 
 const SEED: u64 = 0xD06F_00D_1234_5678;
 const ROLLS: usize = 100_000;
@@ -36,7 +36,7 @@ fn main() {
     println!();
     println!("  two streams from seed {SEED:#018x}, 30,000 draws each");
     println!("  differing draws: {differing}");
-    assert_eq!(differing, 0, "det_rng is not deterministic, which is the one thing it is for");
+    assert_eq!(differing, 0, "bevy_emerge_rng is not deterministic, which is the one thing it is for");
 
     // A different seed must NOT agree, or the first check proves nothing.
     let mut c = seeded(SEED ^ 1);

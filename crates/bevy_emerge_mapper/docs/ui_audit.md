@@ -1,4 +1,4 @@
-# emerge-mapper UI audit — 2026-09-03
+# bevy_emerge_mapper UI audit — 2026-09-03
 
 The 2026-08-17 audit (`docs/2026-08-17-mapper-ui-audit.md`) named four tabs drifting into four dialects
 and the 2026-08-18 overhaul closed its findings. This one starts from a fresh report at the keyboard:
@@ -6,7 +6,7 @@ and the 2026-08-18 overhaul closed its findings. This one starts from a fresh re
 > *"Overall readability of the UI. And inconsistency of UI, buttons work different in different areas,
 > layouts different, colors are inconsistent, and the layout overall is muddy as hell."*
 
-Method: a code inventory of every surface in `crates/emerge-mapper/src/`, a mechanical census of the
+Method: a code inventory of every surface in `crates/bevy_emerge_mapper/src/`, a mechanical census of the
 un-ratcheted axes (spacing, widget adoption, clickable shape), a WCAG contrast computation over the
 whole palette, and **nine live captures** taken over BRP from a real windowed build at 3396×1356 — no
 window raised, no screen taken.
@@ -137,7 +137,7 @@ pixel constants (300 / 380 / 264 / 420) with no relationship to the window.
 
 ### F3 — Opening the Map door crashes the application (reproduced 2/2)
 
-`cargo run -p emerge-mapper --features debugger -- . <map>` dies inside two seconds:
+`cargo run -p bevy_emerge_mapper --features debugger -- . <map>` dies inside two seconds:
 
 ```
 Attachments have differing sizes: the depth attachment's texture view has extent (3396, 1356, 1)
@@ -156,7 +156,7 @@ image by the time the editor screen starts), so the crash is specific to enterin
 
 The status band advertises `Enter new project` and the row is selectable and highlights. Pressing
 `Enter` produces no prompt, no project, no refusal, and no status line (verified on a full-frame
-capture). `crates/emerge-mapper/CLAUDE.md` §Data model already records that nothing can create a
+capture). `crates/bevy_emerge_mapper/CLAUDE.md` §Data model already records that nothing can create a
 project root — the row and its hint promise a verb that does not exist.
 
 ### F5 — Overlapping text in KIT INFO
@@ -454,7 +454,7 @@ its own rule and nothing else.
 
 ### F3 is open, and two fixes have been eliminated
 
-**`emerge-mapper . <map>` still dies inside two seconds**, reproduced 4/4; booting through the
+**`bevy_emerge_mapper . <map>` still dies inside two seconds**, reproduced 4/4; booting through the
 chooser never does, 0/4. `bevy_render`'s default handler treats the validation error as fatal, so the
 application exits rather than dropping a frame.
 
@@ -491,7 +491,7 @@ spawned late, at `OnEnter(Editor)`, which fits the startup-path evidence exactly
 
 ### The gate
 
-`cargo test --workspace`: **1,621 passing**, one red binary — `emerge-mapper`'s `headless` at
+`cargo test --workspace`: **1,621 passing**, one red binary — `bevy_emerge_mapper`'s `headless` at
 **152 passed / 4 failed**, which is *exactly* the pre-change baseline, measured on a `git worktree`
 of `HEAD` before any of this landed. The four are `a_refit_on_another_tab_leaves_the_tile_history_alone`,
 `a_tile_survives_a_save_and_a_reopen`, `undo_steps_back_through_the_meshes_brought_into_a_tile` and
@@ -506,7 +506,7 @@ first place. Both tests are green.
 ### Contact sheet
 
 Captured over `bevy_debugger/screenshot` at `BEVY_BRP_PORT=15703`, window 3396 × 1356. No window was
-raised and no screen was taken. The files are gitignored — see `crates/emerge-mapper/.gitignore` for
+raised and no screen was taken. The files are gitignored — see `crates/bevy_emerge_mapper/.gitignore` for
 why, and retake them by re-running the capture rather than by editing them.
 
 | Surface | Before | After |

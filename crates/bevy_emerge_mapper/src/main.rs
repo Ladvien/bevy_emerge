@@ -1,7 +1,7 @@
-//! **emerge-mapper** — the binary. Argument parsing and the app; everything else is the
+//! **bevy_emerge_mapper** — the binary. Argument parsing and the app; everything else is the
 //! library beside this, so `tests/` can drive the editor without a window. See `lib.rs`.
 
-use emerge_mapper::{args, chooser, harness, screen, screen::Screen};
+use bevy_emerge_mapper::{args, chooser, harness, screen, screen::Screen};
 
 use bevy::prelude::*;
 
@@ -31,8 +31,8 @@ fn main() -> AppExit {
             .set(AssetPlugin {
                 // Meshes are named relative to the project, so the project IS the asset root.
                 // Absolute, because Bevy resolves a relative `file_path` against `CARGO_MANIFEST_DIR`
-                // — which under `cargo run -p emerge-mapper` is the CRATE, so `./assets` landed on
-                // `crates/emerge-mapper/assets` and every mesh 404'd.
+                // — which under `cargo run -p bevy_emerge_mapper` is the CRATE, so `./assets` landed on
+                // `crates/bevy_emerge_mapper/assets` and every mesh 404'd.
                 file_path: root.to_string_lossy().into_owned() + "/assets",
                 ..default()
             })
@@ -40,7 +40,7 @@ fn main() -> AppExit {
                 primary_window: Some(Window {
                     // **One window for both screens**, so the title is state rather than a build-time
                     // decision — see [`name_the_window`].
-                    title: "emerge-mapper".to_owned(),
+                    title: "bevy_emerge_mapper".to_owned(),
                     // **Fullscreen for automated checks.** A virtual pointer is ABSOLUTE over the
                     // whole output, so a screen fraction only means a window fraction when the
                     // window IS the screen.
@@ -56,11 +56,11 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .insert_resource(ClearColor(emerge_mapper::chrome::VOID))
+    .insert_resource(ClearColor(bevy_emerge_mapper::chrome::VOID))
     // **One knob for the whole interface.** `UiScale` multiplies every `Val::Px` and every font
     // size, so the panels grow together and nothing has to be re-tuned relative to anything else
     // — the alternative is forty constants that drift apart the first time one is missed.
-    .insert_resource(UiScale(emerge_mapper::chrome::EDITOR_UI_SCALE));
+    .insert_resource(UiScale(bevy_emerge_mapper::chrome::EDITOR_UI_SCALE));
 
     // The state both halves are gated by, and the two transitions that load and unload a door.
     app.add_plugins(screen::ScreenPlugin);
@@ -82,7 +82,7 @@ fn main() -> AppExit {
     app.add_systems(Update, name_the_window);
 
     // **A door named on the command line skips the menu**, by choosing on its behalf: the menu's
-    // output IS this argv (`args::open`), so `emerge-mapper . --door kit --kit ozea` and pressing
+    // output IS this argv (`args::open`), so `bevy_emerge_mapper . --door kit --kit ozea` and pressing
     // Enter on the same row take the identical path in.
     //
     // **Opened here, before the app runs**, for the same reason `install_font` refuses here: a door
@@ -98,7 +98,7 @@ fn main() -> AppExit {
                 });
             }
             Err(e) => {
-                eprintln!("emerge-mapper: {e}");
+                eprintln!("bevy_emerge_mapper: {e}");
                 std::process::exit(1);
             }
         }
@@ -107,7 +107,7 @@ fn main() -> AppExit {
     // **Replace the default face rather than hand a handle to 41 call sites.** `TextFont::default()`
     // names `AssetId::default()`, which is where `TextPlugin` puts the 95-codepoint subset.
     if let Err(e) = harness::install_font(&mut app, &root) {
-        eprintln!("emerge-mapper: {e}");
+        eprintln!("bevy_emerge_mapper: {e}");
         std::process::exit(1);
     }
 
@@ -122,25 +122,25 @@ fn main() -> AppExit {
 /// the Kit door, which is where an evening went on 2026-08-16 before the log said `— map — test`.
 fn name_the_window(
     screen: Res<State<Screen>>,
-    door: Option<Res<emerge_mapper::tiles::Door>>,
-    open_map: Option<Res<emerge_mapper::project::OpenMap>>,
-    project: Option<Res<emerge_mapper::project::Project>>,
+    door: Option<Res<bevy_emerge_mapper::tiles::Door>>,
+    open_map: Option<Res<bevy_emerge_mapper::project::OpenMap>>,
+    project: Option<Res<bevy_emerge_mapper::project::Project>>,
     mut windows: Query<&mut Window>,
 ) {
     let want = match (screen.get(), door.as_deref()) {
-        (Screen::Menu, _) => "emerge-mapper — choose a kit or a map".to_owned(),
+        (Screen::Menu, _) => "bevy_emerge_mapper — choose a kit or a map".to_owned(),
         (Screen::Editor, Some(d)) => {
             let door = d.label().to_lowercase();
             // **Which name to show is `chrome::subject`'s decision, not a second copy of it.** The
             // chrome bar states the same fact where the eye actually goes, and a title that went on
             // saying the kit while the bar said the map is the drift this shares one function to
             // avoid.
-            match emerge_mapper::chrome::subject(open_map.as_deref(), project.as_deref()) {
-                Some(name) => format!("emerge-mapper — {door} — {name}"),
-                None => format!("emerge-mapper — {door}"),
+            match bevy_emerge_mapper::chrome::subject(open_map.as_deref(), project.as_deref()) {
+                Some(name) => format!("bevy_emerge_mapper — {door} — {name}"),
+                None => format!("bevy_emerge_mapper — {door}"),
             }
         }
-        (Screen::Editor, None) => "emerge-mapper".to_owned(),
+        (Screen::Editor, None) => "bevy_emerge_mapper".to_owned(),
     };
     for mut w in &mut windows {
         if w.title != want {

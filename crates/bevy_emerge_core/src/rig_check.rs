@@ -1,7 +1,7 @@
 //! **The four checks, one policy, both consumers.**
 //!
-//! The editor's animation bench (`crates/emerge-mapper/src/anim_tab.rs`) and the CI drift guard
-//! (`crates/emerge-core/tests/rigs_match_assets.rs`) used to carry two independent copies of the same
+//! The editor's animation bench (`crates/bevy_emerge_mapper/src/anim_tab.rs`) and the CI drift guard
+//! (`crates/bevy_emerge_core/tests/rigs_match_assets.rs`) used to carry two independent copies of the same
 //! four checks — same primitives, separately written loops, thresholds and wording. Two copies of a
 //! policy drift exactly the way two copies of a measurement do, and when CI went red the editor could
 //! not be trusted to reproduce it. This module is the single copy: the editor renders what CI panics

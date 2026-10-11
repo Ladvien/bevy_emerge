@@ -1,20 +1,20 @@
-# emerge-bevy — notes for agents
+# bevy_emerge — notes for agents
 
-The runtime half of emerge: take an `emerge-core` library plus a map, and put it in a Bevy world.
+The runtime half of emerge: take an `bevy_emerge_core` library plus a map, and put it in a Bevy world.
 
 ## Source of truth
 
-The source of truth for this crate is [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) at `crates/emerge-bevy/`. If you are reading this in a standalone `Ladvien/emerge-bevy` checkout, that is a read-only `git subtree split` mirror — **changes made here cannot be pulled back**. Make them upstream.
+The source of truth for this crate is [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge) at `crates/bevy_emerge/` (MIT OR Apache-2.0, Bevy 0.20). It began as `crates/bevy_emerge/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop), history kept; foundation_vs_slop still carries the GPL Bevy 0.19 original until it ports. Make changes here, in their own commits with tests here; a consumer game never vendors or patches a copy.
 
 ## Build and test
 
-**Not a leaf.** It path-depends on the sibling `emerge-core`, so it builds *inside* the workspace, not on its own: `cargo check -p emerge-bevy`.
+**Not a leaf.** It path-depends on the sibling `bevy_emerge_core`, so it builds *inside* the workspace, not on its own: `cargo check -p bevy_emerge`.
 
-This is the **only** crate in the emerge set that knows what a renderer is, on purpose. `emerge-core` is the schema, the solvers and the validation with no engine in it, and `crates/emerge-core/tests/engine_free.rs` fails the build if that stops being true. This is the other side of that line.
+This is the **only** crate in the emerge set that knows what a renderer is, on purpose. `bevy_emerge_core` is the schema, the solvers and the validation with no engine in it, and `crates/bevy_emerge_core/tests/engine_free.rs` fails the build if that stops being true. This is the other side of that line.
 
 ## The non-negotiable: one spawner
 
-`spawn_descriptor` is deliberately the **single** shared spawner. `emerge-mapper` shows you a map and the game plays it, and they must agree about what a placement looks like down to the last degree of yaw. The way to guarantee that is not care — it is having one function.
+`spawn_descriptor` is deliberately the **single** shared spawner. `bevy_emerge_mapper` shows you a map and the game plays it, and they must agree about what a placement looks like down to the last degree of yaw. The way to guarantee that is not care — it is having one function.
 
 **Do not add a second spawner**, not for the editor, not for a test, not behind a flag. The alternative was tried elsewhere in this tree and is on the record: `bake.rs` and `site_editor::source_map` independently grew the same RON writer, and one of them had a bug the other did not.
 
@@ -32,4 +32,4 @@ Masks, stacked Y, role masks and seat positions all resolve **once at load**, be
 
 ## In the monorepo
 
-The game loads what `emerge-mapper` writes through `src/emerge_map.rs`, which uses `EmergePlugin` / `EmergeWorld` — that is the step that makes the editor's output real. Root `CLAUDE.md` and `TESTING.md` carry the project-wide rules; neither is part of this mirror.
+The game loads what `bevy_emerge_mapper` writes through `src/emerge_map.rs`, which uses `EmergePlugin` / `EmergeWorld` — that is the step that makes the editor's output real. Root `CLAUDE.md` and `TESTING.md` carry the project-wide rules; neither is part of this mirror.

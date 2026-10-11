@@ -289,117 +289,117 @@ pub enum Ownership {
 /// rather than a stale value nobody looks for.
 pub const OWNERSHIP: &[(&str, Ownership)] = &[
     // ── What was opened, and what was read off disk for it ──────────────────────────────────────
-    ("emerge_mapper::project::Project", Ownership::Project),
-    ("emerge_mapper::project::OpenMap", Ownership::Project),
-    ("emerge_mapper::tiles::Door", Ownership::Project),
-    ("emerge_mapper::tiles::Mode", Ownership::Project),
+    ("bevy_emerge_mapper::project::Project", Ownership::Project),
+    ("bevy_emerge_mapper::project::OpenMap", Ownership::Project),
+    ("bevy_emerge_mapper::tiles::Door", Ownership::Project),
+    ("bevy_emerge_mapper::tiles::Mode", Ownership::Project),
     // Derived from the kit's meshes: a different kit means different thumbnails.
-    ("emerge_mapper::thumbs::Thumbnails", Ownership::Project),
-    ("emerge_mapper::thumbs::ThumbGeneration", Ownership::Project),
-    ("emerge_mapper::labels::Suggestions", Ownership::Project),
+    ("bevy_emerge_mapper::thumbs::Thumbnails", Ownership::Project),
+    ("bevy_emerge_mapper::thumbs::ThumbGeneration", Ownership::Project),
+    ("bevy_emerge_mapper::labels::Suggestions", Ownership::Project),
     // **`Project`, because the model is read off the project's own `.env`.** A different project may
     // configure a different endpoint, and the resource latches that it has read one — so carrying it
     // across would leave the band naming a model this project never asked for. The link state goes
     // with it, which is right: it is evidence about a round trip that was made for that project.
-    ("emerge_mapper::labels::Labeler", Ownership::Project),
-    ("emerge_mapper::anim_watch::BenchReports", Ownership::Project),
-    ("emerge_mapper::anim_watch::RigWatch", Ownership::Project),
+    ("bevy_emerge_mapper::labels::Labeler", Ownership::Project),
+    ("bevy_emerge_mapper::anim_watch::BenchReports", Ownership::Project),
+    ("bevy_emerge_mapper::anim_watch::RigWatch", Ownership::Project),
 
     // **`Session`, and that is the whole point of it.** Every other problem list in this editor is a
     // tab's working state, capped and cleared by `Esc`; this one answers *"what has gone wrong since
     // the application started"*, which a value thrown away with the door cannot.
-    ("emerge_mapper::chrome::Journal", Ownership::Session),
+    ("bevy_emerge_mapper::chrome::Journal", Ownership::Session),
 
     // ── The door's own working state ────────────────────────────────────────────────────────────
     // The undo stack is the one this list was written for: `docs/2026-08-17-one-application.md` §1
     // names it as the value that survives into the next kit today.
-    ("emerge_mapper::build::TileHistory", Ownership::Door),
-    ("emerge_mapper::build::Build", Ownership::Door),
-    ("emerge_mapper::editor::EditorState", Ownership::Door),
-    ("emerge_mapper::editor::CloneDrag", Ownership::Door),
-    ("emerge_mapper::editor::MoveDrag", Ownership::Door),
-    ("emerge_mapper::editor::PlaceDrag", Ownership::Door),
-    ("emerge_mapper::editor::RemovalDrag", Ownership::Door),
-    ("emerge_mapper::editor::FineAnchor", Ownership::Door),
-    ("emerge_mapper::editor::Proposal", Ownership::Door),
-    ("emerge_mapper::editor::Rung", Ownership::Door),
-    ("emerge_mapper::editor::SizeEdit", Ownership::Door),
-    ("emerge_mapper::editor::Folded", Ownership::Door),
-    ("emerge_mapper::editor::StampPicture", Ownership::Door),
-    ("emerge_mapper::editor::TargetLock", Ownership::Door),
-    ("emerge_mapper::editor::UnderCursor", Ownership::Door),
-    ("emerge_mapper::editor::EdgeFaults", Ownership::Door),
-    ("emerge_mapper::tiles::ImportState", Ownership::Door),
-    ("emerge_mapper::tiles::CellEdit", Ownership::Door),
-    ("emerge_mapper::tiles::DerivedEdges", Ownership::Door),
-    ("emerge_mapper::tiles::HeightEdit", Ownership::Door),
-    ("emerge_mapper::tiles::LatticePick", Ownership::Door),
-    ("emerge_mapper::tiles::MapView", Ownership::Door),
-    ("emerge_mapper::tiles::NoteEdit", Ownership::Door),
-    ("emerge_mapper::tiles::ScaleEdit", Ownership::Door),
-    ("emerge_mapper::tiles::StagedLift", Ownership::Door),
+    ("bevy_emerge_mapper::build::TileHistory", Ownership::Door),
+    ("bevy_emerge_mapper::build::Build", Ownership::Door),
+    ("bevy_emerge_mapper::editor::EditorState", Ownership::Door),
+    ("bevy_emerge_mapper::editor::CloneDrag", Ownership::Door),
+    ("bevy_emerge_mapper::editor::MoveDrag", Ownership::Door),
+    ("bevy_emerge_mapper::editor::PlaceDrag", Ownership::Door),
+    ("bevy_emerge_mapper::editor::RemovalDrag", Ownership::Door),
+    ("bevy_emerge_mapper::editor::FineAnchor", Ownership::Door),
+    ("bevy_emerge_mapper::editor::Proposal", Ownership::Door),
+    ("bevy_emerge_mapper::editor::Rung", Ownership::Door),
+    ("bevy_emerge_mapper::editor::SizeEdit", Ownership::Door),
+    ("bevy_emerge_mapper::editor::Folded", Ownership::Door),
+    ("bevy_emerge_mapper::editor::StampPicture", Ownership::Door),
+    ("bevy_emerge_mapper::editor::TargetLock", Ownership::Door),
+    ("bevy_emerge_mapper::editor::UnderCursor", Ownership::Door),
+    ("bevy_emerge_mapper::editor::EdgeFaults", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::ImportState", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::CellEdit", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::DerivedEdges", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::HeightEdit", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::LatticePick", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::MapView", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::NoteEdit", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::ScaleEdit", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::StagedLift", Ownership::Door),
     // The library row you were last on. `Door`, because a different kit's ids mean nothing here —
     // a remembered `furniture/sofa` pointing into `site` would land the cursor on nothing.
-    ("emerge_mapper::tiles::LibraryCursor", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::LibraryCursor", Ownership::Door),
     // What the automatic scan has done and what the list is drawn from: both keyed by mesh path
     // or row text, and two kits sharing either would have the second one's first frame silently
     // skipped — the `badges::ShowingFor` hazard, one panel over.
-    ("emerge_mapper::tiles::AutoScanned", Ownership::Door),
-    ("emerge_mapper::tiles::DrawnRows", Ownership::Door),
-    ("emerge_mapper::compose::ComposeState", Ownership::Door),
-    ("emerge_mapper::compose::Budget", Ownership::Door),
-    ("emerge_mapper::compose::StagedCarousel", Ownership::Door),
-    ("emerge_mapper::anim_tab::BenchState", Ownership::Door),
-    ("emerge_mapper::anim_tab::AdoptExclude", Ownership::Door),
-    ("emerge_mapper::anim_stage::BenchAb", Ownership::Door),
-    ("emerge_mapper::anim_stage::BenchCamera", Ownership::Door),
-    ("emerge_mapper::anim_stage::BenchScrub", Ownership::Door),
-    ("emerge_mapper::anim_watch::MeasureQueue", Ownership::Door),
-    ("emerge_mapper::labels::LabelQueue", Ownership::Door),
-    ("emerge_mapper::filter::Filters", Ownership::Door),
-    ("emerge_mapper::notice::Showing", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::AutoScanned", Ownership::Door),
+    ("bevy_emerge_mapper::tiles::DrawnRows", Ownership::Door),
+    ("bevy_emerge_mapper::compose::ComposeState", Ownership::Door),
+    ("bevy_emerge_mapper::compose::Budget", Ownership::Door),
+    ("bevy_emerge_mapper::compose::StagedCarousel", Ownership::Door),
+    ("bevy_emerge_mapper::anim_tab::BenchState", Ownership::Door),
+    ("bevy_emerge_mapper::anim_tab::AdoptExclude", Ownership::Door),
+    ("bevy_emerge_mapper::anim_stage::BenchAb", Ownership::Door),
+    ("bevy_emerge_mapper::anim_stage::BenchCamera", Ownership::Door),
+    ("bevy_emerge_mapper::anim_stage::BenchScrub", Ownership::Door),
+    ("bevy_emerge_mapper::anim_watch::MeasureQueue", Ownership::Door),
+    ("bevy_emerge_mapper::labels::LabelQueue", Ownership::Door),
+    ("bevy_emerge_mapper::filter::Filters", Ownership::Door),
+    ("bevy_emerge_mapper::notice::Showing", Ownership::Door),
     // **`Door`, because it is what is on screen right now.** A toast is an event's tail — carrying
     // one into the next kit would announce a refusal about a door the author has already left.
-    ("emerge_mapper::notice::Toast", Ownership::Door),
+    ("bevy_emerge_mapper::notice::Toast", Ownership::Door),
     // Holds entity ids from the frame this screen spawned, so it is meaningless the moment those
     // are despawned — and `chrome::spawn_frame` replaces it on every entry.
-    ("emerge_mapper::chrome::Frame", Ownership::Door),
+    ("bevy_emerge_mapper::chrome::Frame", Ownership::Door),
     // The badge layer's entities go with the door, so the key that says which tab they were
     // built for has to go with them — a stale key would suppress the first rebuild on the next
     // kit and the badges would simply never appear.
-    ("emerge_mapper::badges::ShowingFor", Ownership::Door),
+    ("bevy_emerge_mapper::badges::ShowingFor", Ownership::Door),
     // What the live tab is drawing into the viewport, re-derived every frame in `Phase::Sense` —
     // so a stale value survives no frame and this classification changes nothing. `Door` all the
     // same: it describes the door's own world, and a resource that says "the Map's cube is here"
     // while the Kit door is open would be a lie for exactly as long as it took to notice.
-    ("emerge_mapper::view::Rig", Ownership::Door),
+    ("bevy_emerge_mapper::view::Rig", Ownership::Door),
     // A half-typed token draft is the door's working state — a draft naming a token for one
     // kit's vocabulary is meaningless standing in another.
-    ("emerge_mapper::token_prompt::TokenPrompt", Ownership::Door),
+    ("bevy_emerge_mapper::token_prompt::TokenPrompt", Ownership::Door),
 
     // ── True for as long as the application runs ────────────────────────────────────────────────
     // The surface is how this application DRAWS — see `crate::surface`, and `scene_roots`, which
     // excludes its entities for the same reason.
-    ("emerge_mapper::surface::Surface", Ownership::Session),
-    ("emerge_mapper::keys::Live", Ownership::Session),
-    ("emerge_mapper::keys::Repeat", Ownership::Session),
+    ("bevy_emerge_mapper::surface::Surface", Ownership::Session),
+    ("bevy_emerge_mapper::keys::Live", Ownership::Session),
+    ("bevy_emerge_mapper::keys::Repeat", Ownership::Session),
     // **The one prompt outlives a door on purpose**, because it is asked on both sides of one:
     // `chooser` raises delete and quit on the menu, `editor` raises the leaving question from
     // inside a door, and the resource that carries them cannot belong to either. Its *panel* is
     // per-screen (`ConfirmPlugin` spawns on both `OnEnter`s) because `scene_roots` sweeps roots on
     // a screen change — the state is session-wide, the pixels are not.
-    ("emerge_mapper::confirm::Confirm", Ownership::Session),
-    ("emerge_mapper::view::Pointer", Ownership::Session),
+    ("bevy_emerge_mapper::confirm::Confirm", Ownership::Session),
+    ("bevy_emerge_mapper::view::Pointer", Ownership::Session),
     // Persisted to disk under `target/`, so that STALE is truthful at startup rather than after the
     // bench's first audit.
-    ("emerge_mapper::anim_cache::BenchCache", Ownership::Session),
-    ("emerge_mapper::anim_watch::BenchGeneration", Ownership::Session),
-    ("emerge_mapper::anim_plots::BenchPlots", Ownership::Session),
-    ("emerge_mapper::anim_stage::GhostMaterial", Ownership::Session),
-    ("emerge_mapper::label_booth::ShotRig", Ownership::Session),
-    ("emerge_mapper::labels::LabelGeneration", Ownership::Session),
+    ("bevy_emerge_mapper::anim_cache::BenchCache", Ownership::Session),
+    ("bevy_emerge_mapper::anim_watch::BenchGeneration", Ownership::Session),
+    ("bevy_emerge_mapper::anim_plots::BenchPlots", Ownership::Session),
+    ("bevy_emerge_mapper::anim_stage::GhostMaterial", Ownership::Session),
+    ("bevy_emerge_mapper::label_booth::ShotRig", Ownership::Session),
+    ("bevy_emerge_mapper::labels::LabelGeneration", Ownership::Session),
     // In-flight vision-model work. Dropping it mid-request would strand the task, not cancel it.
-    ("emerge_mapper::labels::LabelTasks", Ownership::Session),
+    ("bevy_emerge_mapper::labels::LabelTasks", Ownership::Session),
 ];
 
 /// What a door change does to this resource, or `None` if nobody has said.

@@ -9,9 +9,9 @@
 //! low indices whenever `n` does not divide 2^64, and that skew would quietly bias every placement
 //! decision downstream.
 //!
-//! Run: `cargo run -p emerge-core --example det_rng`
+//! Run: `cargo run -p bevy_emerge_core --example bevy_emerge_rng`
 
-use emerge_core::rng::{seeded, DetRng};
+use bevy_emerge_core::rng::{seeded, DetRng};
 
 fn main() {
     println!("Same seed, two independent streams — the sequences must match exactly:\n");

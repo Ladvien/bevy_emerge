@@ -1,8 +1,8 @@
-# CI for the standalone `det_rng` mirror.
+# CI for the standalone `bevy_emerge_rng` mirror.
 #
 # **This path is inert upstream and live here.** GitHub only reads workflows from `.github/` at a
 # repository root, so in the monorepo this file is an ordinary text file that nothing runs. The
-# `git subtree split` that produces the mirror lifts `crates/det_rng/` to the root — and this
+# `git subtree split` that produces the mirror lifts `crates/bevy_emerge_rng/` to the root — and this
 # file with it — so it becomes the mirror's CI without the monorepo gaining a second workflow.
 name: CI
 

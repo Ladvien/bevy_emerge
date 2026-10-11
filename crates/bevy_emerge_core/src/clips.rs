@@ -11,7 +11,7 @@
 //!
 //! `tests/engine_free.rs` fails the build if this crate ever reaches for `bevy`. So this is the
 //! *analysis* half — JSON and arithmetic over the glTF the artist shipped — and the playback half
-//! lives in the editor, which has a renderer. The same split `emerge-core`/`emerge-bevy` already
+//! lives in the editor, which has a renderer. The same split `bevy_emerge_core`/`bevy_emerge` already
 //! draws for placement.
 //!
 //! There is no math crate here either (the allowlist is serde/serde_json/ron/rand), so the forward
@@ -1113,7 +1113,7 @@ pub fn joint_curves(glb: &Glb, clip: usize, node: usize) -> Option<GaitCurves> {
 mod tests {
     use super::*;
 
-    /// The shipped rig, from the workspace root — `cargo test -p emerge-core` runs in the crate dir.
+    /// The shipped rig, from the workspace root — `cargo test -p bevy_emerge_core` runs in the crate dir.
     const VALKYRIE: &str = "../../assets/characters/valkyrie.glb";
 
     fn valkyrie() -> Glb {

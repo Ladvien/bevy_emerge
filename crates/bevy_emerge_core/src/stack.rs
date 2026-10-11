@@ -17,7 +17,7 @@
 //!
 //! This is Tutenel et al.'s *semantic class* relation rather than geometry: a piece declares the
 //! surface **class** it needs (`"worktop"`), a host declares the classes it **offers**, and matching
-//! is by class. `emerge_core::vocab` already turns both sides into bitmasks — Game AI Pro 4 ch.4's
+//! is by class. `bevy_emerge_core::vocab` already turns both sides into bitmasks — Game AI Pro 4 ch.4's
 //! *"comparing these bitmasks is a very efficient way to filter out invalid links"* — so the check
 //! costs one `&`.
 //!

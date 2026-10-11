@@ -103,7 +103,7 @@ fn body_of(code: &str, decl: &str) -> Option<String> {
 /// **`main` still hands its exit code back.**
 ///
 /// Less load-bearing than it was — the way back is no longer an exit code — but a `main` that drops
-/// `AppExit` still lies to `emerge-mapper && something`, and this is the cheapest possible guard.
+/// `AppExit` still lies to `bevy_emerge_mapper && something`, and this is the cheapest possible guard.
 #[test]
 fn the_editor_hands_its_exit_code_back() {
     let src = read("src/main.rs");

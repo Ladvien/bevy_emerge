@@ -1,14 +1,14 @@
-# emerge-anim — notes for agents
+# bevy_emerge_anim — notes for agents
 
 Clip-weight blending on a skinned rig's `AnimationPlayer`. Bevy 0.19.
 
 ## Source of truth
 
-The source of truth for this crate is [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) at `crates/emerge-anim/`. If you are reading this in a standalone `Ladvien/emerge-anim` checkout, that is a read-only `git subtree split` mirror — **changes made here cannot be pulled back**. Make them upstream.
+The source of truth for this crate is [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge) at `crates/bevy_emerge_anim/` (MIT OR Apache-2.0, Bevy 0.20). It began as `crates/bevy_emerge_anim/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop), history kept; foundation_vs_slop still carries the GPL Bevy 0.19 original until it ports. Make changes here, in their own commits with tests here; a consumer game never vendors or patches a copy.
 
 ## Build and test
 
-**Not a leaf.** It path-depends on the sibling `emerge-core`, so it builds *inside* the workspace, not on its own: `cargo test -p emerge-anim`.
+**Not a leaf.** It path-depends on the sibling `bevy_emerge_core`, so it builds *inside* the workspace, not on its own: `cargo test -p bevy_emerge_anim`.
 
 **This is the one manifest in the workspace that does not write `bevy.workspace = true`**, deliberately: it needs `default-features = false`, and Cargo *ignores* a member-level `default-features` when the dependency is inherited — so `{ workspace = true, default-features = false }` would silently keep the defaults on. The version is the workspace's; keep them in step by hand when bumping.
 
@@ -35,4 +35,4 @@ That is what keeps feet planted through a walk→run crossover — a transition 
 
 ## In the monorepo
 
-The game reaches this as `crate::anim` (`src/lib.rs:23`); `emerge-mapper`'s Anim tab drives the **real** blender rather than a preview copy, on purpose. `docs/animation.md` is the engineering guide and `docs/artist_guide.md` §4 holds the per-asset clip tables and the authoring contract — neither those, nor the root `CLAUDE.md`, nor `TESTING.md`, is part of this mirror.
+The game reaches this as `crate::anim` (`src/lib.rs:23`); `bevy_emerge_mapper`'s Anim tab drives the **real** blender rather than a preview copy, on purpose. `docs/animation.md` is the engineering guide and `docs/artist_guide.md` §4 holds the per-asset clip tables and the authoring contract — neither those, nor the root `CLAUDE.md`, nor `TESTING.md`, is part of this mirror.

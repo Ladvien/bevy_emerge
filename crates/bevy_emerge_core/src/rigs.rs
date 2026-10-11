@@ -384,7 +384,7 @@ impl Rigs {
                             return Err(format!(
                                 "rig `{name}` slot {i} is a gait covering {cycle_distance} m per \
                                  cycle; cadence is speed / cycle_distance, so this would divide by \
-                                 nothing. Measure it with `emerge_core::clips::cycle_distance`."
+                                 nothing. Measure it with `bevy_emerge_core::clips::cycle_distance`."
                             ));
                         }
                         // **Signed, and that is not sloppiness.** An offset is a shift along a cycle

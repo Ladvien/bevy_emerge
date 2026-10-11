@@ -1,7 +1,7 @@
 //! **FVS-R-17: does `Empty`'s weight explain why nothing closes?**
 //!
 //! ```text
-//! cargo run -p emerge-core --example empty_weight
+//! cargo run -p bevy_emerge_core --example empty_weight
 //! ```
 //!
 //! `expressive_range` measured 128 solves and found **zero enclosed regions**, with `Empty` taking
@@ -17,11 +17,11 @@
 //! It changes nothing. `Grammar::weights` is public, so the sweep sets `weights[0]` on a grammar it
 //! built itself; the shipped `from_compositions` still gives `Empty` one whole unit.
 
-use emerge_core::composition::{Compositions, Interface};
-use emerge_core::grammar::{self, Composed, Grammar};
-use emerge_core::library::Library;
-use emerge_core::map::Map;
-use emerge_core::range::{self, Faces, Measured, BINS, OPENING_MAX, RANGES};
+use bevy_emerge_core::composition::{Compositions, Interface};
+use bevy_emerge_core::grammar::{self, Composed, Grammar};
+use bevy_emerge_core::library::Library;
+use bevy_emerge_core::map::Map;
+use bevy_emerge_core::range::{self, Faces, Measured, BINS, OPENING_MAX, RANGES};
 
 const REGION: usize = 12;
 const CELL: f32 = 1.0;
@@ -50,7 +50,7 @@ fn main() {
         &library,
         1,
         CELL,
-        emerge_core::composition::agrees,
+        bevy_emerge_core::composition::agrees,
     ) {
         Ok(c) => c,
         Err(e) => return eprintln!("the kit does not learn a grammar: {e}"),

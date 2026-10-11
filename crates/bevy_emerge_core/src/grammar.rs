@@ -317,7 +317,7 @@ pub fn solve(
 /// How much search one constrained solve may spend before it reports a refusal.
 ///
 /// Counted in conflicts rather than seconds, so a busy machine and an idle one answer identically —
-/// see `deterministic_solver::Budget`. Generous: the shapes this sees settle in a fraction of it, and
+/// see `bevy_emerge_solver::Budget`. Generous: the shapes this sees settle in a fraction of it, and
 /// its job is to turn a pathological region into a named refusal rather than a hung editor.
 const SOLVE_BUDGET: u64 = 200_000;
 
@@ -1004,7 +1004,7 @@ mod tests {
     /// **A four-tile kit, built here rather than read off disk.**
     ///
     /// This used to load `assets/emerge/site`, which was a rule violation hiding in plain sight:
-    /// `emerge-mapper/CLAUDE.md` states *"Tests do not read the shipped assets… The shipped `assets/`
+    /// `bevy_emerge_mapper/CLAUDE.md` states *"Tests do not read the shipped assets… The shipped `assets/`
     /// is corpus, and a suite bound to it fails the day somebody imports a kit, which is the thing
     /// this editor exists to do."* Seven solver tests were bound to four authored tiles, so clearing
     /// the project to author new ones took the constraint solver's whole real-data coverage with it.

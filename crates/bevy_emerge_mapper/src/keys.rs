@@ -573,7 +573,7 @@ pub enum Action {
     /// replaced.
     CycleGrid,
     /// **Keep the edge tokens read off the mesh.** The other half of the door is `Cancel`.
-    /// See `tiles::DerivedEdges` and `emerge_core::adjacency::derive_edges`.
+    /// See `tiles::DerivedEdges` and `bevy_emerge_core::adjacency::derive_edges`.
     AcceptEdges,
     /// **Keep the generated layout.** The other half of the door is `Cancel`, which throws it away.
     /// See `editor::Proposal`.

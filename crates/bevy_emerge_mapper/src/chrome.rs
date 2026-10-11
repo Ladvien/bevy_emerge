@@ -203,7 +203,7 @@ pub const SUGGEST: Color = Color::srgb(0.530, 0.710, 0.810);
 /// this with it — the audit's `ENVELOPE_IDLE` finding, which was `ACCENT` divided by two and
 /// transcribed.
 ///
-/// The pair is the whole visible half of `emerge_core::descriptor::LabelOrigin`: this ink means *a
+/// The pair is the whole visible half of `bevy_emerge_core::descriptor::LabelOrigin`: this ink means *a
 /// machine decided this and you have not*, and [`TEXT`] on the same chip means *you did*.
 pub const UNCHECKED: Color = scaled(SUGGEST, 1.45);
 /// **A mesh that has been judged** — every axis answered, so it can compose a tile.
@@ -1141,7 +1141,7 @@ impl Status {
 
     /// **The editor could not do what was asked, or did only part of it.**
     ///
-    /// The line, in practice: a write that did not reach disk, a refusal handed back by `emerge-core`,
+    /// The line, in practice: a write that did not reach disk, a refusal handed back by `bevy_emerge_core`,
     /// input that would not parse, a piece that changed underneath the author, or an edit that
     /// succeeded and then failed to redraw. Anything a person would want to still be on screen a
     /// minute later.
@@ -2314,11 +2314,11 @@ pub fn field_text(editing: Option<&str>, idle: (String, Color)) -> (String, Colo
 /// under forked maps (tiles: Warn→ACCENT, Note→DIM; anim: everything-not-blocking→LABEL) — same
 /// vocabulary, three colours, which is the drift this module exists to stop. The word and the hue
 /// travel together so no site can pair "worth checking" with the wrong ink.
-pub fn severity_style(severity: emerge_core::import::Severity) -> (Color, &'static str) {
+pub fn severity_style(severity: bevy_emerge_core::import::Severity) -> (Color, &'static str) {
     match severity {
-        emerge_core::import::Severity::Blocking => (DANGER, "blocking"),
-        emerge_core::import::Severity::Warn => (ACCENT, "worth checking"),
-        emerge_core::import::Severity::Note => (DIM, "note"),
+        bevy_emerge_core::import::Severity::Blocking => (DANGER, "blocking"),
+        bevy_emerge_core::import::Severity::Warn => (ACCENT, "worth checking"),
+        bevy_emerge_core::import::Severity::Note => (DIM, "note"),
     }
 }
 
@@ -2499,7 +2499,7 @@ fn paint_name_box(
             (
                 "NAME THIS COMPOSITION",
                 // Forced to snake_case as it is typed, so the naming rule teaches itself.
-                format!("{}_", emerge_core::naming::to_snake_case(raw)),
+                format!("{}_", bevy_emerge_core::naming::to_snake_case(raw)),
                 "Enter keeps it.   Esc leaves the set in hand.".to_owned(),
             )
         })
@@ -2507,7 +2507,7 @@ fn paint_name_box(
             build.naming.as_ref().map(|prompt| {
                 (
                     "NAME THIS TILE",
-                    format!("{}_", emerge_core::naming::to_snake_case(&prompt.raw)),
+                    format!("{}_", bevy_emerge_core::naming::to_snake_case(&prompt.raw)),
                     "Enter opens it.   Esc leaves things as they are.".to_owned(),
                 )
             })

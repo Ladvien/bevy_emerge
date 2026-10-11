@@ -1,4 +1,4 @@
-# deterministic_solver
+# bevy_emerge_solver
 
 > ⚠️ **Vibe Coded** — written by an AI agent working from a human's direction. It is used in a shipping game and covered by tests, but it has had no line-by-line human audit. Read it before you trust it.
 
@@ -6,10 +6,10 @@ A Boolean satisfiability back-end that answers the same way every run, on every 
 
 ![A dark chessboard cycling through board sizes: at 2x2 and 3x3 the squares turn dull red and the caption reads "no arrangement exists", then from 4x4 up to 12x12 amber discs appear, one per row and column with none sharing a diagonal, the grid growing finer at each step](docs/n_queens.gif)
 
-> **This repo is a read-only mirror.** It is split out of [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with `git subtree split`, history intact. Issues and PRs belong upstream.
+> **Part of [`Ladvien/bevy_emerge`](https://github.com/Ladvien/bevy_emerge)** (`crates/bevy_emerge_solver/`), MIT OR Apache-2.0, Bevy 0.20. It began as `crates/bevy_emerge_solver/` in [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with the history kept; that repo still carries the GPL Bevy 0.19 original until it ports to this one. Issues and PRs belong in `bevy_emerge`.
 
 ```rust
-use deterministic_solver::{Answer, Budget, Solver};
+use bevy_emerge_solver::{Answer, Budget, Solver};
 
 let mut s = Solver::new(3)?;
 s.add_clause(&[1, 2])?;      // (x1 ∨ x2)
