@@ -1,0 +1,3 @@
+# bevy_emerge
+
+Placeholder.
