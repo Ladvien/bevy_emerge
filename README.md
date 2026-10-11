@@ -23,6 +23,8 @@ Each crate has its own `README.md` and `CLAUDE.md`; the latter holds the crate's
 
 MIT OR Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
 
+The licence covers the code. The models under `assets/` are test fixtures copied from foundation_vs_slop (where they were already public); third-party ones (Kenney, Quaternius, SCP community models and others) keep their own licences, and a folder's `README.md` says where it came from when it has one. The FiraMono font in `crates/bevy_emerge_mapper/assets/fonts/` is under the SIL OFL 1.1 (`FiraMono-OFL.txt`).
+
 ## Building
 
 ```sh
