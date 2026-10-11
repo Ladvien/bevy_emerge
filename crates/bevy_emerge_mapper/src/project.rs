@@ -292,6 +292,30 @@ impl Project {
             layers.len(),
         );
 
+        // **Pieces past the lattice ceiling are named once, here.** They can be placed and drawn
+        // but not given edge tokens ([`Project::divisions_of`] refuses them), and an author who
+        // cannot select a tree's edges should be able to find out why without reading the source.
+        let oversize: Vec<&str> = library
+            .descriptors
+            .iter()
+            .filter(|d| {
+                bevy_emerge_core::descriptor::divisions(d, kits.lattice.face_bands).is_ok_and(|div| {
+                    bevy_emerge_core::descriptor::Subgrid::volume(div)
+                        > bevy_emerge_core::library::MAX_LATTICE_CELLS
+                })
+            })
+            .map(|d| d.id.as_str())
+            .collect();
+        if !oversize.is_empty() {
+            info!(
+                "project: {} piece(s) are past the {} cell lattice ceiling and cannot take edge \
+                 tokens: {}",
+                oversize.len(),
+                bevy_emerge_core::library::MAX_LATTICE_CELLS,
+                oversize.join(", ")
+            );
+        }
+
         let triangles = library
             .descriptors
             .iter()
@@ -333,7 +357,20 @@ impl Project {
         &self,
         d: &bevy_emerge_core::descriptor::Descriptor,
     ) -> Result<(u32, u32, u32), String> {
-        bevy_emerge_core::descriptor::divisions(d, self.lattice.face_bands)
+        let div = bevy_emerge_core::descriptor::divisions(d, self.lattice.face_bands)?;
+        let volume = bevy_emerge_core::descriptor::Subgrid::volume(div);
+        if volume > bevy_emerge_core::library::MAX_LATTICE_CELLS {
+            return Err(format!(
+                "`{}` is too large for a lattice ({}x{}x{} = {volume} cells, past {}). It can be \
+                 placed, but not given edge tokens.",
+                d.id,
+                div.0,
+                div.1,
+                div.2,
+                bevy_emerge_core::library::MAX_LATTICE_CELLS
+            ));
+        }
+        Ok(div)
     }
 
     /// Re-read `assets/emerge/vocab.ron` and re-resolve the masks. Adopts only on success.

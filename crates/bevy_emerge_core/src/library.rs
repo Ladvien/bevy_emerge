@@ -142,19 +142,21 @@ impl Library {
     /// value nothing will ever read, a duplicate is two answers to one question — plus a ceiling on
     /// the derived volume, since divisions are multiplied by a piece's span and a 10 m corridor at a
     /// fine setting would otherwise build a lattice nobody can author or draw.
-    /// # The ceiling applies to every piece, authored or not
     ///
-    /// This used to `continue` on `subgrid: None` — "says nothing about its inside, so there is
-    /// nothing to be wrong about" — which is true of the *cells* and false of the volume. A piece
-    /// gets divisions the moment anything asks for them, and the editor asks as soon as the row is
-    /// selected: it derives them to draw the grid, and `rebuild_detail` materialises a button and a
-    /// text node **per cell**. So the guard covered only the pieces that already had cells, which are
-    /// the pieces whose author had already survived drawing them.
+    /// # The ceiling applies to authored cells only
     ///
-    /// At the legal maximum `divisions: 8`, `site/wall` derives 48x40x8 — 15,360 cells, some 33,000 UI
-    /// entities on every `ImportState` change, and a `vec![false; 15_360]` SAT-tested against every
-    /// triangle in the mesh on every rescan. That is a project that should be refused at load, and it
-    /// was loading.
+    /// It once covered every piece, because a piece gets divisions the moment anything asks for them
+    /// and the editor asked as soon as a row was selected: it derived them to draw the grid, and
+    /// `rebuild_detail` materialises a button and a text node **per cell**. At the legal maximum
+    /// `divisions: 8`, `site/wall` derives 48x40x8 — 15,360 cells, some 33,000 UI entities on every
+    /// `ImportState` change.
+    ///
+    /// That explosion is now stopped where the divisions are derived, not here: the editor's
+    /// `Project::divisions_of` refuses a piece past [`MAX_LATTICE_CELLS`], so an oversize piece can
+    /// sit in a library, be placed and be drawn, and is only refused edge tokens. Refusing the whole
+    /// library for it (every label save failed with "NOT WRITTEN" over a tree nobody meant to give
+    /// tokens) punished the wrong thing. A piece that carries authored cells still has to fit: those
+    /// cells are indices into a lattice, and one outside it is a value nothing will ever read.
     pub fn validate_lattices(&self, divisions: u32) -> Result<(), String> {
         let ceiling = |d: &Descriptor, div: (u32, u32, u32)| -> Result<(), String> {
             let volume = crate::descriptor::Subgrid::volume(div);
@@ -177,13 +179,8 @@ impl Library {
                     ceiling(d, div)?;
                     grid.validate(&d.id, div)?;
                 }
-                // No cells yet, but the lattice above is what the editor will build the moment this
-                // row is selected.
-                (None, Ok(div)) => ceiling(d, div)?,
-                // No cells and no derivable lattice — a missing `extent.footprint` — so there is
-                // genuinely nothing here to bound. `Descriptor::resolve` is where that is reported;
-                // saying it again under a name that hides its cause helps nobody.
-                (None, Err(_)) => {}
+                // No cells, so there is nothing to be wrong about, whatever the lattice would be.
+                (None, _) => {}
             }
         }
         Ok(())
@@ -296,17 +293,38 @@ mod tests {
         assert!(err.contains("crate"), "must name the id: {err}");
     }
 
-    /// **A piece with no cells yet is still bounded.** `validate_lattices` skipped `subgrid: None`,
-    /// so the ceiling covered only pieces that already had cells — and the editor derives and
-    /// materialises the lattice of whichever row is selected, authored or not.
+    /// **A piece with no cells is never refused for how big its lattice would be.** The ceiling
+    /// used to cover it too, so one tree or landmark in a kit made every library write fail; the
+    /// explosion it guarded (a button per cell) is stopped at the editor's `divisions_of` now.
     #[test]
-    fn the_cell_ceiling_applies_to_a_piece_with_no_cells_yet() {
+    fn an_unauthored_oversize_piece_is_accepted() {
+        let mut wall = d("wall");
+        wall.extent = crate::descriptor::Extent {
+            footprint: Some((40.0, 40.0)),
+            height: Some(30.0),
+        };
+        assert_eq!(wall.subgrid, None, "the case is a piece nobody has authored");
+        let div = crate::descriptor::divisions(&wall, 1).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            crate::descriptor::Subgrid::volume(div) > MAX_LATTICE_CELLS,
+            "the fixture has to be past the ceiling for this to mean anything: {div:?}"
+        );
+        assert!(lib(vec![wall]).validate_lattices(1).is_ok());
+    }
+
+    /// **A piece with authored cells still has to fit its ceiling.** Cells are indices into a
+    /// lattice; an author who has put edge tokens on an oversize piece has already survived drawing
+    /// it, and a library holding it is the one the editor will try to materialise.
+    #[test]
+    fn an_authored_oversize_piece_is_refused() {
         let mut wall = d("wall");
         wall.extent = crate::descriptor::Extent {
             footprint: Some((3.0, 0.5)),
             height: Some(2.4),
         };
-        assert_eq!(wall.subgrid, None, "the case is a piece nobody has authored");
+        wall.subgrid = Some(crate::descriptor::Subgrid {
+            cells: vec![crate::descriptor::SubCell::default()],
+        });
         // At the legal maximum this derives 48x40x8 = 15,360 cells.
         let err = lib(vec![wall.clone()])
             .validate_lattices(8)

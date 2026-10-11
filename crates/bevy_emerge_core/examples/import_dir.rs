@@ -9,34 +9,24 @@
 //! Meshes the library already holds are skipped (that is what `scan` does), a mesh that cannot be
 //! measured is reported and left out, and the library is validated before it is written.
 //!
-//! **A piece too big for the editor's lattice is left out too, and named.** The editor draws a
-//! lattice of cells for a selected piece and refuses to write a library holding one past
-//! [`MAX_LATTICE_CELLS`] (`Library::validate_lattices`), so a single tree or landmark in the file
-//! makes every later save in the editor fail with "NOT WRITTEN". Such pieces are scenery a game
-//! places from code; list them in the kit's `project.ron` `exclude` so the editor does not offer
-//! them either.
+//! A piece too big for the editor's lattice is imported like any other: it can be placed and drawn,
+//! and is only refused edge tokens (`Project::divisions_of` in the mapper).
 //!
-//! Run: `cargo run -p bevy_emerge_core --example import_dir -- <asset-root> <dir> <library.ron> [face_bands]`
+//! Run: `cargo run -p bevy_emerge_core --example import_dir -- <asset-root> <dir> <library.ron>`
 //! where `<dir>` is a directory under `<asset-root>`, for example
-//! `-- /path/to/game/assets models/kit /path/to/game/assets/emerge/kit/library.ron`, and
-//! `face_bands` is the project's `kits.ron` `lattice.face_bands` (default 1).
+//! `-- /path/to/game/assets models/kit /path/to/game/assets/emerge/kit/library.ron`.
 
 use std::path::PathBuf;
 
-use bevy_emerge_core::descriptor::{Subgrid, divisions};
 use bevy_emerge_core::import::{self, Severity};
-use bevy_emerge_core::library::{Library, MAX_LATTICE_CELLS};
+use bevy_emerge_core::library::Library;
 
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (asset_root, dir, library_path, face_bands) = match args.as_slice() {
-        [a, d, l] => (a, d, l, 1),
-        [a, d, l, f] => (a, d, l, f.parse::<u32>().map_err(|e| format!("face_bands `{f}`: {e}"))?),
+    let (asset_root, dir, library_path) = match args.as_slice() {
+        [a, d, l] => (a, d, l),
         _ => {
-            return Err(
-                "usage: import_dir <asset-root> <dir under asset-root> <library.ron> [face_bands]"
-                    .to_owned(),
-            );
+            return Err("usage: import_dir <asset-root> <dir under asset-root> <library.ron>".to_owned());
         }
     };
     let asset_root = PathBuf::from(asset_root);
@@ -58,15 +48,6 @@ fn main() -> Result<(), String> {
         }
         if c.worst() == Some(Severity::Warn) {
             warned += 1;
-        }
-        if let Ok(div) = divisions(&c.proposed, face_bands)
-            && Subgrid::volume(div) > MAX_LATTICE_CELLS
-        {
-            println!(
-                "too big for the editor ({}x{}x{} cells, past {MAX_LATTICE_CELLS}), exclude it: {}",
-                div.0, div.1, div.2, c.mesh
-            );
-            continue;
         }
         if library.get(&c.proposed.id).is_some() {
             eprintln!("skipped {}: id `{}` is already in the library", c.mesh, c.proposed.id);

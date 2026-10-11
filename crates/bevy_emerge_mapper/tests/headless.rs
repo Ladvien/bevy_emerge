@@ -15667,3 +15667,28 @@ mod replace_and_dirty {
         assert!(!dirty(&app));
     }
 }
+
+/// **A piece too big for a lattice no longer stops the project opening.** It used to fail the whole
+/// library (`validate_lattices` ceiling on every piece), so one tree in a kit made every save say
+/// "NOT WRITTEN". Now the project opens and only that piece is refused edge tokens.
+#[test]
+fn an_oversize_piece_opens_and_is_refused_only_its_lattice() {
+    let root = Fixture::new("oversize")
+        .descriptor("small", "alpha")
+        .sized_descriptor("big", "alpha", 40.0, 40.0)
+        .build("m");
+    let project = bevy_emerge_mapper::project::Project::open(&root, None)
+        .unwrap_or_else(|e| panic!("an oversize piece must not block the open: {e}"));
+    let get = |id: &str| {
+        project
+            .library
+            .get(id)
+            .unwrap_or_else(|| panic!("no `{id}` in the library"))
+    };
+    assert!(project.divisions_of(get("small")).is_ok());
+    let err = project.divisions_of(get("big")).err().unwrap_or_default();
+    assert!(
+        err.contains("`big` is too large for a lattice") && err.contains("can be placed"),
+        "{err}"
+    );
+}
