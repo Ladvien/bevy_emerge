@@ -36,7 +36,7 @@ The tests read fixtures from the repository's `assets/` directory (`crates/<name
 
 |Consumer|How it uses this repo|
 |---|---|
-|Sanctuary (`/Users/ladvien/sanctuary`)|Depends on `bevy_emerge_core` by path (`/Users/ladvien/bevy_emerge/crates/bevy_emerge_core`) to lay out town blocks by WFC learned from an authored example block. The editor runs against Sanctuary as a project: `cargo run -p bevy_emerge_mapper -- /Users/ladvien/sanctuary`. See Sanctuary's decision 0084.|
+|Sanctuary (`/Users/ladvien/sanctuary`)|Depends on `bevy_emerge_core` by path (`/Users/ladvien/bevy_emerge/crates/bevy_emerge_core`) to lay out town blocks by WFC learned from an authored example block. The editor runs against Sanctuary as a project: `cargo run -p bevy_emerge_mapper -- /Users/ladvien/sanctuary`. See Sanctuary's decision 0087.|
 
 ## Working with consumers
 

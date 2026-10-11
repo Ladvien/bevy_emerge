@@ -3,7 +3,7 @@ name = "bevy_emerge"
 version = "0.1.0"
 edition = "2024"
 description = "The runtime half of emerge: load a library and a map, and put it in a Bevy world."
-# Relicensed MIT OR Apache-2.0 on extraction from foundation_vs_slop (owner decision, Sanctuary decision 0084).
+# Relicensed MIT OR Apache-2.0 on extraction from foundation_vs_slop (owner decision, Sanctuary decision 0087).
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Ladvien/bevy_emerge"
 

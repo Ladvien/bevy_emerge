@@ -15,7 +15,7 @@ Games depend on these crates by path and the editor runs on a game as its projec
 - Before pushing, run `cargo test --workspace` here and `cargo test` in each consumer.
 - If a consumer change depends on an unpushed commit here, the consumer's agents are told which commit (Sanctuary: `AGENTS_CHAT.md`).
 
-Consumers: Sanctuary (`/Users/ladvien/sanctuary`, decision 0084).
+Consumers: Sanctuary (`/Users/ladvien/sanctuary`, decision 0087).
 
 ## Rules
 
