@@ -10716,6 +10716,34 @@ fn the_menu_key_saves_and_goes() {
     );
 }
 
+/// **Leaving a door has to survive the frames after it.**
+///
+/// `the_menu_key_saves_and_goes` stops at the pending `Screen::Menu` on purpose, so nothing in this
+/// file ever ran a frame *after* `OnExit(Editor)` dropped the `Project`. A run condition in the
+/// Tiles plugin read `resource_changed::<Project>` with no `Option`, so the first frame after the
+/// door closed panicked on a missing `Res<Project>` and `Cmd+O` and the `‹ kits & maps` button
+/// killed the editor in a window (found by pressing `Cmd+O` in the real binary, 2026-10-11).
+#[test]
+fn leaving_a_door_survives_the_frames_after_it() {
+    use bevy_emerge_mapper::project::Project;
+    use bevy_emerge_mapper::screen::Screen;
+
+    let root = Fixture::new("leave-door").descriptor("floor", "alpha").build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    // The harness inserts `Screen::Editor` and omits the plugin that owns the way out, so without
+    // this nothing ever drops the `Project`, which is the state the real binary reaches.
+    app.add_plugins(bevy_emerge_mapper::screen::ScreenPlugin);
+    for _ in 0..3 {
+        app.update();
+    }
+    app.world_mut().resource_mut::<NextState<Screen>>().set(Screen::Menu);
+    for _ in 0..5 {
+        app.update();
+    }
+    assert_eq!(*app.world().resource::<State<Screen>>().get(), Screen::Menu, "the door closed");
+    assert!(app.world().get_resource::<Project>().is_none(), "and took its project with it");
+}
+
 /// **The first arrow press on the Tiles tab selects the FIRST piece**, not the second.
 ///
 /// With nothing picked, an arrow both establishes the selection and walks it — and those used to

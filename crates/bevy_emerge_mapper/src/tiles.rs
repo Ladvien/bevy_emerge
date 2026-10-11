@@ -3630,7 +3630,12 @@ impl Plugin for TilesPlugin {
                             .or_else(resource_changed::<crate::build::Build>)
                             // `build_detail` reads `Project` — the members' descriptors, the
                             // cell size — and the pane was not rebuilt for them (T10).
-                            .or_else(resource_changed::<Project>)
+                            //
+                            // **`exists_and_changed`, not `changed`.** The door's teardown drops the
+                            // `Project`, and a bare `Res<Project>` in a condition panics on the
+                            // first frame after it: `Cmd+O` and `‹ kits & maps` killed the editor
+                            // (`leaving_a_door_survives_the_frames_after_it`).
+                            .or_else(resource_exists_and_changed::<Project>)
                             // **The tag filter, and only the tag filter.** Not
                             // `resource_changed::<Filters>`: one resource holds all four boxes, so
                             // that condition would despawn and respawn this whole pane on every
