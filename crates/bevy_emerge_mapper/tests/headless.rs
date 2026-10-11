@@ -15692,3 +15692,92 @@ fn an_oversize_piece_opens_and_is_refused_only_its_lattice() {
         "{err}"
     );
 }
+
+/// **A cached portrait is served without staging the piece.** The booth used to bake every
+/// descriptor on every launch; a finished portrait now lives under `target/emerge_thumbs/` and the
+/// next launch reads it back. The proof is that the id is baked, carries the cache's pixels, and no
+/// booth subject was ever stood up — the headless harness has no GPU, so a baked piece can only have
+/// come from the cache.
+#[test]
+fn a_cached_portrait_is_used_instead_of_baking() {
+    use bevy_emerge_mapper::thumbs::{Thumbnails, cache_path};
+
+    let root = Fixture::new("thumbcache")
+        .descriptor("tile_a", "alpha")
+        .descriptor("tile_b", "alpha")
+        .build("m");
+    let project = bevy_emerge_mapper::project::Project::open(&root, None)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let d = project
+        .library
+        .get("tile_a")
+        .unwrap_or_else(|| panic!("no tile_a"));
+    let path = cache_path(&root, d).unwrap_or_else(|| panic!("a piece with a mesh has a cache path"));
+    std::fs::create_dir_all(path.parent().unwrap_or_else(|| panic!("no parent")))
+        .unwrap_or_else(|e| panic!("{e}"));
+    image::RgbImage::from_pixel(128, 128, image::Rgb([200, 30, 30]))
+        .save_with_format(&path, image::ImageFormat::Png)
+        .unwrap_or_else(|e| panic!("{e}"));
+
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..5 {
+        app.update();
+    }
+    let thumbs = app.world().resource::<Thumbnails>();
+    assert!(thumbs.is_baked("tile_a"), "the cached piece must count as baked");
+    assert!(
+        !thumbs.is_baked("tile_b"),
+        "a piece with no cache is still waiting for the booth — otherwise the assertion above \
+         proves nothing"
+    );
+    let handle = thumbs
+        .image("tile_a")
+        .unwrap_or_else(|| panic!("the cached piece has a handle"));
+    let pixels = app
+        .world()
+        .resource::<Assets<Image>>()
+        .get(&handle)
+        .and_then(|i| i.data.clone())
+        .unwrap_or_default();
+    assert_eq!(
+        pixels.get(0..4),
+        Some(&[200u8, 30, 30, 255][..]),
+        "the handle holds the cached picture, not a blank target"
+    );
+    let staged = app
+        .world_mut()
+        .query::<&Name>()
+        .iter(app.world())
+        .filter(|n| n.as_str() == "booth subject")
+        .count();
+    assert!(staged <= 1, "only the uncached piece may ever be staged, saw {staged}");
+}
+
+/// An unreadable cache file is a missing optimisation: the piece is baked as if it had none.
+#[test]
+fn a_corrupt_cached_portrait_is_ignored() {
+    use bevy_emerge_mapper::thumbs::{Thumbnails, cache_path};
+
+    let root = Fixture::new("thumbcorrupt")
+        .descriptor("tile_a", "alpha")
+        .build("m");
+    let project = bevy_emerge_mapper::project::Project::open(&root, None)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let d = project
+        .library
+        .get("tile_a")
+        .unwrap_or_else(|| panic!("no tile_a"));
+    let path = cache_path(&root, d).unwrap_or_else(|| panic!("no cache path"));
+    std::fs::create_dir_all(path.parent().unwrap_or_else(|| panic!("no parent")))
+        .unwrap_or_else(|e| panic!("{e}"));
+    std::fs::write(&path, b"not a png").unwrap_or_else(|e| panic!("{e}"));
+
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..5 {
+        app.update();
+    }
+    assert!(
+        !app.world().resource::<Thumbnails>().is_baked("tile_a"),
+        "garbage in the cache must fall through to baking, not count as a portrait"
+    );
+}

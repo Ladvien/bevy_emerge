@@ -161,6 +161,7 @@ door_state![
     crate::editor::StampPicture,
     crate::editor::TargetLock,
     crate::editor::UnderCursor,
+    crate::thumbs::ThumbOrder,
     crate::editor::EdgeFaults,
     crate::tiles::ImportState,
     crate::tiles::CellEdit,
@@ -328,6 +329,9 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::editor::StampPicture", Ownership::Door),
     ("bevy_emerge_mapper::editor::TargetLock", Ownership::Door),
     ("bevy_emerge_mapper::editor::UnderCursor", Ownership::Door),
+    // The palette's own order, rewritten whenever it rebuilds: what the booth bakes first is a fact
+    // about what this door is showing, not about the kit.
+    ("bevy_emerge_mapper::thumbs::ThumbOrder", Ownership::Door),
     ("bevy_emerge_mapper::editor::EdgeFaults", Ownership::Door),
     ("bevy_emerge_mapper::tiles::ImportState", Ownership::Door),
     ("bevy_emerge_mapper::tiles::CellEdit", Ownership::Door),

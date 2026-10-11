@@ -26,12 +26,30 @@
 //! specific pieces — whichever ones the following GLB was too slow to repaint — and the log
 //! cheerfully reported all 45 baked. Here the camera parks on [`Thumbnails::scratch`] whenever no
 //! subject is standing there, so a real image is its target only while its piece is present.
+//!
+//! # The disk cache
+//!
+//! Baking 120 portraits takes minutes of staging, and the editor used to do it on every launch. A
+//! finished portrait is written to `<project root>/target/emerge_thumbs/<key>.png` (the
+//! `target/vlm_suggestions.ron` precedent: derived, regenerable, gitignored) and read back on the
+//! next launch instead of being baked. The key is a hash of everything the picture depends on: the
+//! descriptor id, mesh path, file size and mtime, its `align`, the portrait size and
+//! [`CACHE_VERSION`], which is bumped when the booth's framing or lights change.
+//!
+//! # Order
+//!
+//! The booth takes the pieces the palette shows first ([`ThumbOrder`], written by the palette
+//! when it rebuilds), then the rest in library order, so the rows an author is looking at fill in
+//! before the folded ones.
 
 use bevy::camera::{ClearColorConfig, ImageRenderTarget, RenderTarget, ScalingMode};
 use bevy::image::Image;
 use bevy::prelude::*;
 use bevy::camera::primitives::Aabb;
-use bevy::render::render_resource::TextureFormat;
+use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+use std::path::{Path, PathBuf};
 
 use crate::project::Project;
 
@@ -102,8 +120,25 @@ impl Thumbnails {
         self.images.get(id).cloned()
     }
 
-    /// The first descriptor with no portrait yet, if any. The whole of "what is left to do".
-    fn pending(&self, library: &bevy_emerge_core::library::Library) -> Option<usize> {
+    /// Whether this id has a portrait — rendered this session or read from the disk cache.
+    pub fn is_baked(&self, id: &str) -> bool {
+        self.baked.contains(id)
+    }
+
+    /// **The next descriptor with no portrait yet, if any** — the whole of "what is left to do".
+    ///
+    /// The first unbaked id in `order` that the library still holds (the palette's own order), then
+    /// the first unbaked in library order. The fallback is what finishes the pieces `order` leaves
+    /// out: folded categories, and every piece before the palette has ever been built.
+    fn pending(&self, library: &bevy_emerge_core::library::Library, order: &[String]) -> Option<usize> {
+        for id in order {
+            if self.baked.contains(id.as_str()) {
+                continue;
+            }
+            if let Some(ix) = library.descriptors.iter().position(|d| d.id == *id) {
+                return Some(ix);
+            }
+        }
         library
             .descriptors
             .iter()
@@ -119,6 +154,102 @@ impl Thumbnails {
 /// times per session instead of a few hundred times per startup.
 #[derive(Resource, Default)]
 pub struct ThumbGeneration(pub u32);
+
+/// **The order the palette shows its rows in**, as descriptor ids — what the booth bakes first.
+///
+/// Written by the palette's rebuild and only then, so a bake that is under way is not reshuffled by
+/// anything but the author changing what the palette shows.
+#[derive(Resource, Default)]
+pub struct ThumbOrder(pub Vec<String>);
+
+/// Bumped whenever the booth's framing, lighting or backdrop changes, so a cached portrait taken
+/// under the old rules is not served as if it were taken under the new ones.
+const CACHE_VERSION: u32 = 1;
+
+/// **Where this descriptor's cached portrait lives**, or `None` when it cannot have one.
+///
+/// A descriptor with no mesh has no portrait to cache, and a mesh that cannot be statted is not one
+/// to trust a cache for. `pub` so a test can write the file the next launch should find.
+pub fn cache_path(root: &Path, d: &bevy_emerge_core::descriptor::Descriptor) -> Option<PathBuf> {
+    let mesh = d.mesh.as_deref()?;
+    let meta = std::fs::metadata(root.join("assets").join(mesh)).ok()?;
+    let mtime_ns = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    let identity = format!(
+        "{}|{mesh}|{}|{mtime_ns}|{:?}|{THUMB_PX}|{CACHE_VERSION}",
+        d.id,
+        meta.len(),
+        d.align
+    );
+    let key = bevy_emerge_core::glb::fnv1a(identity.as_bytes());
+    Some(root.join("target").join("emerge_thumbs").join(format!("{key:016x}.png")))
+}
+
+/// The cached portrait at `path` as an image, or `None` — silently when the file is not there, and
+/// with a warning when it is there and cannot be used (the piece is then baked as if it had none).
+fn load_cached(path: &Path) -> Option<Image> {
+    let bytes = std::fs::read(path).ok()?;
+    let decoded = match image::load_from_memory_with_format(&bytes, image::ImageFormat::Png) {
+        Ok(img) => img.to_rgba8(),
+        Err(e) => {
+            warn!("{}: unreadable cached portrait, baking it again: {e}", path.display());
+            return None;
+        }
+    };
+    if decoded.dimensions() != (THUMB_PX, THUMB_PX) {
+        warn!(
+            "{}: cached portrait is {}x{}, not {THUMB_PX}x{THUMB_PX}; baking it again",
+            path.display(),
+            decoded.width(),
+            decoded.height()
+        );
+        return None;
+    }
+    Some(Image::new(
+        Extent3d {
+            width: THUMB_PX,
+            height: THUMB_PX,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        decoded.into_raw(),
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    ))
+}
+
+/// Read a finished portrait back from the GPU and write it to the cache. The same readback the label
+/// booth uses (`label_booth`): the copy lands a frame or two later, in the observer.
+fn save_portrait(commands: &mut Commands, handle: Handle<Image>, path: PathBuf) {
+    commands
+        .spawn(Screenshot::image(handle))
+        .observe(move |shot: On<ScreenshotCaptured>| write_cached(&shot.image, &path));
+}
+
+/// PNG-encode `image` and write it beside its final name first, so a crash mid-write leaves no half
+/// a file for the next launch to decode. A failure is a missing optimisation, never an error: it is
+/// said once and the editor carries on baking.
+fn write_cached(image: &Image, path: &Path) {
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let written = (|| -> Result<(), String> {
+        let png = crate::labels::encode_png(image)?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        let tmp = path.with_extension("png.tmp");
+        std::fs::write(&tmp, png).map_err(|e| format!("{}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+    })();
+    if let Err(e) = written
+        && !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed)
+    {
+        warn!("palette thumbnails will not be cached: {e}");
+    }
+}
 
 pub struct ThumbsPlugin;
 
@@ -138,6 +269,7 @@ impl Plugin for ThumbsPlugin {
             }),
         );
         app.init_resource::<ThumbGeneration>()
+            .init_resource::<ThumbOrder>()
             // Chained so an eviction is visible to the same frame's bake — a pruned id must not be
             // staged one more time off a stale `pending` answer.
             .add_systems(Update,
@@ -203,12 +335,19 @@ fn prune(mut thumbs: ResMut<Thumbnails>, project: Option<Res<Project>>) {
 /// `Option<Res<_>>`, never a bare `Res<_>`: Bevy 0.19 evaluates **every** run condition — there is no
 /// short-circuit — and a missing resource in one panics the system at param validation. That shipped
 /// to the game's `main` once and crashed every launch.
-fn unfinished(thumbs: Option<Res<Thumbnails>>, project: Option<Res<Project>>) -> bool {
+fn unfinished(
+    thumbs: Option<Res<Thumbnails>>,
+    project: Option<Res<Project>>,
+    order: Option<Res<ThumbOrder>>,
+) -> bool {
     // **Derived, not sticky.** This read a `finished` flag, so the booth was dismantled once and the
     // system never ran again — which is why a piece accepted after startup could never get a portrait.
     // Asking the library every frame costs a `position` over ~40 short strings and lets the booth return.
     match (thumbs, project) {
-        (Some(t), Some(p)) => t.pending(&p.library).is_some() || t.camera.is_some(),
+        (Some(t), Some(p)) => {
+            let order = order.as_deref().map_or(&[][..], |o| o.0.as_slice());
+            t.pending(&p.library, order).is_some() || t.camera.is_some()
+        }
         _ => false,
     }
 }
@@ -253,6 +392,7 @@ fn bake(
     mut thumbs: ResMut<Thumbnails>,
     mut images: ResMut<Assets<Image>>,
     mut generation: ResMut<ThumbGeneration>,
+    order: Res<ThumbOrder>,
     project: Res<Project>,
     assets: Res<AssetServer>,
     children: Query<&Children>,
@@ -261,7 +401,26 @@ fn bake(
     bounds: Query<(&Aabb, &GlobalTransform)>,
     mut cams: Query<(&mut Transform, &mut Projection, &mut RenderTarget), With<ThumbnailCamera>>,
 ) {
-    let Some(ix) = thumbs.pending(&project.library) else {
+    // Every descriptor gets a handle as soon as it exists, so the palette has something to bind
+    // before this one's turn comes round. A piece with a cached portrait gets its picture here and
+    // is done — before `pending` is asked, so it is never staged.
+    for other in &project.library.descriptors {
+        if !thumbs.images.contains_key(&other.id) {
+            let cached = cache_path(&project.root, other)
+                .as_deref()
+                .and_then(load_cached);
+            let handle = match cached {
+                Some(image) => {
+                    thumbs.baked.insert(other.id.clone());
+                    images.add(image)
+                }
+                None => blank_target(&mut images),
+            };
+            thumbs.images.insert(other.id.clone(), handle);
+            generation.0 = generation.0.wrapping_add(1);
+        }
+    }
+    let Some(ix) = thumbs.pending(&project.library, &order.0) else {
         // Nothing left to take. The booth comes down, but the resource keeps every portrait it has —
         // and stands back up the moment a piece is imported.
         teardown(&mut commands, &mut thumbs);
@@ -270,15 +429,6 @@ fn bake(
     let Some(d) = project.library.descriptors.get(ix).cloned() else {
         return;
     };
-    // Every descriptor gets a handle as soon as it exists, so the palette has something to bind
-    // before this one's turn comes round.
-    for other in &project.library.descriptors {
-        if !thumbs.images.contains_key(&other.id) {
-            let handle = blank_target(&mut images);
-            thumbs.images.insert(other.id.clone(), handle);
-            generation.0 = generation.0.wrapping_add(1);
-        }
-    }
     if thumbs.booth.is_none() {
         thumbs.booth = Some(erect_booth(&mut commands, BOOTH));
     }
@@ -399,6 +549,10 @@ fn bake(
     commands.entity(model).despawn();
     thumbs.model = None;
     thumbs.staging = None;
+    // Keep it for the next launch. After the park above, so the image is no longer being drawn into.
+    if let (Some(path), Some(handle)) = (cache_path(&project.root, &d), thumbs.images.get(&d.id)) {
+        save_portrait(&mut commands, handle.clone(), path);
+    }
     thumbs.baked.insert(d.id.clone());
 }
 
@@ -559,5 +713,62 @@ fn teardown(commands: &mut Commands, thumbs: &mut Thumbnails) {
     }
     if let Some(model) = thumbs.model.take() {
         commands.entity(model).despawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_emerge_core::descriptor::Descriptor;
+    use bevy_emerge_core::library::Library;
+
+    fn library(ids: &[&str]) -> Library {
+        Library {
+            descriptors: ids
+                .iter()
+                .map(|id| Descriptor {
+                    id: (*id).to_owned(),
+                    ..Descriptor::default()
+                })
+                .collect(),
+            ..Library::default()
+        }
+    }
+
+    fn thumbs(baked: &[&str]) -> Thumbnails {
+        Thumbnails {
+            images: Default::default(),
+            baked: baked.iter().map(|s| (*s).to_owned()).collect(),
+            scratch: Handle::default(),
+            staging: None,
+            model: None,
+            settled: 0,
+            waited: 0,
+            camera: None,
+            booth: None,
+        }
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    /// **The booth takes what the palette shows first**, then everything else in library order.
+    #[test]
+    fn the_palette_order_goes_first_and_the_library_finishes_the_rest() {
+        let lib = library(&["a", "b", "c", "d"]);
+        let t = thumbs(&["a"]);
+        assert_eq!(t.pending(&lib, &ids(&["c", "b"])), Some(2), "the palette's first unbaked");
+        assert_eq!(
+            t.pending(&lib, &ids(&["a", "ghost", "d"])),
+            Some(3),
+            "baked and stale ids are skipped, and the rest of the order still counts"
+        );
+        assert_eq!(
+            t.pending(&lib, &ids(&["a"])),
+            Some(1),
+            "an order with nothing left falls back to library order"
+        );
+        assert_eq!(thumbs(&["a", "b", "c", "d"]).pending(&lib, &ids(&["d"])), None);
     }
 }

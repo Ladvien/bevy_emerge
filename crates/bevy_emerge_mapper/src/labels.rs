@@ -635,7 +635,7 @@ pub(crate) fn date_today() -> String {
 }
 
 /// The booth's raw RGBA readback as PNG bytes — runs on the task thread, not in a frame.
-fn encode_png(image: &Image) -> Result<Vec<u8>, String> {
+pub(crate) fn encode_png(image: &Image) -> Result<Vec<u8>, String> {
     let dynamic = image
         .clone()
         .try_into_dynamic()

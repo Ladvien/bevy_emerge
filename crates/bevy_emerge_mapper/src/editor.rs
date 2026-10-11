@@ -1558,7 +1558,17 @@ fn rebuild_palette(
     // arming a brush must not respawn a hundred and eighty rows.
     state: Res<EditorState>,
     lists: Query<Entity, With<PaletteList>>,
+    order: Option<ResMut<crate::thumbs::ThumbOrder>>,
 ) {
+    // **The booth bakes what the palette shows, in the order it shows it**, so the rows an author is
+    // looking at fill in before the ones under a folded heading. Written here and only here: this
+    // runs when the palette is rebuilt, which is exactly when that order can have changed.
+    if let Some(mut order) = order {
+        order.0 = palette_indices(&project, &open, &fold, &filters)
+            .into_iter()
+            .filter_map(|ix| project.library.descriptors.get(ix).map(|d| d.id.clone()))
+            .collect();
+    }
     for list in &lists {
         commands.entity(list).despawn_related::<Children>();
         commands.entity(list).with_children(|p| {
