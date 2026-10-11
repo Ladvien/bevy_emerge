@@ -1,0 +1,2396 @@
+//! **VLM label suggestions** — the state between "photographed" and "a human applied it".
+//!
+//! `label_booth` photographs a subject; this module ships the shots to the model (`vlm`) and holds
+//! the validated [`vlm::Suggestion`]s the review UI pre-stages — **for as long as the process lives
+//! and no longer**. Nothing here writes a descriptor: applying a suggestion is the review UI's
+//! verb, through the Tiles tab's own mutator idiom and commit door.
+//!
+//! Async shape: the booth's `ShotsReady` message → one `AsyncComputeTaskPool` task per item
+//! (PNG-encode → fingerprint → request with one reprompt-on-rejection → validate) → a frame
+//! system polls the task and lands the result — with the [`crate::tiles::EditTarget`] stale
+//! guards, because the selection can move, a rescan can drop a candidate, and a re-import can
+//! reuse an id while a request is in flight. A result whose target no longer matches is dropped
+//! with a status note, never written to whatever is focused instead.
+//!
+//! # No proposal survives the process, deliberately
+//!
+//! There was a RON cache under the project's `target/` that warmed [`Suggestions`] back full on
+//! `OnEnter(Editor)`, and it outlived the reason for it. A proposal now applies **on arrival**
+//! (`tiles::apply_what_arrives`), so its life is under one frame and the file could only ever hold
+//! the answers staged while a batch was HELD — and `LabelQueue::paused` has no serde, so the next
+//! boot came up unpaused and applied every one of them, one per frame, each with a full library
+//! clone, an atomic write and an undo snapshot, for a batch the author had deliberately stopped.
+//!
+//! Keeping it would have meant persisting the pause too: a second persistence path *and* a second
+//! gate on the pump, for one feature. So the cache is gone and there is one path — a proposal
+//! applies when it lands. Noted while removing it, and deliberately not acted on here:
+//! [`Entry::fingerprint`] was the cache's staleness key and now has no reader left.
+
+use std::collections::BTreeMap;
+
+use bevy::prelude::*;
+use bevy::tasks::{AsyncComputeTaskPool, Task};
+
+use crate::label_booth::{ShotRig, ShotsReady};
+use crate::project::Project;
+use crate::tiles::EditTarget;
+use crate::vlm::{self, Provenance, Suggestion, VlmConfig};
+
+/// The suggestion key for a target — id for library entries, mesh path for candidates, NEVER an
+/// index (the thumbs lesson: indices shift under removal and the wrong item inherits the data).
+fn key_of(target: &EditTarget) -> String {
+    match target {
+        EditTarget::Library(id) => format!("library:{id}"),
+        EditTarget::Candidate(mesh) => format!("candidate:{mesh}"),
+    }
+}
+
+/// The short name a status line calls a target.
+pub(crate) fn name_of(target: &EditTarget) -> &str {
+    match target {
+        EditTarget::Library(id) => id,
+        EditTarget::Candidate(mesh) => mesh,
+    }
+}
+
+/// One landed suggestion and the facts that keep it honest.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Entry {
+    pub suggestion: Suggestion,
+    pub provenance: Provenance,
+    /// The mesh the shots were of — a re-imported id must not inherit another mesh's labels.
+    pub mesh: String,
+    /// FNV-1a of the GLB's bytes at request time — a re-export invalidates.
+    pub fingerprint: u64,
+}
+
+/// Every pending suggestion, keyed by target.
+#[derive(Resource, Default)]
+pub struct Suggestions {
+    entries: BTreeMap<String, Entry>,
+}
+
+impl Entry {
+    /// A bare entry for tests that care only that a proposal EXISTS — the gate on the Tiles palette
+    /// asks nothing about its contents.
+    #[cfg(any(test, feature = "debugger"))]
+    pub fn for_test(mesh: &str) -> Entry {
+        Entry {
+            suggestion: Suggestion {
+                what: "a thing".to_owned(),
+                kind: vec![],
+                effects: vec![],
+                look: vec![],
+                offers_surfaces: vec![],
+                mount: None,
+                front: None,
+                needs_turn: None,
+                note: None,
+                rooms: vec![],
+                group: None,
+                confidence: crate::vlm::Confidence::Low,
+                token_proposals: vec![],
+            },
+            provenance: Provenance {
+                model: "test".to_owned(),
+                date: "2026-08-15".to_owned(),
+                attempts: 1,
+            },
+            mesh: mesh.to_owned(),
+            fingerprint: 0,
+        }
+    }
+}
+
+impl Suggestions {
+    /// Any one pending target — what a batch reaches for when it confirms its own work. The order
+    /// is the map's, which is arbitrary and does not matter: every one of them is applied.
+    pub fn first_target(&self) -> Option<EditTarget> {
+        // The key IS the target, spelled by `key_of`; read it back rather than storing the target
+        // twice and letting the two disagree.
+        self.entries.keys().next().and_then(|k| {
+            k.strip_prefix("library:")
+                .map(|id| EditTarget::Library(id.to_owned()))
+                .or_else(|| {
+                    k.strip_prefix("candidate:")
+                        .map(|mesh| EditTarget::Candidate(mesh.to_owned()))
+                })
+        })
+    }
+
+    pub fn get(&self, target: &EditTarget) -> Option<&Entry> {
+        self.entries.get(&key_of(target))
+    }
+
+    pub fn remove(&mut self, target: &EditTarget) -> Option<Entry> {
+        self.entries.remove(&key_of(target))
+    }
+
+    pub fn insert(&mut self, target: &EditTarget, entry: Entry) {
+        self.entries.insert(key_of(target), entry);
+    }
+
+    /// How many proposals await review — the tab badge's number.
+    pub fn pending(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+/// **Bumped only when the suggestion set actually changes** (arrival, apply, discard) — the
+/// `ThumbGeneration` pattern, because the pollers take [`Suggestions`] as `ResMut` every frame and
+/// `resource_changed` on it would repaint the pane continuously.
+#[derive(Resource, Default)]
+pub struct LabelGeneration(pub u32);
+
+struct InFlight {
+    target: EditTarget,
+    mesh: String,
+    /// **A typed failure, not a sentence.** [`poll_tasks`] decides from this whether the link is
+    /// down and whether to stop a running batch, and it used to recover that by searching the text
+    /// for `"endpoint is unreachable"` — words spelled in two other places. See
+    /// [`vlm::LabelFailure`].
+    task: Task<Result<(Suggestion, Provenance, u64), vlm::LabelFailure>>,
+}
+
+/// The requests currently at the model.
+#[derive(Resource, Default)]
+pub struct LabelTasks(Vec<InFlight>);
+
+impl LabelTasks {
+    pub fn in_flight(&self) -> usize {
+        self.0.len()
+    }
+
+    pub(crate) fn holds(&self, target: &EditTarget) -> bool {
+        self.0.iter().any(|f| &f.target == target)
+    }
+}
+
+pub struct LabelsPlugin;
+
+/// **Which model is answering, and whether anything has actually reached it.**
+///
+/// Asked for at the keyboard, after the model's name came out of every proposal header: *"maybe add
+/// a note on the status bar, `Connected: <MODEL_NAME>`."* Which model is answering is a property of
+/// the **connection** — one fact for the session — and printing it once per description was that
+/// fact restated on every piece.
+///
+/// # The word "connected" is only written when something connected
+///
+/// [`crate::vlm::probe`] is a TCP dial for a loopback or LAN endpoint and a **deliberate no-op for a
+/// remote one** (Ollama Cloud: "DNS and TLS make a refusal mean several different things"), so its
+/// `Ready` cannot be read as *"the endpoint is there"* — for the remote setup it means *"not asked"*.
+/// A status line that said `connected` off the back of it would be inventing a fact for exactly the
+/// configuration that can least afford one.
+///
+/// So the link is written from **round trips that really happened**, in [`poll_tasks`]: an answer
+/// makes it [`Link::Live`] and carries the model name off the answer's own provenance, which is the
+/// authoritative one; an unreachable-endpoint failure makes it [`Link::Down`]. A gate rejection is
+/// about the mesh, not the link, and moves nothing. Until something has been asked, the line names
+/// the configured model and claims nothing.
+#[derive(Resource, Default)]
+pub struct Labeler {
+    /// **The project root whose `.env` this state was read for** — so a project with no `.env`
+    /// costs one read, not one per frame, and a *different* project costs a fresh one.
+    ///
+    /// It was a session-wide `read: bool` latch, and that latch outlived the door: nothing actually
+    /// resets a resource on a door change (`screen::OWNERSHIP` classifies this one `Project` and
+    /// says itself the list changes no behaviour), so opening kit B kept kit A's model — and worse,
+    /// kit A's `Link::Live` — on the band: `connected: qwen3-vl` about a project nothing had ever
+    /// dialed, which is the exact invented fact this struct's own doc forbids. Keying the latch on
+    /// the root makes the reset the comparison.
+    read_for: Option<std::path::PathBuf>,
+    /// The model named by the config, then by the last answer. `None` means unconfigured.
+    pub model: Option<String>,
+    pub link: Link,
+}
+
+/// What is known about the endpoint, and nothing is assumed.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Link {
+    /// Nothing has been asked yet. The line names the model and claims nothing about it.
+    #[default]
+    Untried,
+    /// A request came back. This is the only state that prints `connected`.
+    Live,
+    /// A request failed to reach the endpoint at all.
+    Down,
+}
+
+impl Labeler {
+    /// An answer arrived — from this model, whatever the config said.
+    pub fn answered(&mut self, model: &str) {
+        self.link = Link::Live;
+        if self.model.as_deref() != Some(model) {
+            self.model = Some(model.to_owned());
+        }
+    }
+
+    /// The endpoint could not be reached.
+    pub fn unreachable(&mut self) {
+        self.link = Link::Down;
+    }
+
+    /// **What the status band says**, as the two halves it is built from: a lead naming the state,
+    /// and the model's own name. Empty until the config has been read, so the band does not flicker
+    /// a claim on its first frame.
+    ///
+    /// Split in two so [`paint_labeler`] can ask whether a laid-out `Text` already says this
+    /// *without building a `String` to compare against*. That system runs every frame and its write
+    /// was already compare-guarded, so the allocation was the last thing happening unconditionally.
+    /// Both halves come from here, so the guard and the line cannot answer differently.
+    fn parts(&self) -> (&'static str, &str) {
+        match (self.read_for.is_some(), self.model.as_deref(), self.link) {
+            (false, ..) => ("", ""),
+            (true, None, _) => ("labeler: not configured", ""),
+            (true, Some(m), Link::Untried) => ("labeler: ", m),
+            (true, Some(m), Link::Live) => ("connected: ", m),
+            (true, Some(m), Link::Down) => ("unreachable: ", m),
+        }
+    }
+
+    /// **What the status band says** — see [`Labeler::parts`].
+    pub fn line(&self) -> String {
+        let (lead, model) = self.parts();
+        format!("{lead}{model}")
+    }
+
+    /// Does this laid-out text already say [`Labeler::line`]? Answered without building it: the
+    /// lead is a prefix and the model is the whole of the rest, so the lengths settle it.
+    fn already_says(&self, text: &str) -> bool {
+        let (lead, model) = self.parts();
+        text.len() == lead.len() + model.len() && text.starts_with(lead) && text.ends_with(model)
+    }
+}
+
+/// **Read the configured model once**, and keep the band's line painted.
+///
+/// The read is lazy rather than an `OnEnter` system because it needs the project's root to find the
+/// `.env` beside it, and the project is not there on every frame this could be registered for. One
+/// read per **project**: `read_for` latches the root it was read for, whether or not a config was
+/// found — and a different root reads again and drops the old project's link evidence with it.
+fn paint_labeler(
+    mut labeler: ResMut<Labeler>,
+    project: Option<Res<Project>>,
+    mut lines: Query<(&mut Text, &mut TextColor), With<crate::chrome::LabelerLine>>,
+) {
+    if let Some(project) = project.as_ref()
+        && labeler.read_for.as_deref() != Some(project.root.as_path())
+    {
+        labeler.read_for = Some(project.root.clone());
+        labeler.model = crate::vlm::VlmConfig::load(&project.root)
+            .ok()
+            .map(|cfg| cfg.model);
+        // Evidence about a round trip belongs to the project the trip was made for.
+        labeler.link = Link::Untried;
+    }
+    let tint = match labeler.link {
+        Link::Down => crate::chrome::DANGER,
+        _ => crate::chrome::DIM,
+    };
+    for (mut text, mut colour) in &mut lines {
+        // **Built only when it is about to be written.** `labeler.line()` was hoisted above this
+        // loop, so one `String` was allocated every frame for a value that changes a handful of
+        // times a session — while the write itself was already guarded. `already_says` asks the
+        // same question off the same `parts`, so there is no second spelling of the line to drift.
+        if !labeler.already_says(&text.0) {
+            text.0 = labeler.line();
+        }
+        if colour.0 != tint {
+            colour.0 = tint;
+        }
+    }
+}
+
+impl Plugin for LabelsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Suggestions>()
+            .init_resource::<Labeler>()
+            .init_resource::<LabelGeneration>()
+            .init_resource::<LabelTasks>()
+            .init_resource::<LabelQueue>()
+            .add_systems(
+                Update,
+                ((
+                    // **The question answers first and swallows its key**, so `Enter` cannot both
+                    // choose an answer and reach the candidate list underneath it.
+                    answer_overwrite.in_set(crate::keys::Phase::Act),
+                    suggest_labels
+                        .in_set(crate::keys::Phase::Act)
+                        .after(answer_overwrite),
+                    suggest_all
+                        .in_set(crate::keys::Phase::Act)
+                        .after(answer_overwrite),
+                    poll_warm,
+                    drive_batch.after(poll_warm),
+                    spawn_request,
+                    poll_tasks,
+                    watch_sentinel,
+                    paint_labels_badge.run_if(resource_changed::<LabelGeneration>),
+                    paint_labeler,
+                ),)
+                    .run_if(in_state(crate::screen::Screen::Editor)),
+            );
+    }
+}
+
+/// Queue one target for its photo shoot — the shared tail of the `L` key, the sentinel, and the
+/// righting-turn relabel, so there is exactly one way a labeling request begins.
+pub(crate) fn request_photos(
+    target: EditTarget,
+    d: &emerge_core::descriptor::Descriptor,
+    tasks: &LabelTasks,
+    rig: &mut ShotRig,
+) -> String {
+    if tasks.holds(&target) {
+        return format!("`{}` is already at the model", name_of(&target));
+    }
+    let Some(mesh) = d.mesh.clone() else {
+        return "this piece has no mesh — nothing to photograph".to_owned();
+    };
+    let scale = d.align.scale.unwrap_or(1.0);
+    let said = format!("photographing `{}` for labels...", name_of(&target));
+    rig.push_unique(crate::label_booth::ShotJob {
+        target,
+        mesh,
+        scale,
+    });
+    said
+}
+
+/// **Everything the labeler holds, dropped at once** — pending suggestions, the batch queue, the
+/// booth queue, and in-flight requests (dropping a Bevy task cancels it). One key genuinely clears
+/// everything the model has tagged and everything it was about to.
+///
+/// The line after that used to say the generation bump wrote the now-empty set out to the on-disk
+/// cache, so the file cleared with the state. There is no file (see this module's note); the bump's
+/// remaining reader is the tab badge, which is all it now needs to reach.
+pub(crate) fn clear_all_labels(
+    suggestions: &mut Suggestions,
+    generation: &mut LabelGeneration,
+    queue: &mut LabelQueue,
+    tasks: &mut LabelTasks,
+    rig: &mut ShotRig,
+) -> String {
+    let proposals = suggestions.entries.len();
+    let queued = queue.queue.len() + rig.clear_queue();
+    let in_flight = tasks.0.len();
+    suggestions.entries.clear();
+    queue.queue.clear();
+    queue.total = 0;
+    queue.paused = false;
+    queue.current = None;
+    // Dropping the task cancels it, the same way the in-flight label requests below are cancelled.
+    queue.warming = None;
+    tasks.0.clear();
+    if proposals + queued + in_flight > 0 {
+        generation.0 = generation.0.wrapping_add(1);
+    }
+    format!(
+        "cleared {proposals} proposal(s), {queued} queued, {in_flight} in flight — applied \
+         labels are undone per piece with Cmd+Z"
+    )
+}
+
+/// `L`: photograph the focused piece and ask the model for labels. The refusals are loud and name
+/// their remedies — an unconfigured endpoint or an empty focus is a status line, never a silent
+/// no-op.
+pub(crate) fn suggest_labels(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    live: Res<crate::keys::Live>,
+    project: Option<Res<Project>>,
+    mut state: ResMut<crate::tiles::ImportState>,
+    tasks: Res<LabelTasks>,
+    mut rig: ResMut<ShotRig>,
+) {
+    if !crate::keys::just_pressed(&keyboard, *live, crate::keys::Action::SuggestLabels) {
+        return;
+    }
+    let Some(project) = project else { return };
+    // The config check is the verb's gate: fail here, loudly, not after a photo shoot.
+    if let Err(remedy) = VlmConfig::load(&project.root) {
+        state.status.note(remedy);
+        return;
+    }
+    let Some(target) = state.target() else {
+        state
+            .status
+            .note("nothing focused — select a piece to label".to_owned());
+        return;
+    };
+    let Some(d) = state.placed_at_target(&target, &project) else {
+        return;
+    };
+    let asked = request_photos(target, &d.clone(), &tasks, &mut rig);
+    state.status.note(asked);
+}
+
+/// **Script driving, the devshot way**: `echo wall_light > labels.request` queues that library
+/// entry through the exact production path (booth → model → gate → suggestion → cache);
+/// `echo clear > labels.request` runs the clear-all. The mapper is checked by scripts and
+/// measured frames (see `devshot.rs`'s module note) and the labeler is no exception — this is
+/// the handle a test harness holds, since the capture path cannot run headless.
+pub(crate) fn watch_sentinel(
+    project: Option<Res<Project>>,
+    mut state: ResMut<crate::tiles::ImportState>,
+    mut suggestions: ResMut<Suggestions>,
+    mut generation: ResMut<LabelGeneration>,
+    mut queue: ResMut<LabelQueue>,
+    mut tasks: ResMut<LabelTasks>,
+    mut rig: ResMut<ShotRig>,
+) {
+    const REQUEST: &str = "labels.request";
+    if !std::path::Path::new(REQUEST).exists() {
+        return;
+    }
+    let content = std::fs::read_to_string(REQUEST)
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let _ = std::fs::remove_file(REQUEST);
+    if content == "clear" {
+        state.status.note(clear_all_labels(
+            &mut suggestions,
+            &mut generation,
+            &mut queue,
+            &mut tasks,
+            &mut rig,
+        ));
+        info!("labels sentinel: {}", state.status.line());
+        return;
+    }
+    let Some(project) = project else { return };
+    if let Err(remedy) = VlmConfig::load(&project.root) {
+        state.status.note(remedy);
+        warn!("labels sentinel: {}", state.status.line());
+        return;
+    }
+    let Some(d) = project.library.get(&content).cloned() else {
+        state.status.problem(format!(
+            "labels sentinel: no library entry named `{content}`"
+        ));
+        warn!("{}", state.status.line());
+        return;
+    };
+    state.status.note(request_photos(
+        EditTarget::Library(content),
+        &d,
+        &tasks,
+        &mut rig,
+    ));
+    info!("labels sentinel: {}", state.status.line());
+}
+
+/// A booth job finished: build the prompt from the CURRENT descriptor and send the whole exchange
+/// to a task-pool thread. Everything the task needs moves into it — nothing async ever touches
+/// ECS state.
+pub(crate) fn spawn_request(
+    mut ready: MessageReader<ShotsReady>,
+    state: Res<crate::tiles::ImportState>,
+    project: Option<Res<Project>>,
+    mut tasks: ResMut<LabelTasks>,
+) {
+    let Some(project) = project else { return };
+    for shot in ready.read() {
+        // First stale guard: the target must still resolve to the mesh that was photographed.
+        let Some(d) = state.placed_at_target(&shot.target, &project) else {
+            continue;
+        };
+        if d.mesh.as_deref() != Some(shot.mesh.as_str()) {
+            continue;
+        }
+        let ctx = prompt_ctx(d, &shot.mesh, &project);
+        let vocab = project.vocab.clone();
+        let images = shot.images.clone();
+        let mesh_abs = project.root.join("assets").join(&shot.mesh);
+        let root = project.root.clone();
+        let date = date_today();
+        let task = AsyncComputeTaskPool::get().spawn(async move {
+            // **Prose becomes `LabelFailure` at this one boundary.** `VlmConfig::load` and
+            // `encode_png` answer with a `String` and the transport answers with a type; `?` folds
+            // the prose into `LabelFailure::Refused`, so nothing from outside the transport can be
+            // read as the endpoint being down — which is exactly what `poll_tasks`' substring match
+            // over one joined string could not tell apart. The turbofish states the error type
+            // rather than leaving it to be inferred back out of `InFlight`.
+            let cfg = VlmConfig::load(&root)?;
+            let bytes = std::fs::read(&mesh_abs)
+                .map_err(|e| format!("cannot read {}: {e}", mesh_abs.display()))?;
+            let fingerprint = emerge_core::glb::fnv1a(&bytes);
+            let pngs = [encode_png(&images[0])?, encode_png(&images[1])?];
+            let (suggestion, provenance) = vlm::label_with_retry(&cfg, &pngs, &vocab, &ctx, date)?;
+            Ok::<_, vlm::LabelFailure>((suggestion, provenance, fingerprint))
+        });
+        tasks.0.push(InFlight {
+            target: shot.target.clone(),
+            mesh: shot.mesh.clone(),
+            task,
+        });
+    }
+}
+
+/// Land finished requests — behind the stale guards, because minutes may have passed.
+pub(crate) fn poll_tasks(
+    mut tasks: ResMut<LabelTasks>,
+    mut suggestions: ResMut<Suggestions>,
+    mut generation: ResMut<LabelGeneration>,
+    mut state: ResMut<crate::tiles::ImportState>,
+    project: Option<Res<Project>>,
+    // A walk that has lost its endpoint is stopped rather than burned through — see the `Err` arm.
+    mut queue: ResMut<LabelQueue>,
+    mut rig: ResMut<crate::label_booth::ShotRig>,
+    // **The only place the link is written**, because it is the only place a round trip is known to
+    // have happened. See [`Labeler`].
+    mut labeler: ResMut<Labeler>,
+) {
+    let Some(project) = project else { return };
+    let mut finished = Vec::new();
+    for (i, inflight) in tasks.0.iter_mut().enumerate() {
+        let Some(result) = bevy::tasks::futures::check_ready(&mut inflight.task) else {
+            continue;
+        };
+        finished.push(i);
+        let name = name_of(&inflight.target).to_owned();
+        match result {
+            Ok((suggestion, provenance, fingerprint)) => {
+                // The endpoint answered, and the answer names the model that answered — which beats
+                // the config, since a `.env` edited mid-session would otherwise leave the band
+                // naming a model nothing has spoken to.
+                labeler.answered(&provenance.model);
+                // Second stale guard: the target must STILL resolve to the same mesh.
+                let still = state
+                    .placed_at_target(&inflight.target, &project)
+                    .is_some_and(|d| d.mesh.as_deref() == Some(inflight.mesh.as_str()));
+                if !still {
+                    state.status.problem(format!(
+                        "labels for `{name}` arrived after it changed — dropped"
+                    ));
+                    continue;
+                }
+                let entry = Entry {
+                    suggestion,
+                    provenance,
+                    mesh: inflight.mesh.clone(),
+                    fingerprint,
+                };
+                // Flagged vocabulary ideas go on record at arrival — the idea outlives the
+                // instance even if this suggestion is later discarded.
+                record_proposals(&project.root, &entry, &name);
+                suggestions.insert(&inflight.target, entry);
+                generation.0 = generation.0.wrapping_add(1);
+                // No key to press: a label applies on arrival (`tiles::apply_what_arrives`), and a
+                // paused batch's staged answers go with `Shift+Y` or resume with it. This line once
+                // advised `U applies, Y discards` — two keys this editor no longer binds.
+                state
+                    .status
+                    .note(format!("labels proposed for `{name}`"));
+            }
+            // The gate's rejection text (axis + legal tokens) or the transport's complaint,
+            // verbatim — the author decides what to do with it.
+            Err(e) => {
+                // **An endpoint that has gone away stops the walk.** One mesh failing is that
+                // mesh's news; the transport being down is the whole batch's, and reporting it once
+                // per queued mesh — 778 times, measured — buries the one line that says what to do.
+                //
+                // Only the transport aborts. A rejection from the gate is about THIS mesh and the
+                // walk carries on to the next, which is the whole point of a batch.
+                //
+                // **Asked of the value, not of the sentence.** This was
+                // `e.contains("endpoint is unreachable")`, twice, against words built in two other
+                // places (`vlm::request_labels` and `vlm::warm`) — so the abort worked only while
+                // three copies of one string agreed, and a reword would have returned the batch to
+                // discovering a dead endpoint one mesh at a time. Asked once, here, about the LINK,
+                // which is true whether or not a batch is running.
+                let down = e.is_unreachable();
+                if down {
+                    labeler.unreachable();
+                }
+                if down && queue.running() {
+                    let (done, total) = queue.progress();
+                    queue.queue.clear();
+                    queue.total = 0;
+                    let dropped = rig.clear_queue();
+                    state.status.problem(format!(
+                        "batch stopped at {done}/{total} ({dropped} unphotographed) — {e}. The                          model runs on `bmb`: bring the forward up and press Shift+L again"
+                    ));
+                } else {
+                    state
+                        .status
+                        .problem(format!("labeling `{name}` failed: {e}"));
+                }
+            }
+        }
+    }
+    for i in finished.into_iter().rev() {
+        tasks.0.remove(i);
+    }
+}
+
+/// `YYYY-MM-DD` (UTC) now — the adopt stamp's own date recipe.
+pub(crate) fn date_today() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    emerge_core::rig_check::civil_date_utc(secs)
+}
+
+/// The booth's raw RGBA readback as PNG bytes — runs on the task thread, not in a frame.
+fn encode_png(image: &Image) -> Result<Vec<u8>, String> {
+    let dynamic = image
+        .clone()
+        .try_into_dynamic()
+        .map_err(|e| format!("the capture cannot become an image: {e:?}"))?;
+    let mut out = std::io::Cursor::new(Vec::new());
+    dynamic
+        .to_rgb8()
+        .write_to(&mut out, image::ImageFormat::Png)
+        .map_err(|e| format!("PNG encoding failed: {e}"))?;
+    Ok(out.into_inner())
+}
+
+/// Everything the prompt says about the subject, off the CURRENT descriptor plus the library's
+/// in-use room/group names (so the model converges on existing free text instead of coining
+/// synonyms).
+fn prompt_ctx(
+    d: &emerge_core::descriptor::Descriptor,
+    mesh: &str,
+    project: &Project,
+) -> vlm::PromptCtx {
+    let mut rooms_in_use: Vec<String> = Vec::new();
+    let mut groups_in_use: Vec<String> = Vec::new();
+    for other in &project.measured.descriptors {
+        for r in &other.placement.rooms {
+            if !rooms_in_use.contains(r) {
+                rooms_in_use.push(r.clone());
+            }
+        }
+        if let Some(g) = &other.placement.group {
+            if !groups_in_use.contains(g) {
+                groups_in_use.push(g.clone());
+            }
+        }
+    }
+    rooms_in_use.sort();
+    groups_in_use.sort();
+    vlm::PromptCtx {
+        id: d.id.clone(),
+        mesh: mesh.to_owned(),
+        footprint: emerge_core::descriptor::placed_footprint(d),
+        height: d.extent.height,
+        mount_now: emerge_core::descriptor::mount_label(d.mount.as_ref()),
+        kind_now: d.kind.clone(),
+        effects_now: d.effects.clone(),
+        look_now: d.look.clone(),
+        offers_now: d.offers.surfaces.clone(),
+        note_now: d.note.clone(),
+        rooms_in_use,
+        groups_in_use,
+        // **Measured, not seen.** `derive_front` reads the vertex buffer, which is the only thing
+        // that can settle symmetry; two three-quarter renders cannot. An unreadable mesh is honestly
+        // `None` — the prompt then says so and leaves the judgement to the images, rather than
+        // asserting a front nobody measured.
+        front_measured: project
+            .root
+            .join("assets")
+            .join(mesh)
+            .pipe_open()
+            .and_then(|g| g.derive_front().ok()),
+    }
+}
+
+/// A tiny read-and-measure step, named so the expression above reads as one thought.
+trait OpenGlb {
+    fn pipe_open(&self) -> Option<emerge_core::glb::Glb>;
+}
+
+impl OpenGlb for std::path::PathBuf {
+    fn pipe_open(&self) -> Option<emerge_core::glb::Glb> {
+        emerge_core::glb::Glb::open(self).ok()
+    }
+}
+
+// ── the token-proposals review file ──────────────────────────────────────────────────────────────
+
+/// Where flagged vocabulary ideas wait for a human. Under `slop/` because that is dev-time prose
+/// territory — **nothing loads this file**, which is the whole point: the LLM never touches
+/// `vocab.ron`, and adopting a token is a person's two-file edit.
+pub const PROPOSALS_PATH: &str = "slop/llm/vocab_proposals.ron";
+
+/// A `readme` FIELD rather than a comment, because comments do not survive re-serialization.
+const PROPOSALS_README: &str = "PROPOSALS ONLY - nothing loads this file. Adopting a token is a \
+    human edit: append a row to assets/emerge/vocab.ron (append-only; bits come from position), \
+    and for a `surfaces` token ALSO add the row to \
+    crates/emerge-core/src/placement/surfaces.rs SURFACE_CLASSES. See docs/llm_rule_authoring.md.";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ProposalsFile {
+    readme: String,
+    proposals: Vec<ProposalRow>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct ProposalRow {
+    axis: String,
+    token: String,
+    why: String,
+    first_seen: String,
+    model: String,
+    /// Which assets wanted it — grows on repeat sightings, which is itself the signal a human
+    /// reads: a token five assets asked for is a different proposal than a one-off.
+    assets: Vec<String>,
+}
+
+/// Merge new proposals into the file's text, deduplicated by `(axis, token)`. Pure over strings so
+/// the whole policy is testable; `existing` is `None` for a first write. An existing file that no
+/// longer parses is refused — overwriting a hand-annotated review file would destroy exactly the
+/// notes it exists to collect.
+fn merge_proposals(
+    existing: Option<&str>,
+    incoming: &[crate::vlm::TokenProposal],
+    asset: &str,
+    model: &str,
+    date: &str,
+) -> Result<Option<String>, String> {
+    if incoming.is_empty() {
+        return Ok(None);
+    }
+    let mut file = match existing {
+        Some(text) => ron::from_str::<ProposalsFile>(text)
+            .map_err(|e| format!("{PROPOSALS_PATH} no longer parses ({e}); not overwriting it"))?,
+        None => ProposalsFile {
+            readme: PROPOSALS_README.to_owned(),
+            proposals: Vec::new(),
+        },
+    };
+    let mut changed = false;
+    for p in incoming {
+        match file
+            .proposals
+            .iter_mut()
+            .find(|row| row.axis == p.axis && row.token == p.token)
+        {
+            Some(row) => {
+                if !row.assets.iter().any(|a| a == asset) {
+                    row.assets.push(asset.to_owned());
+                    changed = true;
+                }
+            }
+            None => {
+                file.proposals.push(ProposalRow {
+                    axis: p.axis.clone(),
+                    token: p.token.clone(),
+                    why: p.why.clone(),
+                    first_seen: date.to_owned(),
+                    model: model.to_owned(),
+                    assets: vec![asset.to_owned()],
+                });
+                changed = true;
+            }
+        }
+    }
+    if !changed {
+        return Ok(None);
+    }
+    let text = ron::ser::to_string_pretty(&file, ron::ser::PrettyConfig::default())
+        .map_err(|e| format!("cannot serialize {PROPOSALS_PATH}: {e}"))?;
+    Ok(Some(text))
+}
+
+/// Write a suggestion's flagged tokens into the review file — called at arrival, so a proposal is
+/// on record even if the suggestion itself is later discarded (the idea outlives the instance).
+fn record_proposals(root: &std::path::Path, entry: &Entry, asset: &str) {
+    let path = root.join(PROPOSALS_PATH);
+    let existing = std::fs::read_to_string(&path).ok();
+    match merge_proposals(
+        existing.as_deref(),
+        &entry.suggestion.token_proposals,
+        asset,
+        &entry.provenance.model,
+        &entry.provenance.date,
+    ) {
+        Ok(None) => {}
+        Ok(Some(text)) => {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            if let Err(e) = emerge_core::ron_surgery::save_atomic(&path, &text) {
+                warn!("could not write {PROPOSALS_PATH}: {e}");
+            }
+        }
+        Err(e) => warn!("{e}"),
+    }
+}
+
+// ── the batch ────────────────────────────────────────────────────────────────────────────────────
+
+/// **What `Shift+L` found in scope, waiting on an answer.** See [`LabelQueue::ask`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Overwrite {
+    /// Pieces with no judgement at all — what `Esc` walks.
+    pub unjudged: Vec<EditTarget>,
+    /// Every piece in scope, judged or not — what `Enter` walks.
+    pub all: Vec<EditTarget>,
+}
+
+/// The walk `Shift+L` runs: targets still to photograph, and how big the walk was when it
+/// started — the progress line's denominator.
+#[derive(Resource, Default)]
+pub struct LabelQueue {
+    queue: std::collections::VecDeque<EditTarget>,
+    total: usize,
+    /// **What is being photographed and asked about right now**, for the panel. The status line
+    /// carried this and nothing else did, so it was gone the moment anything else wrote a note.
+    current: Option<String>,
+    /// **The question `Shift+L` asks when the scope already holds judged pieces.**
+    ///
+    /// `Enter` re-labels everything in scope; `Esc` takes only the unjudged. Asked for at the
+    /// keyboard, 2026-08-16 — *"there should be a Shift+L prompt that asks if we want to overwrite
+    /// existing labels, then it should do all meshes."* No question is raised when nothing in scope
+    /// is judged, because there is nothing to overwrite and a prompt with one real answer is noise.
+    pub(crate) ask: Option<Overwrite>,
+    /// **Held, not abandoned.** A walk of several hundred meshes is minutes of photography and
+    /// inference, and stopping it to look at something must not mean doing that work twice.
+    /// Asked for at the keyboard, 2026-08-15: *"there should be a way to pause... we don't want to
+    /// undo what was already labeled."* Nothing already proposed is touched either way — pausing
+    /// stops the pump, and that is all it does.
+    paused: bool,
+    /// **The model being loaded, before the walk starts asking it anything.**
+    ///
+    /// `Some` from the moment a batch is armed until [`vlm::warm`] answers. [`drive_batch`] will
+    /// not pump while it is set, so the queue stands full and still — see [`poll_warm`].
+    warming: Option<Warm>,
+}
+
+/// A warm-up request in flight, and when it started — the elapsed seconds are the whole point of
+/// showing it, since the wait is minutes and a status line that does not count looks like a hang.
+struct Warm {
+    task: Task<Result<(), vlm::LabelFailure>>,
+    since: f64,
+    /// The last whole second already reported, so the count is written once a second rather than
+    /// once a frame — `status.note` is read by a change-detected painter, and sixty identical
+    /// writes a second is the thing `chrome.rs`'s guards exist to stop.
+    said: u64,
+}
+
+/// **Arm a batch.** The one place a walk begins, because there are two ways in — `Shift+L` on a
+/// scope with nothing judged, and `Enter`/`Esc` answering the overwrite question — and they had
+/// the same four assignments written twice. The warm-up is why that mattered: added to one tail
+/// only, half the batches would still pay the model load inside mesh 1.
+fn arm_batch(queue: &mut LabelQueue, targets: Vec<EditTarget>, root: &std::path::Path, now: f64) {
+    queue.total = targets.len();
+    queue.queue = targets.into_iter().collect();
+    queue.paused = false;
+    let root = root.to_path_buf();
+    queue.warming = Some(Warm {
+        task: AsyncComputeTaskPool::get().spawn(async move {
+            let cfg = VlmConfig::load(&root)?;
+            vlm::warm(&cfg)
+        }),
+        since: now,
+        said: 0,
+    });
+}
+
+impl LabelQueue {
+    pub fn running(&self) -> bool {
+        !self.queue.is_empty()
+    }
+
+    /// Held mid-walk, with work still queued.
+    pub fn paused(&self) -> bool {
+        self.paused
+    }
+
+    /// The subject in hand, if any.
+    pub fn current(&self) -> Option<&str> {
+        self.current.as_deref()
+    }
+
+    pub fn progress(&self) -> (usize, usize) {
+        (self.total - self.queue.len(), self.total)
+    }
+}
+
+/// Does this descriptor still need judgement? The batch's membership test: any judgement axis
+/// empty, or no description. (Mount is deliberately not in the test — `unset` is common on
+/// candidates and the per-item `L` covers it.)
+pub(crate) fn needs_labels(d: &emerge_core::descriptor::Descriptor) -> bool {
+    d.kind.is_empty() && d.effects.is_empty() && d.look.is_empty() && d.note.is_none()
+}
+
+/// **Judged well enough to build a tile from** — a different question, and it took a contradiction
+/// to notice.
+///
+/// This and [`needs_labels`] were one predicate on purpose: *"what the labeler still owes you"* and
+/// *"what you cannot build with yet"* were held to be the same fact so they could not drift. They
+/// are not the same fact, and the day that showed it was 2026-08-16, from two directions at once:
+///
+/// - The batch's side: an empty `effects` is the **correct** answer for most props — `vlm.rs` tells
+///   the model so in as many words — yet it counted as owing an answer, so every judged crate was
+///   re-photographed for ever. Asked for at the keyboard: *"if anything is marked, then it shouldn't
+///   be relabeled."*
+/// - The palette's side: a mesh carrying only a `kind` has been judged in that sense and is still
+///   nothing you can compose with — no description, nothing saying how it sits.
+///
+/// So: **any mark means judged** (stop asking), and **a name and a description mean usable** (start
+/// offering). `effects` is deliberately absent from this one, for the reason above — requiring it
+/// would keep every crate and barrel out of the palette permanently.
+pub(crate) fn judged_enough_to_build_with(d: &emerge_core::descriptor::Descriptor) -> bool {
+    !d.kind.is_empty() && d.note.is_some()
+}
+
+/// `Shift+L`: walk everything missing judgement fields through the labeler — or, when a walk is
+/// already running, cancel it. One key, both directions, stated in the status line.
+pub(crate) fn suggest_all(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    live: Res<crate::keys::Live>,
+    project: Option<Res<Project>>,
+    mut state: ResMut<crate::tiles::ImportState>,
+    suggestions: Res<Suggestions>,
+    tasks: Res<LabelTasks>,
+    mut queue: ResMut<LabelQueue>,
+    // **The walk takes what the list is showing.** See the note where the targets are gathered.
+    filters: Res<crate::filter::Filters>,
+    // For `arm_batch`, which stamps the warm-up's start so the wait can count itself.
+    time: Res<Time>,
+    mut confirm: ResMut<crate::confirm::Confirm>,
+) {
+    if !crate::keys::just_pressed(&keyboard, *live, crate::keys::Action::SuggestAll) {
+        return;
+    }
+    // A question is already on screen; `Shift+L` must not stack a second one under it.
+    if queue.ask.is_some() {
+        return;
+    }
+    // **A second press HOLDS the walk; it does not throw it away.** Cancelling meant re-photographing
+    // everything already done to get back to where you were, which after a few hundred meshes is the
+    // wrong default. Abandoning is still one key — `Shift+Y` drops the queue, the proposals and
+    // anything in flight together — so nothing lost the ability to stop, only the ability to lose
+    // work by accident.
+    if queue.running() {
+        let (done, total) = queue.progress();
+        queue.paused = !queue.paused;
+        if queue.paused {
+            state.status.note(format!(
+                "batch held at {done}/{total} — Shift+L resumes, Shift+Y abandons it. Nothing                  already proposed is affected"
+            ));
+        } else {
+            state
+                .status
+                .note(format!("batch resumed at {done}/{total}"));
+        }
+        return;
+    }
+    let Some(project) = project else { return };
+    let cfg = match VlmConfig::load(&project.root) {
+        Ok(cfg) => cfg,
+        Err(remedy) => {
+            state.status.note(remedy);
+            return;
+        }
+    };
+    // **Ask whether anybody is home before committing to a walk.**
+    //
+    // Configured and reachable are different questions, and only the first was being asked: with the
+    // SSH forward down, `Shift+L` queued 778 meshes and reported 778 identical failures, one per
+    // mesh, burning the whole queue to learn one fact. Reported from the keyboard, 2026-08-15.
+    //
+    // A warming endpoint is NOT a refusal — `llama-swap` loads a cold model in tens of seconds, so
+    // the batch starts and says so rather than making the author retry until it happens to be up.
+    match crate::vlm::probe(&cfg) {
+        crate::vlm::Reach::Ready => {}
+        crate::vlm::Reach::Warming(why) => {
+            state.status.note(format!(
+                "{why} — starting anyway, the first shot may take a while"
+            ));
+        }
+        crate::vlm::Reach::Unreachable(remedy) => {
+            state.status.problem(format!("no batch: {remedy}"));
+            return;
+        }
+    }
+    // **The batch is scoped by the filter box** — the same predicate, on the same keys, that the
+    // list beside it is drawn with (`d.id` for a library row, `c.mesh` for a candidate).
+    //
+    // Asked for at the keyboard, 2026-08-15: *"scope it to just the ozea meshes."* With the kit
+    // cleared, an unscoped walk is all 778 meshes in `assets/` — characters, the prototype kit,
+    // barrels — against one GPU slot that serialises. A dedicated "which pack" control would be a
+    // second way to say what the filter already says, so `F`, type `ozea`, `Shift+L` is the whole
+    // feature, and it narrows to anything else the same way.
+    let pane = crate::filter::Pane::Candidates;
+    let scope = filters.text(pane).to_owned();
+    let mut targets: Vec<EditTarget> = Vec::new();
+    for d in &project.measured.descriptors {
+        // **The exclusion applies to what is already imported too.** It was checked for candidates
+        // and not for library rows, so a piece imported before its pack was excluded kept costing a
+        // GPU slot on every walk — the one thing `exclude` exists to stop.
+        let excluded = d.mesh.as_deref().is_some_and(|m| project.policy.excludes(m));
+        if !excluded && needs_labels(d) && d.mesh.is_some() && filters.keeps(pane, &d.id) {
+            targets.push(EditTarget::Library(d.id.clone()));
+        }
+    }
+    // **A mesh this kit excludes is not a target.** The batch spent its tenth call of 778 describing
+    // `characters/cipher_field` — a character rig that could not be a tile under any circumstances —
+    // and each call is a GPU slot that serialises. See `Policy::exclude`.
+    for c in &state.candidates {
+        if !c.blocked()
+            && !project.policy.excludes(&c.mesh)
+            && needs_labels(&c.proposed)
+            && filters.keeps(pane, &c.mesh)
+        {
+            targets.push(EditTarget::Candidate(c.mesh.clone()));
+        }
+    }
+    targets.retain(|t| suggestions.get(t).is_none() && !tasks.holds(t));
+
+    // **Everything in scope, judged or not** — the set `Enter` re-labels. Gathered beside the
+    // unjudged set rather than derived from it, because "judged" is a property of the piece and
+    // "already proposed this session" is a property of the run: a piece holding a staged proposal
+    // is out of both, since re-photographing it would throw away an answer nobody has looked at.
+    let mut everything: Vec<EditTarget> = Vec::new();
+    for d in &project.measured.descriptors {
+        let excluded = d.mesh.as_deref().is_some_and(|m| project.policy.excludes(m));
+        if !excluded && d.mesh.is_some() && filters.keeps(pane, &d.id) {
+            everything.push(EditTarget::Library(d.id.clone()));
+        }
+    }
+    for c in &state.candidates {
+        if !c.blocked() && !project.policy.excludes(&c.mesh) && filters.keeps(pane, &c.mesh) {
+            everything.push(EditTarget::Candidate(c.mesh.clone()));
+        }
+    }
+    everything.retain(|t| suggestions.get(t).is_none() && !tasks.holds(t));
+
+    // **Only ask when there is something to overwrite.** `everything` minus `targets` is the judged
+    // set; empty means every piece in scope is unjudged and the question has one real answer.
+    let judged = everything.len().saturating_sub(targets.len());
+    if judged > 0 {
+        confirm.ask(
+            crate::confirm::Asked::RelabelJudged,
+            "Re-label already-labelled pieces?",
+            // **The counts go on the buttons, not in the sentence.** The body used to spell out
+            // "Yes walks all 732; No walks only the 699 unjudged" — which is the buttons, read
+            // aloud, above the buttons. Each answer states its own number and the body states only
+            // the fact you are deciding about.
+            format!("{judged} of {} in scope are judged.", everything.len()),
+            format!("All {}", everything.len()),
+            format!("Only {}", targets.len()),
+        );
+        queue.ask = Some(Overwrite { unjudged: targets, all: everything });
+        return;
+    }
+
+    if targets.is_empty() {
+        // **Say which set was empty.** "Nothing is missing labels" is a lie when a filter is on and
+        // the unfiltered library is full of unjudged meshes.
+        state.status.note(if scope.is_empty() {
+            "nothing is missing labels — L re-asks for a single piece".to_owned()
+        } else {
+            format!(
+                "nothing matching `{scope}` is missing labels — Backspace in the filter widens it"
+            )
+        });
+        return;
+    }
+    arm_batch(&mut queue, targets, &project.root, time.elapsed_secs_f64());
+    state.status.note(if scope.is_empty() {
+        format!(
+            "labeling {} piece(s) — warming the model first... Shift+L holds it",
+            queue.total
+        )
+    } else {
+        format!(
+            "labeling {} piece(s) matching `{scope}` — warming the model first... Shift+L holds it",
+            queue.total
+        )
+    });
+}
+
+/// **Answer the overwrite question**: `Enter` re-labels everything in scope, `Esc` takes only the
+/// unjudged pieces.
+///
+/// Runs **before** `suggest_all` and before the Meshes tab's own `Enter`, and swallows the key
+/// either way — a question that let its answer fall through to "add this candidate to the library"
+/// would be the `xseam` shape this crate has paid for twice (`keys.rs`).
+pub(crate) fn answer_overwrite(
+    mut state: ResMut<crate::tiles::ImportState>,
+    mut queue: ResMut<LabelQueue>,
+    // Both are for `arm_batch`: the root is where the endpoint config is read from, and the clock
+    // is what makes the warm-up able to say how long it has been waiting.
+    project: Option<Res<Project>>,
+    time: Res<Time>,
+    mut confirm: ResMut<crate::confirm::Confirm>,
+) {
+    let Some(project) = project else { return };
+    let Some(ask) = queue.ask.clone() else { return };
+    // **`Y` re-labels everything in scope, `N` takes only the unjudged.**
+    //
+    // This answered to `Enter` and `Esc` — `Enter` meaning *yes* here while the editor's leaving
+    // prompt deliberately refused to answer to it at all, on the grounds that it is the
+    // most-pressed key in the editor and a question about losing work must not be answerable by
+    // reflex. Both were right on their own and together they were unlearnable. See `crate::confirm`.
+    //
+    // **`N` is not "cancel".** The question is which of two sets to walk, and both are real work;
+    // backing out entirely is not answering it, which is why the modal's `Esc` lands here as `N`
+    // and the empty-set branch below is what actually says nothing happened.
+    let Some(yes) = confirm.answer(crate::confirm::Asked::RelabelJudged) else {
+        return;
+    };
+    queue.ask = None;
+    let targets = if yes { ask.all } else { ask.unjudged };
+    if targets.is_empty() {
+        state
+            .status
+            .note("nothing to label — every piece in scope already has labels".to_owned());
+        return;
+    }
+    arm_batch(&mut queue, targets, &project.root, time.elapsed_secs_f64());
+    state.status.note(format!(
+        "labeling {} piece(s) — warming the model first... Shift+L holds it",
+        queue.total
+    ));
+}
+
+/// **Hold the batch until the model is loaded, and say so while it loads.**
+///
+/// The wait is minutes on a cold 31 GB model, so a silent one is indistinguishable from a hang —
+/// which is exactly what it was mistaken for on 2026-08-17, when the load was being paid inside
+/// mesh 1 of 778 and surfaced as `timeout: global`. The elapsed count is the fix for that: the
+/// author can see it working rather than infer it.
+///
+/// **A warm-up that fails takes the batch with it.** Nothing is queued to the model yet, so this is
+/// the cheapest possible place to find out the endpoint is down — the whole reason `probe` exists,
+/// one layer further in. Burning 778 photo shoots to learn it a second time is the failure this
+/// file has already fixed once (`poll_tasks`' unreachable arm).
+pub(crate) fn poll_warm(
+    mut queue: ResMut<LabelQueue>,
+    mut state: ResMut<crate::tiles::ImportState>,
+    mut rig: ResMut<ShotRig>,
+    time: Res<Time>,
+) {
+    let Some(warm) = queue.warming.as_mut() else {
+        return;
+    };
+    let waited = (time.elapsed_secs_f64() - warm.since).max(0.0) as u64;
+    let Some(result) = bevy::tasks::futures::check_ready(&mut warm.task) else {
+        if waited > warm.said {
+            warm.said = waited;
+            let (_, total) = queue.progress();
+            state
+                .status
+                .note(format!("warming the model... {waited}s ({total} queued)"));
+        }
+        return;
+    };
+    queue.warming = None;
+    match result {
+        Ok(()) => {
+            let (_, total) = queue.progress();
+            state
+                .status
+                .note(format!("model warm in {waited}s — labeling {total} piece(s)"));
+        }
+        Err(e) => {
+            // Drop the walk rather than let `drive_batch` run it into an endpoint that just said no.
+            let total = queue.total;
+            queue.queue.clear();
+            queue.total = 0;
+            let dropped = rig.clear_queue();
+            state.status.problem(format!(
+                "batch not started — {e}. {total} piece(s) dropped ({dropped} unphotographed); \
+                 nothing was sent to the model"
+            ));
+        }
+    }
+}
+
+/// Feed the booth one subject at a time — fully serial, matching the one-subject booth and the
+/// local endpoint's single slot. NOT gated on the Tiles tab: a 450-item walk survives the author
+/// switching tabs to do other work.
+pub(crate) fn drive_batch(
+    project: Option<Res<Project>>,
+    // **Which tab is showing**, for the follow below — `Option` because `Screen::Editor` can run one
+    // pass with no door loaded (`screen::open_the_door`), and in Bevy 0.19 a missing `Res` panics its
+    // system rather than skipping it.
+    mode: Option<Res<crate::tiles::Mode>>,
+    mut state: ResMut<crate::tiles::ImportState>,
+    mut queue: ResMut<LabelQueue>,
+    tasks: Res<LabelTasks>,
+    mut rig: ResMut<ShotRig>,
+) {
+    let Some(project) = project else { return };
+    // A paused walk keeps its queue and its proposals; only the pump stops.
+    //
+    // **And a warming one has not started yet.** The queue is full and deliberately still until
+    // `poll_warm` clears it: the whole point of the warm-up is that the model load is paid once,
+    // visibly, instead of inside mesh 1 of 778 where it reads as a hang and then as a timeout.
+    if queue.warming.is_some()
+        || queue.paused
+        || queue.queue.is_empty()
+        || !rig.is_idle()
+        || tasks.in_flight() > 0
+    {
+        return;
+    }
+    let Some(target) = queue.queue.pop_front() else {
+        return;
+    };
+    // The target may have vanished since the walk was built (a rescan, a removal) — skip, the
+    // next frame takes the next one.
+    let Some(d) = state.placed_at_target(&target, &project) else {
+        return;
+    };
+    let Some(mesh) = d.mesh.clone() else { return };
+    let scale = d.align.scale.unwrap_or(1.0);
+    let (done, total) = queue.progress();
+    let name = name_of(&target);
+    // **The way out, on every line — not once at the start.** `docs/ui.md` §1.4: name the state and
+    // the way out of it. The keys existed (`Shift+L` holds, `Shift+Y` abandons) and were announced
+    // in the message that armed the walk, which is the one message guaranteed to be off screen by
+    // the time somebody wants them: every mesh overwrites the note. Reported at the keyboard as
+    // *"we need a way to interrupt the labeling"* — of a batch that had two, both invisible.
+    state.status.note(format!(
+        "labeling {done}/{total} - `{name}` — {} holds, {} abandons",
+        crate::keys::chord(crate::keys::Action::SuggestAll),
+        crate::keys::chord(crate::keys::Action::DiscardAllSuggestions),
+    ));
+    queue.current = Some(name.to_string());
+    // **The highlight goes where the walk goes** — `ImportState::focus_on` carries the reason.
+    //
+    // **Only on the Meshes tab**, and that half is the interesting one: this walk deliberately
+    // survives the author switching tabs (see the note on this function), and on the Tiles tab the
+    // very same cursor is what `Enter` drops into the tile being assembled. Following there would
+    // put a piece nobody chose into somebody's assembly every twenty-five seconds, so the follow
+    // stops at the tab that is showing the walk.
+    if mode.as_deref() == Some(&crate::tiles::Mode::Meshes) {
+        state.focus_on(&target);
+    }
+    rig.push_unique(crate::label_booth::ShotJob {
+        target,
+        mesh,
+        scale,
+    });
+}
+
+/// The Tiles tab strip carries the pending-proposal count — `anim_watch::paint_stale_badge`'s
+/// shape, so the fact survives tab switches.
+pub(crate) fn paint_labels_badge(
+    suggestions: Option<Res<Suggestions>>,
+    tabs: Query<(&crate::tiles::Tab, &Children)>,
+    mut labels: Query<&mut Text, With<crate::tiles::TabLabel>>,
+) {
+    let Some(suggestions) = suggestions else {
+        return;
+    };
+    let pending = suggestions.pending();
+    let want = if pending == 0 {
+        crate::tiles::Mode::Meshes.label().to_owned()
+    } else {
+        format!(
+            "{} ({pending} PROPOSED)",
+            crate::tiles::Mode::Meshes.label()
+        )
+    };
+    for (tab, children) in &tabs {
+        if tab.0 != crate::tiles::Mode::Meshes {
+            continue;
+        }
+        for child in children {
+            if let Ok(mut text) = labels.get_mut(*child) {
+                if text.0 != want {
+                    text.0 = want.clone();
+                }
+            }
+        }
+    }
+}
+
+/// **Apply a suggestion to a descriptor** — pure, so the review verb stays three lines of idiom.
+///
+/// Replacement semantics on the axis lists, not union: the model saw the current values in its
+/// prompt and its answer is the complete proposed state — a union would make every review a merge
+/// puzzle. The lists arrive already deduplicated and in vocabulary order ([`vlm::validate`]'s
+/// contract, the `on_tag_chip` sort rule), so diffs show real changes only. Fields the suggestion
+/// does not carry stay untouched; undo covers regret like any other edit.
+/// **Recompute the derived half of `effects` from `kind`, using the vocabulary's own rule.**
+///
+/// The rule itself is `implies` on a `kind` token in `vocab.ron`, resolved by
+/// [`emerge_core::vocab::Vocabularies::implied_effects`]. It was a five-row `IMPLIED_BY_KIND` table
+/// in this file until 2026-08-19, which put game-design semantics — *a bed restores stamina* —
+/// inside the editor's labeller. Two consequences, and the second is the one that mattered:
+///
+/// * Only this editor's apply path knew it. A descriptor written by hand, or by any other tool,
+///   simply did not get the effect.
+/// * **The game did not know it either.** `Vocabularies::masks` is the pass the runtime resolves a
+///   library through, and it had never heard of the table — so a bed the editor had labelled and a
+///   bed somebody typed resolved to different masks, and nothing downstream could tell which it had.
+///
+/// Now the rule lives in the data, `masks` folds it in for every consumer, and this exists only to
+/// keep the *stored* list in step with what will be resolved from it — so an author reading
+/// `library.ron` sees what the game will see.
+///
+/// It REMOVES as well as adds, and only ever touches tokens some kind implies: a piece retyped from
+/// `light` to `decor` must stop claiming to use electricity, or the tag becomes a thing that can
+/// only ever be turned on.
+pub(crate) fn settle_implied_effects(
+    d: &mut emerge_core::descriptor::Descriptor,
+    vocab: &emerge_core::vocab::Vocabularies,
+) {
+    d.effects = settled_effects(&d.kind, &d.effects, vocab);
+}
+
+/// **The same settling over a whole library**, answering how many rows moved.
+///
+/// The merged library is *derived*, and it is built in two places — `Project::open` from the bound
+/// kits, and `tiles::commit_measured` from the edited measurements. Both have to normalize, or the
+/// second undoes the first; this is the one definition they share so they cannot drift on what
+/// "settled" means.
+pub(crate) fn settle_library(
+    library: &mut emerge_core::library::Library,
+    vocab: &emerge_core::vocab::Vocabularies,
+) -> usize {
+    let mut settled = 0usize;
+    for d in &mut library.descriptors {
+        let before = d.effects.clone();
+        settle_implied_effects(d, vocab);
+        if d.effects != before {
+            settled += 1;
+        }
+    }
+    settled
+}
+
+/// **The effects a kind implies, folded into a set — as a value, not a mutation.**
+///
+/// Extracted so the *preview* can answer the same question the apply does. The DOES chips ghost-lit
+/// `suggestion.effects`, which is the model's raw answer — and the model is deliberately never
+/// asked for these tokens, because no render can show them. So a bed's proposal showed
+/// `effects: []` while applying it wrote `stamina-recharge`, and an author watching proposals go by
+/// concluded the model would not acknowledge a bed. Reported at the keyboard 2026-08-19: *"for the
+/// life of me, I can't get the VLM to acknowledge a bed is a place to recharge stamina."* It never
+/// will. The editor does — and the preview now says so.
+///
+/// "A preview is a promise" is `build.rs`'s line about the ghost, and it is the same rule.
+///
+/// # It used to be able to answer twice, and one of the answers was wrong
+///
+/// [`emerge_core::vocab::Vocabularies::implied_effects`] returned a `Result`, and this function
+/// opened with `let Ok(want) = … else { return effects.to_vec(); }` — a second execution path that
+/// handed the authored list back **unsettled**, which is a plausible wrong answer rather than a
+/// refusal. The comment on it argued the arm was unreachable because `Project::open` had already
+/// rejected such a file, and that was simply not true: nothing validated `implies` at load, so the
+/// refusal happened once per *descriptor*, deep inside `masks`, the first time an author used the
+/// offending kind. The check lives at the door now — `Vocabularies::validate_tables` runs
+/// `validate_implications` as the file is parsed, naming the axis and the token — so
+/// `implied_effects` cannot fail and there is one path through here.
+pub(crate) fn settled_effects(
+    kind: &[String],
+    effects: &[String],
+    vocab: &emerge_core::vocab::Vocabularies,
+) -> Vec<String> {
+    let want = vocab.implied_effects(kind);
+    let derived = |e: &str| {
+        vocab
+            .kind
+            .tokens
+            .iter()
+            .any(|t| t.implies.iter().any(|i| i == e))
+    };
+    let mut out: Vec<String> = effects
+        .iter()
+        .filter(|e| !derived(e) || want.contains(e))
+        .cloned()
+        .collect();
+    for eff in want {
+        if !out.contains(&eff) {
+            out.push(eff);
+        }
+    }
+    // Vocabulary order, so a settled list serialises identically to a hand-tagged one and a diff of
+    // the library shows real changes only (`tiles::on_tag_chip`'s rule).
+    out.sort_by_key(|t| vocab.effects.names().position(|n| n == t).unwrap_or(usize::MAX));
+    out
+}
+
+pub fn apply_fields(
+    d: &mut emerge_core::descriptor::Descriptor,
+    s: &Suggestion,
+    stamp: &Provenance,
+    vocab: &emerge_core::vocab::Vocabularies,
+) {
+    use emerge_core::descriptor::{Axis, AxisOrigin, By, LabelOrigin};
+
+    // **The record is rebuilt, not merged into.** An apply replaces every axis it carries, so a
+    // stale `Human` left on one of them from a hand edit two minutes ago would name the wrong author
+    // for a value the model has just overwritten — which is the one failure a provenance field can
+    // have that is worse than not existing. Axes this proposal does *not* carry keep their record,
+    // by being stamped below only where a write happens.
+    let mut origin = LabelOrigin::stamped(&stamp.model, &stamp.date, Some(s.confidence));
+    if let Some(was) = &d.labels {
+        // **A different model does not inherit the last one's attributions.** `origin.by = was.by`
+        // was unconditional, and `AxisOrigin` is `Copy`, so every axis a previous run had stamped
+        // came across whole — while `origin.model` and `origin.confidence` had already been replaced
+        // with THIS run's. Label with `qwen3-vl`, change `EMERGE_VLM_MODEL`, press `L` again with a
+        // proposal carrying no mount, and the record read `mount: Model` beside the name of a model
+        // that had said nothing about the mount.
+        //
+        // So when the answering model's name has changed, only what a PERSON put there carries
+        // forward: a `Human` claim is about the author and stays true, while a `Model` claim now
+        // names the wrong model — and `None`, which is *no record*, is the honest answer to that.
+        // Same model, same behaviour as before: copy.
+        //
+        // A struct literal on purpose. A seventh field on `AxisOrigin` is then a build error here
+        // rather than an axis that quietly stops being carried.
+        origin.by = if was.model.as_deref() == Some(stamp.model.as_str()) {
+            was.by
+        } else {
+            let by_hand = |b: Option<By>| b.filter(|b| *b == By::Human);
+            AxisOrigin {
+                kind: by_hand(was.by.kind),
+                effects: by_hand(was.by.effects),
+                look: by_hand(was.by.look),
+                surfaces: by_hand(was.by.surfaces),
+                mount: by_hand(was.by.mount),
+                note: by_hand(was.by.note),
+            }
+        };
+    }
+    d.kind = s.kind.clone();
+    d.effects = s.effects.clone();
+    d.look = s.look.clone();
+    d.offers.surfaces = s.offers_surfaces.clone();
+    for axis in [Axis::Kind, Axis::Look, Axis::Surfaces] {
+        origin.by.set(axis, By::Model);
+    }
+    // **`Effects` is the model's only when the model proposed some.** `Axis::Effects` was stamped
+    // unconditionally, in the loop above, and then `settle_implied_effects` ran below — adding the
+    // tokens a `kind` implies, the ones `settled_effects` records the model is *deliberately never
+    // asked for*. So a bed answering `effects: []` landed with `["stamina-recharge"]` stamped
+    // `Model`, and the tag block drew it `UNCHECKED`: *"a machine decided this and you have not"*,
+    // about a value the VOCABULARY decided. No record is the truthful state for an axis nobody
+    // claimed, and it is what `None` already means.
+    if !s.effects.is_empty() {
+        origin.by.set(Axis::Effects, By::Model);
+    }
+    if let Some(mount) = &s.mount {
+        d.mount = Some(mount.clone());
+        origin.by.set(Axis::Mount, By::Model);
+    }
+    // The front face is a judgement from appearance; `needs_turn` deliberately is NOT applied —
+    // the righting turn is a re-measure (`tiles::rotate_mesh`), a human's key to press.
+    //
+    // **And a measured front stands.** This was `if let Some(front) = s.front { d.align.front =
+    // Some(front) }` — set-only, so a model could overwrite a face `Glb::derive_front` had measured
+    // off the vertex buffer, and could never CLEAR one: `Align::front`'s `None` *means* symmetric,
+    // and `vlm.rs` instructs the model to answer `null` for a symmetric mesh, so the one answer
+    // that could correct a wrong front was the one answer that could not land. Symmetry is a
+    // property of the vertex buffer and two renders cannot settle it, so the measurement wins.
+    //
+    // The disagreement is said out loud rather than swallowed: a proposal that silently did nothing
+    // is what leaves an author wondering whether the apply ran. No `Axis::Front` joins the record
+    // for it — `AxisOrigin` has six fields and `By`'s own doc is the argument against a variant
+    // nothing writes.
+    match (d.align.front, s.front) {
+        (None, Some(proposed)) => d.align.front = Some(proposed),
+        (Some(measured), Some(proposed)) if measured != proposed => error!(
+            "`{}`: the model proposes {proposed:?} as the front face and the mesh measures \
+             {measured:?} — keeping the measurement. Turn the piece if the measurement is wrong; a \
+             render cannot settle a mesh's symmetry.",
+            d.mesh.as_deref().unwrap_or(d.id.as_str())
+        ),
+        _ => {}
+    }
+    // **The same words the pane showed**, which is why this asks `description()` rather than reading
+    // `note` directly: the model answers `what` and skips `note` often enough that the panel had to
+    // fall back to one, and an apply that wrote the other would keep a sentence nobody read.
+    if let Some(note) = s.description() {
+        d.note = Some(note.to_owned());
+        origin.by.set(Axis::Note, By::Model);
+    }
+    if !s.rooms.is_empty() {
+        d.placement.rooms = s.rooms.clone();
+    }
+    if let Some(group) = &s.group {
+        d.placement.group = Some(group.clone());
+    }
+    // **Inside, not beside.** The derived half of `effects` has to follow every kind that lands, and
+    // a caller that has to remember to call it is a caller that eventually does not.
+    settle_implied_effects(d, vocab);
+    d.labels = Some(origin);
+}
+
+/// **Record that a person wrote this axis, today.**
+///
+/// The other half of [`apply_fields`], and the half that makes the record worth keeping: a chip
+/// clicked, a description typed, a mount cycled. Without it every axis a model ever touched would
+/// read `Model` forever, including the ones the author sat down and corrected — so the pane would
+/// go on flagging work that has already been checked, and an author would learn to ignore the flag.
+/// That is the automation-bias mitigation failing in the other direction, and it is why this is a
+/// six-line function called from three places rather than a note in a design document.
+///
+/// `at` moves to today even when a model wrote the rest, because the date answers *when was this
+/// piece last touched by anyone*, which is the question somebody triaging a kit actually has.
+pub(crate) fn stamp_human(
+    d: &mut emerge_core::descriptor::Descriptor,
+    axis: emerge_core::descriptor::Axis,
+) {
+    use emerge_core::descriptor::{By, LabelOrigin};
+
+    let today = date_today();
+    let record = d.labels.get_or_insert_with(|| LabelOrigin {
+        at: today.clone(),
+        ..Default::default()
+    });
+    record.at = today;
+    record.by.set(axis, By::Human);
+}
+
+#[cfg(test)]
+mod tests {
+    /// **The band never says `connected` about something nothing has connected to.**
+    ///
+    /// `vlm::probe` is a no-op for a remote endpoint by design, so "configured" and "reachable" are
+    /// different questions and only a completed round trip answers the second. This pins the four
+    /// states apart, because the tempting simplification — print `connected` as soon as a model is
+    /// configured — is a readout that is wrong exactly when the tunnel is down, which is the one
+    /// time an author is reading it.
+    #[test]
+    fn the_labeler_line_claims_only_what_has_happened() {
+        use super::{Labeler, Link};
+
+        let mut l = Labeler::default();
+        assert_eq!(l.line(), "", "nothing is claimed before the config is read");
+
+        l.read_for = Some(std::path::PathBuf::from("/kit"));
+        assert_eq!(l.line(), "labeler: not configured");
+
+        l.model = Some("qwen3-vl".to_owned());
+        assert_eq!(
+            l.line(),
+            "labeler: qwen3-vl",
+            "configured is not connected, and the line must not say it is"
+        );
+
+        l.unreachable();
+        assert_eq!(l.line(), "unreachable: qwen3-vl");
+        assert_eq!(l.link, Link::Down);
+
+        // An answer names the model that actually answered, which beats the config.
+        l.answered("qwen3.6-27b");
+        assert_eq!(l.line(), "connected: qwen3.6-27b");
+    }
+
+
+    /// **The preview promises what applying will do, including the half the model never proposes.**
+    ///
+    /// An implied effect (`implies` on a `kind` token in `vocab.ron`) is deliberately not asked of
+    /// the model — a bed recharges stamina because this game says beds do, and no render can show
+    /// it. That made the proposal preview *wrong*
+    /// rather than merely quiet: the DOES chips ghost-lit `suggestion.effects`, so a bed read
+    /// `effects: []` while applying it wrote `stamina-recharge`. Reported at the keyboard as the
+    /// model refusing to acknowledge a bed; it was the preview refusing to admit what the editor
+    /// would do.
+    ///
+    /// Pinned as an equality between the two paths, because "they agree" is the whole property —
+    /// either could drift and the bug returns.
+    #[test]
+    fn the_preview_settles_effects_exactly_as_applying_does() {
+        let v = vocab();
+        let bed = vec!["bed".to_owned()];
+
+        // What the model actually returns for a bed: nothing on this axis.
+        let previewed = settled_effects(&bed, &[], &v);
+        assert!(
+            previewed.iter().any(|e| e == "stamina-recharge"),
+            "a bed's PREVIEW must show the effect applying will add, or the chips promise \
+             something the apply then contradicts: {previewed:?}"
+        );
+
+        // And the apply agrees, token for token and in the same order.
+        let mut d = emerge_core::descriptor::Descriptor {
+            kind: bed,
+            ..Default::default()
+        };
+        settle_implied_effects(&mut d, &v);
+        assert_eq!(
+            d.effects, previewed,
+            "the preview and the apply are one answer; when they were two, the preview was the \
+             one that was wrong"
+        );
+
+        // A kind that implies nothing still previews nothing — the guard that keeps this from
+        // becoming "every piece recharges stamina".
+        assert!(
+            settled_effects(&["seating".to_owned()], &[], &v).is_empty(),
+            "a chair implies no effect at all"
+        );
+    }
+
+    use super::*;
+    use crate::vlm::{Confidence, Suggestion};
+
+    fn workspace_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    /// A disposable project root holding one real GLB — which is all the surviving callers need,
+    /// since `entry` fingerprints that file. This claimed a library and a vocab as well, for the
+    /// cache-warming tests that went with the cache.
+    fn temp_project() -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "vlm_labels_{}_{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        let ws = workspace_root();
+        std::fs::create_dir_all(dir.join("assets/characters")).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::copy(
+            ws.join("assets/characters/valkyrie.glb"),
+            dir.join("assets/characters/valkyrie.glb"),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        dir
+    }
+
+    /// **A lamp uses electricity because it is a lamp, not because a render shows a plug.**
+    ///
+    /// Reported from the keyboard, 2026-08-18. The model is never asked this, so the test is about
+    /// the table: what it adds, what it takes away again, and what it leaves alone.
+    #[test]
+    fn a_kind_implies_the_effects_no_render_can_show() {
+        use emerge_core::descriptor::Descriptor;
+        let v = vocab();
+        let effects = |d: &Descriptor| d.effects.clone();
+
+        let mut d = Descriptor {
+            kind: vec!["light".to_owned()],
+            ..Default::default()
+        };
+        settle_implied_effects(&mut d, &v);
+        assert_eq!(effects(&d), vec!["uses-electricity".to_owned()]);
+
+        // **Derived means recomputed, not merged.** A piece retyped away from `light` must stop
+        // claiming to use electricity, or the tag is one that can only ever be turned on.
+        d.kind = vec!["seating".to_owned()];
+        settle_implied_effects(&mut d, &v);
+        assert!(
+            effects(&d).is_empty(),
+            "a kind that no longer implies it takes it away: {:?}",
+            effects(&d)
+        );
+
+        // It never touches the half the model IS good at — `emit` is visible, and stays.
+        d.kind = vec!["light".to_owned()];
+        d.effects = vec!["emit".to_owned()];
+        settle_implied_effects(&mut d, &v);
+        assert!(effects(&d).contains(&"emit".to_owned()));
+        assert!(effects(&d).contains(&"uses-electricity".to_owned()));
+
+        // Idempotent, because it is a recomputation rather than an append.
+        let once = effects(&d);
+        settle_implied_effects(&mut d, &v);
+        assert_eq!(effects(&d), once);
+
+        let mut bed = Descriptor {
+            kind: vec!["bed".to_owned()],
+            ..Default::default()
+        };
+        settle_implied_effects(&mut bed, &v);
+        assert_eq!(effects(&bed), vec!["stamina-recharge".to_owned()]);
+
+        // And it rides `apply_fields`, so the batch and `U` get it without asking.
+        let mut applied = Descriptor::default();
+        let mut s = suggestion();
+        s.kind = vec!["light".to_owned()];
+        s.effects = vec![];
+        apply_fields(&mut applied, &s, &stamp(), &vocab());
+        assert!(
+            applied.effects.iter().any(|e| e == "uses-electricity"),
+            "a proposal that says nothing about effects still lands with the implied one"
+        );
+    }
+
+    /// **Every word this rule names still exists in the shipped vocabulary.**
+    ///
+    /// The table is strings, so renaming a token in `vocab.ron` would leave the rule pointing at a
+    /// word nothing has — and it would fail by going quiet, which is the same failure mode as the
+    /// four unread affordance tokens that made `vocab.ron` a closed table in the first place. This
+    /// is that audit run from the other side: a reader with no token.
+    #[test]
+    fn the_implied_effects_table_names_only_shipped_tokens() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let text = std::fs::read_to_string(root.join("assets/emerge/vocab.ron"))
+            .unwrap_or_else(|e| panic!("the shipped vocabulary must be readable: {e}"));
+        // **Loading the file IS the audit now.** This used to `ron::from_str` straight into
+        // `Vocabularies` — around the door — and then leaned on `implied_effects` returning a
+        // `Result` to catch an implication naming a token the `effects` axis does not hold. That
+        // check moved to `Vocabularies::validate_tables`, which `parse` runs and `ron::from_str`
+        // does not, so going around `parse` was the one thing making this test unable to fail.
+        let v = emerge_core::vocab::Vocabularies::parse(&text).unwrap_or_else(|e| {
+            panic!("the shipped vocabulary must load, and every `implies` in it must resolve: {e}")
+        });
+        assert!(
+            v.kind.tokens.iter().any(|t| !t.implies.is_empty()),
+            "no kind implies anything — the rule moved to `vocab.ron` and would be silently gone"
+        );
+    }
+
+    fn vocab() -> emerge_core::vocab::Vocabularies {
+        emerge_core::vocab::Vocabularies {
+            kind: emerge_core::vocab::Vocabulary {
+                tokens: vec![
+                    emerge_core::vocab::Token {
+                        name: "light".to_owned(),
+                        note: "casts light".to_owned(),
+                        // The rule under test, stated where the shipped file states it.
+                        implies: vec!["uses-electricity".to_owned()],
+                    },
+                    emerge_core::vocab::Token {
+                        name: "bed".to_owned(),
+                        note: "a thing to lie on".to_owned(),
+                        implies: vec!["stamina-recharge".to_owned()],
+                    },
+                    emerge_core::vocab::Token {
+                        name: "seating".to_owned(),
+                        note: "a thing to sit on".to_owned(),
+                        implies: Vec::new(),
+                    },
+                ],
+            },
+            effects: emerge_core::vocab::Vocabulary::of(&[
+                ("emit", "lights the room"),
+                ("uses-electricity", "stops working when the power does"),
+                ("stamina-recharge", "restores stamina to whoever uses it"),
+            ]),
+            look: emerge_core::vocab::Vocabulary::of(&[("metal", "bare metal")]),
+            surfaces: emerge_core::vocab::Vocabulary::of(&[("support", "a top")]),
+            capabilities: emerge_core::vocab::Vocabulary::of(&[]),
+            // The edge axis and the slot axis. A labeller proposes nothing on either, so both are
+            // empty here — and empty is not permissive: an invented token is refused, naming the axis.
+            edge: emerge_core::vocab::Vocabulary::default(),
+            slot: emerge_core::vocab::Vocabulary::default(),
+        }
+    }
+
+    /// Who a test's apply is standing in for. Every field on it is read by `apply_fields`, so a
+    /// shared one keeps the four call sites saying the same thing about the same imaginary run.
+    fn stamp() -> Provenance {
+        Provenance {
+            model: "stub".to_owned(),
+            date: "2026-08-06".to_owned(),
+            attempts: 1,
+        }
+    }
+
+    fn suggestion() -> Suggestion {
+        Suggestion {
+            what: "a wall lamp".to_owned(),
+            kind: vec!["light".to_owned()],
+            effects: vec!["emit".to_owned()],
+            look: vec![],
+            offers_surfaces: vec![],
+            mount: Some(emerge_core::descriptor::Mount::OnWall { height: 1.8 }),
+            front: None,
+            needs_turn: None,
+            note: Some("A small lamp.".to_owned()),
+            rooms: vec![],
+            group: None,
+            confidence: Confidence::High,
+            token_proposals: vec![],
+        }
+    }
+
+    fn entry(root: &std::path::Path) -> Entry {
+        let bytes = std::fs::read(root.join("assets/characters/valkyrie.glb"))
+            .unwrap_or_else(|e| panic!("{e}"));
+        Entry {
+            suggestion: suggestion(),
+            provenance: Provenance {
+                model: "stub".to_owned(),
+                date: "2026-08-06".to_owned(),
+                attempts: 1,
+            },
+            mesh: "characters/valkyrie.glb".to_owned(),
+            fingerprint: emerge_core::glb::fnv1a(&bytes),
+        }
+    }
+
+    /// One key clears everything the model holds: proposals, batch queue, booth queue. The
+    /// generation bump repaints the tab badge — it used to empty an on-disk cache too, and that
+    /// cache is gone (see the module note). Idempotent: a second clear changes nothing and says so
+    /// with zeros.
+    #[test]
+    fn clear_all_empties_every_holding_pen() {
+        let root = temp_project();
+        let mut suggestions = Suggestions::default();
+        suggestions.insert(&EditTarget::Library("a".to_owned()), entry(&root));
+        suggestions.insert(&EditTarget::Candidate("kit/b.glb".to_owned()), entry(&root));
+        let mut generation = LabelGeneration::default();
+        let mut queue = LabelQueue::default();
+        queue.total = 2;
+        queue.queue = vec![
+            EditTarget::Library("c".to_owned()),
+            EditTarget::Library("d".to_owned()),
+        ]
+        .into_iter()
+        .collect();
+        let mut tasks = LabelTasks::default();
+        let mut rig = crate::label_booth::ShotRig::default();
+        rig.push_unique(crate::label_booth::ShotJob {
+            target: EditTarget::Library("e".to_owned()),
+            mesh: "kit/e.glb".to_owned(),
+            scale: 1.0,
+        });
+
+        let said = clear_all_labels(
+            &mut suggestions,
+            &mut generation,
+            &mut queue,
+            &mut tasks,
+            &mut rig,
+        );
+        assert!(said.contains("2 proposal(s)"), "{said}");
+        assert!(said.contains("3 queued"), "{said}");
+        assert_eq!(suggestions.pending(), 0);
+        assert!(!queue.running());
+        assert!(rig.is_idle());
+        assert_eq!(generation.0, 1, "the bump the tab badge repaints from");
+
+        // Idempotent, and a no-op clear does not bump the generation.
+        let said = clear_all_labels(
+            &mut suggestions,
+            &mut generation,
+            &mut queue,
+            &mut tasks,
+            &mut rig,
+        );
+        assert!(said.contains("0 proposal(s)"), "{said}");
+        assert_eq!(generation.0, 1);
+    }
+
+    /// The proposals file: dedup by (axis, token), assets accumulate, a hand-mangled file is
+    /// refused rather than overwritten, and nothing at all is written for an empty proposal set.
+    #[test]
+    fn proposal_merging_dedups_and_refuses_a_mangled_file() {
+        let hob = crate::vlm::TokenProposal {
+            axis: "surfaces".to_owned(),
+            token: "hob".to_owned(),
+            why: "cooktops are not worktops".to_owned(),
+        };
+        // First write: fresh file with the readme and one row.
+        let text = merge_proposals(None, &[hob.clone()], "kitchen_stove", "stub", "2026-08-06")
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("nothing written"));
+        assert!(
+            text.contains("PROPOSALS ONLY"),
+            "the readme rides in the file"
+        );
+        assert!(text.contains("hob"));
+        // Second sighting from another asset: the row grows, no duplicate.
+        let text2 = merge_proposals(
+            Some(&text),
+            &[hob.clone()],
+            "camp_stove",
+            "stub",
+            "2026-08-07",
+        )
+        .unwrap_or_else(|e| panic!("{e}"))
+        .unwrap_or_else(|| panic!("nothing written"));
+        let parsed: ProposalsFile = ron::from_str(&text2).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(parsed.proposals.len(), 1);
+        assert_eq!(
+            parsed.proposals[0].assets,
+            vec!["kitchen_stove", "camp_stove"]
+        );
+        assert_eq!(
+            parsed.proposals[0].first_seen, "2026-08-06",
+            "first sighting keeps its date"
+        );
+        // The same asset again: nothing changed, nothing written.
+        assert!(
+            merge_proposals(Some(&text2), &[hob], "camp_stove", "stub", "2026-08-08")
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_none()
+        );
+        // No proposals: no write at all.
+        assert!(
+            merge_proposals(None, &[], "x", "stub", "2026-08-06")
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_none()
+        );
+        // A hand-mangled file is refused, never overwritten.
+        let refused = merge_proposals(
+            Some("this is not ron ("),
+            &[crate::vlm::TokenProposal {
+                axis: "look".to_owned(),
+                token: "rusty".to_owned(),
+                why: "".to_owned(),
+            }],
+            "x",
+            "stub",
+            "2026-08-06",
+        );
+        assert!(refused.is_err());
+    }
+
+    /// **Anything marked means judged — an empty axis is an answer, not a gap.**
+    ///
+    /// This was the opposite: *any* of the four fields being empty meant "needs labels". That put
+    /// the test in direct contradiction with what the labeler is told to return — `vlm.rs` instructs
+    /// the model that for `effects`, *"MOST OBJECTS HAVE NONE — a barrel, a crate, a chair, a table
+    /// do nothing to the world. Leave this EMPTY"*. So every correctly judged prop came back empty
+    /// on that axis, failed the test, and was re-photographed on every walk, for ever.
+    ///
+    /// Reported at the keyboard, 2026-08-16: *"if anything is marked, then it shouldn't be
+    /// relabeled."* Re-labelling is now a thing you ask for — see [`LabelQueue::ask`].
+    #[test]
+    fn needs_labels_is_nothing_marked_at_all() {
+        let d = emerge_core::descriptor::Descriptor::default();
+        assert!(needs_labels(&d), "a piece with no judgement at all needs labels");
+
+        // Each axis on its own is enough to count as judged.
+        for mark in [0, 1, 2, 3] {
+            let mut d = emerge_core::descriptor::Descriptor::default();
+            match mark {
+                0 => d.kind = vec!["light".to_owned()],
+                1 => d.effects = vec!["emit".to_owned()],
+                2 => d.look = vec!["metal".to_owned()],
+                _ => d.note = Some("a lamp".to_owned()),
+            }
+            assert!(!needs_labels(&d), "one mark is enough: axis {mark}");
+        }
+
+        // **The case the old rule got wrong**, stated as its own assertion because it is the whole
+        // reason this changed: a prop the model judged and correctly gave no effects.
+        let judged = emerge_core::descriptor::Descriptor {
+            kind: vec!["prop".to_owned()],
+            look: vec!["wood".to_owned()],
+            note: Some("a crate".to_owned()),
+            ..Default::default()
+        };
+        assert!(
+            judged.effects.is_empty() && !needs_labels(&judged),
+            "a crate that does nothing to the world is judged, not unjudged"
+        );
+    }
+
+    #[test]
+    fn the_batch_queue_reports_progress_and_cancels_clean() {
+        let mut q = LabelQueue::default();
+        assert!(!q.running());
+        q.total = 3;
+        q.queue = vec![
+            EditTarget::Library("a".to_owned()),
+            EditTarget::Library("b".to_owned()),
+            EditTarget::Library("c".to_owned()),
+        ]
+        .into_iter()
+        .collect();
+        assert!(q.running());
+        assert_eq!(q.progress(), (0, 3));
+        let _ = q.queue.pop_front();
+        assert_eq!(q.progress(), (1, 3));
+        q.queue.clear();
+        q.total = 0;
+        assert!(!q.running());
+    }
+
+    /// **The walk takes what the list is showing, on the same keys the list matches by.**
+    ///
+    /// Asked for at the keyboard, 2026-08-15: *"scope it to just the ozea meshes."* With the kit
+    /// cleared an unscoped walk is 778 meshes against one GPU slot, so the filter box — which is
+    /// already how an author narrows that list — is what narrows the batch.
+    ///
+    /// The keys differ by kind and that is the part worth pinning: a **library** row is matched on
+    /// its id, a **candidate** on its mesh path. Matching a candidate by id would silently take the
+    /// whole set, because a candidate has no id yet.
+    #[test]
+    fn the_filter_box_scopes_which_meshes_a_walk_takes() {
+        use crate::filter::{Filters, Pane};
+
+        let mut filters = Filters::default();
+        filters.take_focus(Pane::Candidates);
+        for c in "ozea".chars() {
+            filters.push_for_test(Pane::Candidates, c);
+        }
+
+        // A library row is matched on its id...
+        assert!(filters.keeps(Pane::Candidates, "ozea/wall_low"));
+        assert!(!filters.keeps(Pane::Candidates, "site/wall_low"));
+        // ...and a candidate on the mesh path it was found at, which is where the pack name lives.
+        assert!(filters.keeps(Pane::Candidates, "ozea_kit/crate_small.glb"));
+        assert!(!filters.keeps(Pane::Candidates, "characters/valkyrie.glb"));
+        assert!(!filters.keeps(
+            Pane::Candidates,
+            "kenney_prototype-kit/Models/GLB format/animal-bison.glb"
+        ));
+
+        // An empty filter is the unscoped walk, which is still what an author gets by default.
+        let wide = Filters::default();
+        assert!(wide.keeps(Pane::Candidates, "characters/valkyrie.glb"));
+    }
+
+    /// **A held walk keeps its place and its work.**
+    ///
+    /// `Shift+L` mid-walk used to cancel: the queue was cleared and getting back to where you were
+    /// meant re-photographing every mesh already done. Asked for at the keyboard, 2026-08-15 —
+    /// *"there should be a way to pause... we don't want to undo what was already labeled."*
+    ///
+    /// Two properties, and the second is the one that would be easy to lose: a hold leaves the
+    /// remaining queue intact, and a *fresh* walk is never born held.
+    #[test]
+    fn a_held_walk_keeps_its_queue_and_a_fresh_one_starts_running() {
+        let mut q = LabelQueue::default();
+        q.total = 3;
+        q.queue = vec![
+            EditTarget::Library("a".to_owned()),
+            EditTarget::Library("b".to_owned()),
+            EditTarget::Library("c".to_owned()),
+        ]
+        .into_iter()
+        .collect();
+        let _ = q.queue.pop_front();
+
+        q.paused = true;
+        assert!(q.paused(), "held");
+        assert!(
+            q.running(),
+            "and still a walk — a hold is not an abandonment"
+        );
+        assert_eq!(
+            q.progress(),
+            (1, 3),
+            "with its place kept, so nothing is re-photographed"
+        );
+
+        q.paused = false;
+        assert_eq!(
+            q.progress(),
+            (1, 3),
+            "resuming picks up exactly where it stopped"
+        );
+
+        // Abandoning is the other verb, and it is the one that empties the queue.
+        q.queue.clear();
+        q.total = 0;
+        q.paused = false;
+        assert!(!q.running() && !q.paused());
+    }
+
+    /// Apply semantics: axis lists REPLACE (the model answered with the complete proposed state —
+    /// union would make review a merge puzzle); `Some`-carrying scalars overwrite; everything the
+    /// suggestion does not carry is untouched.
+    #[test]
+    fn apply_replaces_axes_and_touches_only_what_the_suggestion_carries() {
+        let mut d = emerge_core::descriptor::Descriptor::default();
+        d.kind = vec!["table".to_owned()];
+        d.look = vec!["worn".to_owned()];
+        d.note = Some("hand-written".to_owned());
+        d.mount = Some(emerge_core::descriptor::Mount::OnFloor);
+        d.placement.rooms = vec!["office".to_owned()];
+        d.placement.group = Some("desk_set".to_owned());
+
+        let mut s = suggestion(); // kind: [light], effects: [emit], look: [], mount: OnWall, note: Some
+        s.rooms = vec![];
+        s.group = None;
+        apply_fields(&mut d, &s, &stamp(), &vocab());
+
+        assert_eq!(d.kind, vec!["light".to_owned()], "kind replaced");
+        // **Replacement, and then the settle** — the proposal carried `["emit"]` and the `light`
+        // kind adds the one effect no render can show. See `settle_implied_effects`; the axis is
+        // still replaced rather than merged, which is what the `worn` -> `[]` assertion below pins.
+        assert_eq!(
+            d.effects,
+            vec!["emit".to_owned(), "uses-electricity".to_owned()],
+            "effects replaced, then the kind's implied effect settled onto them"
+        );
+        assert!(
+            d.look.is_empty(),
+            "an empty proposed axis clears — replacement, not union"
+        );
+        assert_eq!(
+            d.mount,
+            Some(emerge_core::descriptor::Mount::OnWall { height: 1.8 }),
+            "a carried mount overwrites"
+        );
+        assert_eq!(
+            d.note.as_deref(),
+            Some("A small lamp."),
+            "a carried note overwrites"
+        );
+        // Fields the suggestion did NOT carry stay the author's.
+        assert_eq!(d.placement.rooms, vec!["office".to_owned()]);
+        assert_eq!(d.placement.group.as_deref(), Some("desk_set"));
+
+        // And carried rooms/group land.
+        let mut s = suggestion();
+        s.rooms = vec!["kitchen".to_owned()];
+        s.group = Some("cook_set".to_owned());
+        apply_fields(&mut d, &s, &stamp(), &vocab());
+        assert_eq!(d.placement.rooms, vec!["kitchen".to_owned()]);
+        assert_eq!(d.placement.group.as_deref(), Some("cook_set"));
+
+        // A carried front lands on align; a flagged turn NEVER touches the descriptor HERE —
+        // `suggestion_keys` intercepts it before `apply_fields` is reached, turns the piece
+        // through `rotate_mesh` (the same re-measure the N/P keys run), and re-asks the model.
+        let mut s = suggestion();
+        s.front = Some(emerge_core::descriptor::Face::South);
+        s.needs_turn = Some(crate::vlm::NeedsTurn {
+            axis: "x".to_owned(),
+            turns: 2,
+            why: "standing on its head".to_owned(),
+        });
+        let before_align_rotate = d.align.rotate;
+        let before_extent = d.extent.clone();
+        apply_fields(&mut d, &s, &stamp(), &vocab());
+        assert_eq!(d.align.front, Some(emerge_core::descriptor::Face::South));
+        assert_eq!(d.align.rotate, before_align_rotate, "no rotation applied");
+        assert_eq!(d.extent, before_extent, "no re-measure smuggled in");
+    }
+
+    /// **An apply records that a model wrote it, and a hand edit takes one axis back.**
+    ///
+    /// Before this, the two were byte-identical in `library.ron` the moment `U` was pressed: the
+    /// model's name, the date and its own confidence were dropped by `apply_fields`, and the only
+    /// surviving copy lived in a RON file under the build directory, so `cargo clean` deleted every
+    /// record of what any model had ever said about the kit. That file is gone now too (see the
+    /// module note), which makes the record this test pins the ONLY copy there is.
+    ///
+    /// The per-axis half is the part worth pinning. Goddard, Roudsari & Wyatt 2011
+    /// (`10.1136/amiajnl-2011-000089`) on automation bias: the mitigations are *accountability* and
+    /// *attaching confidence to the output*, and neither survives a stamp that calls the whole piece
+    /// human because one word was retyped.
+    #[test]
+    fn an_apply_says_a_model_wrote_it_and_a_hand_edit_claims_one_axis() {
+        use emerge_core::descriptor::{Axis, By};
+
+        let mut d = emerge_core::descriptor::Descriptor::default();
+        assert!(
+            d.labels.is_none(),
+            "no record is the honest starting state — not `Human`"
+        );
+
+        apply_fields(&mut d, &suggestion(), &stamp(), &vocab());
+        let Some(rec) = d.labels.clone() else {
+            panic!("an apply must leave a record");
+        };
+        assert_eq!(rec.model.as_deref(), Some("stub"), "which model answered");
+        assert_eq!(rec.at, "2026-08-06", "and when");
+        assert_eq!(
+            rec.confidence,
+            Some(Confidence::High),
+            "and how sure it said it was — the proposal's own word, kept"
+        );
+        for axis in [Axis::Kind, Axis::Effects, Axis::Look, Axis::Surfaces, Axis::Mount, Axis::Note]
+        {
+            assert_eq!(
+                rec.by.get(axis),
+                Some(By::Model),
+                "the suggestion carries {axis:?}, so the record must say the model wrote it"
+            );
+        }
+
+        // A person rewrites the description. That axis, and only that axis, becomes theirs.
+        stamp_human(&mut d, Axis::Note);
+        let Some(rec) = d.labels.clone() else {
+            panic!("the record survives a hand edit");
+        };
+        assert_eq!(rec.by.get(Axis::Note), Some(By::Human), "the axis touched");
+        assert_eq!(
+            rec.by.get(Axis::Kind),
+            Some(By::Model),
+            "and no other — a piece whose kind is still the model's guess must go on saying so"
+        );
+        assert_eq!(
+            rec.model.as_deref(),
+            Some("stub"),
+            "the model that wrote the rest is still named"
+        );
+
+        // A second apply over a hand-edited piece re-claims the axes it writes, and no more.
+        let mut s = suggestion();
+        s.note = None;
+        s.what = String::new();
+        apply_fields(&mut d, &s, &stamp(), &vocab());
+        let Some(rec) = d.labels.clone() else {
+            panic!("a record survives a second apply");
+        };
+        assert_eq!(
+            rec.by.get(Axis::Kind),
+            Some(By::Model),
+            "an axis the proposal carries is the model's again"
+        );
+        assert_eq!(
+            rec.by.get(Axis::Note),
+            Some(By::Human),
+            "an axis it says nothing about keeps the author's claim — a proposal with no words              does not overwrite the description, so it must not claim to have"
+        );
+    }
+
+    /// **A second model does not inherit the first one's claims, and never unsays a person's.**
+    ///
+    /// The previous record's whole per-axis map was copied across unconditionally — `AxisOrigin` is
+    /// `Copy`, so the copy was invisible — while `model` and `confidence` had already been replaced
+    /// with the new run's. Label with one model, change `EMERGE_VLM_MODEL`, press `L` again with a
+    /// proposal carrying no mount, and the record read `mount: Model` beside the name of a model
+    /// that had said nothing about the mount: a provenance field actively misinforming the person
+    /// reading it, which is the one failure worse than having no field at all.
+    ///
+    /// A `Human` claim is about the author and survives any number of models. A `Model` claim
+    /// belongs to the model that made it, and `None` — *no record* — is the honest answer once that
+    /// model is no longer the one talking.
+    #[test]
+    fn a_second_model_keeps_the_hand_edits_and_drops_the_first_models_claims() {
+        use emerge_core::descriptor::{Axis, By};
+
+        let mut d = emerge_core::descriptor::Descriptor::default();
+        apply_fields(&mut d, &suggestion(), &stamp(), &vocab());
+        // The author rewrites the description; everything else is still `stub`'s.
+        stamp_human(&mut d, Axis::Note);
+
+        // A different model answers, with a proposal that says nothing about the mount and nothing
+        // about the description — so neither of those axes is written, and neither may be claimed.
+        let mut s = suggestion();
+        s.mount = None;
+        s.note = None;
+        s.what = String::new();
+        let second = Provenance {
+            model: "another-model".to_owned(),
+            date: "2026-08-23".to_owned(),
+            attempts: 1,
+        };
+        apply_fields(&mut d, &s, &second, &vocab());
+        let Some(rec) = d.labels.clone() else {
+            panic!("an apply must leave a record");
+        };
+        assert_eq!(rec.model.as_deref(), Some("another-model"));
+        assert_eq!(
+            rec.by.get(Axis::Note),
+            Some(By::Human),
+            "a hand edit is a fact about the author, and no model's arrival unsays it"
+        );
+        assert_eq!(
+            rec.by.get(Axis::Mount),
+            None,
+            "the mount was `stub`'s claim and this proposal carried no mount — `Model` here would \
+             name the wrong model, and no record is exactly what `None` means"
+        );
+        assert_eq!(
+            rec.by.get(Axis::Kind),
+            Some(By::Model),
+            "an axis THIS proposal carries is stamped afresh, so it is the new model's"
+        );
+
+        // Same model, second answer, no mount in it: the claim stands, because it is still that
+        // model's claim. This is the branch the unconditional copy got right.
+        let mut same = emerge_core::descriptor::Descriptor::default();
+        apply_fields(&mut same, &suggestion(), &stamp(), &vocab());
+        let mut quiet = suggestion();
+        quiet.mount = None;
+        apply_fields(&mut same, &quiet, &stamp(), &vocab());
+        assert_eq!(
+            same.labels.and_then(|l| l.by.get(Axis::Mount)),
+            Some(By::Model),
+            "one model answering twice keeps what it said the first time"
+        );
+    }
+
+    /// **An implied effect is the vocabulary's decision, so no record calls it a model's.**
+    ///
+    /// `Axis::Effects` was stamped `By::Model` unconditionally and `settle_implied_effects` runs
+    /// after the stamps — writing the tokens [`settled_effects`] records the model is *deliberately
+    /// never asked for*, because no render can show them. So a bed answering `effects: []` landed
+    /// with `["stamina-recharge"]` stamped `Model`, and the tag block drew that chip `UNCHECKED`:
+    /// *"a machine decided this and you have not"*, about a value no machine was asked about.
+    #[test]
+    fn an_effect_only_the_vocabulary_asked_for_is_credited_to_nobody() {
+        use emerge_core::descriptor::{Axis, By};
+
+        let mut d = emerge_core::descriptor::Descriptor::default();
+        let mut s = suggestion();
+        s.kind = vec!["bed".to_owned()];
+        s.effects = vec![];
+        apply_fields(&mut d, &s, &stamp(), &vocab());
+        assert_eq!(
+            d.effects,
+            vec!["stamina-recharge".to_owned()],
+            "the settle still lands the implied effect — that half was never wrong"
+        );
+        assert_eq!(
+            d.labels.as_ref().and_then(|l| l.by.get(Axis::Effects)),
+            None,
+            "and nothing claims it, because the model said nothing about effects"
+        );
+        assert_eq!(
+            d.labels.as_ref().and_then(|l| l.by.get(Axis::Kind)),
+            Some(By::Model),
+            "the axis the model DID answer is still stamped — this is not the stamp going quiet"
+        );
+
+        // The other half of the rule: a proposal that carries an effect is the model's word on it.
+        let mut s = suggestion();
+        s.effects = vec!["emit".to_owned()];
+        apply_fields(&mut d, &s, &stamp(), &vocab());
+        assert_eq!(
+            d.labels.as_ref().and_then(|l| l.by.get(Axis::Effects)),
+            Some(By::Model),
+            "`emit` is visible in a render and the model proposed it"
+        );
+    }
+
+    /// **A measured front stands; an unmeasured one the model may fill.**
+    ///
+    /// The write was set-only — `if let Some(front) = s.front { d.align.front = Some(front) }` — so
+    /// a model could overwrite a face `Glb::derive_front` had measured off the vertex buffer, and
+    /// could never CLEAR one: `Align::front`'s `None` *means* symmetric and `vlm.rs` instructs the
+    /// model to answer `null` for a symmetric mesh, so the answer that mattered most was the one
+    /// answer that could not land. Symmetry is a property of the vertex buffer; two three-quarter
+    /// renders cannot settle it, and `emerge-bevy` turns the piece by `front.yaw_degrees()` — so a
+    /// wrong front is a mesh standing the wrong way round in the world, not a cosmetic note.
+    #[test]
+    fn a_model_fills_an_unmeasured_front_and_never_argues_with_a_measured_one() {
+        use emerge_core::descriptor::Face;
+
+        // Unmeasured: the model's judgement is the only one there is, so it lands.
+        let mut d = emerge_core::descriptor::Descriptor::default();
+        let mut s = suggestion();
+        s.front = Some(Face::South);
+        apply_fields(&mut d, &s, &stamp(), &vocab());
+        assert_eq!(d.align.front, Some(Face::South));
+
+        // Measured, and the model disagrees: the measurement stands and the apply says so.
+        let mut d = emerge_core::descriptor::Descriptor::default();
+        d.align.front = Some(Face::East);
+        apply_fields(&mut d, &s, &stamp(), &vocab());
+        assert_eq!(
+            d.align.front,
+            Some(Face::East),
+            "a render cannot settle symmetry, and this front was measured off the mesh"
+        );
+
+        // And `null` for a symmetric mesh does not clear a measured front either — the same rule
+        // from the other side, and the reason no `Axis::Front` exists to record any of this.
+        let mut quiet = suggestion();
+        quiet.front = None;
+        apply_fields(&mut d, &quiet, &stamp(), &vocab());
+        assert_eq!(d.align.front, Some(Face::East));
+    }
+
+    #[test]
+    fn suggestion_keys_are_ids_and_mesh_paths_never_indices() {
+        let mut s = Suggestions::default();
+        let lib = EditTarget::Library("crt_a".to_owned());
+        let cand = EditTarget::Candidate("kit/crt_b.glb".to_owned());
+        assert_eq!(key_of(&lib), "library:crt_a");
+        assert_eq!(key_of(&cand), "candidate:kit/crt_b.glb");
+        let root = temp_project();
+        s.insert(&lib, entry(&root));
+        assert!(s.get(&lib).is_some());
+        assert!(s.get(&cand).is_none());
+        assert_eq!(s.pending(), 1);
+        assert!(s.remove(&lib).is_some());
+        assert_eq!(s.pending(), 0);
+    }
+}

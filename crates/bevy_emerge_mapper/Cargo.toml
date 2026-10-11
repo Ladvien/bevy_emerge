@@ -1,0 +1,103 @@
+[package]
+name = "emerge-mapper"
+version = "0.1.0"
+edition = "2024"
+description = "A standalone world-building editor: author maps from an asset library, save what a game can load."
+# GPL-3.0, same as the game this was carved out of — these are mirrors of the parent repo's history,
+# not independently-licensed libraries. (The crates extracted as general-purpose libraries —
+# bevy_orca, map_elites, bevy_devshot — are MIT OR Apache-2.0 instead, so they can be adopted.)
+license = "GPL-3.0-only"
+repository = "https://github.com/Ladvien/emerge-mapper"
+
+# **This is the application; `emerge-core` is the part with no engine in it.** The split is not
+# decoration — `crates/emerge-core/tests/engine_free.rs` fails the build if anything in the core
+# reaches for `bevy`, which is what lets the same schema, solvers and validation run in the game, in
+# the headless search, and in here without the three agreeing on a renderer.
+#
+# `docs/2026-08-03-emerge-mapper-plan.md` is the design.
+# **Agent debugging over BRP** (`cargo run -p emerge-mapper --features debugger`).
+#
+# The root `CLAUDE.md` says an agent looking at or driving this project uses `bevy_debugger_mcp` and
+# nothing else, and then carved this crate out as a `bevy_devshot` caller — because it had no BRP of
+# its own. That was true while the debugger was a pinned git dependency; it is vendored now, so the
+# carve-out was a choice rather than a constraint.
+#
+# What it buys over the sentinel file: `bevy_debugger/input` writes into the editor's own
+# `ButtonInput`, so an agent can walk tabs and press keys without touching a real keyboard — which is
+# exactly what `devshot.rs`'s verb list is a hand-built stand-in for. `bevy_debugger/screenshot` also
+# takes a region and a zoom, where `bevy_devshot` is whole-frame only.
+#
+# **`bevy_devshot` stays** as the player-facing Ctrl+P path, but it is no longer the only way to see
+# a panel: since 2026-08-18 the whole application draws into one offscreen image that the window
+# mirrors (`src/surface.rs`), so `bevy_debugger/screenshot` returns the interface too. Before that,
+# Bevy drawing a UI tree to one camera meant a mirror never received the panels.
+[features]
+# **On by default, and it should always have been.** This editor is a dev tool — it is never shipped
+# to a player, so there is no build of it that wants the debugger absent. Leaving it opt-in meant
+# every session began with an author being asked to remember a flag, and an agent being unable to see
+# what the author was looking at until they did. That cost a whole afternoon of "there is nothing on
+# the right" against "the palette is there, I checked headless", which is exactly the gap BRP exists
+# to close.
+#
+# The game is the opposite case and stays opt-in: it SHIPS, and `cargo tree -i bevy_debugger_bevy`
+# must find nothing in a release build.
+#
+# **The port is the one caveat.** Both default to 15702, so running the game with its `debugger`
+# feature and this editor at the same time needs `BEVY_BRP_PORT` set on one of them, or the second
+# process fails to bind. That is a loud failure, not a silent one.
+default = ["debugger"]
+debugger = ["bevy/bevy_remote", "dep:bevy_debugger_bevy"]
+
+[dependencies]
+emerge-core = { path = "../emerge-core" }
+# The runtime half. The editor spawns pieces through `emerge_bevy::spawn_descriptor` rather than its
+# own copy, so a map cannot look one way here and another in the game — the failure `bake.rs` and
+# `site_editor::source_map` demonstrated by independently growing the same RON writer.
+emerge-bevy = { path = "../emerge-bevy" }
+# The game's own pose blender. The bench previews through THIS rather than a copy, on the same
+# argument `emerge-bevy` makes for `spawn_descriptor`: a rig cannot move one way here and another in
+# the game if there is only one blender.
+emerge-anim = { path = "../emerge-anim" }
+# The editor is a Bevy app in its own right, not a mode of the game. `sim_harness.rs` is the precedent
+# the plan cites for two binaries over one plugin graph — "not a second code path".
+# `jpeg` because the shipped kits embed PBR textures as JPEG and Bevy's defaults cover only PNG.
+#
+# `bevy_dev_tools` was here for `infinite_grid` and is gone with it: the dev tool's grid drew at 1.0 m
+# while `emerge_core::grid::SNAP` is 0.5, and drew forever, so the ground outside `Map::bounds` looked
+# as buildable as the ground inside. `editor::draw_map_grid` is bounded by the map and spaced by the
+# constant that defines a cell.
+# **`bevy_feathers` is on for its MACHINERY, not for its greys.** `docs/ui.md` §5 says of it "its
+# visuals are Bevy's editor skin — do not adopt them", and that rule is kept: `chrome::theme()` seeds
+# Feathers' `UiTheme` from this editor's own palette, so a token miss renders fuchsia and shouts
+# rather than quietly drawing somebody else's grey. What is adopted is the theme mechanism, the focus
+# outlines, and the themed scrollbar — the parts that would otherwise be hand-written badly.
+#
+# The crate is marked experimental and its own docs suggest copying it. Depended on, pinned by the
+# workspace: this editor ships to nobody, so an API break costs an afternoon rather than a release.
+bevy = { workspace = true, features = ["jpeg", "bevy_feathers"] }
+# **Not re-exported by `bevy_a11y`**, so it is a direct dependency — and 0.24 is what `bevy_feathers`
+# itself depends on (`bevy_feathers-0.19.0/Cargo.toml:47`), so the two agree by construction rather
+# than by a version somebody kept in step.
+accesskit = "0.24"
+# The screenshot rig, shared with the game so there is one capture path rather than two copies of it.
+bevy_devshot = { path = "../bevy_devshot" }
+ron.workspace = true
+serde.workspace = true
+# The VLM labeler's transport (`vlm.rs`): one blocking OpenAI-style POST, made from a task-pool
+# thread, never the UI thread. The editor is dev-only tooling, so a network client here does not
+# leak toward the game — the game keeps zero HTTP deps (`docs/llm_rule_authoring.md`: the LLM
+# authors metadata, it never runs in the sim).
+ureq = { version = "3", features = ["json"] }
+serde_json.workspace = true
+# Base64 data-URI image parts for the chat request; `image` encodes the booth's RGBA readback to
+# PNG. Both already in the build graph (serde_json via emerge-core, base64/image via bevy).
+base64 = "0.22"
+image.workspace = true
+# Cmd+C on the detail pane — the pane's text into the system clipboard, so an author can hand a
+# piece's facts to an agent. Text only; the image-data feature would drag image deps in twice.
+arboard = { version = "3", default-features = false }
+# The debugger's companion plugin. **Optional**, so it is absent from the resolved dependency graph
+# of an ordinary build — `cargo tree -i bevy_debugger_bevy` finds no package without the feature, and
+# neither does `bevy_remote`. A path dep into the vendored copy, never a pinned rev: the pin is what
+# turned a one-line fix into a cross-repo errand, which is why the debugger lives in this tree now.
+bevy_debugger_bevy = { path = "../bevy_debugger_mcp/crates/bevy_debugger_bevy", optional = true }
