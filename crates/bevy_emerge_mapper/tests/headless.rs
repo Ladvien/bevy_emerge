@@ -11057,7 +11057,7 @@ fn the_theme_is_seeded_from_the_palette() {
         .get_resource::<bevy::feathers::theme::UiTheme>()
         .expect("no `UiTheme` means every token misses and the editor draws fuchsia");
     assert!(
-        !theme.0.color.is_empty(),
+        !theme.0.token_assignments.is_empty(),
         "an empty theme is the default, and the default is a fuchsia editor"
     );
     for (token, want, what) in [
@@ -11067,8 +11067,8 @@ fn the_theme_is_seeded_from_the_palette() {
         (bevy::feathers::tokens::LISTROW_BG_SELECTED, bevy_emerge_mapper::chrome::ROW_SELECTED, "a chosen row"),
     ] {
         assert_eq!(
-            theme.0.color.get(&token).copied(),
-            Some(want),
+            theme.0.color(&token),
+            want,
             "{what} must come from `chrome`, not from Feathers' own skin"
         );
     }

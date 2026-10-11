@@ -1344,7 +1344,7 @@ fn wire_back_buttons(
 /// Hang the click on whichever panel spawned the button. An observer rather than a polling system,
 /// so it costs nothing on the frames nobody clicks.
 fn back_button_clicked(
-    _: On<bevy::picking::events::Pointer<bevy::picking::events::Click>>,
+    _: On<bevy::picking::events::PointerClick>,
     open: Option<ResMut<OpenMap>>,
     project: Option<Res<Project>>,
     mut state: ResMut<EditorState>,

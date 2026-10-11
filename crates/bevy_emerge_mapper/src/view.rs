@@ -22,7 +22,7 @@
 
 use std::f32::consts::TAU;
 
-use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
+use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollPixelsPerLine, MouseScrollUnit};
 use bevy::prelude::*;
 
 use crate::keys::{self, Action};
@@ -78,16 +78,15 @@ const ZOOM_STEP: f32 = 1.2;
 /// — the whole [`MIN_ZOOM`]..[`MAX_ZOOM`] range, which is about thirty-two, in a flick. Reported from
 /// the keyboard: *"way too sensitive for a touchpad."*
 ///
-/// [`MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR`] is the pinned engine's own answer to how many
-/// pixels make a line, so the conversion is Bevy's number rather than one invented here — and both
-/// devices end up asking for the same zoom per unit of intent. `src/camera.rs` does the same, for
-/// the same reason and with the same constant; the two are kept in step by hand, like `PAN_SPEED`.
-fn wheel_lines(scroll: &AccumulatedMouseScroll) -> f32 {
+/// [`MouseScrollPixelsPerLine`] is the engine's own answer to how many pixels make a line (a
+/// resource since Bevy 0.20; it was the constant `MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR`),
+/// so the conversion is Bevy's number rather than one invented here — and both devices end up asking
+/// for the same zoom per unit of intent. `src/camera.rs` does the same, for the same reason; the two
+/// are kept in step by hand, like `PAN_SPEED`.
+fn wheel_lines(scroll: &AccumulatedMouseScroll, per_line: MouseScrollPixelsPerLine) -> f32 {
     match scroll.unit {
         MouseScrollUnit::Line => scroll.delta.y,
-        MouseScrollUnit::Pixel => {
-            scroll.delta.y / MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR
-        }
+        MouseScrollUnit::Pixel => scroll.delta.y / per_line,
     }
 }
 /// **Viewport heights a second a held pan key crosses**, not metres a second.
@@ -249,6 +248,7 @@ fn drive(
     // parameter and `keys::just_pressed` does the refusing, per key, in the one place that decides it.
     live: Res<keys::Live>,
     scroll: Res<AccumulatedMouseScroll>,
+    per_line: Res<MouseScrollPixelsPerLine>,
     // The wheel belongs to whatever is under the cursor: a scrolling palette and a zooming camera
     // both want it, and reading the raw wheel means scrolling the list also zooms the world out from
     // under it. Every pickable widget carries `Hovered`; readouts are `Pickable::IGNORE` and have none.
@@ -260,7 +260,7 @@ fn drive(
     let over_ui = hovered_ui.iter().any(|h| h.0);
     let dt = time.delta_secs();
 
-    let lines = wheel_lines(&scroll);
+    let lines = wheel_lines(&scroll, *per_line);
     if lines != 0.0 && !over_ui {
         // **A ratio, so a detent is the same gesture at every scale.** Subtracting metres put one
         // wheel stop between the floor and 2 m.
@@ -496,10 +496,13 @@ mod tests {
     /// which asked for more viewport height in one frame than the whole zoom range holds.
     #[test]
     fn a_trackpad_swipe_is_read_in_lines_not_pixels() {
-        use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
+        use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollPixelsPerLine, MouseScrollUnit};
 
         let of = |unit, y| {
-            super::wheel_lines(&AccumulatedMouseScroll { unit, delta: Vec2::new(0.0, y) })
+            super::wheel_lines(
+                &AccumulatedMouseScroll { unit, delta: Vec2::new(0.0, y) },
+                MouseScrollPixelsPerLine::default(),
+            )
         };
         // A wheel is already in lines and is left alone — the tuning this app shipped with.
         assert_eq!(of(MouseScrollUnit::Line, 1.0), 1.0);
@@ -507,7 +510,7 @@ mod tests {
 
         // A frame of trackpad pixels is divided by the engine's own pixels-per-line, so a swipe
         // that used to cross the entire range now moves a fraction of one detent.
-        let f = MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR;
+        let f = *MouseScrollPixelsPerLine::default();
         assert_eq!(of(MouseScrollUnit::Pixel, f), 1.0, "one line's worth of pixels is one line");
         let swipe = of(MouseScrollUnit::Pixel, 30.0);
         assert!(

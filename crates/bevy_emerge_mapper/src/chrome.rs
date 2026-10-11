@@ -451,27 +451,36 @@ impl Plugin for WidgetsPlugin {
 /// token this table misses answers with Bevy's grey rather than shouting. The safety property this
 /// paragraph used to claim is the one thing the seeding gives up.
 pub fn theme() -> bevy::feathers::theme::ThemeProps {
+    use bevy::feathers::theme::{SemanticToken, ThemeToken};
     use bevy::feathers::tokens;
     let mut props = bevy::feathers::dark_theme::create_dark_theme();
-    props.color.extend([
-        (tokens::WINDOW_BG, VOID),
-        (tokens::PANE_BODY_BG, PANEL_BG),
-        (tokens::PANE_HEADER_BG, HEADER_BG),
-        (tokens::SUBPANE_BODY_BG, SLOT_BG),
-        (tokens::SUBPANE_HEADER_BG, HEADER_BG),
-        (tokens::TEXT_MAIN, TEXT),
-        (tokens::TEXT_DIM, DIM),
-        // The focus ring is the one thing Feathers gives that this editor has never had. `ACCENT` at
-        // half alpha, because a ring is a *state* and the audit's rule is that persistent signals sit
-        // at medium contrast with the loud end held in reserve.
-        (tokens::FOCUS_RING, ACCENT.with_alpha(0.5)),
-        (tokens::SCROLLBAR_BG, HEADER_BG),
-        (tokens::SCROLLBAR_THUMB, scaled(ROW_SELECTED, 0.8)),
-        (tokens::SCROLLBAR_THUMB_HOVER, ROW_SELECTED),
-        (tokens::LISTROW_BG, ROW_BG),
-        (tokens::LISTROW_BG_HOVER, ROW_HOVER),
-        (tokens::LISTROW_BG_SELECTED, ROW_SELECTED),
-    ]);
+    // **Bevy 0.20 split a token from its colour.** A design token now maps to a `SemanticToken`
+    // (`token_assignments`), and the semantic token maps to a colour, per surface level
+    // (`semantic_base`, `semantic_overrides`). This editor has no surface levels, so each token it
+    // restates gets a semantic token of its own — one colour, whatever the context — which is the
+    // port the 0.20 migration guide (`contextual_theming.md`) names as the quick one.
+    let mut assign = |token: ThemeToken, color: Color| {
+        let semantic = SemanticToken::new(format!("bevy_emerge_mapper.{token}").into());
+        props.token_assignments.insert(token, semantic.clone());
+        props.semantic_base.insert(semantic, color);
+    };
+    assign(tokens::WINDOW_BG, VOID);
+    assign(tokens::PANE_BODY_BG, PANEL_BG);
+    assign(tokens::PANE_HEADER_BG, HEADER_BG);
+    assign(tokens::SUBPANE_BODY_BG, SLOT_BG);
+    assign(tokens::SUBPANE_HEADER_BG, HEADER_BG);
+    assign(tokens::TEXT_MAIN, TEXT);
+    assign(tokens::TEXT_DIM, DIM);
+    // The focus ring is the one thing Feathers gives that this editor has never had. `ACCENT` at
+    // half alpha, because a ring is a *state* and the audit's rule is that persistent signals sit
+    // at medium contrast with the loud end held in reserve.
+    assign(tokens::FOCUS_RING, ACCENT.with_alpha(0.5));
+    assign(tokens::SCROLLBAR_BG, HEADER_BG);
+    assign(tokens::SCROLLBAR_THUMB, scaled(ROW_SELECTED, 0.8));
+    assign(tokens::SCROLLBAR_THUMB_HOVER, ROW_SELECTED);
+    assign(tokens::LISTROW_BG, ROW_BG);
+    assign(tokens::LISTROW_BG_HOVER, ROW_HOVER);
+    assign(tokens::LISTROW_BG_SELECTED, ROW_SELECTED);
     props
 }
 
@@ -990,7 +999,12 @@ pub fn spawn_frame(mut commands: Commands) {
         .spawn((
             Node {
                 width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
+                // **`Vh`, not `Percent`.** A UI root is a grid item of Bevy's implicit viewport node
+                // whose single row is `auto`, so a percentage height is cyclic there and, under
+                // Bevy 0.20's taffy, resolves to the content's height: the root grew to its
+                // content and no `ScrollArea` below it ever had anything to scroll. A viewport
+                // unit is a definite length and does not depend on the track.
+                height: Val::Vh(100.0),
                 flex_direction: FlexDirection::Column,
                 ..default()
             },

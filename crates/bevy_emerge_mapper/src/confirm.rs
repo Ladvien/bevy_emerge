@@ -236,7 +236,7 @@ fn answer_by_key(keyboard: Res<ButtonInput<KeyCode>>, mut confirm: ResMut<Confir
 
 /// The same two answers, by pointer.
 fn answer_by_click(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     buttons: Query<&ConfirmButton>,
     mut confirm: ResMut<Confirm>,
 ) {

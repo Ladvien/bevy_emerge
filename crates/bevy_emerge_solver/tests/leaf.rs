@@ -29,6 +29,9 @@ const ALLOWED_DEPS: &[&str] = &["batsat"];
 const FORBIDDEN_DEP_MARKERS: &[&str] =
     &["bevy", "avian", "wgpu", "winit", "emerge", "foundation_vs_slop", "rayon"];
 
+/// This crate's own name, which its error messages spell.
+const OWN_NAME: &str = "bevy_emerge_solver";
+
 fn crate_root() -> PathBuf {
     // Cargo runs a test binary with the cwd set to its own package root.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -112,8 +115,11 @@ fn no_source_file_reaches_for_an_engine() {
         };
         let code = strip_comments(&text);
         for (n, line) in code.lines().enumerate() {
+            // This crate's own name appears in its error messages (`bevy_emerge_solver: ...`) and
+            // contains the `bevy` and `emerge` markers; only that exact name is exempt.
+            let checked = line.replace(OWN_NAME, "");
             for marker in FORBIDDEN_DEP_MARKERS {
-                if line.contains(marker) {
+                if checked.contains(marker) {
                     offenders.push(format!(
                         "{}:{} — {}",
                         path.strip_prefix(crate_root()).unwrap_or(path).display(),

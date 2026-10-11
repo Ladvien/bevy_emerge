@@ -40,7 +40,7 @@ fn editors_resources(fixture: &str) -> Vec<String> {
     let mut names: Vec<String> = app
         .world()
         .iter_resources()
-        .map(|(info, _)| info.name().to_string())
+        .map(|(_, info, _)| info.name().to_string())
         // Bevy's own resources are Bevy's business; a door change is this crate's question.
         .filter(|n| n.starts_with("bevy_emerge_mapper::"))
         .collect();

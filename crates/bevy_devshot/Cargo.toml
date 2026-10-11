@@ -15,7 +15,7 @@ publish = false
 # encoder from the file extension via the `image` crate, so without it the capture fails with an
 # unsupported-format error at the moment you wanted the screenshot, having compiled perfectly.
 [dependencies]
-bevy = { version = "0.19.0", default-features = false, features = [
+bevy = { version = "0.20.0", default-features = false, features = [
     "bevy_render", "bevy_window", "bevy_log", "png",
 ] }
 
@@ -25,4 +25,4 @@ bevy = { version = "0.19.0", default-features = false, features = [
 # cannot reach a consumer's dependency graph. `tests/`-style boundary checks read `[dependencies]`
 # only, deliberately: a dev-dependency on something heavier is a different conversation.
 [dev-dependencies]
-bevy = { version = "0.19.0" }
+bevy = { version = "0.20.0" }

@@ -24,5 +24,5 @@ repository = "https://github.com/Ladvien/bevy_emerge"
 # `default-features = false`, and Cargo ignores a member-level `default-features` when the dependency
 # is inherited — so writing `{ workspace = true, default-features = false }` would silently keep the
 # defaults on. The version is the workspace's; keep them in step by hand when bumping.
-bevy = { version = "0.19.0", default-features = false, features = ["bevy_animation", "bevy_scene", "bevy_gltf", "bevy_log"] }
+bevy = { version = "0.20.0", default-features = false, features = ["bevy_animation", "bevy_scene", "bevy_gltf", "bevy_log"] }
 bevy_emerge_core = { path = "../bevy_emerge_core" }

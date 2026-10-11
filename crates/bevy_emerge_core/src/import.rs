@@ -1102,14 +1102,14 @@ mod occupancy_tests {
         let got = occupancy(&mesh(&wall), div, (0, 0, 0)).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(
             got.len() as u32,
-            bevy_emerge_core_volume(div),
+            emerge_core_volume(div),
             "every cell of a solid slab is solid; got {} of {}",
             got.len(),
-            bevy_emerge_core_volume(div)
+            emerge_core_volume(div)
         );
     }
 
-    fn bevy_emerge_core_volume(div: (u32, u32, u32)) -> u32 {
+    fn emerge_core_volume(div: (u32, u32, u32)) -> u32 {
         crate::descriptor::Subgrid::volume(div)
     }
 

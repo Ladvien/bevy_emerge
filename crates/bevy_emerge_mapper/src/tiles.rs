@@ -4278,7 +4278,7 @@ fn enter_tab(
 /// So: no `Button`, no `Activate`, no focus — a `Pointer<Click>` observer that walks the same
 /// [`enter_tab`] the key does. It bubbles, so a click on the chip's chord or label reaches the chip.
 fn click_tab(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     tabs: Query<&Tab>,
     project: Option<Res<Project>>,
     mode: Option<ResMut<Mode>>,
@@ -7502,7 +7502,7 @@ fn shelf_strip(
 /// **A chip goes where its key goes**, through the same two fields the keys write — so the pointer
 /// and the keyboard cannot come to disagree about which shelf is up.
 fn on_shelf_click(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     chips: Query<&ShelfChip>,
     project: Option<Res<Project>>,
     filters: Option<Res<crate::filter::Filters>>,
@@ -7588,10 +7588,10 @@ pub struct NewTileRow;
 
 /// Clicking `+ New Tile` opens the naming prompt — the exact `NamePrompt` `BuildNew` builds, so
 /// the pointer and the `N` key ask the same question. A `quiet_row` carries its own click handling
-/// (`On<Pointer<Click>>` rather than the `Activate` bus, which is what `quiet_row` is for), and
+/// (`On<PointerClick>` rather than the `Activate` bus, which is what `quiet_row` is for), and
 /// `Build` is `Option<ResMut>` because this is a global observer — see [`on_shelf_click`].
 fn on_new_tile_click(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     rows: Query<&NewTileRow>,
     build: Option<ResMut<crate::build::Build>>,
 ) {

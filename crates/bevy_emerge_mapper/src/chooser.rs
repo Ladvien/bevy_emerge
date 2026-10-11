@@ -5554,7 +5554,7 @@ fn keep_the_chooser_selection_on_screen(
 /// **A click puts the cursor where the arrows would have put it**, through the same two fields —
 /// so the pointer and the keyboard cannot come to disagree about what is selected.
 fn on_row_click(
-    click: On<Pointer<Click>>,
+    click: On<PointerClick>,
     rows: Query<&ChooserRow>,
     mut chooser: Option<ResMut<Chooser>>,
     // For the double-click, which runs the same `open_the_selection` `Enter` does.
@@ -5602,7 +5602,7 @@ fn on_row_click(
         }
     }
     // **The second click opens it**, through the identical door `Enter` walks — see
-    // [`open_the_selection`]. Bevy's `Pointer<Click>` carries `count`, so this needs no timer and
+    // [`open_the_selection`]. Bevy's `PointerClick` carries `count`, so this needs no timer and
     // no remembered entity: the first click arrives as 1 and has already moved the cursor above,
     // the second arrives as 2 and acts on it. `>= 2` rather than `== 2` so a fast triple-click
     // opens rather than falling through and doing nothing.

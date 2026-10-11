@@ -304,8 +304,10 @@ pub fn build_headless_at(
     // retired a staged figure panicked inside `sync_component.rs`. Adding the plugin gives the
     // hooks their ledger; nothing consumes the records without a render world, which over a
     // bounded test run is a small vec nobody reads — the honest cost of stepping frames deviceless.
-    if !app.is_plugin_added::<bevy::render::sync_world::SyncWorldPlugin>() {
-        app.add_plugins(bevy::render::sync_world::SyncWorldPlugin);
+    // Bevy 0.20 moved the plugin into `bevy_extract` and made it generic over the sub-app label.
+    type SyncRender = bevy::extract::sync_world::SyncWorldPlugin<bevy::render::RenderApp>;
+    if !app.is_plugin_added::<SyncRender>() {
+        app.add_plugins(SyncRender::default());
     }
 
     add_editor_plugins(&mut app);
