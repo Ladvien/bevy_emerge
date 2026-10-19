@@ -140,7 +140,7 @@ pub fn add_debugger_plugins(app: &mut App) -> &mut App {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(bevy::remote::http::DEFAULT_PORT);
     app.add_plugins((
-        bevy_debugger_bevy::DebuggerPlugin,
+        bevy_debugger_bevy::DebuggerPlugin::default(),
         bevy::remote::http::RemoteHttpPlugin::default().with_port(port),
         // **The capture target is `crate::surface`'s, and it is in the SHARED list, not this one.**
         // There used to be a `DebugCapturePlugin` here owning a second `Camera3d` that mirrored the
