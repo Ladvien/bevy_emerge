@@ -123,7 +123,18 @@ Top 5 remaining:
   number the game will spawn. All three in `runs/2026-10-20-01/review.md`, with the captures in
   `runs/2026-10-20-01/evidence/`.
 
-- **Commit:** _(filled in below once pushed)_
+- **Commit:** `1bc0f5f` — "bevy_emerge_core, bevy_emerge_mapper: a map's stamps reach the
+  consumer". Pushed to `Ladvien/bevy_emerge` `main` and pulled back; `main` == `origin/main` at
+  `1bc0f5f`.
+  **No PR.** This repository has never had one — every commit goes straight to `main`, and
+  `gh pr create` refused with *"head branch `main` is the same as base branch `main`"*. The
+  commit was already on `main` when the PR step was reached, and the owner's rule of 2026-10-20
+  (*"Agents ask before force pushes and deletions"*) says a commit that landed on the wrong
+  branch is *"fixed with a new commit or a question, never by resetting a shared working tree or
+  force-pushing"*. So the branch `feature/stamps-reach-the-consumer` was pushed at the same
+  commit for review, and **deleting it is left to the owner** — it is a remote branch this
+  session created, but the rule names branch deletion as needing express permission, and the
+  next loop should not have to reason about whether a branch is worth keeping.
 
 - **Run:** `docs/loop/runs/2026-10-20-01/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
   `evidence/`.
