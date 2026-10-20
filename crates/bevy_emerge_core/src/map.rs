@@ -389,6 +389,83 @@ impl Map {
         Ok(map)
     }
 
+    /// **The map as a consumer sees it**: the same map, with every stamp's rows in
+    /// [`Self::placements`].
+    ///
+    /// # Why this exists
+    ///
+    /// A map holds **references** to compositions, never the rows they stand for — that is what
+    /// makes editing a group change every map that stamped it. But a consumer that reads
+    /// [`Self::placements`] and finds only the hand-authored rows is reading a *different level*
+    /// from the one the author drew: the editor showed the group, the game does not have it.
+    ///
+    /// That was measured, not supposed. Sanctuary's `town.map.ron` was stamped once with
+    /// `town/house_cottage_plaster`; the editor drew its 18 members, and the game, loading the
+    /// same file through [`crate::project_data::load`], received 728 placements where the editor
+    /// had 746. The 18 missing rows were the house.
+    ///
+    /// So the expansion is not optional for a consumer, and this is where it happens. The map's
+    /// [`Self::stamps`] are **kept** — the reference survives, so saving the expanded map writes
+    /// the reference and not the rows, and editing the group still moves every stamp.
+    ///
+    /// # One expander
+    ///
+    /// This is [`crate::composition::expand_map`] — the same function the editor's ghost and the
+    /// editor's save gate call. There is no second implementation, so the editor's picture and the
+    /// game's world cannot disagree about what a stamp means.
+    ///
+    /// # A refusal, not a degradation
+    ///
+    /// A stamp that does not expand — a group the project no longer defines, a member the library
+    /// lacks, a member with nowhere to rest — fails **here**, and the error names the stamp. The
+    /// map is not returned with its rows missing: a level that quietly lacks a house is the exact
+    /// failure this method exists to remove.
+    pub fn expanded(
+        &self,
+        compositions: &[crate::composition::Composition],
+        library: &crate::library::Library,
+    ) -> Result<Map, String> {
+        if self.stamps.is_empty() {
+            return Ok(self.clone());
+        }
+        let expansion = crate::composition::expand_map(self, compositions, library)?;
+        let mut out = self.clone();
+        // **The rows, in the order `expand` emits them** — stamp id order, then member-path order.
+        // A total order, so two runs and two readers agree on which row is which.
+        out.placements.extend(expansion.placements);
+        // A stamp's locations come with it, or the group's affordances vanish: a location governs
+        // props by id, and those ids are the stamped ones.
+        out.locations.extend(expansion.locations);
+        Ok(out)
+    }
+
+    /// **The stamp a row belongs to**, and the member within it — `None` for a hand-placed row.
+    ///
+    /// A consumer reading an expanded map has a mixture of rows: the ones the author placed and
+    /// the ones a group brought. Which is which is not a matter of taste — a game that validates
+    /// every row against the descriptors it knows has to skip the rows a group brought, because
+    /// the group is the *game's* business (a house's wall panels are chosen by the house, not by
+    /// the town), while the map's own rows are the town's.
+    ///
+    /// # The id alone is not enough
+    ///
+    /// A placement id is an authored string and nothing shape-checks it — `fridge@1` ships, and
+    /// `mess_a/table` is legal too. So a `/` in an id does **not** make a row a stamped one; the
+    /// map's own stamp list is what says so. A hand-placed row named `mess_a/table` on a map with
+    /// no such stamp is a hand-placed row, and answering otherwise would hand a consumer a
+    /// classification it cannot check.
+    ///
+    /// The id *shape* comes from the one convention [`crate::composition::stamped_id`] writes, so
+    /// the two cannot drift; the *membership* is this map's own.
+    pub fn stamp_of<'a>(&self, placement_id: &'a str) -> Option<(&'a str, &'a str)> {
+        let (stamp, member) = crate::composition::split_stamped_id(placement_id)?;
+        // **The stamp must be one this map holds.** The id says the shape; the map says the fact.
+        if !self.stamps.iter().any(|s| s.id == stamp) {
+            return None;
+        }
+        Some((stamp, member))
+    }
+
     /// Everything that must hold before a map is usable.
     ///
     /// `descriptors` is the set of known ids; pass an empty slice to skip that cross-check when

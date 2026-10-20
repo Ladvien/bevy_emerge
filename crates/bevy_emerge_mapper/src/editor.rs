@@ -2533,17 +2533,53 @@ fn refresh_status(
             Field::Map => (
                 // Counted by `bevy_emerge_core::census`, never here — see
                 // `tests/census_is_the_one_counter.rs` for why a rendered count is the one that
-                // drifts. Stamps are named separately because a stamp is one reference however many
-                // rows it stands for, and folding them into "placed" would make the number disagree
-                // with what is on screen.
+                // drifts. The stamp's rows are counted **inside** the total, because the total is
+                // what the consumer has — the game spawns the group's rows too, so a number that
+                // left them out would disagree with the world the author is authoring.
                 {
-                    let counted = bevy_emerge_core::census::of_map(&open.map);
-                    let stamps = match counted.stamps {
-                        0 => String::new(),
-                        n => format!(", {n} stamped"),
-                    };
-                    let unsaved = if open.dirty() { ", unsaved" } else { "" };
-                    format!("{} placed{stamps}{unsaved}", counted.placements)
+                    // **The count the consumer will have**, not the count of hand-authored rows.
+                    //
+                    // A stamp is a reference, so the rows it stands for are derived — and a panel
+                    // saying "728 placed" beside a game holding 746 is a panel lying. The
+                    // census expands, so this is the same number `project_data::load` produces.
+                    //
+                    // **A map whose stamps do not expand says so**, rather than showing a number
+                    // that quietly omits a house.
+                    match bevy_emerge_core::census::of_map(
+                        &open.map,
+                        &project.compositions.compositions,
+                        &project.library,
+                    ) {
+                        Ok(counted) => {
+                            // **The total first, then where it came from.**
+                            //
+                            // "745 placed (727 hand, 18 group(s))" reads as if the 18 were on top
+                            // of the 745, which they are not — the 745 already counts them. So the
+                            // breakdown says what is *included*, and the author can add the two
+                            // numbers and get the number they read.
+                            //
+                            // **Short, because this row is one line.** The inspector's rows are
+                            // labels and values on a single line each, and a value that wraps
+                            // pushes the rows below it out of the panel — the "MAP" label sat
+                            // beside two lines of value, which reads as two rows and is neither.
+                            // Measured at the narrowest panel: the value column holds about 40
+                            // characters before it wraps, so the breakdown has to fit in that.
+                            //
+                            // The number of **references** is not here. It is in the log line the
+                            // map prints when it opens, and the reference count is not what the
+                            // author is reading this row for — the row count is.
+                            let stamps = match counted.stamps {
+                                0 => String::new(),
+                                _n => format!(
+                                    " ({} hand, {} group(s))",
+                                    counted.placements, counted.stamped
+                                ),
+                            };
+                            let unsaved = if open.dirty() { ", unsaved" } else { "" };
+                            format!("{} placed{stamps}{unsaved}", counted.total())
+                        }
+                        Err(e) => format!("cannot count this map: {e}"),
+                    }
                 },
                 if open.dirty() { ACCENT } else { TEXT },
             ),
@@ -4794,10 +4830,9 @@ fn redraw_stamps(
             drawn += 1;
         }
     }
-    let counted = bevy_emerge_core::census::of_map(&open.map);
+    let stamps = open.map.stamps.len();
     info!(
-        "bevy_emerge_mapper: redrew {drawn} stamped row(s) from {} stamp(s)",
-        counted.stamps
+        "bevy_emerge_mapper: redrew {drawn} stamped row(s) from {stamps} stamp(s)"
     );
 }
 

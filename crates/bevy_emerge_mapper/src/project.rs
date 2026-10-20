@@ -716,13 +716,34 @@ impl OpenMap {
             ));
         }
 
-        let counted = bevy_emerge_core::census::of_map(&map);
-        info!(
-            "map: {} — {} placement(s), {} stamp(s)",
-            map_path.display(),
-            counted.placements,
-            counted.stamps
+        // **Counted by the census**, like every other count — the ratchet
+        // `tests/census_is_the_one_counter.rs` enforces, and the reason two panels cannot
+        // disagree about the same number.
+        //
+        // The map's own rows and the rows its stamps bring are separate numbers, and the log
+        // says both: a map with 728 hand-placed rows and one stamp of an 18-member group is a
+        // 746-row level, and a log that said "728" would be describing half of it.
+        let counted = bevy_emerge_core::census::of_map(
+            &map,
+            &project.compositions.compositions,
+            &project.library,
         );
+        match counted {
+            Ok(counted) => info!(
+                "map: {} — {} placement(s), {} stamp(s) standing for {} row(s)",
+                map_path.display(),
+                counted.placements,
+                counted.stamps,
+                counted.stamped
+            ),
+            // A map whose stamps do not expand is refused by the save gate, but opening it is
+            // still legal — the author may be about to fix the group. The log says so rather
+            // than printing a count that would be a guess.
+            Err(e) => info!(
+                "map: {} — and its stamps do not expand: {e}",
+                map_path.display()
+            ),
+        }
 
         Ok(OpenMap::new(map, map_path))
     }
@@ -739,14 +760,16 @@ impl OpenMap {
         // resolves passed this door and was written with a cheerful "saved" — and then failed at
         // `FVS_EMERGE_MAP` load with "the map has holes". The editor saying saved while the game says
         // broken is the exact drift the shared `bevy_emerge_core` validation exists to prevent.
+        //
+        // **And now the question is literally the same one.** The game expands a map's stamps when
+        // it loads it, so the gate expands them the same way — through `Map::expanded`, the same
+        // function `project_data::load` calls. Before this, the gate checked that the stamps
+        // *could* expand while the game did not expand them at all, so the gate was on the wrong
+        // side of the file: it proved the file was loadable, not that the game would load it.
         if !self.map.stamps.is_empty() {
-            bevy_emerge_core::composition::expand(
-                &self.map,
-                &self.map.stamps,
-                &project.compositions.compositions,
-                &project.library,
-            )
-            .map_err(|e| format!("not saved — the game could not load this: {e}"))?;
+            self.map
+                .expanded(&project.compositions.compositions, &project.library)
+                .map_err(|e| format!("not saved — the game could not load this: {e}"))?;
         }
         // Follow a rename. The path is derived rather than remembered, so the file a map is in is
         // always the file its name says it is.

@@ -22,6 +22,15 @@ Why it is enforced rather than trusted: **three consumers share this crate** —
 
 **RON surgery preserves comments** because the files it edits are hand-authored and reviewed. A writer that reformats them is not a faster version of this — it is a different, lossy tool.
 
+**A map's stamps reach the consumer, and that is the loader's job.** A map holds *references* to compositions; the rows those references stand for are derived, and somebody has to derive them. That somebody is `project_data::load`, through `Map::expanded` — so a game that loads a project gets the stamped rows in `map.placements`, and the editor and the game cannot disagree about what a stamp means.
+
+It used to be the editor only, and the two were different levels: the editor drew a group's 18 members, the game received 728 rows where the editor had 746, and nothing said so. The editor's save gate checked that the stamps *could* expand while the game did not expand them at all — the gate was on the wrong side of the file. Now both go through the same call.
+
+Two rules follow, and both are load-bearing:
+
+- **One expander.** `composition::expand` is the only function that turns a stamp into rows. `composition::expand_map` is the same call with the map's own stamps. A second implementation is how the editor and the game drift.
+- **The count an author reads is the count the game has.** `census::of_map` expands, so the inspector's `N placed` is the row count the consumer will have — the hand-authored rows *and* the ones a group brought. A panel that said "727" beside a game holding 745 would be a panel lying.
+
 No Bevy dependency exists here, and none may be added.
 
 ## Rules

@@ -1239,6 +1239,37 @@ pub fn stale_members(
 // Expansion
 // ---------------------------------------------------------------------------------------------
 
+/// **The id a stamp's row carries** — `<stamp id>/<member path>`.
+///
+/// **The one place the convention is written down.** A row a stamp brought has this id, and
+/// nothing else does, because a placement id is an authored string and nothing stops an author
+/// typing a `/` into one — so this cannot be *guessed* from an id at a call site. It is stated
+/// here, in the module that mints the ids, and read back through [`crate::map::Map::stamp_of`].
+///
+/// The member path is the flattened path, so a member of a nested group reads
+/// `outer/inner/member` and the id is `stamp/outer/inner/member` — the whole chain, because a
+/// consumer that names a row has to be able to say which group and which member it was.
+pub fn stamped_id(stamp: &str, member: &str) -> String {
+    format!("{stamp}/{member}")
+}
+
+/// **The stamp a row belongs to**, and the member within it — or `None` for a hand-placed row.
+///
+/// The inverse of [`stamped_id`], and the answer a consumer needs when a map's rows are a mixture
+/// of the two: a game reading a level has to know which rows it was handed and which it owns.
+///
+/// It is a **prefix test on the id**, which is sound because [`stamped_id`] mints every stamped
+/// row and no other id in the schema contains a `/` at that position — a hand-placed id is an
+/// authored string, and a stamped id is `<stamp>/<member>`. The stamp id is the part before the
+/// first `/`; the member path is everything after it.
+pub fn split_stamped_id(id: &str) -> Option<(&str, &str)> {
+    let (stamp, member) = id.split_once('/')?;
+    if stamp.is_empty() || member.is_empty() {
+        return None;
+    }
+    Some((stamp, member))
+}
+
 /// **Turn a map's stamps into the rows and locations they stand for.**
 ///
 /// The one expander. The editor's ghost, the editor's save and the game's loader all come through
@@ -1353,7 +1384,7 @@ pub fn expand(
         let mut hosts: Vec<Option<String>> = Vec::with_capacity(flats.len());
         for f in &flats {
             match &f.on {
-                Some(sibling) => hosts.push(Some(format!("{}/{}", s.id, sibling))),
+                Some(sibling) => hosts.push(Some(stamped_id(&s.id, sibling))),
                 None => {
                     let base = library.get(&f.descriptor).ok_or_else(|| {
                         format!(
@@ -1377,7 +1408,7 @@ pub fn expand(
 
         for (f, on) in flats.into_iter().zip(hosts) {
             let at = rotate_xz(f.at, s.yaw);
-            let id = format!("{}/{}", s.id, f.path);
+            let id = stamped_id(&s.id, &f.path);
             if hand_placed.contains(id.as_str()) {
                 return Err(format!(
                     "map: stamp `{}` expands to a row named `{id}`, and the map already places one \
@@ -1410,8 +1441,8 @@ pub fn expand(
 
         for l in locs {
             out.locations.push(Location {
-                id: format!("{}/{}", s.id, l.id),
-                props: l.props.iter().map(|p| format!("{}/{}", s.id, p)).collect(),
+                id: stamped_id(&s.id, &l.id),
+                props: l.props.iter().map(|p| stamped_id(&s.id, p)).collect(),
                 interactions: l.interactions,
                 note: l.note,
             });
@@ -1426,7 +1457,7 @@ pub fn expand(
         for sl in slots {
             let at = rotate_xz(sl.at, s.yaw);
             out.slots.push(OpenSlot {
-                id: format!("{}/{}", s.id, sl.id),
+                id: stamped_id(&s.id, &sl.id),
                 accepts: sl.accepts,
                 at: (s.at.0 + at.0, s.at.1 + at.1),
                 yaw: add_yaw(sl.yaw, s.yaw),
@@ -1435,6 +1466,20 @@ pub fn expand(
         }
     }
     Ok(out)
+}
+
+/// **A map's own stamps, expanded** — the door a loader comes through.
+///
+/// [`expand`] takes the stamps as an argument because the editor also expands a *proposal*
+/// (a trial map, before a stamp is kept). A consumer does not have that case: it has a map, and
+/// the map's stamps are the ones it holds. This is that call, named, so there is one way to ask
+/// the question rather than a spelling of [`expand`]'s arguments repeated at every call site.
+pub fn expand_map(
+    map: &Map,
+    compositions: &[Composition],
+    library: &Library,
+) -> Result<Expansion, String> {
+    expand(map, &map.stamps, compositions, library)
 }
 
 // ---------------------------------------------------------------------------------------------
