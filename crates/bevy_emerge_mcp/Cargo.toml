@@ -1,0 +1,47 @@
+[package]
+name = "bevy_emerge_mcp"
+version = "0.1.0"
+edition = "2024"
+description = "An MCP server for the bevy_emerge world editor: typed operations over stdio, and a BRP client for the running editor."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Ladvien/bevy_emerge"
+readme = "README.md"
+keywords = ["mcp", "gamedev", "level-design", "bevy"]
+categories = ["game-development", "development-tools"]
+rust-version = "1.88"
+
+[lib]
+# **A library as well as a binary**, so the tests can read the tool declarations rather than
+# parsing the binary's source. A test that parses source text is a test of the source text.
+name = "bevy_emerge_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bevy_emerge_mcp"
+path = "src/main.rs"
+
+[dependencies]
+# **The official Rust SDK for the Model Context Protocol.**
+#
+# **Pinned exactly, and the newest version in the local registry.** Its API differs from 1.x, so a
+# 1.x example would not compile against it, and the pin is what says which API this was written
+# against.
+#
+# **`transport-io` is what the stdio transport is behind** (`rmcp-3.3.0/src/transport/io.rs:4`),
+# and it is not in the default feature set — `server` alone does not enable it. The `macros`
+# feature is what gives the `#[tool]` and `#[tool_router]` attributes.
+rmcp = { version = "=3.3.0", features = ["server", "macros", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+# **The `json` feature, and it is not optional.** BRP is JSON-RPC 2.0, and `send_json` is the
+# only ureq call that serialises a request body for us. Without it the client would hand-roll
+# the body and the `Content-Type`, and a JSON-RPC server that gets a wrong content type answers
+# with a parse error rather than with the refusal it meant to send.
+ureq = { version = "3", features = ["json"] }
+
+[dev-dependencies]
+# **The MCP client, for the integration test.** The brief asks for a test that calls a tool "as an
+# outside agent would" — through a client, over the protocol, not by calling the function.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "process"] }

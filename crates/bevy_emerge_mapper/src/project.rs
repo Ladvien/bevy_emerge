@@ -24,8 +24,10 @@ use bevy_emerge_core::vocab::{Masks, Vocabularies};
 /// Where a project's own files live, under its root. Inside `assets/` rather than beside it, so a
 /// descriptor's `mesh` path means the same thing to this editor and to the game that loads the map.
 const EMERGE_DIR: &str = "assets/emerge";
-const VOCAB: &str = "assets/emerge/vocab.ron";
-const LIBRARY_FILE: &str = "library.ron";
+/// **Where the vocabulary lives** — public because the file watcher names it.
+pub const VOCAB: &str = "assets/emerge/vocab.ron";
+/// **The library file's name** — public because the file watcher names it.
+pub const LIBRARY_FILE: &str = "library.ron";
 /// **Where maps live** — the project's own directory, not a kit's.
 ///
 /// They sat beside the kit that drew them, on the argument that *"a map means nothing without the
@@ -39,7 +41,11 @@ const LIBRARY_FILE: &str = "library.ron";
 const MAPS_DIR: &str = "maps";
 
 /// The opened project.
-#[derive(Resource)]
+/// **Cloned, because the operation context owns what it carries.** The registry's operations are
+/// a `dyn`, and a `dyn` cannot have a lifetime on its methods — so the context holds the project
+/// and the map by value. One copy of a project's settings is a price worth paying for a registry
+/// that can hold more than one operation.
+#[derive(Resource, Clone)]
 pub struct Project {
     pub root: PathBuf,
     /// **The kit's directory** — `assets/emerge`, or a named subdirectory of it.
@@ -722,7 +728,8 @@ fn read(path: &Path) -> Result<String, String> {
 /// file and nowhere else. The Meshes and Tiles doors commit straight to disk through
 /// `tiles::commit_measured` and [`Project::commit_composition`], so the map is the only thing this
 /// editor ever holds unsaved.
-#[derive(Resource)]
+/// **Cloned, for the same reason as [`Project`]** — the operation context owns the map it edits.
+#[derive(Resource, Clone)]
 pub struct OpenMap {
     /// The map itself.
     pub map: Map,
@@ -746,6 +753,16 @@ impl OpenMap {
     /// Whether the map differs from what is on disk.
     pub fn dirty(&self) -> bool {
         self.map != self.saved
+    }
+
+    /// **Say that what is on disk is what the editor holds.**
+    ///
+    /// **Used by the file watcher**, which re-reads the map from disk and puts it in the editor.
+    /// **Without it the editor would think the map was unsaved** — the dirty flag compares the
+    /// map with what it last saved, and a re-read from disk did not go through the save — **and
+    /// the author would be told to save a map that was already saved.**
+    pub fn mark_saved(&mut self) {
+        self.saved = self.map.clone();
     }
 
     /// Open a map by **name**, or start one under that name.

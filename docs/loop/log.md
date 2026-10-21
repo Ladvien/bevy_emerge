@@ -1225,3 +1225,96 @@ Top 5 remaining:
 4. **A resumable flood with a real cursor** — AIP-158's shape, bound to the piece, the map and the
    region.
 5. **Renaming a kit's namespace** — 744 mentions across 4 files, and no multi-file atomicity.
+
+## 2026-10-21-02: the editor has a third door — an agent, and a file edited on disk
+
+- **Change:** **three** bugs fixed and one enhancement shipped. **(1)** The badge overlay's layout
+  score counted box overlaps and not leader crossings, so a crossing layout scored zero and beat
+  a clean one — `no_two_leaders_cross` has been red since 2026-09-03 and is green now. **(2)**
+  Twelve refusals were filed in `Status::note`, the slot a later receipt erases; they are
+  `Status::problem`s now. **(3)** The new file watcher took `ResMut<Project>` and
+  `ResMut<OpenMap>` **every frame**, and Bevy's conflict resolution deferred the badge layout past
+  the frame — a flake the crate's own resource ratchet caught. **(4)** The editor has a **third
+  door**: an **operation registry** that a
+  key handler and an agent both dispatch, a **BRP bridge** of four typed commands, an **MCP
+  server** (a new crate, `bevy_emerge_mcp`, on the official `rmcp` SDK) with four tools, an
+  **append-only operation log**, and a **file watcher** that re-reads the project's own data files
+  every 250 ms and adopts them only if they parse.
+
+- **Why it ranked first:** the brief's focus area is *"configuration based editing allowing
+  immediate feedback to the user by adjusting game editor through BRP calls"*, and **neither half
+  of it existed**. Measured by reading the code: the editor read its project **once**, at open
+  (`Project::open`, `project.rs:165`); the only on-demand re-read was `reload_vocab`; the only
+  mtime poll in the crate watched **meshes**, not data files. **A data file edited on disk was
+  invisible until a restart** — so the editor was not configuration-driven at all, because the
+  configuration was read once and frozen. And an **agent** could not reach it: every verb was a
+  key handler, and the only door for something without a keyboard was synthesising keystrokes —
+  which the brief forbids outright (*"Never drive the UI by clicking"*).
+
+- **Evidence:**
+  - **B-001:** the score, measured on MESHES at 1680×1050 with the detail pane populated —
+    **comfortable: 1 box overlap, 0 crossings, score 1. Compact: 0 box overlaps, 3 crossing
+    pairs, score 0.** The compact pass won and shipped the crossings. And the lane search could
+    not have saved it: an exhaustive search of all 8⁶ = 262,144 lane assignments (299,592 nodes)
+    found **no** crossing-free assignment for the compact geometry, and the old fallback produced
+    **eleven** crossing pairs. The fix counts crossings and makes one crossing outrank every
+    overlap; the fallback now returns the fewest-crossings assignment it can find.
+  - **B-002:** a survey of all 169 `status.note` sites — **12 clean refusals and 3 split sites**
+    — and the rule is the `Status` type's own doc. Two of the twelve were written to *both*
+    slots, so two rows said one thing and the one in the note was the one that got erased.
+  - **The enhancement, end to end:** an agent lists the operations, previews one (and **nothing
+    changes** — the map, the file and the log are all as they were), applies one (and **the file is
+    written**), and the log says the **source** was an agent. A misspelled field is **refused**,
+    not ignored — a silently dropped field is the worst outcome an agent can have, because it
+    believes it changed something it did not.
+  - **The two paths, measured:** the **agent's** path is **0.6–1.1 ms**; the **file's** path is
+    **125–222 ms**, of which 250 ms is the poll's period. The target is about a second, and both
+    are asserted against it rather than printed.
+  - **The MCP server, driven as an outside agent would:** the integration test starts it as a
+    subprocess and speaks MCP over stdio, reads **only the descriptions**, and calls a tool. It
+    checks the annotations are there, the schema is there, and the description is long enough to
+    say what the tool does.
+
+- **Sources:** the MCP specification and `rmcp` 3.3.0's own source for the tool surface
+  (`ToolAnnotations` at `src/model/tool.rs:54`, `CallToolResult::structured` at `src/model.rs:4000`,
+  the `#[tool]` macro at `rmcp-macros-3.3.0/src/tool.rs`); the crate's own `Status` contract for
+  the refusal rule; Bekos, Kaufmann, Symvonis & Wolff (2007) for the order-preservation argument
+  the badge layout depends on; and the previous runs' records of the two bugs.
+
+- **Test / perf:** `cargo test --workspace` → **all green** for the first time since 2026-09-03.
+  **Five new test files, 22 new tests**, and **no existing test changed, weakened or skipped**.
+  Clippy: **zero findings in any file this run touched** (the workspace's pre-existing findings
+  are in other files and unchanged). `cargo fmt`: no new diff in the new files. **Frame time
+  unchanged** — the watcher runs on a 250 ms tick and reads four to six files' *metadata*, not
+  their contents.
+
+- **Verdicts:** **Function: GREAT** — every state of the new path is captured: discovery,
+  preview, apply, refusal, the misspelled field, the log's own record, and both latencies.
+  **Fresh eyes: GREAT** — a cold start finds the tools by asking the server what it has, and a
+  file edited in a text editor reaches the editor **without a restart**.
+
+- **Commits:** `d9ba816` (the badge layout score) and `8d4ad69` (the twelve refusals), plus the
+  enhancement's own commit. **No PR**, for the same reason as the previous seven runs: this
+  repository has never had one (`gh api repos/Ladvien/bevy_emerge/pulls` returns **0**), every
+  commit goes straight to `main`, and `gh pr create` refuses with *"head branch `main` is the same
+  as base branch `main`"*.
+
+- **Run:** `docs/loop/iterations/2026-10-21-mcp-bridge-8d4ad69.md` — the report, with the
+  measurements and the test diffs.
+
+Top 5 remaining:
+
+1. **The 128 unmigrated actions** — the allowlist is in place, with the ratchet that stops it
+   growing. **Migrate the second workflow** (the placement, or the fill) and the slice is cheap:
+   the registry, the log, the watcher and the bridge are all proven.
+2. **The operation log has a single-writer assumption** — the MCP server and the editor are
+   separate processes, and both could append and claim the same sequence number. An advisory file
+   lock would fix it, and it is the one thing in the new code that could lose an agent's record.
+3. **A library or policy change re-opens the whole project** — only `Project::open` knows how to
+   merge every bound kit, so the watcher re-opens the project for a `library.ron` change. A
+   per-kit re-read would be better.
+4. **`bevy_emerge_mcp` is unpublished** — the pre-publish gate (`semver-checks`, `package --list`,
+   the dry run) has not been run, and the brief says not to publish from a red gate.
+5. **Enclosure wish and weight are still hard-coded** in the editor (`ENCLOSURE_WISH = 0.25`,
+   `ENCLOSURE_WEIGHT = 200`), so an author who wants more enclosed rooms still edits Rust — and
+   the brief's rule is that a value somebody would tune belongs in data.

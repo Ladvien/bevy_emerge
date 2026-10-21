@@ -1370,7 +1370,13 @@ mod stepped {
             "a colliding candidate must not be written — not as a second row, and not over the first"
         );
         let state = app.world().resource::<bevy_emerge_mapper::tiles::ImportState>();
-        let said = state.status.note_text();
+        // **The refusal is a `problem`, not a note.** The `Status` type's own rule: a note is for
+        // *"a refusal the author is not owed an alarm about"*, and this is a refusal — the editor
+        // could not import the candidate. **And a note is one dim row that the next receipt
+        // erases**, so a refusal in the note slot is a refusal the author never sees. The
+        // 2026-10-21 run moved this one out of the note slot, and this test is the ratchet for
+        // it: it reads the **problem**, which is where a refusal lives.
+        let said = state.status.problem_text();
         assert!(
             said.contains("already in the library"),
             "the refusal must say why: `{said}`"

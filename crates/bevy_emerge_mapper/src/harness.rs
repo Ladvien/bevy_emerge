@@ -100,6 +100,12 @@ pub fn add_editor_plugins(app: &mut App) -> &mut App {
             // Two plugins, two jobs: the capture rig is the shared crate, the verbs are ours.
             bevy_devshot::DevShotPlugin,
             crate::devshot::DrivePlugin,
+            // **The file watcher** — a change on disk, in the editor, without a restart.
+            //
+            // In the shared list because it is about how the editor reads its own project, not
+            // about debugging: the editor holds a parsed copy of the project's files, and without
+            // this a developer who edited one saw nothing happen until they restarted.
+            crate::watch::WatchPlugin,
         ),
     ));
     // **The guide vocabulary belongs in the shared list; the transport does not.**
@@ -148,6 +154,13 @@ pub fn add_debugger_plugins(app: &mut App) -> &mut App {
         // one camera. The editor now draws world and interface into one surface and shows it in the
         // window, so the image an agent reads is the image the author is looking at. That belongs
         // in the shared list because it is how the application draws, not a debugging addition.
+        //
+        // **The agent's door is here, and not in the shared list**, for the same reason the
+        // transport is: it registers BRP methods, and a headless test process builds several
+        // `App`s and cannot have two things bound to one port. `crate::ops_brp` registers typed
+        // commands that dispatch through `crate::ops::dispatch` — the same function the key
+        // handlers call — so an agent and a person are doing one thing, not two.
+        crate::ops_brp::OpsBridgePlugin,
     ))
 }
 

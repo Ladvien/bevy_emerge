@@ -1,0 +1,164 @@
+{
+  "items": [
+    {
+      "id": "B-001",
+      "kind": "bug",
+      "area": "badges",
+      "title": "Badge leaders crossed on MESHES at 1680x1050, because the layout score counted box overlaps and not crossings",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "tests/headless.rs::no_two_leaders_cross was red from 2026-09-03; measured comfort score 1 (1 box overlap, 0 crossings) vs compact score 0 (0 overlaps, 3 crossing pairs)"
+      },
+      "status": "fixed",
+      "evidence": "tests/the_layout_score_counts_crossings.rs (2 tests, both fail on the unfixed code)",
+      "last_failure": "",
+      "first_seen": "2026-09-03"
+    },
+    {
+      "id": "B-002",
+      "kind": "bug",
+      "area": "status",
+      "title": "Twelve refusals were filed in Status::note, where the next receipt erases them",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "A note is one dim row, erased by the next receipt and by a tab switch (Status::clear_note). A refusal there is a refusal the author never sees."
+      },
+      "status": "fixed",
+      "evidence": "tests/every_refusal_is_in_a_problem.rs (2 tests; the first fails on the unfixed code with every site named)",
+      "last_failure": "",
+      "first_seen": "2026-10-20"
+    },
+    {
+      "id": "B-003",
+      "kind": "bug",
+      "area": "watch",
+      "title": "The file watcher took ResMut<Project> and ResMut<OpenMap> every frame, and Bevy's conflict resolution deferred the badge layout past the frame",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "The headless suite went from 189 pass / 0 fail to 2-4 failures whose set changed every run. Bisection: watcher disabled -> 189/0 twice; watcher as one system -> 2-4 fail, varying; watcher split into a tick and an act -> 189/0 twice."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/watch.rs (tick_watch and adopt_changes) and the headless suite",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-001",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "An agent can drive the editor through typed operations, over MCP, with the file changing under it",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Before: the editor's verbs were key handlers, so an agent could only synthesise keystrokes, and a data file edited on disk was invisible until a restart."
+      },
+      "status": "fixed",
+      "evidence": "tests/an_agent_can_drive_the_editor.rs (8 tests); crates/bevy_emerge_mcp/tests/an_agent_calls_the_server.rs (3 tests); crates/bevy_emerge_mcp/tests/docs_are_current.rs (4 tests); crates/bevy_emerge_mapper/tests/operations_have_two_front_ends.rs (5 tests)",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-002",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "An operation per editor verb, with the UI and the agent both dispatching it",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "The registry has one operation (map_set_settings) and 128 actions are on the unmigrated allowlist. The brief asks for one workflow first, with the allowlist shrinking."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/tests/operations_have_two_front_ends.rs::the_allowlist_of_unmigrated_actions_only_shrinks",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-003",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "The kit's library and policy are re-read by a full project reload, which is slow and loses the open map",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "watch.rs::adopt re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. A per-kit re-read would be better."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-004",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "The operation log has a single-writer assumption, so two agents would claim the same sequence number",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "ops.rs::next_seq counts the lines in the log, and the MCP server and the editor are separate processes that could both append. An advisory file lock would fix it."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::next_seq",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-005",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "Enclosure wish and weight are hard-coded in the editor, so an author who wants more enclosed rooms edits Rust",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "editor.rs ENCLOSURE_WISH = 0.25 and ENCLOSURE_WEIGHT = 200 are not in rules.ron, so they are not authored and cannot be tuned without a rebuild."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs (ENCLOSURE_WISH, ENCLOSURE_WEIGHT)",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "B-003",
+      "kind": "bug",
+      "area": "vlm",
+      "title": "probe reports Ready for any non-loopback host without connecting, so a LAN endpoint that is down is reported ready",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "vlm.rs's probe returns Reach::Ready for a host it cannot resolve to a private address. Needs a test that calls probe, not is_near."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/vlm.rs::probe",
+      "last_failure": "",
+      "first_seen": "2026-09-03"
+    },
+    {
+      "id": "E-006",
+      "kind": "enhancement",
+      "area": "release",
+      "title": "No crate in this workspace is published to crates.io, so the first publication is undecided",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "cargo info for all seven crates says 'could not find ... in registry'. There is no published baseline, so no release can be made and no pre-publish gate has a version to check against."
+      },
+      "status": "open",
+      "evidence": "cargo info bevy_emerge_core@0.1.0 (and the other six)",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    }
+  ]
+}

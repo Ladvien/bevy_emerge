@@ -489,6 +489,15 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::labels::Labeler", Ownership::Project),
     ("bevy_emerge_mapper::anim_watch::BenchReports", Ownership::Project),
     ("bevy_emerge_mapper::anim_watch::RigWatch", Ownership::Project),
+    // **The file watcher's stamps, and they are `Project` because the files are the project's.**
+    // A door change can land on a different project — the chooser's own door is a different
+    // project — and the stamps are the watcher's memory of *those* files. Carried across, the
+    // watcher's first tick on the new project would compare the new files' stamps against the
+    // old project's and see every one of them as changed.
+    ("bevy_emerge_mapper::watch::Watched", Ownership::Project),
+    // **And the tick's own scratch, for the same reason** — it names the files that changed
+    // since the last tick, and those are the previous project's files.
+    ("bevy_emerge_mapper::watch::Due", Ownership::Project),
 
     // **`Session`, and that is the whole point of it.** Every other problem list in this editor is a
     // tab's working state, capped and cleared by `Esc`; this one answers *"what has gone wrong since
