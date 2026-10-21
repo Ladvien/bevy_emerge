@@ -1473,3 +1473,5 @@ Top 5 remaining:
    were fixed.
 5. **`bevy_emerge_mcp` is unpublished** — the pre-publish gate (`semver-checks`, `package --list`,
    the dry run) has not been run, and the brief says not to publish from a red gate.
+
+- 2026-10-21 d131ce7 hot-reload: fixes only — a map edited on disk now reaches the screen (E-007), the VLM preflight probes LAN hosts (B-004); emerge_undo (E-009) stopped on repeated failure and reverted — no release — [report](iterations/2026-10-21-hot-reload-d131ce7.md)
