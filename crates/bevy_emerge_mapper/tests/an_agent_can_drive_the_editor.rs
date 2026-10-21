@@ -218,6 +218,59 @@ fn an_apply_changes_the_map_and_writes_the_file() {
     );
 }
 
+/// **A `null` clears a field, as the schema says, and does not leave it alone.**
+///
+/// The schema describes `note` and `bash` as `["string", "null"]`, with null meaning "no note" and
+/// "every bound kit". The parameters were `Option<Option<String>>` with a plain `#[serde(default)]`,
+/// and serde reads an explicit `null` there as **absent**. So an agent that sent `"note": null` was
+/// told `applied`, and the note was still there: a refusal would have been better than that.
+#[test]
+fn a_null_clears_the_note_and_the_bash() {
+    let root = project("agentnull");
+    let mut app = editor_with_bridge(&root);
+    for _ in 0..8 {
+        app.update();
+    }
+    let apply = |app: &mut App, parameters: serde_json::Value| {
+        let answer = call(
+            app,
+            "emerge/operation_apply",
+            serde_json::json!({"operation": "map_set_settings", "parameters": parameters, "dry_run": false}),
+        )
+        .unwrap_or_else(|e| panic!("the apply answers: {e}"));
+        assert_eq!(answer["outcome"], "applied", "{answer}");
+    };
+    let held = |app: &App| {
+        let map = &app.world().resource::<bevy_emerge_mapper::project::OpenMap>().map;
+        (map.note.clone(), map.bash.clone())
+    };
+
+    apply(&mut app, serde_json::json!({"note": "a courtyard", "bash": "site"}));
+    assert_eq!(
+        held(&app),
+        (Some("a courtyard".to_owned()), Some("site".to_owned())),
+        "the fields were not set, so this test is not testing the clear"
+    );
+
+    apply(&mut app, serde_json::json!({"note": null, "bash": null}));
+    assert_eq!(
+        held(&app),
+        (None, None),
+        "`null` was answered `applied` and the note and bash are still set -- serde read the null \
+         as an absent field, so the agent was told the map changed when it did not"
+    );
+    let on_disk = std::fs::read_to_string(map_path(&app)).unwrap_or_default();
+    assert!(
+        !on_disk.contains("a courtyard"),
+        "the cleared note is still in the file: {on_disk}"
+    );
+
+    // **And an absent field is still "leave it alone"** -- the other half of the contract.
+    apply(&mut app, serde_json::json!({"note": "kept"}));
+    apply(&mut app, serde_json::json!({"bounds": [64.0, 8.0, 64.0]}));
+    assert_eq!(held(&app).0, Some("kept".to_owned()), "an absent `note` changed the note");
+}
+
 /// **A refusal changes nothing, and says why.**
 #[test]
 fn a_refusal_changes_nothing_and_says_why() {

@@ -506,11 +506,28 @@ pub mod map_set_settings {
         #[serde(default)]
         pub axis_value: Option<f32>,
         /// **The named combination of kits the map offers**, or `None` for every bound kit.
-        #[serde(default)]
+        ///
+        /// **Absent leaves it alone; `null` clears it.** See [`present`].
+        #[serde(default, deserialize_with = "present")]
         pub bash: Option<Option<String>>,
-        /// **The map's note** — the header prose, as data.
-        #[serde(default)]
+        /// **The map's note** — the header prose, as data. Absent leaves it; `null` clears it.
+        #[serde(default, deserialize_with = "present")]
         pub note: Option<Option<String>>,
+    }
+
+    /// **A field that is present is `Some`, even when it is `null`.**
+    ///
+    /// serde reads an explicit `null` into `Option<Option<T>>` as the outer `None` — the same as an
+    /// absent field — so `"note": null` meant "leave the note alone", the operation answered
+    /// `applied`, and nothing changed, while the schema says null clears it. **Called only when the
+    /// field is present** (`#[serde(default)]` covers absence), so wrapping in `Some` is exact:
+    /// absent is `None`, `null` is `Some(None)`, a value is `Some(Some(v))`.
+    fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        Option::<T>::deserialize(deserializer).map(Some)
     }
 
     /// **Which axis of the map's bounds.**
