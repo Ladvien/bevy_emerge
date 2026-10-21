@@ -132,7 +132,25 @@ picture. **The pixels are proved in a real windowed editor** — and that is the
 | `cargo fmt` | **every file this run touched is rustfmt-clean** under edition 2024; the repository as a whole is not (thousands of pre-existing diffs elsewhere) |
 | `cargo doc --no-deps` | clean |
 | the headless boot, Sanctuary's project | **12 frames, 4096 entities, no panic** |
-| Sanctuary's own suite | green |
+| Sanctuary's own suite | **1,037 pass, 8 fail — red before this run, and not this run's** |
+
+### On Sanctuary's red
+
+**Measured, not assumed.** Stashing Sanctuary's own uncommitted work and re-running its suite at
+its committed `HEAD` gives **1,040 pass, 5 fail**; with another agent's work in progress it is
+**1,037 pass, 8 fail**. The five at `HEAD` are pre-existing — `prototype::kit_lineup`,
+`prototype::town_map`, `siege::flankers`, `siege::research`, and four `siege::isowall` tests
+failing on *"the chunks never settled"*. The three extra are another agent's in-flight work in
+Sanctuary's own `src/prototype/town_map.rs`.
+
+**This run cannot be the cause, and the reason is structural:** Sanctuary's `Cargo.toml` depends on
+**`bevy_emerge_core` alone**, and this run changed **only** `bevy_emerge_mapper` and
+`bevy_emerge_mcp` — the diff over `bevy_emerge_core/`, `bevy_emerge/`, `bevy_emerge_rng/`,
+`bevy_emerge_solver/`, `bevy_emerge_anim/` and `bevy_devshot/` is **empty**. **No consumer
+callsite is broken, and `AGENTS_CHAT.md` needs no note.**
+
+**The editor's own boot against Sanctuary's project is green** — 12 frames, 4096 entities, no
+panic.
 
 ## The three verdicts
 

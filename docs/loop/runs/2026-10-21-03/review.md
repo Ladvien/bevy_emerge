@@ -156,6 +156,28 @@ description was fixed.
 same baseline and the fresh-eyes pass read the descriptions the way an agent would — and the
 descriptions were the thing that was wrong.
 
+## The gate that was not green, and why
+
+**Sanctuary's own suite is red: 1,037 pass, 8 fail.** **It was red before this run touched
+anything**, and the measurement is the two rows:
+
+| Sanctuary's state | result |
+|---|---|
+| its committed `HEAD`, its uncommitted work stashed | **1,040 pass, 5 fail** |
+| with another agent's work in progress | **1,037 pass, 8 fail** |
+
+The five at `HEAD` are pre-existing (`prototype::kit_lineup`, `prototype::town_map`,
+`siege::flankers`, `siege::research`, and four `siege::isowall` tests failing on *"the chunks
+never settled"*). The three extra are another agent's in-flight work in Sanctuary's own
+`src/prototype/town_map.rs`.
+
+**This run cannot be the cause, and the reason is structural rather than a guess:** Sanctuary
+depends on **`bevy_emerge_core` alone**, and this run changed only `bevy_emerge_mapper` and
+`bevy_emerge_mcp`. The diff over the shared crates is **empty**. **No consumer callsite is broken,
+and `AGENTS_CHAT.md` needs no note.** The editor's own boot against Sanctuary's project is green.
+
+**A review that says "green" here would be a lie with a table under it.**
+
 ## The one thing this review cannot settle
 
 **Whether an agent's *vision model* reads the editor as well as a person does.** The frames are

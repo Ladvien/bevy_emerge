@@ -1409,8 +1409,33 @@ run touched** (the workspace's pre-existing findings are in other crates and unc
 `cargo fmt`: **every file this run touched is rustfmt-clean** under edition 2024 (the repository
 as a whole is not — thousands of pre-existing diffs in other files, unchanged by this run).
 `cargo doc --no-deps`: clean. The headless boot against Sanctuary's project: **12 frames, 4096
-entities, no panic**. Sanctuary's own suite: green. **A still capture is 206 ms; a four-frame
-sequence with an operation is 880 ms.**
+entities, no panic**. **A still capture is 206 ms; a four-frame sequence with an operation is
+880 ms.**
+
+**Sanctuary's own suite is RED, and it was red before this run touched anything.** Measured
+2026-10-21, by stashing Sanctuary's own uncommitted work and re-running:
+
+| Sanctuary's state | result |
+|---|---|
+| its committed `HEAD`, no uncommitted work | **1,040 pass, 5 fail** |
+| with another agent's work in progress | **1,037 pass, 8 fail** |
+
+**The five failures at `HEAD` are pre-existing** — `prototype::kit_lineup`,
+`prototype::town_map`, `siege::flankers`, `siege::research` and four `siege::isowall` tests, the
+latter four all failing on *"the chunks never settled"*. **The three extra failures are another
+agent's in-flight work in Sanctuary's own files** (`src/prototype/town_map.rs`, +24 lines,
+uncommitted).
+
+**This run cannot be the cause, and the reason is structural, not a guess:** Sanctuary's
+`Cargo.toml` depends on **`bevy_emerge_core` alone**, and this run changed **only**
+`bevy_emerge_mapper` and `bevy_emerge_mcp` — `git diff d58325e..HEAD --stat -- crates/bevy_emerge_core/
+crates/bevy_emerge/ crates/bevy_emerge_rng/ crates/bevy_emerge_solver/ crates/bevy_emerge_anim/
+crates/bevy_devshot/` is **empty**. **No consumer callsite is broken, and `AGENTS_CHAT.md` needs no
+note.** The editor's own boot against Sanctuary's project is green.
+
+**A note for whoever picks this up:** Sanctuary's `siege::isowall` failures (*"the chunks never
+settled"*, four of them) are a **pre-existing red** on `main` and are not in this run's backlog
+because this run did not own them.
 
 **One honest limit.** The headless harness runs with `WgpuSettings { backends: None }`, so **no
 PNG is written there** — the headless test proves the *ordering* and the run says why it has no
