@@ -100,8 +100,19 @@ line, which is a feature, not a bug fix.
 ## Evidence
 
 - `evidence/before/` — the overlap, the label through the wall.
-- `evidence/after/` — the fixed stage, and the carousel stepped (the worst case, where the
-  neighbour is withheld).
+- `evidence/after/01-the-anchor-at-the-left.png` — the first fixed capture, before the anchor's `x`
+  was pinned to the group's centre: the labels no longer overlapped each other, but the focal
+  label sat at the **left** of its house.
+- `evidence/after/02-labels-fixed.png` — the focal label centred under the big house, the second
+  under the middle house, and the third **withheld** — a bare `…`, the deconfliction working as
+  Bell et al. (2001) prescribe.
+- `evidence/after/03-the-carousel-stepped.png` — **the strongest evidence, and the worst case.**
+  The carousel stepped to `town/house_hall_wood`: the focal label is amber and centred under the
+  big house, the two left neighbours stack on one row (`town/house_hall_plaster` above
+  `town/house_hall_brick`), the right neighbour `town/pub_extras` is under its own tiny prop, and
+  **no two labels overlap anywhere**. **That is the deconfliction doing its job on a strip where
+  every name is 21 to 24 characters long** — the exact case that produced 813 px of continuous ink
+  before.
 - `evidence/crops/` — the label band, 2×.
 
 ## The tests
