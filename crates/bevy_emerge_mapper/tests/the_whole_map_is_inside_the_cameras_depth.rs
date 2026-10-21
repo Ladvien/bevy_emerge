@@ -79,8 +79,8 @@ fn a_town_sized_map_is_not_cut_off_by_the_near_plane() {
     );
 }
 
-/// **An ordinary room keeps the range it had.** The default 32 m map was always inside the old
-/// range; it must stay inside the new one.
+/// **An ordinary room is still drawn whole.** The default 32 m map was always inside the old range;
+/// every corner must stay inside the new one (which is wider here too: `near` goes below zero).
 #[test]
 fn a_room_sized_map_is_still_drawn_whole() {
     let mut app = editor_on_a_map("depth-room", 32.0);
