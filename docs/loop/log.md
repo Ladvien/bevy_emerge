@@ -276,3 +276,106 @@ Top 5 remaining:
 5. **Fill patterns have no test at all** — `fill.rs` is the one untested module in the mapper, and
    it is the module that lays the bulk of a level. A flood and a box fill are the two gestures
    that make a level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+
+## 2026-10-20-03: the Map door opens — the editor stops dying on a resize
+
+- **Change:** the editor's surface is **created at the window's physical size**, and a resize
+  **announces itself in the frame the camera reads it**. `bevy_emerge_mapper . <map>` — the
+  command that opens the editor straight onto a map — **no longer dies inside two seconds**, so
+  the Map door is reachable from a terminal. The ratchet is
+  `tests/the_surface_and_the_camera_agree.rs`; the measurement is
+  `examples/probe_surface_resize.rs`.
+
+- **Why it ranked first:** it is the only item on the list that **kills the application**. A missing
+  operation costs an author a task; a crash costs them the *session* — and this one took the
+  editor's **primary surface** away from the command line, so every session started that way
+  detoured through the chooser. It beat the runner-up (the editor's missing operations — kit
+  rename, project rename, policy add, bash authoring) because those are *operations an author may
+  want*, and this was a door that **was not there**.
+
+- **Evidence:** the cause was **measured, not argued**, and the measurement is the ui_audit's own
+  instruction: *"what the next person should measure first"*.
+  - The world camera is **3-D**, and so is the **only** camera with a **depth attachment**
+    (a probe confirmed the four cameras: three share the surface image, one renders to the
+    window).
+  - `prepare_core_3d_depth_textures` sizes that depth from
+    `camera.computed.target_info.physical_size` — the image's size **as it was when the camera
+    last refreshed** (`bevy_core_pipeline-0.20.0/src/core_3d/mod.rs:667`).
+  - A camera refreshes on the image's `AssetEvent::Modified`, read from the **message** stream,
+    and `Assets::asset_events` writes that stream in `PostUpdate` **after** `camera_system` has
+    already read it (`bevy_render-0.20.0/src/camera.rs:391`, `.before(AssetEventSystems)`). So a
+    resize is **one frame late** at the camera — and that frame assembles the pass with a depth
+    texture for the old extent and a colour attachment for the new one.
+  - **The measured difference**, one frame after the window changes size (3396×1356 → 3440×1440,
+    the audit's two numbers):
+
+    | | Baseline | Fixed |
+    |---|---|---|
+    | the image | 3440×1440 | 3440×1440 |
+    | what the cameras sharing it believe | **3396×1356** | **3440×1440** |
+    | | **MISMATCH — the crash's frame** | agree |
+
+  - **The ratchet fails on the unfixed code**, with the crash's own numbers: *"the camera at
+    order -1 still believes the target is (3396, 1356) while the image is (3440, 1440)"*.
+  - **Live:** the editor was started from the command line on Sanctuary's town map, **resized while
+    it ran** (AppleScript — the compositor's own change), and screenshotted after: it **survived**
+    and still drew.
+
+- **Sources:** Akenine-Möller et al., *Real-Time Rendering*, 4th ed., ch. 23 (double and triple
+  buffering: a target that changes size needs a *new* buffer, prepared while the old one is still
+  shown); Scarpino, *The WebGPU Sourcebook*, app. B (a pass's colour attachment, and what wgpu
+  requires of the attachments it is given); Hunt & Thomas, *The Pragmatic Programmer*, Tip 38
+  *"Crash Early"* (a **bug** is worth crashing on; **exceptional data** is worth handling
+  gracefully — and this is a bug, so it gets fixed rather than absorbed); *Bevy* 0.20's own source,
+  read directly (`bevy_camera`, `bevy_render`, `bevy_core_pipeline`, `bevy_asset`) — the
+  load-bearing source, and the engine this project is built on. Full notes and quotes in
+  `runs/2026-10-20-03/research.md`.
+
+- **Test / perf:**
+  - `cargo test --workspace --no-fail-fast` → **1,221 pass, 1 fail**. The one failure is
+    `no_two_leaders_cross`, **red since 2026-09-03 and untouched by this work** (the baseline
+    measured 1,219 pass, 1 fail; this run adds 2 passing tests).
+  - New: `tests/the_surface_and_the_camera_agree.rs` (2 tests) — the surface is created at the
+    window's size, and a window resize never leaves the cameras behind. **The second one fails on
+    the unfixed code.**
+  - `cargo clippy --workspace --all-targets -- -D warnings`: **no finding in any file this change
+    touches.** `cargo fmt --check`: `surface.rs` keeps its **pre-existing** 3 diffs, the new files
+    are clean. `cargo doc --no-deps`: no warning from any link this change adds.
+  - Headless boot against Sanctuary's real project: `town` → 12 frames, 8,192 entities, no panic;
+    `town_block` → 4,096 entities, no panic.
+  - Sanctuary's own suite: 1,014 pass, 4 fail — **the same four that were already red** (verified
+    by the previous iteration with the emerge change stashed).
+  - Timings in `runs/2026-10-20-03/perf.md`.
+
+- **Verdicts:** **Function: GREAT** — the Map door opens from the command line, a live window
+  resize survives, and the mismatch is measured away. **Zoom: GREAT** — the chrome is unchanged
+  and crisp; the fix moved *when* the surface is sized, not what is drawn. **Fresh eyes: GREAT** —
+  and the honest word for it is *there is no feature to learn*: a door that used to kill the
+  application now opens, and a window that used to be fatal to drag now can be. All three in
+  `runs/2026-10-20-03/review.md`, with the captures in `runs/2026-10-20-03/evidence/`.
+
+- **Commit:** _(filled in below once pushed)_
+
+- **Run:** `docs/loop/runs/2026-10-20-03/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
+  `evidence/`.
+
+Top 5 remaining:
+
+1. **The corners of a run.** A run is a straight line; a fence's corner is the same piece turned
+   90°, and the *group* model already expresses that (four runs, captured as one group, stamped
+   where the enclosure goes). The graveyard's 3-post gap needs a `Gap` the editor does not yet
+   draw. The town's 282 posts are now *drawable*; turning them into groups is a **content decision
+   for the owner**.
+2. **Editor operations that do not exist** — kit rename, project rename, project delete, adding a
+   policy exclusion or patch, creating a `bash`. The mapper's own `CLAUDE.md` data-model table
+   names every one of them as a hole, and the table is accurate.
+3. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
+   connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
+   not `is_near`.
+4. **Fill patterns have no test at all** — `fill.rs` is the one untested module in the mapper, and
+   it is the module that lays the bulk of a level. A flood and a box fill are the two gestures
+   that make a level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+5. **Tokens with no reader** — 5 of 11 `effects` tokens in Sanctuary's `vocab.ron` are marked
+   "NO READER YET", and `placement.rooms` / `placement.group` are unconsumed. A `vocab.ron` field
+   that says which system reads a token, checked at load, would make the file's prose notes
+   enforceable rather than advisory.

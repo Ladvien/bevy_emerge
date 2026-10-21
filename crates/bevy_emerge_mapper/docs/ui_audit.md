@@ -135,7 +135,30 @@ Text-on-ground, by contrast, is mostly excellent — with three exceptions that 
 centred island roughly 700 px wide with ~2,500 px of dead void either side. Panel widths are pure
 pixel constants (300 / 380 / 264 / 420) with no relationship to the window.
 
-### F3 — Opening the Map door crashes the application (reproduced 2/2)
+### F3 — Opening the Map door crashes the application (reproduced 2/2) — **FIXED 2026-10-21**
+
+**Fixed.** The cause was measured and the fix is in `surface.rs`; the notes below are the
+original finding, kept because the *reason* is worth more than the summary.
+
+> **The cause, measured.** The world camera is 3-D, and so is the only camera with a **depth
+> attachment**. `prepare_core_3d_depth_textures` sizes that depth from
+> `camera.computed.target_info.physical_size` — the image's size **as it was when the camera last
+> refreshed**. A camera refreshes on the image's `AssetEvent::Modified`, and `camera_system` reads
+> that from the **message** stream — which `Assets::asset_events` writes in `PostUpdate` **after**
+> `camera_system` has already read it (`.before(AssetEventSystems)`). So a resize is **one frame
+> late** at the camera, and that frame assembles the pass with a depth texture for the old extent
+> and a colour attachment for the new one.
+>
+> **The fix, two parts.** The surface is **created at the window's physical size** (the window is
+> spawned by `WindowPlugin::build`, before the editor's plugins, so the size is known), and a
+> resize that does happen **announces itself in the frame the camera reads it** — the editor writes
+> the image's `AssetEvent::Modified` itself, in `PreUpdate`, because `AssetEvent` is a `Message` and
+> an application may write one.
+>
+> **The ratchet** is `tests/the_surface_and_the_camera_agree.rs`, and it **fails on the unfixed
+> code** with the crash's own numbers: *"the camera at order -1 still believes the target is
+> (3396, 1356) while the image is (3440, 1440)"*. The measurement is
+> `examples/probe_surface_resize.rs`.
 
 `cargo run -p bevy_emerge_mapper --features debugger -- . <map>` dies inside two seconds:
 
@@ -307,9 +330,15 @@ corner are one decision made once, so a surface reads as an object.
 The editor's docks may keep pixel widths — a viewport wants the space — but the menu has no viewport
 to protect and must stretch. Base scale goes up so 11 px body text is readable on a 3396 px display.
 
-### D3 — Fix the Map-door crash, with a regression test *(answers F3)*
+### D3 — Fix the Map-door crash, with a regression test *(answers F3)* — **done 2026-10-21**
 
-A headless test resizes the surface and asserts the viewport follows **in the same frame**.
+`tests/the_surface_and_the_camera_agree.rs`. It resizes the window the way the compositor does
+(3396×1356 → 3440×1440), steps one frame, and asserts that **every camera which shares the
+surface image believes the size the image is** — the invariant whose violation *is* the crash.
+
+**It fails on the unfixed code**, with the crash's own numbers, so it is a ratchet and not a
+comment: *"the camera at order -1 still believes the target is (3396, 1356) while the image is
+(3440, 1440)"*. The measurement behind it is `examples/probe_surface_resize.rs`.
 
 ### D4 — Three clickable shapes, five states *(answers F10, F11)*
 
@@ -435,7 +464,7 @@ its own rule and nothing else.
 |---|---|---|
 | F1 | Surfaces do not separate | **Fixed.** Elevation ladder, borders, radii; `the_ladder_is_a_ladder` holds it |
 | F2 | Does not fill or scale with the window | **Fixed.** Menu columns flex to the window; `surface::ui_scale_for` grows density with width to a cap |
-| F3 | Map door crashes on direct boot | **NOT FIXED — see below** |
+| F3 | Map door crashes on direct boot | **Fixed 2026-10-21** — the cause was a one-frame-late `AssetEvent`; see below |
 | F4 | `+ new project` silently does nothing | **Fixed.** `create_project` existed and was unreachable; the bug was the keyboard wiring |
 | F5 | KIT INFO draws its value over its label | **Fixed.** `row_label`'s column is a floor, not a cap |
 | F6 | Count joins the sentence it labels | **Fixed.** `tiles::count_cell`, non-wrapping, its own column |
@@ -452,7 +481,7 @@ its own rule and nothing else.
 | F17 | Font ratchet laundering hole | **Fixed** by the type, not by a regex |
 | F18 | Nothing ratchets shape | **Fixed.** Five new ratchets |
 
-### F3 is open, and two fixes have been eliminated
+### F3 was open, and two fixes have been eliminated — **it is fixed now; the history is kept**
 
 **`bevy_emerge_mapper . <map>` still dies inside two seconds**, reproduced 4/4; booting through the
 chooser never does, 0/4. `bevy_render`'s default handler treats the validation error as fatal, so the
