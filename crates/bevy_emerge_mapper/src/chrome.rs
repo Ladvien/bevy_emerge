@@ -577,6 +577,12 @@ pub fn font(role: text::Role) -> TextFont {
 /// the size changes. If the face ever goes proportional, layouts drift; they do not break.
 pub const BODY_CHAR_W: f32 = 6.6;
 
+/// **One line of [`text::BODY`], logical pixels**: Bevy 0.20's default `LineHeight`, which is
+/// `RelativeToFont(1.2)` (`bevy_text` `text.rs`, `impl Default for LineHeight`). For reserving room
+/// for text that comes and goes, so its arrival does not move what sits below it. A metric, beside
+/// [`BODY_CHAR_W`], for the same reason that one is not a type role.
+pub const BODY_LINE_H: f32 = text::BODY.px() * 1.2;
+
 // ── spacing ──────────────────────────────────────────────────────────────────────────────────────
 //
 // **A scale, used as a set.** van den Berg, Cornelissen & Roerdink 2009 (`10.1167/9.4.24`) find that

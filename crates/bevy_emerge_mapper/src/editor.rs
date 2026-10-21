@@ -817,6 +817,10 @@ struct Ghosted;
 #[derive(Component)]
 struct StatusBlock;
 
+/// **Lines the receipt row (`Field::Last`) keeps even when empty**, so a receipt arriving does not
+/// push the blocks below it down. Two covers 165 of the 174 receipt sites (B-009).
+const RECEIPT_LINES: f32 = 2.0;
+
 /// The live cost readout. In the chrome bar, in a reserved column — see [`COST_COL`], and
 /// `the_triangle_count_does_not_shove_the_maps_name` for what happens without one. `pub` so that
 /// test can drive it.
@@ -1675,7 +1679,28 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 ] {
                     let mut spawned = s.spawn(Node {
                         flex_direction: FlexDirection::Row,
-                        align_items: AlignItems::Center,
+                        // The receipt starts under the row above it, not floating mid-box when it
+                        // is one line inside its two-line room.
+                        align_items: match field {
+                            Field::Last => AlignItems::FlexStart,
+                            _ => AlignItems::Center,
+                        },
+                        // **The receipt row keeps its room when it is empty** (B-009). It was zero
+                        // tall until a note arrived and then grew to the note, so every receipt
+                        // moved MAP SIZE, the size fields and the composition list down two lines
+                        // and back, often under the pointer that had just typed into a field.
+                        // Two lines, because 165 of the editor's 174 receipt sites are 80
+                        // characters or fewer and the value column holds about 42 per line. A
+                        // longer receipt still grows rather than being cut short: the words matter
+                        // more than the stillness.
+                        // Rounded up to a whole pixel: the text's measured box is rounded up, and
+                        // an exact reserve laid out one pixel short of a two-line receipt.
+                        min_height: match field {
+                            Field::Last => {
+                                Val::Px((RECEIPT_LINES * crate::chrome::BODY_LINE_H).ceil())
+                            }
+                            _ => Val::Auto,
+                        },
                         ..default()
                     });
                     if let Some(id) = field.control() {
