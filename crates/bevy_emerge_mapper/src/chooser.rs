@@ -241,23 +241,23 @@ impl Catalog {
         // parent to walk (the root of a drive, or one that cannot be read) there is just the
         // current project, which is the only one this screen can say anything about.
         let mut projects = Vec::new();
-        if let Some(parent) = root.parent() {
-            if let Ok(entries) = std::fs::read_dir(parent) {
-                for entry in entries.flatten() {
-                    let dir = entry.path();
-                    if !dir.is_dir() || !dir.join(EMERGE_DIR).is_dir() {
-                        continue;
-                    }
-                    let name = dir
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    projects.push(ProjectEntry {
-                        name,
-                        current: dir == root,
-                        dir,
-                    });
+        if let Some(parent) = root.parent()
+            && let Ok(entries) = std::fs::read_dir(parent)
+        {
+            for entry in entries.flatten() {
+                let dir = entry.path();
+                if !dir.is_dir() || !dir.join(EMERGE_DIR).is_dir() {
+                    continue;
                 }
+                let name = dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                projects.push(ProjectEntry {
+                    name,
+                    current: dir == root,
+                    dir,
+                });
             }
         }
         if projects.iter().all(|p| !p.current) {
@@ -1798,7 +1798,6 @@ mod tests {
 
     /// **`set_authoring` re-points `kits.ron`'s `authoring`, and refuses a name that is not bound.**
     ///
-
     /// **`set_authoring` re-points `kits.ron`'s `authoring`, and refuses a name that is not bound.**
     ///
     /// The refusal names the bound kits, because "not bound" without a list is a search. The
@@ -5480,6 +5479,12 @@ fn fill(commands: &mut Commands, at: Entity, rows: &[Row], kind: PanelKind, pane
     }
 }
 
+// Three follower queries, one alias each, so each marker and its `ScrollPosition` sit on one line.
+// `every_list_follows_its_selection` reads this file as text and checks exactly that.
+type MapFollower<'w, 's> = Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform, &'static mut ScrollPosition), (With<MapList>, Without<KitList>, Without<ProjectList>, Without<ChooserRow>)>;
+type KitFollower<'w, 's> = Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform, &'static mut ScrollPosition), (With<KitList>, Without<MapList>, Without<ProjectList>, Without<ChooserRow>)>;
+type ProjectFollower<'w, 's> = Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform, &'static mut ScrollPosition), (With<ProjectList>, Without<MapList>, Without<KitList>, Without<ChooserRow>)>;
+
 /// **Keep the selected row on screen**, the way every other list in this editor does.
 ///
 /// `tests/every_list_follows_its_selection.rs` requires one of these per `scroll_list` marker, and
@@ -5492,18 +5497,9 @@ fn fill(commands: &mut Commands, at: Entity, rows: &[Row], kind: PanelKind, pane
 fn keep_the_chooser_selection_on_screen(
     chooser: Res<Chooser>,
     rows: Query<(&ChooserRow, &ComputedNode, &UiGlobalTransform)>,
-    mut maps: Query<
-        (&ComputedNode, &UiGlobalTransform, &mut ScrollPosition),
-        (With<MapList>, Without<KitList>, Without<ProjectList>, Without<ChooserRow>),
-    >,
-    mut kits: Query<
-        (&ComputedNode, &UiGlobalTransform, &mut ScrollPosition),
-        (With<KitList>, Without<MapList>, Without<ProjectList>, Without<ChooserRow>),
-    >,
-    mut projects: Query<
-        (&ComputedNode, &UiGlobalTransform, &mut ScrollPosition),
-        (With<ProjectList>, Without<MapList>, Without<KitList>, Without<ChooserRow>),
-    >,
+    mut maps: MapFollower<'_, '_>,
+    mut kits: KitFollower<'_, '_>,
+    mut projects: ProjectFollower<'_, '_>,
     mut follow: Local<crate::chrome::Follow<(usize, usize)>>,
 ) {
     // The cursor as one value, so `Follow` re-arms when either half moves — walking from kit 2 to
@@ -6059,20 +6055,34 @@ fn parse_triple(raw: &str) -> Option<(f32, f32, f32)> {
     }
 }
 
-fn drive_chooser(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut chooser: ResMut<Chooser>,
-    mut commands: Commands,
-    mut next: ResMut<NextState<crate::screen::Screen>>,
-    mut exit: MessageWriter<AppExit>,
+/// What `drive_chooser` reads and writes, bundled so the system stays within the argument budget.
+#[derive(bevy::ecs::system::SystemParam)]
+struct ChooserInput<'w, 's> {
+    keyboard: Res<'w, ButtonInput<KeyCode>>,
+    chooser: ResMut<'w, Chooser>,
+    commands: Commands<'w, 's>,
+    next: ResMut<'w, NextState<crate::screen::Screen>>,
+    exit: MessageWriter<'w, AppExit>,
     // Held arrows walk the list at the one application-wide cadence — see `keys::REPEAT_SECS`.
     // `KeysPlugin` owns `Repeat` and `screen.rs` marks it session-owned, so both outlive this
     // screen and a key held across the door does not resume repeating on the far side of it.
-    time: Res<Time>,
-    mut repeat: ResMut<crate::keys::Repeat>,
+    time: Res<'w, Time>,
+    repeat: ResMut<'w, crate::keys::Repeat>,
     // The one prompt. This screen raises two of the four questions in `confirm::Asked`.
-    mut confirm: ResMut<crate::confirm::Confirm>,
-) {
+    confirm: ResMut<'w, crate::confirm::Confirm>,
+}
+
+fn drive_chooser(input: ChooserInput<'_, '_>) {
+    let ChooserInput {
+        keyboard,
+        mut chooser,
+        mut commands,
+        mut next,
+        mut exit,
+        time,
+        mut repeat,
+        mut confirm,
+    } = input;
     // **A key the text handler already took is not read again.** One `Escape` is one press; see
     // `Chooser::swallowed` for the bug this closes.
     //

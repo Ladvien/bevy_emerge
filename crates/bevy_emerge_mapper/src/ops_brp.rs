@@ -174,6 +174,13 @@ fn project_root(
     }))
 }
 
+/// The project and the open map, both optional: `editor_state` answers for an editor with neither.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Loaded<'w> {
+    project: Option<Res<'w, crate::project::Project>>,
+    open: Option<Res<'w, crate::project::OpenMap>>,
+}
+
 /// **`emerge/state` — what the editor is holding right now.**
 ///
 /// **A read, and the answer to "what does the editor look like?"** — the question an agent asks
@@ -190,14 +197,14 @@ fn project_root(
 /// a `json!` — no scanning, no measuring, no rendering.
 fn editor_state(
     _: In<serde_json::Value>,
-    project: Option<Res<crate::project::Project>>,
-    open: Option<Res<crate::project::OpenMap>>,
+    loaded: Loaded,
     state: Option<Res<crate::editor::EditorState>>,
     tiles: Option<Res<crate::tiles::ImportState>>,
     armed: Option<Res<crate::compose::Armed>>,
     door: Option<Res<crate::tiles::Door>>,
     mode: Option<Res<crate::tiles::Mode>>,
 ) -> Result<Value, String> {
+    let Loaded { project, open } = loaded;
     // **The map, and what is in it.**
     let map = open.as_ref().map(|o| {
         json!({

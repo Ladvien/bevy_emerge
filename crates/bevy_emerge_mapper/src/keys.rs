@@ -3284,6 +3284,14 @@ pub fn mod_held(keys: &ButtonInput<KeyCode>) -> bool {
     MOD_KEYS.iter().any(|k| keys.pressed(*k))
 }
 
+/// The keyboard and the live context, as one system parameter. A system that gates a key on
+/// [`just_pressed`] takes this rather than the two resources, so the pair cannot be wired apart.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct KeyInput<'w> {
+    pub(crate) keyboard: Res<'w, ButtonInput<KeyCode>>,
+    pub(crate) live: Res<'w, Live>,
+}
+
 /// Was this action just pressed, in a context where it is allowed to fire?
 ///
 /// The one place a `KeyCode` meets `ButtonInput`. Callers name an `Action` and pass the live context,
@@ -3867,6 +3875,13 @@ mod tests {
         Context::Compose,
     ];
 
+    /// The ceiling is retired: a renderer of `keys::rows` that comes back is caught when the crate
+    /// builds, so the test below has nothing left to check at run time.
+    const _: () = assert!(
+        crate::badges::RENDERS_NO_ROWS,
+        "if something renders `keys::rows` again, this ceiling has to come back with it"
+    );
+
     /// **Retired, and this is the record of why.**
     ///
     /// It capped a context at ~12 *rows* — Zheng et al. 2018 on a vocabulary of about a dozen being
@@ -3884,10 +3899,8 @@ mod tests {
     /// ratchet that vanishes without a reason gets reinvented at the wrong value.
     #[test]
     fn the_row_ceiling_has_no_rendering_left_to_guard() {
-        assert!(
-            crate::badges::RENDERS_NO_ROWS,
-            "if something renders `keys::rows` again, this ceiling has to come back with it"
-        );
+        // The check is a `const` above this item, so it is made when the crate is built: a
+        // renderer of `keys::rows` that comes back fails the build, not this test.
     }
 
     /// **A collapsed row must name what each of its chords does.**
@@ -4859,8 +4872,8 @@ mod tests {
         assert_eq!(fills.len(), 1, "four bindings, one row: {fills:?}");
         let chords: Vec<&str> = fills[0].chord.split(" · ").collect();
         assert_eq!(chords.len(), 4, "all four chords are on it: {:?}", fills[0]);
-        assert!(chords.iter().any(|c| *c == "F"), "{chords:?}");
-        assert!(chords.iter().any(|c| *c == "G"), "{chords:?}");
+        assert!(chords.contains(&"F"), "{chords:?}");
+        assert!(chords.contains(&"G"), "{chords:?}");
         assert!(chords.iter().any(|c| c.starts_with("Shift")), "{chords:?}");
         assert!(chords.iter().any(|c| c.starts_with(MOD_NAME)), "{chords:?}");
 
@@ -4956,6 +4969,13 @@ mod tests {
         ));
     }
 
+    /// The floor is faster than the opening interval, or the ramp has nothing to ramp down to. A
+    /// constant, so it is checked when the crate is built rather than when the test runs.
+    const _: () = assert!(
+        REPEAT_FAST_SECS < REPEAT_SECS,
+        "the floor must be faster than the opening interval, or there is no ramp"
+    );
+
     /// **The ramp runs from [`REPEAT_SECS`] to [`REPEAT_FAST_SECS`] and never turns back.**
     ///
     /// The behavioural test below can only ever measure the curve through sixty frames of
@@ -4963,10 +4983,6 @@ mod tests {
     /// rather than statistically.
     #[test]
     fn the_ramp_only_ever_speeds_up() {
-        assert!(
-            REPEAT_FAST_SECS < REPEAT_SECS,
-            "the floor must be faster than the opening interval, or there is no ramp"
-        );
         // Approximate, because the lerp lands a float ULP off its endpoint (0.030000001 vs 0.03)
         // and pinning that would be pinning f32 rounding rather than the curve.
         let near = |a: f32, b: f32| (a - b).abs() < 1e-5;

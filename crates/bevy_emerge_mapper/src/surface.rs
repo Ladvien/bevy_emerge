@@ -409,41 +409,6 @@ const REFERENCE_W: f32 = 1600.0;
 /// monitor should be buying *viewport*, which is the thing an editor actually runs out of.
 const MAX_GROWTH: f32 = 1.25;
 
-#[cfg(test)]
-mod scale_tests {
-    use super::{ui_scale_for, MAX_GROWTH, REFERENCE_W};
-    use crate::chrome::EDITOR_UI_SCALE;
-
-    /// **A small window keeps the density the design was drawn at**, which is the half a larger
-    /// constant broke. 1280 x 800 is the size every headless test lays out at, and the badge packer
-    /// measures its stage in exactly those pixels.
-    #[test]
-    fn a_small_window_is_not_scaled_up() {
-        assert_eq!(ui_scale_for(1280.0, 1.0), EDITOR_UI_SCALE);
-        assert_eq!(ui_scale_for(REFERENCE_W, 1.0), EDITOR_UI_SCALE);
-    }
-
-    /// **A large one grows, and stops.**
-    #[test]
-    fn a_large_window_grows_to_the_cap() {
-        let wide = ui_scale_for(3396.0, 1.0);
-        assert_eq!(wide, EDITOR_UI_SCALE * MAX_GROWTH);
-        assert!(
-            wide > ui_scale_for(REFERENCE_W, 1.0),
-            "a window twice the reference width reads at a larger size, or F2 is not fixed"
-        );
-        // Halfway up the ramp, so the clamp is not the only thing being tested.
-        assert!((ui_scale_for(1800.0, 1.0) - EDITOR_UI_SCALE * 1.125).abs() < 1e-5);
-    }
-
-    /// **Density still multiplies on top**, because a 2x display is a separate question from a wide
-    /// one and the target is sized in physical pixels either way.
-    #[test]
-    fn the_display_factor_still_multiplies() {
-        assert_eq!(ui_scale_for(1280.0, 2.0), EDITOR_UI_SCALE * 2.0);
-    }
-}
-
 /// **Fit the surface to the window, and carry the display's density in `UiScale`.**
 ///
 /// The target is sized in **physical** pixels, and that is what makes the type sharp. Reported at the
@@ -758,5 +723,40 @@ fn retarget_pointer(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod scale_tests {
+    use super::{ui_scale_for, MAX_GROWTH, REFERENCE_W};
+    use crate::chrome::EDITOR_UI_SCALE;
+
+    /// **A small window keeps the density the design was drawn at**, which is the half a larger
+    /// constant broke. 1280 x 800 is the size every headless test lays out at, and the badge packer
+    /// measures its stage in exactly those pixels.
+    #[test]
+    fn a_small_window_is_not_scaled_up() {
+        assert_eq!(ui_scale_for(1280.0, 1.0), EDITOR_UI_SCALE);
+        assert_eq!(ui_scale_for(REFERENCE_W, 1.0), EDITOR_UI_SCALE);
+    }
+
+    /// **A large one grows, and stops.**
+    #[test]
+    fn a_large_window_grows_to_the_cap() {
+        let wide = ui_scale_for(3396.0, 1.0);
+        assert_eq!(wide, EDITOR_UI_SCALE * MAX_GROWTH);
+        assert!(
+            wide > ui_scale_for(REFERENCE_W, 1.0),
+            "a window twice the reference width reads at a larger size, or F2 is not fixed"
+        );
+        // Halfway up the ramp, so the clamp is not the only thing being tested.
+        assert!((ui_scale_for(1800.0, 1.0) - EDITOR_UI_SCALE * 1.125).abs() < 1e-5);
+    }
+
+    /// **Density still multiplies on top**, because a 2x display is a separate question from a wide
+    /// one and the target is sized in physical pixels either way.
+    #[test]
+    fn the_display_factor_still_multiplies() {
+        assert_eq!(ui_scale_for(1280.0, 2.0), EDITOR_UI_SCALE * 2.0);
     }
 }

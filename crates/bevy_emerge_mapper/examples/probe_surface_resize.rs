@@ -13,7 +13,6 @@
 //! When they differ, wgpu refuses the pass and the default error handler exits the application.
 
 use bevy::prelude::{PluginGroup, default};
-use bevy_emerge_mapper::harness;
 
 /// The surface image's current physical size.
 fn image_size(app: &mut bevy::prelude::App) -> Option<(u32, u32)> {

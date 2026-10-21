@@ -507,6 +507,10 @@ fn clamp_selection(project: Res<Project>, mut state: ResMut<ComposeState>) {
     }
 }
 
+// One follower query, aliased, so `ComposeBody` and its `ScrollPosition` sit on one line.
+// `every_list_follows_its_selection` reads this file as text and checks exactly that.
+type BodyFollower<'w, 's> = Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform, &'static mut ScrollPosition), (With<ComposeBody>, Without<CompRow>, Without<MemberRow>)>;
+
 /// **The compose body follows whichever list has the arrows.**
 ///
 /// Both lists live in ONE scroll area — `rebuild` builds the compositions and the selected group's
@@ -527,10 +531,7 @@ fn keep_compose_selection_on_screen(
     state: Res<ComposeState>,
     comp_rows: Query<(&CompRow, &ComputedNode, &UiGlobalTransform)>,
     member_rows: Query<(&MemberRow, &ComputedNode, &UiGlobalTransform)>,
-    mut lists: Query<
-        (&ComputedNode, &UiGlobalTransform, &mut ScrollPosition),
-        (With<ComposeBody>, Without<CompRow>, Without<MemberRow>),
-    >,
+    mut lists: BodyFollower<'_, '_>,
     mut follow: Local<crate::chrome::Follow<(Pane, usize)>>,
 ) {
     let want = match state.focus {
@@ -843,8 +844,8 @@ fn walk(
         // and an arrow that answers nothing at all is the defect. The groups list needs nothing
         // here: `rebuild` states *that* empty case in prose that stays on screen, which is the right
         // lifetime for a fact about the file rather than about a keypress.
-        if state.focus == Pane::Members {
-            if let Some(said) = project
+        if state.focus == Pane::Members
+            && let Some(said) = project
                 .compositions
                 .compositions
                 .get(state.selected)
@@ -852,7 +853,6 @@ fn walk(
             {
                 state.status.note(said);
             }
-        }
         return;
     }
     let last = (n - 1) as i64;
@@ -1144,6 +1144,9 @@ impl Carousel {
     }
 }
 
+/// A group's footprint: its centre on the stage, then its width and depth.
+type Footprint = ((f32, f32), (f32, f32));
+
 /// **How much floor one group takes**, or why that cannot be answered.
 ///
 /// The two-variant match the schema already forces, and the same one [`member_footprint`] makes:
@@ -1166,7 +1169,7 @@ pub fn footprint(
     c: &Composition,
     comps: &[Composition],
     library: &bevy_emerge_core::library::Library,
-) -> Result<((f32, f32), (f32, f32)), String> {
+) -> Result<Footprint, String> {
     match c.envelope {
         Envelope::Bounded { size } => Ok(((0.0, 0.0), (size.0, size.2))),
         Envelope::Anchored => {
@@ -1735,10 +1738,8 @@ fn restage_group(
             if let Some(e) = crate::editor::spawn_piece(
                 &mut commands,
                 &assets,
-                &d,
+                crate::editor::Pose { d: &d, yaw: p.yaw, tip: p.tip },
                 p.at,
-                p.yaw,
-                p.tip,
                 scratch.origin,
                 y,
             ) {
@@ -2212,13 +2213,12 @@ fn place_labels(
             continue;
         }
         // --- **And a label that is drawn again says its name again**, because the node is reused.
-        if text.0 == ELIDED {
-            if let Some(slot) = carousel.0.slots.get(label.0)
+        if text.0 == ELIDED
+            && let Some(slot) = carousel.0.slots.get(label.0)
                 && let Some(c) = project.compositions.compositions.get(slot.index)
             {
                 text.0 = c.id.clone();
             }
-        }
         match placed {
             // Centred by measuring the string, which works because the shipped face is monospace —
             // see `LABEL_CHAR_W`.
@@ -2354,21 +2354,35 @@ pub fn pick_along(
     true
 }
 
+/// What `rebuild` reads and writes, bundled so the system stays within the argument budget.
+#[derive(bevy::ecs::system::SystemParam)]
+struct ComposeInput<'w, 's> {
+    commands: Commands<'w, 's>,
+    state: Res<'w, ComposeState>,
+    armed: Res<'w, Armed>,
+    project: Res<'w, Project>,
+    budget: Res<'w, Budget>,
+    body: Query<'w, 's, Entity, With<ComposeBody>>,
+    lines: Query<'w, 's, Entity, With<ComposeLine>>,
+    receipt: Query<'w, 's, &'static mut Text, With<ComposeReceipt>>,
+}
+
 /// **Everything the panel says, derived on the spot.**
 ///
 /// No count and no badge is stored: staleness and the interface are recomputed from the library and
 /// the composition set each time this runs, so a panel cannot disagree with the files it is about.
 /// That is the same discipline `bevy_emerge_core::census` applies to counts, for the same reason.
-fn rebuild(
-    mut commands: Commands,
-    state: Res<ComposeState>,
-    armed: Res<Armed>,
-    project: Res<Project>,
-    budget: Res<Budget>,
-    body: Query<Entity, With<ComposeBody>>,
-    lines: Query<Entity, With<ComposeLine>>,
-    mut receipt: Query<&mut Text, With<ComposeReceipt>>,
-) {
+fn rebuild(input: ComposeInput<'_, '_>) {
+    let ComposeInput {
+        mut commands,
+        state,
+        armed,
+        project,
+        budget,
+        body,
+        lines,
+        mut receipt,
+    } = input;
     if !(state.is_changed() || armed.is_changed() || project.is_changed()) {
         return;
     }

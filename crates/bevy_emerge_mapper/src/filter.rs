@@ -391,8 +391,7 @@ mod blur_tests {
     /// Blurring gives back the keyboard and keeps the search — the two halves of the module note.
     #[test]
     fn blurring_keeps_the_text_and_drops_the_focus() {
-        let mut f = Filters::default();
-        f.focus = Some(Pane::Palette);
+        let mut f = Filters { focus: Some(Pane::Palette), ..Default::default() };
         *f.text_mut(Pane::Palette) = "grate".to_owned();
 
         f.blur();

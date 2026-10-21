@@ -223,6 +223,23 @@ pub struct LeadSeg;
 #[derive(Resource, Default, PartialEq, Eq)]
 pub struct ShowingFor(Option<(crate::tiles::Mode, keys::Stance, Vec<keys::ControlId>)>);
 
+/// Every node [`ink`] reads: its layout, its visibility, and what it paints.
+type Painters<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static ComputedNode,
+        &'static UiGlobalTransform,
+        &'static InheritedVisibility,
+        Option<&'static BackgroundColor>,
+        Option<&'static BorderColor>,
+        Option<&'static Text>,
+        Option<&'static ImageNode>,
+        Option<&'static chrome::Ground>,
+    ),
+>;
+
 /// **Everything on screen a reader needs to see** — the set a badge must not stand on.
 ///
 /// Fekete & Plaisant's excentric labels (`10.1145/302979.303148`) state the rule this implements: a
@@ -248,17 +265,7 @@ pub struct ShowingFor(Option<(crate::tiles::Mode, keys::Stance, Vec<keys::Contro
 /// ([`spawn_layer`]) and would otherwise mark every pixel on screen occupied.
 fn ink(
     layer: Entity,
-    painters: &Query<(
-        Entity,
-        &ComputedNode,
-        &UiGlobalTransform,
-        &InheritedVisibility,
-        Option<&BackgroundColor>,
-        Option<&BorderColor>,
-        Option<&Text>,
-        Option<&ImageNode>,
-        Option<&chrome::Ground>,
-    )>,
+    painters: &Painters<'_, '_>,
     parents: &Query<&ChildOf>,
 ) -> Vec<Rect> {
     let mut out: Vec<Rect> = Vec::new();
@@ -405,6 +412,13 @@ impl FreeGround {
     }
 }
 
+/// The queries [`ink`] reads, as one `SystemState` so a plain `&mut World` can hand them out.
+type InkState = bevy::ecs::system::SystemState<(
+    Query<'static, 'static, Entity, With<BadgeLayer>>,
+    Painters<'static, 'static>,
+    Query<'static, 'static, &'static ChildOf>,
+)>;
+
 /// **[`ink`] run against a `World`**, so a test measures the editor's own answer rather than a
 /// second copy of the rule.
 ///
@@ -413,21 +427,7 @@ impl FreeGround {
 /// [`resolve`] is `pub` for. A `SystemState` is the one way to hand a plain `&mut World` the same
 /// queries the system takes.
 pub fn ink_now(world: &mut World) -> Vec<Rect> {
-    let mut state: bevy::ecs::system::SystemState<(
-        Query<Entity, With<BadgeLayer>>,
-        Query<(
-            Entity,
-            &ComputedNode,
-            &UiGlobalTransform,
-            &InheritedVisibility,
-            Option<&BackgroundColor>,
-            Option<&BorderColor>,
-            Option<&Text>,
-            Option<&ImageNode>,
-            Option<&chrome::Ground>,
-        )>,
-        Query<&ChildOf>,
-    )> = bevy::ecs::system::SystemState::new(world);
+    let mut state: InkState = bevy::ecs::system::SystemState::new(world);
     // `SystemState::get` is fallible in 0.19; a world that cannot satisfy the queries has no
     // interface to measure, which is the same answer as an empty one.
     let Ok((layers, painters, parents)) = state.get(world) else {
@@ -596,25 +596,39 @@ pub fn resolve(home: Home, on_screen: &[keys::ControlId]) -> Home {
     }
 }
 
-/// Show the layer while the key is down, and rebuild its clusters when what is live changes.
-fn rebuild_badges(
-    mut commands: Commands,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    live: Res<keys::Live>,
-    mode: Res<crate::tiles::Mode>,
-    mut showing: ResMut<ShowingFor>,
-    mut layers: Query<(Entity, &mut Node), With<BadgeLayer>>,
-    clusters: Query<Entity, With<BadgeCluster>>,
+/// What `rebuild_badges` reads from the keyboard: the raw input and the live stance it is judged by.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Shortcut<'w> {
+    keyboard: Res<'w, ButtonInput<KeyCode>>,
+    live: Res<'w, keys::Live>,
+}
+
+/// The clusters and leader segments a rebuild sweeps.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Stale<'w, 's> {
+    clusters: Query<'w, 's, Entity, With<BadgeCluster>>,
     // **The leader segments are swept with the clusters they serve.** They are children of the
     // layer, not of any cluster — spawned first so lines paint under boxes — so despawning the
     // clusters alone orphaned three hairlines per control home on every rebuild: an unbounded leak,
     // and the orphans kept their last rects and visibility, drawing ghost elbows over the next
     // overlay the moment the layer showed again.
-    segs: Query<Entity, With<LeadSeg>>,
+    segs: Query<'w, 's, Entity, With<LeadSeg>>,
+}
+
+/// Show the layer while the key is down, and rebuild its clusters when what is live changes.
+fn rebuild_badges(
+    mut commands: Commands,
+    shortcut: Shortcut<'_>,
+    mode: Res<crate::tiles::Mode>,
+    mut showing: ResMut<ShowingFor>,
+    mut layers: Query<(Entity, &mut Node), With<BadgeLayer>>,
+    stale: Stale<'_, '_>,
     // **No fold queries here any more.** Whether a control is laid out is a fact about the control;
     // where its badge may go is a fact about the pane, and that is `place_badges`'s question.
     controls: Query<(Entity, &chrome::Control, &ComputedNode, &UiGlobalTransform)>,
 ) {
+    let Shortcut { keyboard, live } = shortcut;
+    let Stale { clusters, segs } = stale;
     let want = keys::pressed(&keyboard, *live, keys::Action::Shortcuts);
     for (_, mut node) in &mut layers {
         let display = if want { Display::Flex } else { Display::None };
@@ -1131,18 +1145,30 @@ fn lanes_for(ties: &[Tie], lanes: usize, thick: f32) -> Vec<usize> {
     let mut drawn: Vec<[Option<Rect>; 3]> = Vec::with_capacity(n);
     let mut budget = 20_000usize;
 
+    // What `walk` reads, bundled so the recursion passes one value rather than four.
+    #[derive(Clone, Copy)]
+    struct Walk<'a> {
+        ties: &'a [Tie],
+        rank: &'a [usize],
+        orders: &'a [Vec<usize>],
+        thick: f32,
+    }
+
     // Depth-first over positions, in rank order. Depth is `n`, so the recursion is as deep as a
     // rail is long.
     fn walk(
         at: usize,
-        ties: &[Tie],
-        rank: &[usize],
-        orders: &[Vec<usize>],
-        thick: f32,
+        search: Walk<'_>,
         chosen: &mut Vec<usize>,
         drawn: &mut Vec<[Option<Rect>; 3]>,
         budget: &mut usize,
     ) -> bool {
+        let Walk {
+            ties,
+            rank,
+            orders,
+            thick,
+        } = search;
         if at == rank.len() {
             return true;
         }
@@ -1158,7 +1184,7 @@ fn lanes_for(ties: &[Tie], lanes: usize, thick: f32) -> Vec<usize> {
             }
             chosen[p] = k;
             drawn.push(cand);
-            if walk(at + 1, ties, rank, orders, thick, chosen, drawn, budget) {
+            if walk(at + 1, search, chosen, drawn, budget) {
                 return true;
             }
             drawn.pop();
@@ -1166,16 +1192,13 @@ fn lanes_for(ties: &[Tie], lanes: usize, thick: f32) -> Vec<usize> {
         false
     }
 
-    if walk(
-        0,
+    let search = Walk {
         ties,
-        &rank,
-        &orders,
+        rank: &rank,
+        orders: &orders,
         thick,
-        &mut chosen,
-        &mut drawn,
-        &mut budget,
-    ) {
+    };
+    if walk(0, search, &mut chosen, &mut drawn, &mut budget) {
         return chosen;
     }
     // **No clean assignment inside the budget: the fewest crossings, not the blind preference.**
@@ -1375,6 +1398,32 @@ fn settle_legend(
     corner
 }
 
+/// The read-only geometry `place_badges` lays boxes against: what each control and panel measures
+/// to, what paints, and what is folded. Bundled so the system stays within the argument budget.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Geometry<'w, 's> {
+    rects: Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform)>,
+    painters: Painters<'w, 's>,
+    controls: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static chrome::Control,
+            &'static ComputedNode,
+            &'static UiGlobalTransform,
+        ),
+    >,
+    parents: Query<'w, 's, &'static ChildOf>,
+    folds: Query<'w, 's, &'static bevy::ui_widgets::ScrollArea>,
+    layers: Query<'w, 's, Entity, With<BadgeLayer>>,
+}
+
+/// The leader segments `place_badges` writes, kept apart from the clusters it writes so the two
+/// mutable borrows never overlap.
+type LeadSegs<'w, 's> =
+    Query<'w, 's, (&'static mut Node, &'static mut Visibility), (With<LeadSeg>, Without<BadgeCluster>)>;
+
 /// **Place every cluster — rail-packed, never overlapping, each tied to its anchor by a
 /// right-angle leader — and reveal it once it has a size.**
 ///
@@ -1399,22 +1448,7 @@ fn settle_legend(
 fn place_badges(
     frame: Res<chrome::Frame>,
     ui_scale: Res<UiScale>,
-    rects: Query<(&ComputedNode, &UiGlobalTransform)>,
-    painters: Query<(
-        Entity,
-        &ComputedNode,
-        &UiGlobalTransform,
-        &InheritedVisibility,
-        Option<&BackgroundColor>,
-        Option<&BorderColor>,
-        Option<&Text>,
-        Option<&ImageNode>,
-        Option<&chrome::Ground>,
-    )>,
-    controls: Query<(Entity, &chrome::Control, &ComputedNode, &UiGlobalTransform)>,
-    parents: Query<&ChildOf>,
-    folds: Query<&bevy::ui_widgets::ScrollArea>,
-    layers: Query<Entity, With<BadgeLayer>>,
+    geometry: Geometry<'_, '_>,
     mut clusters: Query<(
         &BadgeCluster,
         &ComputedNode,
@@ -1422,8 +1456,16 @@ fn place_badges(
         &mut Visibility,
         Option<&Lead>,
     )>,
-    mut segs: Query<(&mut Node, &mut Visibility), (With<LeadSeg>, Without<BadgeCluster>)>,
+    mut segs: LeadSegs<'_, '_>,
 ) {
+    let Geometry {
+        rects,
+        painters,
+        controls,
+        parents,
+        folds,
+        layers,
+    } = geometry;
     let Some(layer) = layers.iter().next() else {
         return;
     };
@@ -2265,118 +2307,6 @@ fn flash_live_badges(
     }
 }
 
-// **An accent halo on every anchored control was tried here, and removed.**
-//
-// `light_anchored_controls` gave each control that owned a cluster a one-pixel `ACCENT` outline
-// while `K` was held, on the argument that ownership by proximity is deniable in a dock of stacked
-// rows. It answered a question the leaders had not yet been built to answer — and once they were,
-// it became a second answer competing with the first: reported from the keyboard, *"the yellow-gold
-// outlines make it hard to see where the lines are pointing."* Twenty-odd glowing rectangles are
-// exactly the wrong ground to read a hairline against.
-//
-// So ownership is the **leader**, and only the leader — the one tie
-// `every_control_cluster_is_tied_to_its_anchor` holds the packer to. Nothing writes `Outline` in
-// this crate now; if something ever needs to, note that this system's rest state was `Color::NONE`
-// rather than a removal, because `Outline`'s own doc recommends toggling by colour.
-
-#[cfg(test)]
-mod tests {
-    use super::{CELL, FreeGround};
-    use bevy::prelude::*;
-
-    fn window() -> Rect {
-        Rect::from_corners(Vec2::ZERO, Vec2::new(640.0, 320.0))
-    }
-
-    /// A screen nothing is drawn on is free everywhere, including flush into its corners.
-    #[test]
-    fn an_empty_screen_is_free_ground_end_to_end() {
-        let g = FreeGround::build(window(), &[]);
-        assert!(g.is_free(Rect::from_corners(Vec2::ZERO, Vec2::new(640.0, 320.0))));
-        assert!(g.is_free(Rect::from_corners(
-            Vec2::new(600.0, 300.0),
-            Vec2::new(640.0, 320.0)
-        )));
-    }
-
-    /// **Off the edge is not free.** There is no ground out there to stand on, and a box clamped
-    /// back inside is the overlap this module has no give-up arm for.
-    #[test]
-    fn ground_that_leaves_the_window_is_not_ground() {
-        let g = FreeGround::build(window(), &[]);
-        assert!(!g.is_free(Rect::from_corners(
-            Vec2::new(620.0, 10.0),
-            Vec2::new(700.0, 40.0)
-        )));
-        assert!(!g.is_free(Rect::from_corners(
-            Vec2::new(-8.0, 10.0),
-            Vec2::new(40.0, 40.0)
-        )));
-    }
-
-    /// **A cell any ink touches is occupied**, which is the rounding this grid must do: "free" has
-    /// to mean genuinely free, or the exact ratchet in `tests/headless.rs` and this grid disagree
-    /// and the overlay ships an overlap that the suite calls green.
-    #[test]
-    fn a_cell_ink_only_grazes_still_counts_as_used() {
-        let ink = [Rect::from_corners(
-            Vec2::new(100.0, 100.0),
-            Vec2::new(101.0, 101.0),
-        )];
-        let g = FreeGround::build(window(), &ink);
-        // The one-pixel mark occupies its whole cell, so a box overlapping any part of that cell is
-        // refused — even the part the ink does not literally cover.
-        let cell_x = (100.0f32 / CELL).floor() * CELL;
-        assert!(!g.is_free(Rect::from_corners(
-            Vec2::new(cell_x, 96.0),
-            Vec2::new(cell_x + 2.0, 104.0)
-        )));
-    }
-
-    /// The ordinary case the whole search rests on: a box fits beside an obstacle and not through it.
-    #[test]
-    fn a_box_finds_the_ground_beside_a_block() {
-        let ink = [Rect::from_corners(
-            Vec2::new(0.0, 0.0),
-            Vec2::new(320.0, 160.0),
-        )];
-        let g = FreeGround::build(window(), &ink);
-        assert!(!g.is_free(Rect::from_corners(
-            Vec2::new(280.0, 100.0),
-            Vec2::new(400.0, 140.0)
-        )));
-        // Beside it, one cell clear of the edge.
-        assert!(g.is_free(Rect::from_corners(
-            Vec2::new(320.0 + CELL, 100.0),
-            Vec2::new(440.0, 140.0)
-        )));
-        // And below it.
-        assert!(g.is_free(Rect::from_corners(
-            Vec2::new(10.0, 160.0 + CELL),
-            Vec2::new(300.0, 300.0)
-        )));
-    }
-
-    /// Two blocks that overlap must not cancel: the difference array adds and subtracts, and a
-    /// sign error there reads as a hole in the middle of solid ink.
-    #[test]
-    fn overlapping_ink_does_not_cancel_itself_out() {
-        let ink = [
-            Rect::from_corners(Vec2::new(40.0, 40.0), Vec2::new(200.0, 200.0)),
-            Rect::from_corners(Vec2::new(100.0, 100.0), Vec2::new(260.0, 260.0)),
-        ];
-        let g = FreeGround::build(window(), &ink);
-        assert!(!g.is_free(Rect::from_corners(
-            Vec2::new(120.0, 120.0),
-            Vec2::new(180.0, 180.0)
-        )));
-        assert!(g.is_free(Rect::from_corners(
-            Vec2::new(280.0, 280.0),
-            Vec2::new(400.0, 310.0)
-        )));
-    }
-}
-
 /// **One badge, wherever it is going.** The pad and the ordinary flow spawn the same thing; a second
 /// spelling of a badge is the drift `chrome.rs` exists to stop, one module along.
 fn one_badge(
@@ -2491,4 +2421,116 @@ fn one_badge(
             });
         }
     });
+}
+
+// **An accent halo on every anchored control was tried here, and removed.**
+//
+// `light_anchored_controls` gave each control that owned a cluster a one-pixel `ACCENT` outline
+// while `K` was held, on the argument that ownership by proximity is deniable in a dock of stacked
+// rows. It answered a question the leaders had not yet been built to answer — and once they were,
+// it became a second answer competing with the first: reported from the keyboard, *"the yellow-gold
+// outlines make it hard to see where the lines are pointing."* Twenty-odd glowing rectangles are
+// exactly the wrong ground to read a hairline against.
+//
+// So ownership is the **leader**, and only the leader — the one tie
+// `every_control_cluster_is_tied_to_its_anchor` holds the packer to. Nothing writes `Outline` in
+// this crate now; if something ever needs to, note that this system's rest state was `Color::NONE`
+// rather than a removal, because `Outline`'s own doc recommends toggling by colour.
+
+#[cfg(test)]
+mod tests {
+    use super::{CELL, FreeGround};
+    use bevy::prelude::*;
+
+    fn window() -> Rect {
+        Rect::from_corners(Vec2::ZERO, Vec2::new(640.0, 320.0))
+    }
+
+    /// A screen nothing is drawn on is free everywhere, including flush into its corners.
+    #[test]
+    fn an_empty_screen_is_free_ground_end_to_end() {
+        let g = FreeGround::build(window(), &[]);
+        assert!(g.is_free(Rect::from_corners(Vec2::ZERO, Vec2::new(640.0, 320.0))));
+        assert!(g.is_free(Rect::from_corners(
+            Vec2::new(600.0, 300.0),
+            Vec2::new(640.0, 320.0)
+        )));
+    }
+
+    /// **Off the edge is not free.** There is no ground out there to stand on, and a box clamped
+    /// back inside is the overlap this module has no give-up arm for.
+    #[test]
+    fn ground_that_leaves_the_window_is_not_ground() {
+        let g = FreeGround::build(window(), &[]);
+        assert!(!g.is_free(Rect::from_corners(
+            Vec2::new(620.0, 10.0),
+            Vec2::new(700.0, 40.0)
+        )));
+        assert!(!g.is_free(Rect::from_corners(
+            Vec2::new(-8.0, 10.0),
+            Vec2::new(40.0, 40.0)
+        )));
+    }
+
+    /// **A cell any ink touches is occupied**, which is the rounding this grid must do: "free" has
+    /// to mean genuinely free, or the exact ratchet in `tests/headless.rs` and this grid disagree
+    /// and the overlay ships an overlap that the suite calls green.
+    #[test]
+    fn a_cell_ink_only_grazes_still_counts_as_used() {
+        let ink = [Rect::from_corners(
+            Vec2::new(100.0, 100.0),
+            Vec2::new(101.0, 101.0),
+        )];
+        let g = FreeGround::build(window(), &ink);
+        // The one-pixel mark occupies its whole cell, so a box overlapping any part of that cell is
+        // refused — even the part the ink does not literally cover.
+        let cell_x = (100.0f32 / CELL).floor() * CELL;
+        assert!(!g.is_free(Rect::from_corners(
+            Vec2::new(cell_x, 96.0),
+            Vec2::new(cell_x + 2.0, 104.0)
+        )));
+    }
+
+    /// The ordinary case the whole search rests on: a box fits beside an obstacle and not through it.
+    #[test]
+    fn a_box_finds_the_ground_beside_a_block() {
+        let ink = [Rect::from_corners(
+            Vec2::new(0.0, 0.0),
+            Vec2::new(320.0, 160.0),
+        )];
+        let g = FreeGround::build(window(), &ink);
+        assert!(!g.is_free(Rect::from_corners(
+            Vec2::new(280.0, 100.0),
+            Vec2::new(400.0, 140.0)
+        )));
+        // Beside it, one cell clear of the edge.
+        assert!(g.is_free(Rect::from_corners(
+            Vec2::new(320.0 + CELL, 100.0),
+            Vec2::new(440.0, 140.0)
+        )));
+        // And below it.
+        assert!(g.is_free(Rect::from_corners(
+            Vec2::new(10.0, 160.0 + CELL),
+            Vec2::new(300.0, 300.0)
+        )));
+    }
+
+    /// Two blocks that overlap must not cancel: the difference array adds and subtracts, and a
+    /// sign error there reads as a hole in the middle of solid ink.
+    #[test]
+    fn overlapping_ink_does_not_cancel_itself_out() {
+        let ink = [
+            Rect::from_corners(Vec2::new(40.0, 40.0), Vec2::new(200.0, 200.0)),
+            Rect::from_corners(Vec2::new(100.0, 100.0), Vec2::new(260.0, 260.0)),
+        ];
+        let g = FreeGround::build(window(), &ink);
+        assert!(!g.is_free(Rect::from_corners(
+            Vec2::new(120.0, 120.0),
+            Vec2::new(180.0, 180.0)
+        )));
+        assert!(g.is_free(Rect::from_corners(
+            Vec2::new(280.0, 280.0),
+            Vec2::new(400.0, 310.0)
+        )));
+    }
 }

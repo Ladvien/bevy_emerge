@@ -24,7 +24,6 @@ mod fixtures;
 
 use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::harness;
-use bevy_emerge_mapper::project::{OpenMap, Project};
 use fixtures::Fixture;
 
 /// **A project with a piece that cannot be filled with** — one that must sit on a host.

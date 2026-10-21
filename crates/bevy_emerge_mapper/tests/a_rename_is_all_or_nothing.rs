@@ -73,7 +73,7 @@ fn a_rename_onto_a_taken_name_is_refused_and_the_other_map_is_untouched() {
     {
         let world = app.world_mut();
         let mut open = world.remove_resource::<OpenMap>();
-        let mut project = world.resource_mut::<Project>();
+        let project = world.resource_mut::<Project>();
         open.as_mut().expect("a map is open").map.name = "other".to_owned();
         let refused = open
             .as_mut()
@@ -108,7 +108,7 @@ fn a_rename_leaves_one_file_and_the_new_name() {
     {
         let world = app.world_mut();
         let mut open = world.remove_resource::<OpenMap>();
-        let mut project = world.resource_mut::<Project>();
+        let project = world.resource_mut::<Project>();
         open.as_mut().expect("a map is open").map.name = "renamed".to_owned();
         open.as_mut()
             .expect("a map is open")
@@ -153,7 +153,7 @@ fn a_rename_changes_the_name_and_nothing_else() {
     for name in ["renamed", "m"] {
         let world = app.world_mut();
         let mut open = world.remove_resource::<OpenMap>();
-        let mut project = world.resource_mut::<Project>();
+        let project = world.resource_mut::<Project>();
         open.as_mut().expect("a map is open").map.name = name.to_owned();
         open.as_mut()
             .expect("a map is open")

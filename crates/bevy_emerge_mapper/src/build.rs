@@ -799,9 +799,7 @@ pub fn refit(
     library: &bevy_emerge_core::library::Library,
     height: f32,
 ) -> Option<(f32, f32, f32)> {
-    let Some(comp) = build.open.as_ref() else {
-        return None;
-    };
+    let comp = build.open.as_ref()?;
     let want = fit_envelope(&comp.members, library, height);
     let now = match comp.envelope {
         Envelope::Bounded { size } => size,
@@ -2148,7 +2146,6 @@ pub fn build_keys(
             // the stage, and no verb in the tab could put it back.
             Err(e) => state.status.problem(e),
         }
-        return;
     }
 
 }
@@ -2461,10 +2458,8 @@ pub fn drive_build_preview(
         if let Some(e) = crate::editor::spawn_piece(
             &mut commands,
             &assets,
-            &d,
+            crate::editor::Pose { d: &d, yaw: 0.0, tip: (0, 0) },
             at,
-            0.0,
-            (0, 0),
             (stage.x, stage.y, stage.z),
             lift,
         ) {
@@ -2553,10 +2548,8 @@ pub fn drive_build_preview(
         if let Some(e) = crate::editor::spawn_piece(
             &mut commands,
             &assets,
-            &d,
+            crate::editor::Pose { d: &d, yaw: p.yaw, tip: p.tip },
             p.at,
-            p.yaw,
-            p.tip,
             (stage.x, stage.y, stage.z),
             y,
         ) {

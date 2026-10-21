@@ -893,7 +893,7 @@ mod tests {
         let second = flood(&m, &brush(0.5), (90.25, 0.25), 0.0, UPRIGHT, TILE, ids())
             .unwrap_or_else(|e| panic!("the second flood must succeed: {e}"));
         assert!(
-            second.placements.len() > 0,
+            !second.placements.is_empty(),
             "the second flood placed nothing, so the route the cap's message names does not work"
         );
     }

@@ -556,11 +556,18 @@ pub(crate) fn spawn_request(
     }
 }
 
+/// What a finished request lands into: the in-flight tasks, the answers, and the generation that
+/// says whether an answer is still wanted. Written together, so one parameter names the set.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct Landing<'w> {
+    tasks: ResMut<'w, LabelTasks>,
+    suggestions: ResMut<'w, Suggestions>,
+    generation: ResMut<'w, LabelGeneration>,
+}
+
 /// Land finished requests — behind the stale guards, because minutes may have passed.
 pub(crate) fn poll_tasks(
-    mut tasks: ResMut<LabelTasks>,
-    mut suggestions: ResMut<Suggestions>,
-    mut generation: ResMut<LabelGeneration>,
+    landing: Landing,
     mut state: ResMut<crate::tiles::ImportState>,
     project: Option<Res<Project>>,
     // A walk that has lost its endpoint is stopped rather than burned through — see the `Err` arm.
@@ -570,6 +577,7 @@ pub(crate) fn poll_tasks(
     // have happened. See [`Labeler`].
     mut labeler: ResMut<Labeler>,
 ) {
+    let Landing { mut tasks, mut suggestions, mut generation } = landing;
     let Some(project) = project else { return };
     let mut finished = Vec::new();
     for (i, inflight) in tasks.0.iter_mut().enumerate() {
@@ -692,10 +700,10 @@ fn prompt_ctx(
                 rooms_in_use.push(r.clone());
             }
         }
-        if let Some(g) = &other.placement.group {
-            if !groups_in_use.contains(g) {
-                groups_in_use.push(g.clone());
-            }
+        if let Some(g) = &other.placement.group
+            && !groups_in_use.contains(g)
+        {
+            groups_in_use.push(g.clone());
         }
     }
     rooms_in_use.sort();
@@ -967,22 +975,29 @@ pub(crate) fn judged_enough_to_build_with(d: &bevy_emerge_core::descriptor::Desc
     !d.kind.is_empty() && d.note.is_some()
 }
 
+/// The walk's queue, and what it reads to skip what is already judged or in flight.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct Walk<'w> {
+    queue: ResMut<'w, LabelQueue>,
+    suggestions: Res<'w, Suggestions>,
+    tasks: Res<'w, LabelTasks>,
+}
+
 /// `Shift+L`: walk everything missing judgement fields through the labeler — or, when a walk is
 /// already running, cancel it. One key, both directions, stated in the status line.
 pub(crate) fn suggest_all(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    live: Res<crate::keys::Live>,
+    input: crate::keys::KeyInput,
     project: Option<Res<Project>>,
     mut state: ResMut<crate::tiles::ImportState>,
-    suggestions: Res<Suggestions>,
-    tasks: Res<LabelTasks>,
-    mut queue: ResMut<LabelQueue>,
+    walk: Walk,
     // **The walk takes what the list is showing.** See the note where the targets are gathered.
     filters: Res<crate::filter::Filters>,
     // For `arm_batch`, which stamps the warm-up's start so the wait can count itself.
     time: Res<Time>,
     mut confirm: ResMut<crate::confirm::Confirm>,
 ) {
+    let crate::keys::KeyInput { keyboard, live } = input;
+    let Walk { mut queue, suggestions, tasks } = walk;
     if !crate::keys::just_pressed(&keyboard, *live, crate::keys::Action::SuggestAll) {
         return;
     }
@@ -1324,10 +1339,10 @@ pub(crate) fn paint_labels_badge(
             continue;
         }
         for child in children {
-            if let Ok(mut text) = labels.get_mut(*child) {
-                if text.0 != want {
-                    text.0 = want.clone();
-                }
+            if let Ok(mut text) = labels.get_mut(*child)
+                && text.0 != want
+            {
+                text.0 = want.clone();
             }
         }
     }
@@ -1856,14 +1871,16 @@ mod tests {
         suggestions.insert(&EditTarget::Library("a".to_owned()), entry(&root));
         suggestions.insert(&EditTarget::Candidate("kit/b.glb".to_owned()), entry(&root));
         let mut generation = LabelGeneration::default();
-        let mut queue = LabelQueue::default();
-        queue.total = 2;
-        queue.queue = vec![
-            EditTarget::Library("c".to_owned()),
-            EditTarget::Library("d".to_owned()),
-        ]
-        .into_iter()
-        .collect();
+        let mut queue = LabelQueue {
+            total: 2,
+            queue: vec![
+                EditTarget::Library("c".to_owned()),
+                EditTarget::Library("d".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
         let mut tasks = LabelTasks::default();
         let mut rig = crate::label_booth::ShotRig::default();
         rig.push_unique(crate::label_booth::ShotJob {
@@ -1908,7 +1925,7 @@ mod tests {
             why: "cooktops are not worktops".to_owned(),
         };
         // First write: fresh file with the readme and one row.
-        let text = merge_proposals(None, &[hob.clone()], "kitchen_stove", "stub", "2026-08-06")
+        let text = merge_proposals(None, std::slice::from_ref(&hob), "kitchen_stove", "stub", "2026-08-06")
             .unwrap_or_else(|e| panic!("{e}"))
             .unwrap_or_else(|| panic!("nothing written"));
         assert!(
@@ -1919,7 +1936,7 @@ mod tests {
         // Second sighting from another asset: the row grows, no duplicate.
         let text2 = merge_proposals(
             Some(&text),
-            &[hob.clone()],
+            std::slice::from_ref(&hob),
             "camp_stove",
             "stub",
             "2026-08-07",
@@ -2070,15 +2087,17 @@ mod tests {
     /// remaining queue intact, and a *fresh* walk is never born held.
     #[test]
     fn a_held_walk_keeps_its_queue_and_a_fresh_one_starts_running() {
-        let mut q = LabelQueue::default();
-        q.total = 3;
-        q.queue = vec![
-            EditTarget::Library("a".to_owned()),
-            EditTarget::Library("b".to_owned()),
-            EditTarget::Library("c".to_owned()),
-        ]
-        .into_iter()
-        .collect();
+        let mut q = LabelQueue {
+            total: 3,
+            queue: vec![
+                EditTarget::Library("a".to_owned()),
+                EditTarget::Library("b".to_owned()),
+                EditTarget::Library("c".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
         let _ = q.queue.pop_front();
 
         q.paused = true;
@@ -2112,11 +2131,13 @@ mod tests {
     /// suggestion does not carry is untouched.
     #[test]
     fn apply_replaces_axes_and_touches_only_what_the_suggestion_carries() {
-        let mut d = bevy_emerge_core::descriptor::Descriptor::default();
-        d.kind = vec!["table".to_owned()];
-        d.look = vec!["worn".to_owned()];
-        d.note = Some("hand-written".to_owned());
-        d.mount = Some(bevy_emerge_core::descriptor::Mount::OnFloor);
+        let mut d = bevy_emerge_core::descriptor::Descriptor {
+            kind: vec!["table".to_owned()],
+            look: vec!["worn".to_owned()],
+            note: Some("hand-written".to_owned()),
+            mount: Some(bevy_emerge_core::descriptor::Mount::OnFloor),
+            ..Default::default()
+        };
         d.placement.rooms = vec!["office".to_owned()];
         d.placement.group = Some("desk_set".to_owned());
 
@@ -2171,7 +2192,7 @@ mod tests {
             why: "standing on its head".to_owned(),
         });
         let before_align_rotate = d.align.rotate;
-        let before_extent = d.extent.clone();
+        let before_extent = d.extent;
         apply_fields(&mut d, &s, &stamp(), &vocab());
         assert_eq!(d.align.front, Some(bevy_emerge_core::descriptor::Face::South));
         assert_eq!(d.align.rotate, before_align_rotate, "no rotation applied");

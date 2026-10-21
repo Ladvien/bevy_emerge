@@ -2049,7 +2049,7 @@ mod compose {
     /// sunk member, and that the authored lift is not it.
     #[test]
     fn a_stamp_previews_at_the_height_it_will_land_at() {
-        use bevy_emerge_mapper::compose::ComposeState;
+        
         use bevy_emerge_mapper::project::{OpenMap, Project};
 
         let root = Fixture::new("stamp-sunk")
@@ -3025,7 +3025,7 @@ fn the_open_journal_answers_the_over_ui_question() {
                 .world_mut()
                 .query_filtered::<(&ComputedNode, &UiGlobalTransform), bevy::prelude::With<bevy::picking::hover::Hovered>>();
             q.iter(app.world())
-                .map(|(n, tf)| (n.clone(), *tf))
+                .map(|(n, tf)| (*n, *tf))
                 .collect()
         };
         let borrowed: Vec<(&ComputedNode, &UiGlobalTransform)> =
@@ -3344,7 +3344,7 @@ fn the_pointer_is_over_the_panel_when_it_is_over_a_row() {
                 .world_mut()
                 .query_filtered::<(&ComputedNode, &UiGlobalTransform), bevy::prelude::With<bevy::picking::hover::Hovered>>();
             q.iter(app.world())
-                .map(|(n, tf)| (n.clone(), *tf))
+                .map(|(n, tf)| (*n, *tf))
                 .collect()
         };
         let borrowed: Vec<(&ComputedNode, &UiGlobalTransform)> =
@@ -4570,7 +4570,7 @@ fn a_tile_survives_a_save_and_a_reopen() {
         owned: false,
         owned_because: None,
     };
-    let open = bevy_emerge_mapper::project::OpenMap::open(&project, "m")
+    let open = bevy_emerge_mapper::project::OpenMap::open(project, "m")
         .unwrap_or_else(|e| panic!("{e}"));
     let out = bevy_emerge_core::composition::expand(
         &open.map,
@@ -7687,17 +7687,17 @@ fn the_corner_tile_feedback_script_can_actually_be_followed() {
     );
 }
 
-/// **Retired 2026-08-15 — superseded, and its replacement is stricter.**
-///
-/// `the_feedback_script_still_matches_the_shipped_kit` held one guide script to the corpus: it
-/// checked that `guides/tile_feedback.json` could still send an author to `site/floor` and identify
-/// `site/tile_4`. That job now belongs to
-/// `every_piece_a_shipped_guide_names_exists_in_the_shipped_kit`, which does it for **all six**
-/// scripts instead of one, by scanning the card text every author actually reads.
-///
-/// Worth recording that the note replaced here claimed *"the scripts were rewritten to author from
-/// scratch"*. **They were not** — that is precisely what the new ratchet caught, and what it took
-/// to notice the kit itself had gone missing.
+// **Retired 2026-08-15 — superseded, and its replacement is stricter.**
+//
+// `the_feedback_script_still_matches_the_shipped_kit` held one guide script to the corpus: it
+// checked that `guides/tile_feedback.json` could still send an author to `site/floor` and identify
+// `site/tile_4`. That job now belongs to
+// `every_piece_a_shipped_guide_names_exists_in_the_shipped_kit`, which does it for **all six**
+// scripts instead of one, by scanning the card text every author actually reads.
+//
+// Worth recording that the note replaced here claimed *"the scripts were rewritten to author from
+// scratch"*. **They were not** — that is precisely what the new ratchet caught, and what it took
+// to notice the kit itself had gone missing.
 
 /// **A tile that is too big says which member made it too big.**
 ///
@@ -9657,7 +9657,7 @@ fn a_named_tile_is_a_row_on_the_tiles_page_before_it_is_saved() {
         "the named tile is in hand"
     );
     assert_eq!(
-        page_len(&app.world().resource::<bevy_emerge_mapper::project::Project>(), build),
+        page_len(app.world().resource::<bevy_emerge_mapper::project::Project>(), build),
         2,
         "the page counts the draft AND the `+ New Tile` row — the walk clamps to both"
     );
@@ -9703,7 +9703,7 @@ fn a_named_tile_is_a_row_on_the_tiles_page_before_it_is_saved() {
         "Cmd+S commits the draft — the row survives, the draft marker does not"
     );
     assert_eq!(
-        page_len(&app.world().resource::<bevy_emerge_mapper::project::Project>(), &app.world().resource::<Build>()),
+        page_len(app.world().resource::<bevy_emerge_mapper::project::Project>(), app.world().resource::<Build>()),
         2,
         "after the save it is still one tile — two page rows, with `+ New Tile` above it"
     );

@@ -706,6 +706,14 @@ struct CategoryHeader(String);
 #[derive(Component, Clone, Copy)]
 struct PaletteRow(usize);
 
+/// The Map palette's scrollable list, read for its geometry and written for its scroll position.
+type PaletteListQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static ComputedNode, &'static UiGlobalTransform, &'static mut ScrollPosition),
+    (With<PaletteList>, Without<PaletteRow>),
+>;
+
 /// **Scroll the palette so the armed brush is on screen** — `tiles::keep_selection_on_screen`'s
 /// shape, for the Map's own list.
 ///
@@ -721,10 +729,7 @@ struct PaletteRow(usize);
 fn keep_palette_selection_on_screen(
     state: Res<EditorState>,
     rows: Query<(&PaletteRow, &ComputedNode, &UiGlobalTransform)>,
-    mut lists: Query<
-        (&ComputedNode, &UiGlobalTransform, &mut ScrollPosition),
-        (With<PaletteList>, Without<PaletteRow>),
-    >,
+    mut lists: PaletteListQuery,
     mut follow: Local<crate::chrome::Follow<usize>>,
 ) {
     // **Keyed on the brush, not on `EditorState::is_changed`.** See `chrome::Follow` — the
@@ -1793,6 +1798,16 @@ fn spawn_palette_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>)
     });
 }
 
+/// What the Map palette is built from, read as one param so the palette systems stay within Bevy's
+/// parameter ceiling. `palette_indices` and `palette_categories` take these four resources.
+#[derive(bevy::ecs::system::SystemParam)]
+struct PaletteSource<'w> {
+    project: Res<'w, Project>,
+    open: Res<'w, OpenMap>,
+    filters: Res<'w, crate::filter::Filters>,
+    fold: Res<'w, Folded>,
+}
+
 /// **The palette, grouped.**
 ///
 /// Forty-one rows is a list you scroll past; grouped by what a thing IS it becomes a handful of
@@ -1805,11 +1820,8 @@ fn spawn_palette_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>)
 /// reshuffles as a map fills is one nobody builds a memory of.
 fn rebuild_palette(
     mut commands: Commands,
-    project: Res<Project>,
-    open: Res<OpenMap>,
+    palette: PaletteSource,
     thumbs: Option<Res<crate::thumbs::Thumbnails>>,
-    filters: Res<crate::filter::Filters>,
-    fold: Res<Folded>,
     // Read for one fact only — which row is armed — so the row spawns already selected rather than
     // waiting a frame for [`arm_palette_rows`]. It is deliberately NOT in the run condition above:
     // arming a brush must not respawn a hundred and eighty rows.
@@ -1817,6 +1829,12 @@ fn rebuild_palette(
     lists: Query<Entity, With<PaletteList>>,
     order: Option<ResMut<crate::thumbs::ThumbOrder>>,
 ) {
+    let PaletteSource {
+        project,
+        open,
+        filters,
+        fold,
+    } = palette;
     // **The booth bakes what the palette shows, in the order it shows it**, so the rows an author is
     // looking at fill in before the ones under a folded heading. Written here and only here: this
     // runs when the palette is rebuilt, which is exactly when that order can have changed.
@@ -1976,7 +1994,7 @@ fn palette_categories(project: &Project,
     // the same question — "is this row offered right now" — and two passes over one list would be
     // two places to forget. `Project::palette_namespaces` has already folded in whatever the map
     // uses, so nothing on screen can vanish from under a placement.
-    let offered = open.palette_namespaces(&project);
+    let offered = open.palette_namespaces(project);
     for (_, members) in out.iter_mut() {
         // **The filter narrows; it never reorders.** Rows that survive keep the positions they had,
         // so what an author learned about where a piece sits is still true — Samp 2011, via
@@ -2015,7 +2033,7 @@ pub fn palette_indices(
     fold: &Folded,
     filters: &crate::filter::Filters,
 ) -> Vec<usize> {
-    palette_categories(project, &*open, filters)
+    palette_categories(project, open, filters)
         .into_iter()
         .filter(|(category, _)| !fold.0.contains(category))
         .flat_map(|(_, members)| members)
@@ -2124,12 +2142,15 @@ fn walk_palette(
     live: Res<keys::Live>,
     time: Res<Time>,
     mut repeat: ResMut<keys::Repeat>,
-    project: Res<Project>,
-    open: Res<OpenMap>,
-    filters: Res<crate::filter::Filters>,
-    fold: Res<Folded>,
     mut state: ResMut<EditorState>,
+    palette: PaletteSource,
 ) {
+    let PaletteSource {
+        project,
+        open,
+        filters,
+        fold,
+    } = palette;
     let dt = time.delta_secs();
     // One `repeating` call per direction, never two OR'd together: `Repeat` carries a single
     // countdown, so asking it about two actions in one frame has the second reset the first's
@@ -2325,7 +2346,7 @@ fn size_edit_keys(
                     OpenMap::new(bevy_emerge_core::map::Map::default(), std::path::PathBuf::new()),
                 ));
                 let mut ctx = crate::ops::Ctx {
-                    project: project.as_deref().map(|p| p.clone()),
+                    project: project.as_deref().cloned(),
                     open: taken_open.take(),
                     source: crate::ops::Source::Human,
                     session: crate::ops::session_id(),
@@ -2929,6 +2950,17 @@ pub struct Fields<'w> {
     pub compose: Res<'w, crate::compose::ComposeState>,
 }
 
+/// What the tabs can be holding or waiting on. Read as one param by [`sense_context`], which folds
+/// these into the `Stance` the keyboard census answers from.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct InHand<'w> {
+    move_drag: Res<'w, MoveDrag>,
+    clone_drag: Res<'w, CloneDrag>,
+    proposal: Res<'w, Proposal>,
+    derived: Res<'w, crate::tiles::DerivedEdges>,
+    picker: Res<'w, crate::compose::picker::Picker>,
+}
+
 impl Fields<'_> {
     /// Is one of them taking keys right now? Adding a field is adding a line, here and nowhere else.
     pub fn typing(&self) -> bool {
@@ -2973,17 +3005,20 @@ pub fn sense_context(
     mode: Res<crate::tiles::Mode>,
     fields: Fields,
     filters: Res<crate::filter::Filters>,
-    move_drag: Res<MoveDrag>,
-    clone_drag: Res<CloneDrag>,
-    proposal: Res<Proposal>,
-    derived: Res<crate::tiles::DerivedEdges>,
-    picker: Res<crate::compose::picker::Picker>,
+    held: InHand,
     mut live: ResMut<keys::Live>,
     // The panel, so the journal can be told it owns the keyboard. A `Query` rather than a resource
     // because `Display::None` on the node *is* the open/closed state — `notice::toggle_journal`
     // writes exactly that, and a second flag beside it would be a second answer.
     journal: Query<&Node, With<crate::chrome::JournalPanel>>,
 ) {
+    let InHand {
+        move_drag,
+        clone_drag,
+        proposal,
+        derived,
+        picker,
+    } = held;
     // **The filter box is a text field with a named exemption, not a context of its own.** Every
     // other field here makes the whole census quiet ([`keys::Context::Typing`]); a filter box narrows
     // a list that must keep walking while it holds the keys, so it also sets [`keys::Holder::Filter`]
@@ -3231,7 +3266,7 @@ pub fn with_thousands(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -3320,7 +3355,7 @@ pub fn stamp_snap(
             .compositions
             .compositions
             .iter()
-            .find(|c| &c.id == id)
+            .find(|c| c.id == id)
     });
     match armed.map(|c| &c.envelope) {
         Some(bevy_emerge_core::composition::Envelope::Bounded { size }) => {
@@ -3462,17 +3497,26 @@ pub fn brush_at(
     rung: SnapLevel,
     anchor: &FineAnchor,
     hit: Vec3,
-    d: &bevy_emerge_core::descriptor::Descriptor,
-    yaw: f32,
-    tip: (u8, u8),
+    piece: Pose<'_>,
 ) -> (f32, f32) {
-    map_at(project, &*open,
+    map_at(project, open,
         hit,
         keys::alt_held(keyboard),
         anchor,
         snap_level(keyboard, rung),
-        brush_span(d, yaw, tip),
+        brush_span(piece.d, piece.yaw, piece.tip),
     )
+}
+
+/// A piece as it is being laid: its descriptor, its authored yaw, and its tip. [`brush_span`] reads
+/// all three together, so they travel together.
+pub struct Pose<'a> {
+    /// The descriptor being laid.
+    pub d: &'a bevy_emerge_core::descriptor::Descriptor,
+    /// The authored yaw, in degrees.
+    pub yaw: f32,
+    /// The authored tip.
+    pub tip: (u8, u8),
 }
 
 /// The rectangle being dragged out to fill, in map space. Its own resource on the same argument
@@ -3494,6 +3538,14 @@ pub struct RunDrag {
     from: Option<(f32, f32)>,
 }
 
+/// The three map resources a placement writes: the project, the open map, and the editor's state.
+/// They always travel together, so a placement helper takes them as one.
+struct MapEdit<'a> {
+    project: &'a mut Project,
+    open: &'a mut OpenMap,
+    state: &'a mut EditorState,
+}
+
 /// Fill a dragged box with the brush, as one act.
 ///
 /// Split out of [`drive_place`] so the release path reads as the two things it chooses between —
@@ -3502,13 +3554,12 @@ fn box_fill_between(
     commands: &mut Commands,
     assets: &AssetServer,
     placed: &Query<(Entity, &Placement)>,
-    project: &mut Project,
-    open: &mut OpenMap,
-    state: &mut EditorState,
+    edit: MapEdit,
     brush: &bevy_emerge_core::descriptor::Descriptor,
     corners: ((f32, f32), (f32, f32)),
     pitch: f32,
 ) {
+    let MapEdit { project, open, state } = edit;
     let mut n = state.next_id;
     let short = short_id(&brush.id).to_owned();
     let filled = match crate::fill::box_fill(
@@ -3631,9 +3682,7 @@ pub fn run_for_test(world: &mut World, descriptor: &str, from: (f32, f32), to: (
                 run_between(
                     &mut commands,
                     &assets,
-                    &mut project,
-                    &mut open,
-                    &mut state,
+                    MapEdit { project: &mut project, open: &mut open, state: &mut state },
                     &d,
                     from,
                     to,
@@ -3808,9 +3857,7 @@ fn drive_run(
     run_between(
         &mut commands,
         &assets,
-        &mut project,
-        &mut open,
-        &mut state,
+        MapEdit { project: &mut project, open: &mut open, state: &mut state },
         &d,
         from,
         at,
@@ -3830,13 +3877,12 @@ fn drive_run(
 fn run_between(
     commands: &mut Commands,
     assets: &AssetServer,
-    project: &mut Project,
-    open: &mut OpenMap,
-    state: &mut EditorState,
+    edit: MapEdit,
     brush: &bevy_emerge_core::descriptor::Descriptor,
     from: (f32, f32),
     to: (f32, f32),
 ) {
+    let MapEdit { project, open, state } = edit;
     let run = bevy_emerge_core::run::Run {
         descriptor: brush.id.clone(),
         pitch: None,
@@ -4380,23 +4426,21 @@ fn sense_fine_anchor(
 pub(crate) fn spawn_piece(
     commands: &mut Commands,
     assets: &AssetServer,
-    d: &bevy_emerge_core::descriptor::Descriptor,
+    piece: Pose<'_>,
     at: (f32, f32),
-    yaw: f32,
-    tip: (u8, u8),
     origin: (f32, f32, f32),
     y: f32,
 ) -> Option<Entity> {
     bevy_emerge::spawn_descriptor(
         commands,
         assets,
-        d,
+        piece.d,
         // The editor draws before tags matter; the runtime resolves them from the library. Defaulting
         // here keeps the signature honest rather than pretending the editor knows.
         bevy_emerge_core::vocab::Masks::default(),
         at,
-        yaw,
-        tip,
+        piece.yaw,
+        piece.tip,
         // The editor authors in the map's own space, so the origin it draws at is the map's own.
         origin,
         y,
@@ -4425,7 +4469,7 @@ fn spawn_range(
     state: &mut EditorState,
     first: usize,
 ) {
-    let ys = match heights(project, &*open) {
+    let ys = match heights(project, open) {
         Ok(ys) => ys,
         Err(e) => {
             state.status.problem(e.clone());
@@ -4440,10 +4484,8 @@ fn spawn_range(
         if let Some(e) = spawn_piece(
             commands,
             assets,
-            &d,
+            Pose { d: &d, yaw: p.yaw, tip: p.tip },
             p.at,
-            p.yaw,
-            p.tip,
             open.map.origin,
             y,
         ) {
@@ -4782,10 +4824,8 @@ fn spawn_existing(
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
-            &d,
+            Pose { d: &d, yaw: p.yaw, tip: p.tip },
             p.at,
-            p.yaw,
-            p.tip,
             open.map.origin,
             y,
         ) {
@@ -4921,9 +4961,7 @@ fn drive_place(
         rung.0,
         &anchor,
         hit,
-        &d,
-        state.brush_yaw,
-        state.brush_tip,
+        Pose { d: &d, yaw: state.brush_yaw, tip: state.brush_tip },
     );
 
     if mouse.just_pressed(MouseButton::Left) {
@@ -4987,8 +5025,7 @@ fn drive_place(
             &mut commands,
             &assets,
             &placed,
-            &mut project, &mut open,
-            &mut state,
+            MapEdit { project: &mut project, open: &mut open, state: &mut state },
             &d,
             (from, at),
             pitch,
@@ -5016,7 +5053,7 @@ fn place_one(
     // **What it lands on.** A piece that mounts on a surface must find one under the cursor; the same
     // question the ghost has been answering while the author moved the mouse here, asked once more at
     // the moment it matters.
-    let ys = match heights(&project, &open) {
+    let ys = match heights(project, open) {
         Ok(ys) => ys,
         Err(e) => {
             state.status.problem(e);
@@ -5024,7 +5061,7 @@ fn place_one(
         }
     };
     let (y, host) =
-        match bevy_emerge_core::stack::placement_at(&open.map, &project.library, &ys, &d, at) {
+        match bevy_emerge_core::stack::placement_at(&open.map, &project.library, &ys, d, at) {
             Ok(found) => found,
             // Refused, not floored. Dropping it at floor level is the behaviour this replaced: the
             // piece appears, in the wrong place, and looks like an authoring mistake.
@@ -5046,7 +5083,7 @@ fn place_one(
     let blockers = bevy_emerge_core::stack::blockers(
         &open.map,
         &project.library,
-        &d,
+        d,
         at,
         state.brush_yaw,
         state.brush_tip,
@@ -5088,11 +5125,9 @@ fn place_one(
 
     if let Some(e) = spawn_piece(
         commands,
-        &assets,
-        &d,
+        assets,
+        Pose { d, yaw: state.brush_yaw, tip: state.brush_tip },
         at,
-        state.brush_yaw,
-        state.brush_tip,
         open.map.origin,
         y,
     ) {
@@ -5365,10 +5400,8 @@ fn redraw_stamps(
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
-            &d,
+            Pose { d: &d, yaw: p.yaw, tip: p.tip },
             p.at,
-            p.yaw,
-            p.tip,
             open.map.origin,
             y,
         ) {
@@ -5586,7 +5619,7 @@ pub fn fill_for_test(world: &mut World, descriptor: &str, corners: ((f32, f32), 
                 };
                 state.brush_yaw = 0.0;
                 state.brush_tip = (0, 0);
-                box_fill_between(&mut commands, &assets, &placed, &mut project, &mut open, &mut state, &d, corners, pitch);
+                box_fill_between(&mut commands, &assets, &placed, MapEdit { project: &mut project, open: &mut open, state: &mut state }, &d, corners, pitch);
             },
         )
         .unwrap_or_else(|e| panic!("fill_for_test: {e}"));
@@ -5711,6 +5744,27 @@ fn short_id(descriptor_id: &str) -> &str {
     descriptor_id.rsplit('/').next().unwrap_or(descriptor_id)
 }
 
+/// The placement tools' drag and lock state, plus the composition arm, as one `keys` param.
+type ToolsParam<'w> = (
+    ResMut<'w, MoveDrag>,
+    ResMut<'w, CloneDrag>,
+    ResMut<'w, TargetLock>,
+    ResMut<'w, Proposal>,
+    Res<'w, crate::compose::Armed>,
+);
+
+/// The Tiles tab's state as one `keys` param.
+type TilesParam<'w> = (
+    ResMut<'w, crate::tiles::Mode>,
+    ResMut<'w, crate::tiles::ImportState>,
+    // **The prompt rides in this tuple for the reason the tuple exists**: the parameter list is
+    // at Bevy's sixteen and a seventeenth is a compile error, so a new `ResMut` has to join an
+    // existing one. It is not tiles state, and the name says `tiles`, which is the honest cost
+    // of a full signature — the alternative was splitting the `Esc` cascade into a second
+    // system, and that cascade only works because every layer of it is peeled in one place.
+    ResMut<'w, crate::confirm::Confirm>,
+);
+
 #[allow(clippy::too_many_arguments)]
 fn keys(
     mut commands: Commands,
@@ -5755,26 +5809,11 @@ fn keys(
     // **The arm rides here as [`crate::compose::Armed`], not `ComposeState`** — it is the author's
     // intent and it outlives a door change, which is why it is its own resource. The tuple's size
     // is unchanged: one in, one out.
-    mut tools: (
-        ResMut<MoveDrag>,
-        ResMut<CloneDrag>,
-        ResMut<TargetLock>,
-        ResMut<Proposal>,
-        Res<crate::compose::Armed>,
-    ),
+    mut tools: ToolsParam,
     // **The Tiles tab's state, as one param.** `EditTile` sends a piece over to be defined. A Bevy
     // system takes at most sixteen parameters and this one is full, so they travel as a tuple, which
     // counts as one.
-    mut tiles: (
-        ResMut<crate::tiles::Mode>,
-        ResMut<crate::tiles::ImportState>,
-        // **The prompt rides in this tuple for the reason the tuple exists**: the parameter list is
-        // at Bevy's sixteen and a seventeenth is a compile error, so a new `ResMut` has to join an
-        // existing one. It is not tiles state, and the name says `tiles`, which is the honest cost
-        // of a full signature — the alternative was splitting the `Esc` cascade into a second
-        // system, and that cascade only works because every layer of it is peeled in one place.
-        ResMut<crate::confirm::Confirm>,
-    ),
+    mut tiles: TilesParam,
 ) {
     // **Every other verb stands down while the leaving question is up.** `S` and `D` answer it and
     // both mean something else on a map; a question that could be answered *and* acted on by one
@@ -6081,10 +6120,8 @@ fn keys(
             turn_under_cursor(
                 &mut commands,
                 &assets,
-                *pointer,
-                camera,
-                &mut project, &mut open,
-                &mut state,
+                (*pointer, camera),
+                MapEdit { project: &mut project, open: &mut open, state: &mut state },
                 &placed,
                 target.as_mut(),
                 step,
@@ -6191,8 +6228,7 @@ fn keys(
             &assets,
             *pointer,
             camera,
-            &mut project, &mut open,
-            &mut state,
+            MapEdit { project: &mut project, open: &mut open, state: &mut state },
             pitch,
         );
         return;
@@ -6219,7 +6255,6 @@ fn keys(
                 target.as_mut(),
             );
         }
-        return;
     }
 }
 
@@ -6396,7 +6431,7 @@ fn apply(
                             continue;
                         };
                         if let Some(e) =
-                            spawn_piece(commands, assets, &d, at, yaw, tip, open.map.origin, y)
+                            spawn_piece(commands, assets, Pose { d: &d, yaw, tip }, at, open.map.origin, y)
                         {
                             commands.entity(e).insert(Placement(id));
                         }
@@ -6446,10 +6481,8 @@ fn apply(
                         if let Some(e) = spawn_piece(
                             commands,
                             assets,
-                            &d,
+                            Pose { d: &d, yaw: pyaw, tip: ptip },
                             pat,
-                            pyaw,
-                            ptip,
                             open.map.origin,
                             y,
                         ) {
@@ -6494,9 +6527,7 @@ fn apply(
             Undo::RemovedMany { items }
         }
         Undo::Turned { index, yaw } => {
-            let Some(p) = open.map.placements.get_mut(index) else {
-                return None;
-            };
+            let p = open.map.placements.get_mut(index)?;
             let was = std::mem::replace(&mut p.yaw, yaw);
             let (id, at, tip, descriptor, patch) =
                 (p.id.clone(), p.at, p.tip, p.descriptor.clone(), p.patch.clone());
@@ -6513,13 +6544,11 @@ fn apply(
                 Ok(ys) => {
                     if let (Some(d), Some(&y)) =
                         (descriptor_with(&project.library, &descriptor, patch.as_ref()), ys.get(index))
-                    {
-                        if let Some(e) =
-                            spawn_piece(commands, assets, &d, at, yaw, tip, open.map.origin, y)
+                        && let Some(e) =
+                            spawn_piece(commands, assets, Pose { d: &d, yaw, tip }, at, open.map.origin, y)
                         {
                             commands.entity(e).insert(Placement(id.clone()));
                         }
-                    }
                     state.status.problem(format!("{id} back to {yaw:.0} deg"));
                 }
                 Err(e) => {
@@ -6532,9 +6561,7 @@ fn apply(
             Undo::Turned { index, yaw: was }
         }
         Undo::Lifted { index, lift } => {
-            let Some(p) = open.map.placements.get_mut(index) else {
-                return None;
-            };
+            let p = open.map.placements.get_mut(index)?;
             let was = std::mem::replace(&mut p.lift, lift);
             let id = p.id.clone();
             // The whole ride: everything resting on this piece moved with the lift, so it all
@@ -6558,9 +6585,7 @@ fn apply(
             Undo::Lifted { index, lift: was }
         }
         Undo::Tipped { index, tip } => {
-            let Some(p) = open.map.placements.get_mut(index) else {
-                return None;
-            };
+            let p = open.map.placements.get_mut(index)?;
             let was = std::mem::replace(&mut p.tip, tip);
             let id = p.id.clone();
             match redraw_placements(commands, assets, project, &*open, placed, &[index]) {
@@ -6681,9 +6706,7 @@ fn apply(
             owned,
             because,
         } => {
-            let Some(p) = open.map.placements.get_mut(index) else {
-                return None;
-            };
+            let p = open.map.placements.get_mut(index)?;
             let was_owned = std::mem::replace(&mut p.owned, owned);
             let was_because = std::mem::replace(&mut p.owned_because, because);
             state.status.note(format!(
@@ -6804,18 +6827,23 @@ fn straighten_under_cursor(
     }
 }
 
+/// The pointer and the main camera it is aimed through, as `turn_under_cursor` takes them.
+type CameraAim<'w, 's, 'c, 'g> = (
+    crate::view::Pointer,
+    Option<Single<'w, 's, (&'c Camera, &'g GlobalTransform), With<MainCamera>>>,
+);
+
 fn turn_under_cursor(
     commands: &mut Commands,
     assets: &AssetServer,
-    pointer: crate::view::Pointer,
-    camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
-    project: &mut Project,
-    open: &mut OpenMap,
-    state: &mut EditorState,
+    aim: CameraAim<'_, '_, '_, '_>,
+    edit: MapEdit,
     placed: &Query<(Entity, &Placement)>,
     lock: &mut TargetLock,
     step: f32,
 ) {
+    let (pointer, camera) = aim;
+    let MapEdit { project, open, state } = edit;
     let Some(index) = under_cursor_target(lock, pointer, camera, project, &*open) else {
         state.status.note("nothing here to turn".to_owned());
         return;
@@ -6842,13 +6870,11 @@ fn turn_under_cursor(
     match heights(project, &*open) {
         Ok(ys) => {
             if let (Some(d), Some(&y)) = (descriptor_with(&project.library, &descriptor, patch.as_ref()), ys.get(index))
-            {
-                if let Some(e) =
-                    spawn_piece(commands, assets, &d, at, yaw, tip, open.map.origin, y)
+                && let Some(e) =
+                    spawn_piece(commands, assets, Pose { d: &d, yaw, tip }, at, open.map.origin, y)
                 {
                     commands.entity(e).insert(Placement(id.clone()));
                 }
-            }
         }
         Err(e) => {
             state
@@ -6881,7 +6907,7 @@ fn redraw_placements(
             commands.entity(entity).despawn();
         }
     }
-    let ys = heights(project, &*open)?;
+    let ys = heights(project, open)?;
     for &i in indices {
         let Some(p) = open.map.placements.get(i) else {
             continue;
@@ -6892,10 +6918,8 @@ fn redraw_placements(
         if let Some(e) = spawn_piece(
             commands,
             assets,
-            &d,
+            Pose { d: &d, yaw: p.yaw, tip: p.tip },
             p.at,
-            p.yaw,
-            p.tip,
             open.map.origin,
             y,
         ) {
@@ -6975,10 +6999,8 @@ fn redraw_the_map(
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
-            &d,
+            Pose { d: &d, yaw: p.yaw, tip: p.tip },
             p.at,
-            p.yaw,
-            p.tip,
             open.map.origin,
             y,
         ) {
@@ -7886,7 +7908,7 @@ fn hide_carried(
     };
 
     for (marker, mut vis) in &mut placed {
-        let want = if carried.iter().any(|id| *id == marker.0) {
+        let want = if carried.contains(&marker.0) {
             Visibility::Hidden
         } else {
             // Nothing else in this crate manages a placement's visibility — `spawn_descriptor` gives
@@ -8097,25 +8119,65 @@ pub(crate) fn brush_ghost_subject(
     }
 }
 
+/// The map resources a system writes, as one system parameter: the project, the open map and the
+/// editor's state. They always travel together, so a placing or editing system takes one parameter.
+#[derive(bevy::ecs::system::SystemParam)]
+struct MapWrite<'w> {
+    project: ResMut<'w, Project>,
+    open: ResMut<'w, OpenMap>,
+    state: ResMut<'w, EditorState>,
+}
+
+/// The same three map resources, read only. A system that previews a placement reads them and never writes.
+#[derive(bevy::ecs::system::SystemParam)]
+struct MapRead<'w> {
+    project: Res<'w, Project>,
+    open: Res<'w, OpenMap>,
+    state: Res<'w, EditorState>,
+}
+
+/// What `drive_move` reads from the keyboard, the mouse and the editor's settings.
+#[derive(bevy::ecs::system::SystemParam)]
+struct MoveInput<'w> {
+    mouse: Res<'w, ButtonInput<MouseButton>>,
+    // Held, the platform modifier drops the grid snap — see `map_at`.
+    keyboard: Res<'w, ButtonInput<KeyCode>>,
+    rung: Res<'w, Rung>,
+    assets: Res<'w, AssetServer>,
+    anchor: Res<'w, FineAnchor>,
+    picture: Res<'w, StampPicture>,
+    compose: Res<'w, crate::compose::Armed>,
+}
+
+/// Where the cursor is, and which UI node it is over.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Aim<'w, 's> {
+    hovered_ui: Query<'w, 's, &'static Hovered>,
+    pointer: Res<'w, crate::view::Pointer>,
+}
+
+/// What `drive_stamp_ghost` reads to draw the stamp preview.
+#[derive(bevy::ecs::system::SystemParam)]
+struct GhostInput<'w> {
+    keyboard: Res<'w, ButtonInput<KeyCode>>,
+    rung: Res<'w, Rung>,
+    armed: Res<'w, crate::compose::Armed>,
+    anchor: Res<'w, FineAnchor>,
+    pointer: Res<'w, crate::view::Pointer>,
+}
+
 fn drive_move(
     mut commands: Commands,
-    mouse: Res<ButtonInput<MouseButton>>,
-    // Held, the platform modifier drops the grid snap — see `map_at`.
-    keyboard: Res<ButtonInput<KeyCode>>,
-    rung: Res<Rung>,
-    assets: Res<AssetServer>,
-    hovered_ui: Query<&Hovered>,
-    pointer: Res<crate::view::Pointer>,
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
     placed: Query<(Entity, &Placement)>,
-    mut project: ResMut<Project>,
-    mut open: ResMut<OpenMap>,
-    mut state: ResMut<EditorState>,
     mut drag: ResMut<MoveDrag>,
-    anchor: Res<FineAnchor>,
-    picture: Res<StampPicture>,
-    compose: Res<crate::compose::Armed>,
+    input: MoveInput,
+    aim: Aim,
+    map: MapWrite,
 ) {
+    let MoveInput { mouse, keyboard, rung, assets, anchor, picture, compose } = input;
+    let Aim { hovered_ui, pointer } = aim;
+    let MapWrite { mut project, mut open, mut state } = map;
     // **A clear cursor moves by clicking.** `Tool::Move` (`B`) stays the deliberate arm — it works
     // with a brush still armed, and `Shift+B`'s set-clone rides the same key — but when nothing is
     // armed at all the click has no other meaning: `drive_place`'s own comment is *"nothing armed
@@ -8320,7 +8382,7 @@ fn drop_piece(
                 else {
                     continue;
                 };
-                if let Some(e) = spawn_piece(commands, assets, &d, at, yaw, tip, open.map.origin, y) {
+                if let Some(e) = spawn_piece(commands, assets, Pose { d: &d, yaw, tip }, at, open.map.origin, y) {
                     commands.entity(e).insert(Placement(id));
                 }
             }
@@ -8592,7 +8654,7 @@ fn nearest_placement(
     let (cam, cam_tf) = *camera;
     let hit = cursor_ground(pointer.0, cam, cam_tf)?;
     // Both sides in map space: `at` is authored there and the cursor answers in world metres.
-    pick_at(project, &*open, open.map.to_map_space((hit.x, hit.z)))
+    pick_at(project, open, open.map.to_map_space((hit.x, hit.z)))
 }
 
 /// **What the piece-verbs would act on right now**, already written as the readout line.
@@ -8699,10 +8761,9 @@ fn under_cursor_target(
             snap_point(project, at.0, SnapLevel::Tile),
             snap_point(project, at.1, SnapLevel::Tile),
         ) == *cell
+            && let Some(i) = open.map.placements.iter().position(|p| &p.id == id)
         {
-            if let Some(i) = open.map.placements.iter().position(|p| &p.id == id) {
-                return Some(i);
-            }
+            return Some(i);
         }
         lock.0 = None;
     }
@@ -8714,7 +8775,7 @@ fn under_cursor_target(
     // the honest thing: the verbs above say "nothing here" rather than acting on a guess.
     let ys = bevy_emerge_core::stack::resolve_y(&open.map, &project.library).ok()?;
     let (origin, dir) = crate::view::cursor_ray(pointer.0, cam, cam_tf)?;
-    ray_pick(project, &*open, &ys, origin, dir)
+    ray_pick(project, open, &ys, origin, dir)
 }
 
 /// **`H`: step the target through the stack under the cursor**, bottom to top, wrapping.
@@ -8745,7 +8806,7 @@ fn cycle_target(
         snap_point(project, at.0, SnapLevel::Tile),
         snap_point(project, at.1, SnapLevel::Tile),
     );
-    let ys = heights(project, &*open).unwrap_or_default();
+    let ys = heights(project, open).unwrap_or_default();
     let mut stack: Vec<(usize, f32)> = open
         .map
         .placements
@@ -9185,7 +9246,7 @@ enum Source {
 
 fn generate(project: &Project,
     open: &OpenMap, state: &mut EditorState, proposal: &mut Proposal) {
-    generate_from(project, &*open, state, proposal, Source::Learned);
+    generate_from(project, open, state, proposal, Source::Learned);
 }
 
 fn generate_from(project: &Project,
@@ -9648,12 +9709,11 @@ fn apply_proposal(
     assets: Res<AssetServer>,
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<keys::Live>,
-    mut project: ResMut<Project>,
-    mut open: ResMut<OpenMap>,
-    mut state: ResMut<EditorState>,
+    map: MapWrite,
     mut proposal: ResMut<Proposal>,
     placed: Query<(Entity, &Placement)>,
 ) {
+    let MapWrite { project, mut open, mut state } = map;
     if !keys::just_pressed(&keyboard, *live, Action::AcceptProposal) {
         return;
     }
@@ -9718,7 +9778,7 @@ fn apply_proposal(
     let count = taken.placements.len();
     let first = open.map.placements.len();
     open.map.placements.extend(taken.placements);
-    spawn_range(&mut commands, &assets, &mut project, &open, &mut state, first);
+    spawn_range(&mut commands, &assets, &project, &open, &mut state, first);
 
     // **Stamps need no spawn call.** `redraw_stamps` rebuilds the whole stamped picture from
     // `map.stamps` whenever it changes, so writing the rows is the whole job — unlike the placement
@@ -9762,11 +9822,10 @@ fn flood_from_cursor(
     assets: &AssetServer,
     pointer: crate::view::Pointer,
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
-    project: &mut Project,
-    open: &mut OpenMap,
-    state: &mut EditorState,
+    edit: MapEdit,
     pitch: f32,
 ) {
+    let MapEdit { project, open, state } = edit;
     let Some(camera) = camera else {
         return;
     };
@@ -9997,7 +10056,8 @@ fn drive_ghost(
     // **The same expression the commit asks** — see [`brush_at`], which exists because this call site
     // and `drive_place`'s disagreed. `want_yaw` is the authored yaw for both tools: `state.brush_yaw`
     // under Place, the held piece's own under Move, which is exactly what `held_span` snaps by.
-    let at = brush_at(&project, &open, &keyboard, rung.0, &anchor, hit, d, want_yaw, want_tip,
+    let at = brush_at(&project, &open, &keyboard, rung.0, &anchor, hit,
+        Pose { d, yaw: want_yaw, tip: want_tip },
     );
     let yaw = bevy_emerge::draw_yaw(d, want_yaw);
 
@@ -10084,10 +10144,8 @@ fn drive_ghost(
             if let Some(e) = spawn_piece(
                 &mut commands,
                 &assets,
-                d,
+                Pose { d, yaw: want_yaw, tip: (0, 0) },
                 at,
-                want_yaw,
-                (0, 0),
                 open.map.origin,
                 y,
             ) {
@@ -10141,18 +10199,14 @@ struct StampGhost {
 fn drive_stamp_ghost(
     mut commands: Commands,
     assets: Res<AssetServer>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    rung: Res<Rung>,
-    project: Res<Project>,
-    open: Res<OpenMap>,
-    state: Res<EditorState>,
-    armed: Res<crate::compose::Armed>,
-    anchor: Res<FineAnchor>,
-    pointer: Res<crate::view::Pointer>,
+    input: GhostInput,
+    map: MapRead,
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
     ui_nodes: Query<(&bevy::ui::ComputedNode, &bevy::ui::UiGlobalTransform), With<Hovered>>,
     ghosts: Query<(Entity, &StampGhost)>,
 ) {
+    let GhostInput { keyboard, rung, armed, anchor, pointer } = input;
+    let MapRead { project, open, state } = map;
     let clear = |commands: &mut Commands| {
         for (e, _) in &ghosts {
             commands.entity(e).despawn();
@@ -10192,10 +10246,10 @@ fn drive_stamp_ghost(
     let yaw = state.brush_yaw;
 
     // Already showing this composition, at this turn, in this cell — nothing to do.
-    if let Ok((_, g)) = ghosts.single() {
-        if g.of == armed_of && (g.yaw - yaw).abs() < 1e-3 && g.at == at {
-            return;
-        }
+    if let Ok((_, g)) = ghosts.single()
+        && g.of == armed_of && (g.yaw - yaw).abs() < 1e-3 && g.at == at
+    {
+        return;
     }
     clear(&mut commands);
 
@@ -10247,10 +10301,8 @@ fn drive_stamp_ghost(
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
-            &d,
+            Pose { d: &d, yaw: p.yaw, tip: p.tip },
             p.at,
-            p.yaw,
-            p.tip,
             open.map.origin,
             y,
         ) {
@@ -10373,10 +10425,8 @@ fn drive_run_ghost(
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
-            &d,
+            Pose { d: &d, yaw: p.yaw, tip: (0, 0) },
             p.at,
-            p.yaw,
-            (0, 0),
             open.map.origin,
             0.0,
         ) {
@@ -10486,10 +10536,8 @@ fn drive_clone_ghost(
         if let Some(e) = spawn_piece(
             &mut commands,
             &assets,
-            &d,
+            Pose { d: &d, yaw: piece.yaw, tip: piece.tip },
             piece.offset,
-            piece.yaw,
-            piece.tip,
             (0.0, 0.0, 0.0),
             piece.lift,
         ) {
@@ -10569,27 +10617,27 @@ fn brighten_held(
     for root in &held {
         let mut queue = vec![root];
         while let Some(e) = queue.pop() {
-            if let Ok(handle) = painted.get(e) {
-                if let Some(base) = materials.get(&handle.0) {
-                    let mut lit = base.clone();
-                    let was = lit.emissive;
-                    lit.emissive = LinearRgba {
-                        red: was.red + HELD_LIFT,
-                        green: was.green + HELD_LIFT,
-                        blue: was.blue + HELD_LIFT,
-                        alpha: was.alpha,
-                    };
-                    let handle = materials.add(lit);
-                    // **`try_insert`, because the thing being marked is rebuilt underneath us.**
-                    // The staged tile is despawned and respawned wholesale on every `Build` change,
-                    // so an entity read this frame can be gone by the time the command applies —
-                    // and a plain `insert` on a despawned entity is a hard panic in Bevy 0.19, which
-                    // is exactly how this crashed the editor on launch. The lift is cosmetic; a
-                    // piece that stopped existing does not need one.
-                    commands
-                        .entity(e)
-                        .try_insert((MeshMaterial3d(handle), Brightened));
-                }
+            if let Ok(handle) = painted.get(e)
+                && let Some(base) = materials.get(&handle.0)
+            {
+                let mut lit = base.clone();
+                let was = lit.emissive;
+                lit.emissive = LinearRgba {
+                    red: was.red + HELD_LIFT,
+                    green: was.green + HELD_LIFT,
+                    blue: was.blue + HELD_LIFT,
+                    alpha: was.alpha,
+                };
+                let handle = materials.add(lit);
+                // **`try_insert`, because the thing being marked is rebuilt underneath us.**
+                // The staged tile is despawned and respawned wholesale on every `Build` change,
+                // so an entity read this frame can be gone by the time the command applies —
+                // and a plain `insert` on a despawned entity is a hard panic in Bevy 0.19, which
+                // is exactly how this crashed the editor on launch. The lift is cosmetic; a
+                // piece that stopped existing does not need one.
+                commands
+                    .entity(e)
+                    .try_insert((MeshMaterial3d(handle), Brightened));
             }
             if let Ok(kids) = children.get(e) {
                 queue.extend(kids.iter());
@@ -10608,22 +10656,22 @@ fn fade_ghost(
     for root in &ghosts {
         let mut queue = vec![root];
         while let Some(e) = queue.pop() {
-            if let Ok(handle) = painted.get(e) {
-                if let Some(base) = materials.get(&handle.0) {
-                    let mut faded = base.clone();
-                    faded.alpha_mode = AlphaMode::Blend;
-                    let a = faded.base_color.alpha() * GHOST_ALPHA;
-                    faded.base_color.set_alpha(a);
-                    let handle = materials.add(faded);
-                    // Same hazard as `brighten_held`, and the same answer: ghosts are despawned and
-                    // respawned by the systems that own them, so this races the same way. It had
-                    // simply not lost the race yet.
-                    commands.entity(e).try_insert((
-                        MeshMaterial3d(handle),
-                        Ghosted,
-                        bevy::light::NotShadowCaster,
-                    ));
-                }
+            if let Ok(handle) = painted.get(e)
+                && let Some(base) = materials.get(&handle.0)
+            {
+                let mut faded = base.clone();
+                faded.alpha_mode = AlphaMode::Blend;
+                let a = faded.base_color.alpha() * GHOST_ALPHA;
+                faded.base_color.set_alpha(a);
+                let handle = materials.add(faded);
+                // Same hazard as `brighten_held`, and the same answer: ghosts are despawned and
+                // respawned by the systems that own them, so this races the same way. It had
+                // simply not lost the race yet.
+                commands.entity(e).try_insert((
+                    MeshMaterial3d(handle),
+                    Ghosted,
+                    bevy::light::NotShadowCaster,
+                ));
             }
             if let Ok(kids) = children.get(e) {
                 queue.extend(kids.iter());
@@ -11183,9 +11231,7 @@ mod snap_tests {
                 SnapLevel::Tile,
                 &anchor,
                 aim,
-                &tile,
-                0.0,
-                (0, 0),
+                Pose { d: &tile, yaw: 0.0, tip: (0, 0) },
             ),
             (0.5, 0.5),
         );
@@ -11202,9 +11248,7 @@ mod snap_tests {
                 SnapLevel::Tile,
                 &anchor,
                 aim,
-                &tile,
-                0.0,
-                (0, 0)
+                Pose { d: &tile, yaw: 0.0, tip: (0, 0) }
             ),
             centre_snapped,
             "if these agree the span is being ignored again"
@@ -11221,9 +11265,7 @@ mod snap_tests {
                 SnapLevel::Tile,
                 &anchor,
                 aim,
-                &wall,
-                0.0,
-                (0, 0),
+                Pose { d: &wall, yaw: 0.0, tip: (0, 0) },
             ),
             (0.05, 0.5),
         );
@@ -11237,9 +11279,7 @@ mod snap_tests {
                 SnapLevel::Tile,
                 &anchor,
                 aim,
-                &wall,
-                90.0,
-                (0, 0),
+                Pose { d: &wall, yaw: 90.0, tip: (0, 0) },
             ),
             (0.5, 1.05),
         );

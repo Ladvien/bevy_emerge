@@ -31,17 +31,6 @@
 
 mod fixtures;
 
-use bevy_emerge_mapper::harness;
-use bevy_emerge_mapper::project::{OpenMap, Project};
-use fixtures::Fixture;
-
-/// **A project with one map and a piece to fill with.**
-fn project(name: &str) -> std::path::PathBuf {
-    Fixture::new(name)
-        .descriptor("site/wall", "alpha")
-        .build("m")
-}
-
 /// **The fill's refusals are problems, and the author can see them.**
 ///
 /// The `Status` type's own contract is the rule: a refusal handed back by the core is a `problem`.

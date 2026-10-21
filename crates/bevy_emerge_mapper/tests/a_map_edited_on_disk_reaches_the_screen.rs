@@ -108,12 +108,12 @@ fn a_piece_moved_on_disk_stands_in_its_new_place() {
         std::thread::sleep(std::time::Duration::from_millis(20));
         // **The map's state is the easy half, and it is what says the editor took the edit.**
         let map = app.world().resource::<OpenMap>().map.clone();
-        if let Some(p) = map.placements.iter().find(|p| p.descriptor == "site/wall") {
-            if (p.at.0 - 12.0).abs() < 0.001 {
-                // **The editor has the new map. The question is the screen.**
-                after = where_it_stands(&mut app, "site/wall@0").unwrap_or(before);
-                break;
-            }
+        if let Some(p) = map.placements.iter().find(|p| p.descriptor == "site/wall")
+            && (p.at.0 - 12.0).abs() < 0.001
+        {
+            // **The editor has the new map. The question is the screen.**
+            after = where_it_stands(&mut app, "site/wall@0").unwrap_or(before);
+            break;
         }
     }
 

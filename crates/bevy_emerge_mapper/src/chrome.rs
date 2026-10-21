@@ -1185,11 +1185,11 @@ impl Status {
         let text = text.into();
         // Counted before the fold, because a repeat is a thing that happened — see [`Self::raised`].
         self.raised += 1;
-        if let Some(last) = self.problems.last_mut() {
-            if last.text == text {
-                last.count += 1;
-                return;
-            }
+        if let Some(last) = self.problems.last_mut()
+            && last.text == text
+        {
+            last.count += 1;
+            return;
         }
         self.problems.push(Problem { text, count: 1 });
         if self.problems.len() > MAX_PROBLEMS {
@@ -1816,7 +1816,7 @@ pub fn scroll_list<'a>(
                 overflow: Overflow::scroll_y(),
                 ..default()
             },
-            ScrollArea::default(),
+            ScrollArea,
             marker,
         ))
         .id();
@@ -2117,6 +2117,14 @@ fn row_shape(selected: bool) -> impl Bundle {
     )
 }
 
+/// The row's non-background parts, as [`style_list_rows`] reads them.
+type RowState = (
+    &'static RowRest,
+    &'static Hovered,
+    Has<bevy::ui::Pressed>,
+    Has<bevy::ui::InteractionDisabled>,
+);
+
 /// **The five states, once, for every row / chip / button in the editor.**
 ///
 /// Disabled beats pressed beats selected beats hover beats rest. Before 2026-09-03 the middle two
@@ -2132,16 +2140,10 @@ fn row_shape(selected: bool) -> impl Bundle {
 /// primary button is the same fact one layer down, and it is what the author actually did.
 fn style_list_rows(
     mouse: Res<ButtonInput<MouseButton>>,
-    mut rows: Query<(
-        &RowRest,
-        &Hovered,
-        Has<bevy::ui::Pressed>,
-        Has<bevy::ui::InteractionDisabled>,
-        &mut BackgroundColor,
-    )>,
+    mut rows: Query<(RowState, &mut BackgroundColor)>,
 ) {
     let held = mouse.pressed(MouseButton::Left);
-    for (rest, hovered, pressed, disabled, mut bg) in &mut rows {
+    for ((rest, hovered, pressed, disabled), mut bg) in &mut rows {
         let want = if disabled {
             // Not a fill of its own: a disabled control drops back to the panel it sits on, so it
             // reads as part of the surface rather than as a thing that is merely quiet today.
@@ -2498,6 +2500,9 @@ fn spawn_name_box(mut commands: Commands) {
         });
 }
 
+/// One of the name box's three text lines, narrowed by the filter that tells them apart.
+type NameLine<'w, 's, F> = Query<'w, 's, &'static mut Text, F>;
+
 /// **Show the live tab's name field, or nothing.**
 ///
 /// Reads the Map's own state rather than a shared projection, and formats the value the way the Map
@@ -2507,30 +2512,9 @@ fn paint_name_box(
     build: Res<crate::build::Build>,
     compose: Res<crate::compose::ComposeState>,
     mut roots: Query<&mut Node, With<NameBox>>,
-    mut titles: Query<
-        &mut Text,
-        (
-            With<NameBoxTitle>,
-            Without<NameBoxValue>,
-            Without<NameBoxHint>,
-        ),
-    >,
-    mut values: Query<
-        &mut Text,
-        (
-            With<NameBoxValue>,
-            Without<NameBoxTitle>,
-            Without<NameBoxHint>,
-        ),
-    >,
-    mut hints: Query<
-        &mut Text,
-        (
-            With<NameBoxHint>,
-            Without<NameBoxTitle>,
-            Without<NameBoxValue>,
-        ),
-    >,
+    mut titles: NameLine<'_, '_, (With<NameBoxTitle>, Without<NameBoxValue>, Without<NameBoxHint>)>,
+    mut values: NameLine<'_, '_, (With<NameBoxValue>, Without<NameBoxTitle>, Without<NameBoxHint>)>,
+    mut hints: NameLine<'_, '_, (With<NameBoxHint>, Without<NameBoxTitle>, Without<NameBoxValue>)>,
 ) {
     // **`grouping.is_some()` and the box being visible are the same condition**, and that is the
     // invariant rather than a description of the code.
@@ -3316,9 +3300,12 @@ fn dim_the_ground(
     }
 }
 
+/// The back button's hover state, as the lift reads it.
+type BackButtonRow = (&'static Hovered, &'static mut BackgroundColor);
+
 /// Lift the button while the pointer is on it, so it reads as pressable before it is pressed.
 pub fn light_the_back_button(
-    mut buttons: Query<(&Hovered, &mut BackgroundColor), (With<BackButton>, Changed<Hovered>)>,
+    mut buttons: Query<BackButtonRow, (With<BackButton>, Changed<Hovered>)>,
 ) {
     for (hovered, mut bg) in &mut buttons {
         bg.0 = if hovered.get() { ROW_SELECTED } else { SLOT_BG };
