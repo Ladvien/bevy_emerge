@@ -1790,10 +1790,14 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Yaw,
                     Field::Map,
                     Field::Under,
-                    Field::Undo,
-                    Field::Redo,
                     Field::Last,
                     Field::Hint,
+                    // **After the receipt, not above it.** The receipt has no label of its own, so
+                    // whatever row sits above it lends it one: with UNDO/REDO above, "map is 300 x
+                    // 44 ..." read as REDO's value. Here the pair reads as what happened (the
+                    // receipt) and then what Cmd+Z / Cmd+Shift+Z would do about it.
+                    Field::Undo,
+                    Field::Redo,
                     Field::Edges,
                 ] {
                     let mut spawned = s.spawn(Node {
