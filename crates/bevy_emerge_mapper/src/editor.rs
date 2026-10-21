@@ -1091,6 +1091,12 @@ impl Plugin for EditorPlugin {
                     (
                         arm_palette_rows,
                         redraw_edited,
+                        // **In `Act`, and not in the default set.** The watcher's `adopt_changes`
+                        // raises the flag in `Phase::Sense`, and a system with no set of its own
+                        // runs in the default set — which Bevy runs **before** the configured
+                        // chain. So the redraw looked for the flag before the watcher had raised
+                        // it, and the flag was always false.
+                        redraw_the_map.in_set(keys::Phase::Act),
                         cycle_grid.in_set(keys::Phase::Act),
                         walk_palette.in_set(keys::Phase::Act),
                         // `apply_proposal` after `keys`, so the `Enter` that accepts cannot be seen
@@ -6897,6 +6903,89 @@ fn redraw_placements(
         }
     }
     Ok(())
+}
+
+/// **A map edited on disk reaches the pieces already standing on the map.**
+///
+/// **This is E-007, and the shape of the bug is what makes it worth naming.** The file watcher
+/// read the map file and put the new map into [`OpenMap`] — and the pieces on screen are
+/// *entities*, spawned once, when the editor opened. So a person editing `town.map.ron` in a
+/// text editor got:
+///
+/// - **the inspector's numbers updated** — the bounds, the count, the note, all read from the
+///   map every frame;
+/// - **the world unchanged** — the pieces on screen were the ones spawned at startup, in the
+///   places they were then.
+///
+/// **That is the worst shape a bug can have: the editor looks like it took the edit.** The
+/// number says the map is 55 m deep and the ground in the viewport is 26 m deep, and a
+/// developer who trusts the number is wrong about the picture — and the picture is what they
+/// are authoring.
+///
+/// **So the whole map is redrawn**, and not a subset of it: a placement that moved may have
+/// something resting on it, and the heights are resolved over the finished map, so a partial
+/// redraw would leave the stack half-resolved.
+///
+/// **The id counter is re-seeded too.** It is seeded past the largest `@n` in the file, and a
+/// file edited in a text editor can carry an id the editor has never minted — so a counter left
+/// where it was would mint an id the file already holds, and the map would hold two placements
+/// with one name. **Undo despawns by id match**, so taking one back would sweep the other off
+/// the screen with it.
+fn redraw_the_map(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    project: Res<Project>,
+    open: Res<OpenMap>,
+    mut state: ResMut<EditorState>,
+    mut due: ResMut<crate::watch::Due>,
+    placed: Query<(Entity, &Placement)>,
+) {
+    if !due.map_replaced {
+        return;
+    }
+    // **The flag is taken, not read.** A redraw that ran twice would respawn every piece twice,
+    // and the map would show every piece twice.
+    due.map_replaced = false;
+
+    // **Everything standing is swept**, and everything in the map is spawned again.
+    for (entity, _) in placed.iter() {
+        commands.entity(entity).despawn();
+    }
+    let ys = match heights(&project, &open) {
+        Ok(ys) => ys,
+        Err(e) => {
+            // **A map whose stacking will not resolve is a map the author has to be told about.**
+            // **The last good screen stays**, which is why the sweep happens after the heights
+            // are resolved and not before.
+            state.status.problem(format!("the map on disk does not resolve: {e}"));
+            return;
+        }
+    };
+    for (i, p) in open.map.placements.iter().enumerate() {
+        let Some(d) = descriptor_of(&project.library, p) else {
+            warn!(
+                "placement `{}` names descriptor `{}`, which this library does not have",
+                p.id, p.descriptor
+            );
+            continue;
+        };
+        let Some(&y) = ys.get(i) else { continue };
+        if let Some(e) = spawn_piece(
+            &mut commands,
+            &assets,
+            &d,
+            p.at,
+            p.yaw,
+            p.tip,
+            open.map.origin,
+            y,
+        ) {
+            commands.entity(e).insert(Placement(p.id.clone()));
+        }
+    }
+    // **And the counter is re-seeded**, so the next id the editor mints cannot be one the file
+    // already carries.
+    state.next_id = next_id_after(&open.map);
 }
 
 /// **A library edit reaches the pieces already standing on the map.**

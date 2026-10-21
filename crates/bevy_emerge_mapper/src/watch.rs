@@ -145,6 +145,20 @@ impl Plugin for WatchPlugin {
 pub struct Due {
     /// **The files whose stamp changed since the last tick.**
     pub changed: Vec<PathBuf>,
+    /// **The open map was replaced by a map read from disk.**
+    ///
+    /// **The editor's map and the editor's screen are two different things**, and this is the
+    /// signal that says so. The map lives in [`crate::project::OpenMap`], and the pieces on
+    /// screen are entities — and **the entities were spawned once, when the editor opened**.
+    ///
+    /// So a person editing `town.map.ron` in a text editor got the map and not the screen: the
+    /// inspector's numbers changed, because they are read from the map every frame, and the
+    /// world did not, because the pieces are the ones spawned at startup. **That is the worst
+    /// shape a bug can have** — the editor looks like it took the edit.
+    ///
+    /// **The flag is consumed by the redraw**, which respawns every placement from the map the
+    /// watcher just read.
+    pub map_replaced: bool,
 }
 
 /// **Look at the files, and note what changed.**
@@ -212,7 +226,7 @@ pub fn tick_watch(
 /// **Runs only when there is something to adopt**, and only then takes the project and the map
 /// — so a frame in which nothing changed costs one `stat` per file and nothing else.
 pub fn adopt_changes(
-    due: Res<Due>,
+    mut due: ResMut<Due>,
     project: Option<ResMut<Project>>,
     mut open: Option<ResMut<OpenMap>>,
     mut status: Option<ResMut<crate::tiles::ImportState>>,
@@ -222,7 +236,11 @@ pub fn adopt_changes(
     }
     let Some(res) = project else { return };
     let project = res.into_inner();
-    for path in &due.changed {
+    // **The paths are taken, so the flag can be set while they are walked.** The borrow is the
+    // whole of the loop's body, and the flag is set inside it.
+    let changed_paths = std::mem::take(&mut due.changed);
+    let mut map_replaced = false;
+    for path in &changed_paths {
         // **The open map's own file, re-read.**
         //
         // **A person editing `town.map.ron` in a text editor is the case this whole module
@@ -236,12 +254,24 @@ pub fn adopt_changes(
         if let Some(o) = open.as_deref_mut()
             && o.map_path == *path
         {
-            if let Err(e) = adopt_map(path, o)
-                && let Some(state) = status.as_deref_mut()
-            {
-                state
-                    .status
-                    .problem(format!("{e} — the editor kept what it had."));
+            match adopt_map(path, o) {
+                Ok(changed) => {
+                    // **The map was replaced, and the screen has to hear about it.**
+                    //
+                    // **The map and the screen are two different things.** The map is the
+                    // resource the inspector reads; the screen is the entities, and those were
+                    // spawned once, when the editor opened. **So the map can be right and the
+                    // screen wrong**, and a developer who trusts the number is wrong about the
+                    // picture.
+                    map_replaced |= changed;
+                }
+                Err(e) => {
+                    if let Some(state) = status.as_deref_mut() {
+                        state
+                            .status
+                            .problem(format!("{e} — the editor kept what it had."));
+                    }
+                }
             }
             continue;
         }
@@ -269,6 +299,9 @@ pub fn adopt_changes(
             }
         }
     }
+    // **And the flag goes up after the walk**, so the redraw runs once with the map the
+    // watcher settled on, and not once per file.
+    due.map_replaced |= map_replaced;
 }
 
 /// **Does this file say something the project does not already hold?**
@@ -319,20 +352,25 @@ fn differs(path: &Path, project: &Project) -> bool {
 /// **And the comparison is on the content, not on the stamp**: the editor's save changes the
 /// stamp, and a person's edit changes it too, and the only question worth asking is whether the
 /// file now says something the editor does not.
-fn adopt_map(path: &Path, open: &mut OpenMap) -> Result<(), String> {
+/// **Re-read the map file and put it in the editor — and say whether the map changed.**
+///
+/// **The "did it change?" answer matters**, because the editor's own save writes this file and
+/// the watcher sees the write. A redraw on every one of the editor's own saves would respawn
+/// every piece after every edit, for no reason.
+fn adopt_map(path: &Path, open: &mut OpenMap) -> Result<bool, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let fresh =
         bevy_emerge_core::map::Map::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     if fresh == open.map {
         // **The file says what the editor already says.** The editor's own save, or a person
         // saving an identical file. **Nothing to do.**
-        return Ok(());
+        return Ok(false);
     }
     // **The new map replaces the old one, and the editor's own save record is refreshed** — so
     // the editor does not think the map is unsaved when it is not.
     open.map = fresh;
     open.mark_saved();
-    Ok(())
+    Ok(true)
 }
 
 /// **Re-read one file and adopt it, or refuse with the file, the field and the line.**
