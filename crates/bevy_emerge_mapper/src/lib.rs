@@ -54,6 +54,7 @@ pub mod chrome;
 pub mod confirm;
 pub mod compass;
 pub mod compose;
+pub mod compose_labels;
 pub mod devshot;
 pub mod editor;
 pub mod fill;

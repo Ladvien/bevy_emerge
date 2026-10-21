@@ -1556,7 +1556,19 @@ const ENVELOPE_IDLE: Color = crate::chrome::scaled(crate::chrome::ACCENT, 0.5);
 struct SlotLabel(usize);
 
 /// How far below the slot's projected centre the label sits, in logical pixels.
-const LABEL_DROP: f32 = 4.0;
+pub const LABEL_DROP: f32 = 4.0;
+
+/// **What a label says when its name could not be shown.**
+///
+/// **Furnas (2006)**, *A Fisheye Follow-up: Further Reflections on Focus + Context*, CHI
+/// ([10.1145/1124772.1124921](https://doi.org/10.1145/1124772.1124921)) — *"Explicit elision
+/// markers"* — and the editor's own rule from the 2026-10-20-07b run: a refusal is reported in
+/// the channel the author watches.
+///
+/// **So the name is elided, visibly, and the group is still there.** Three dots, because the
+/// name is one action away — `O`/`P` step the carousel to it, and the panel beside the stage
+/// lists every group's full id.
+pub(crate) const ELIDED: &str = "…";
 
 /// Label type sizes: the focal group's, then a miniature's.
 ///
@@ -1904,30 +1916,179 @@ fn rebuild_labels(
     }
 }
 
+/// **The label's own box, in the one space the drawing and the collision test both use.**
+///
+/// **Logical pixels, relative to the stage panel.** That is `Val::Px`'s own unit, so the drawing
+/// writes the box into the node **unchanged** — which is the whole point of this function existing
+/// as a separate, testable thing.
+///
+/// # The conversion, and it is the bug
+///
+/// Three spaces meet here, and getting them confused is what put every label in the wrong place:
+///
+/// | | space |
+/// |---|---|
+/// | the projection (`world_to_viewport`) | **physical** pixels, relative to the camera's viewport rect |
+/// | the node's size (`ComputedNode.size`) | **physical** pixels |
+/// | `Val::Px(x)` | **logical** pixels — Bevy multiplies it by `UiScale` on the way to physical |
+///
+/// **So the scale is applied exactly once, on the way in.** Measured on the editor at
+/// `UiScale(2.4)`, the focal group's 26-character id has a node 412 physical px wide and the
+/// projection answers at x 1765 — so the box's left is `(1765 - 412/2) / 2.4 = 649.58` logical,
+/// and the drawn ink starts at 649.58 × 2.4 = 1559 physical, which is the group's own centre.
+///
+/// **The width is the node's own size, not `chars × BODY_CHAR_W`.** The constant is right — the
+/// measurement above gives 6.60 logical px per glyph against `BODY_CHAR_W`'s 6.6 — but the *node*
+/// is what is drawn, and a collision test against a width that is not the drawn width is a
+/// collision test against the wrong thing. A `…` marker, a different face, or a glyph that is not
+/// the width of the rest measures itself.
+///
+/// **`None` when the node is not laid out yet**, or when the scale is not usable. A zero-sized node
+/// has no box, and a label with no box has nothing to collide with.
+pub fn label_box(
+    anchor: Vec2,
+    node_size: Vec2,
+    ui_scale: f32,
+) -> Option<crate::compose_labels::LabelBox> {
+    // --- **A zero or negative scale would be a host misconfiguration rather than a state to
+    // --- render around**, and dividing by it would put every label at infinity.
+    let s = if ui_scale > 0.0 { ui_scale } else { 1.0 };
+    let width = node_size.x / s;
+    let height = node_size.y / s;
+    if width <= 0.0 || height <= 0.0 {
+        // --- **Not laid out yet**, so there is nothing on screen and nothing to collide with.
+        return None;
+    }
+    Some(crate::compose_labels::LabelBox {
+        // --- **Centred on the group**, and **below** it: the label sits under its miniature, so
+        // --- the box's top is the anchor's `y` plus the drop.
+        left: anchor.x / s - width * 0.5,
+        top: anchor.y / s + LABEL_DROP,
+        width,
+        height,
+        height_allowance: LABEL_DROP,
+    })
+}
+
+/// **Where a slot's label goes on the screen, in the camera's viewport pixels.**
+///
+/// **The one place that answers it**, so the collision test and the drawing cannot disagree: the
+/// box builder and the drawing both call this, and a label that is tested in one place and drawn
+/// in another is how the first version of this passed its own test and still overlapped on
+/// screen.
+///
+/// **The footprint's near ground edge, not the group's origin.** The camera looks down at the
+/// strip, so the footprint's *nearest* edge projects **lower** on the screen than its centre —
+/// measured on Sanctuary's `town` kit, the focal house's near edge is at screen y 953 and its
+/// centre at 874. **A label placed at the centre is therefore drawn across the house's own
+/// wall**, which is exactly what it did: the label's ink sat at y 884..919, inside the house's
+/// 560..953.
+///
+/// **The x is the group's centre and the y is the lowest of its four ground corners.** The lowest
+/// corner, because the camera's yaw is not square to the strip — a single "front" corner would be
+/// the near one for one group and the far one for the next, and the label would jump about as the
+/// carousel stepped. The x stays at the centre, because a label under the *edge* of a miniature
+/// reads as belonging to its neighbour.
+///
+/// **`None` when the camera cannot see the group.** A group with no screen position has no label,
+/// and a label at a guessed position would name nothing.
+pub fn label_anchor(cam: &Camera, cam_tf: &GlobalTransform, slot: &Slot) -> Option<Vec2> {
+    // --- **The x is the group's own centre**, so the label sits under the middle of the miniature
+    // --- and not off to one side.
+    let centre = COMPOSE_STAGE + Vec3::new(slot.at.0, 0.0, slot.at.1);
+    let Ok(mid) = cam.world_to_viewport(cam_tf, centre) else {
+        return None;
+    };
+    // --- **The y is the lowest of the four ground corners**, because the camera looks down at the
+    // --- strip and the footprint's near edge is lower on the screen than its centre.
+    //
+    // --- **"Lowest" is the LARGER `y`.** A viewport's `y` grows *downwards* — `world_to_viewport`
+    // --- flips the NDC's `y` for exactly this reason (`bevy_camera`'s `world_to_viewport_core`:
+    // --- *"Flip the Y co-ordinate origin from the bottom to the top"*) — so the near edge is the
+    // --- one with the **largest** `y`, and taking the **smallest** put the label at the
+    // --- footprint's *far* edge, which is behind the miniature and therefore *inside* it.
+    let half = (slot.size.0 * 0.5, slot.size.1 * 0.5);
+    let mut lowest: Option<f32> = None;
+    for dx in [-half.0, half.0] {
+        for dz in [-half.1, half.1] {
+            let corner = COMPOSE_STAGE + Vec3::new(slot.at.0 + dx, 0.0, slot.at.1 + dz);
+            if let Ok(p) = cam.world_to_viewport(cam_tf, corner) {
+                lowest = Some(lowest.map_or(p.y, |l: f32| l.max(p.y)));
+            }
+        }
+    }
+    Some(Vec2::new(mid.x, lowest.unwrap_or(mid.y)))
+}
+
 /// **Put each label under its slot**, in logical window pixels.
 ///
 /// The single owner of a label's `display`, so there is one rule for when a label is on screen rather
 /// than two systems disagreeing about it. Hidden when the tab is not live and when the projection has
 /// no answer.
-/// **`world_to_viewport` answers in logical viewport pixels; `Val::Px` is multiplied by [`UiScale`].**
 ///
-/// Both entry points set `UiScale(1.2)` (`main.rs`, `harness.rs`), so writing the projection straight
-/// into a `Val::Px` put every label 20% further from the top-left than the point it names — invisible
-/// on the focal group at the centre of the screen, worst on the outermost miniatures, which is exactly
-/// the shape that reads as "the labels are a bit off" rather than as a bug.
+/// # The three spaces, and which is which
+///
+/// **This is the whole bug, and it took a measurement to settle it**, so the answer is written down
+/// here rather than rediscovered. Measured on the editor at `UiScale(2.4)`, on a 2560×1406 window
+/// (Sanctuary's `town` kit, the COMPOSE tab, the focal group's 26-character id):
+///
+/// | quantity | space | the measured value |
+/// |---|---|---|
+/// | `world_to_viewport` | **physical**, and relative to the **camera's viewport rect** | `(1765.0, 878.6)` |
+/// | the camera's viewport rect | physical, in the window | `970..2560 × 146..1344` |
+/// | `ComputedNode.size` | **physical** | `412 × 32` |
+/// | `UiGlobalTransform.translation` | **physical**, and the node's **centre** | `(1885.0, 899.0)` |
+/// | `Val::Px(x)` | **logical** — Bevy multiplies it by `UiScale` on the way to physical | — |
+///
+/// **So: the projection is physical, the node is physical, and `Val::Px` is logical.** The
+/// conversion is one division by `UiScale` — and getting it wrong is invisible, because the error
+/// is a *factor* and the labels still look roughly like they are near their groups.
+///
+/// ## What was wrong, and it was three things at once
+///
+/// 1. **The width.** `chars × BODY_CHAR_W` is a *logical* measurement, and the node's size is
+///    *physical* — so the two could not be compared without a division. The measurement confirms
+///    the constant is right: the focal node's 412 physical px over 26 characters is **6.60**
+///    logical px per glyph, and `BODY_CHAR_W` is **6.6**. The neighbour's 312 over 24 is **5.42**,
+///    and `6.6 × 9/11` is **5.4**. So the advance is right and the *space* was the problem.
+/// 2. **The position.** The label is a child of the stage's panel, so `Val::Px` is relative to
+///    **that panel**, and the projection is relative to the **camera's viewport rect**. Those are
+///    the same rect only by accident.
+/// 3. **The sign of the offset.** The label sits *below* its group, so the box's `top` is the
+///    projection's `y` **plus** the drop — and the deconfliction pushes a label *down*, so the
+///    pushed label must be drawn at the pushed `top` and nowhere else.
+///
+/// **The fix: one space, measured once, used by both the collision test and the drawing.** The
+/// box is in **logical pixels relative to the stage panel**, it is built from the **projection**
+/// (the one place that knows where the group is), and the drawing writes it into `Val::Px`
+/// **unchanged**, because `Val::Px` *is* logical pixels.
 fn place_labels(
     mode: Res<Mode>,
     carousel: Res<StagedCarousel>,
     ui_scale: Res<UiScale>,
+    // **The project, for the name of a label that is shown again** — a label that was elided and
+    // then had room again says its name again, and the name is the project's, not the node's.
+    project: Res<Project>,
     camera: Option<Single<(&Camera, &GlobalTransform), With<crate::view::MainCamera>>>,
-    mut labels: Query<(&SlotLabel, &Text, &mut Node)>,
+    // **`Text` is mutable**, because a label that was elided and then had room again says its
+    // name again — the node is reused, and the elision marker is not the label's text.
+    // **The node's own transform**, because the box has to be measured where the text is drawn.
+    mut labels: Query<
+        (
+            &SlotLabel,
+            &mut Text,
+            &mut Node,
+            &bevy::ui::ComputedNode,
+            &UiGlobalTransform,
+        ),
+    >,
     ui_nodes: Query<
         (&bevy::ui::ComputedNode, &bevy::ui::UiGlobalTransform),
         With<bevy::picking::hover::Hovered>,
     >,
 ) {
     let Some(camera) = camera.filter(|_| *mode == Mode::Compose) else {
-        for (_, _, mut node) in &mut labels {
+        for (_, _, mut node, _, _) in &mut labels {
             if node.display != Display::None {
                 node.display = Display::None;
             }
@@ -1935,13 +2096,69 @@ fn place_labels(
         return;
     };
     let (cam, cam_tf) = *camera;
-    for (label, text, mut node) in &mut labels {
+    // --- **The deconfliction, and then the placement.** The stage's labels used to be drawn
+    // --- wherever their group projected, which put them **on top of each other**: the groups
+    // --- stand a few tens of centimetres apart on a **diagonal** strip, so their labels — 22 to 25
+    // --- characters wide — overlap by a hundred pixels or more. Measured on a real capture of
+    // --- Sanctuary's own project: **813 px** of continuous ink where three labels should be, and
+    // --- **918 px** where four should be.
+    // ---
+    // --- **Bell, Feiner & Höllerer (2001)**, *View Management for Virtual and Augmented Reality*,
+    // --- UIST ([10.1145/502348.502363](https://doi.org/10.1145/502348.502363)) names this exact
+    // --- approach as the one that fails — *"position each label at the projected centroid of the
+    // --- object… result in overlaps and mislabelings"* — and answers: **allocate a label only
+    // --- where it does not collide, or withhold it.** **Azuma & Furmanski (2003)**, ISMAR
+    // --- ([10.1109/ismar.2003.1240689](https://doi.org/10.1109/ismar.2003.1240689)) settles the
+    // --- trade: *"read labels fastest with the algorithms that most quickly prevented overlap,
+    // --- even if placement wasn't ideal."*
+    // ---
+    // --- **So the order is the focal group first** — it is the object of interest and it is never
+    // --- withheld — **and then the neighbours by distance**, and a neighbour that collides is
+    // --- **pushed down one step** or **withheld**.
+    let mut boxes: Vec<(usize, crate::compose_labels::LabelBox)> = Vec::new();
+    for (label, _, _, computed, _) in &mut labels {
+        let Some(slot) = carousel.0.slots.get(label.0) else {
+            continue;
+        };
+        // --- **Where the label goes**, from the one function that knows. The box builder and the
+        // --- drawing both call it, so the collision test and the drawn label cannot disagree
+        // --- about where the label is.
+        let Some(p) = label_anchor(cam, cam_tf, slot) else {
+            // --- **No projection, no label.** A group the camera cannot see has no screen
+            // --- position, and a label at a guessed one would name nothing.
+            continue;
+        };
+        // --- **The box, in the one space.** The node's own size, the projection's own point, and
+        // --- the scale between them — see [`label_box`].
+        let Some(b) = label_box(p, computed.size(), ui_scale.0) else {
+            continue;
+        };
+        boxes.push((label.0, b));
+    }
+    // --- **The focal group is the one with no offset** — it is the group being edited, and it is
+    // --- the one the author came to look at.
+    let focal = carousel
+        .0
+        .slots
+        .iter()
+        .position(|s| s.offset == 0)
+        .unwrap_or(0);
+    // --- **The deconfliction, and then the placement.** The boxes are in one space and the drawing
+    // --- reads them in the same one, so a label that was pushed down is drawn where it was put.
+    let (drawn, withheld) = crate::compose_labels::deconflict(&boxes, focal);
+    let drawn_at: std::collections::HashMap<usize, crate::compose_labels::LabelBox> =
+        drawn.into_iter().collect();
+    // --- **And the withheld ones are reported, not dropped** — the author sees a marker where the
+    // --- name would be, so the group is visibly there with its name one action away. Furnas
+    // --- (2006) on explicit elision markers, and the editor's own rule from the last run: a
+    // --- refusal is reported in the channel the author watches.
+    let withheld_set: std::collections::HashSet<usize> = withheld.into_iter().collect();
+
+    for (label, mut text, mut node, _, _) in &mut labels {
         let placed = carousel.0.slots.get(label.0).and_then(|slot| {
             let advance = LABEL_CHAR_W
                 * if slot.offset == 0 { 1.0 } else { LABEL_PX.1.px() / LABEL_PX.0.px() };
-            cam.world_to_viewport(cam_tf, COMPOSE_STAGE + Vec3::new(slot.at.0, 0.0, slot.at.1))
-                .ok()
-                .map(|p| (p, advance))
+            label_anchor(cam, cam_tf, slot).map(|p| (p, advance))
         });
         // **A label the panel covers is taken down, not drawn through.** The projection knows
         // nothing of panel geometry, so a slot near the screen edge landed its label half behind
@@ -1960,17 +2177,73 @@ fn place_labels(
                 )
             })
         });
+        // --- **A withheld label shows a marker, not a name.** Bell et al. (2001): *"If no such
+        // --- space can be found, then no label is allocated."* **And Furnas (2006) on explicit
+        // --- elision markers: an elision must be VISIBLE**, because a thing that is present but
+        // --- unnamed and a thing that is not there are different facts, and only one of them is
+        // --- true.
+        // ---
+        // --- **So the label's own node carries the marker** — the group is visibly there, and its
+        // --- name is one action away (`O`/`P` step the carousel, and the panel beside the stage
+        // --- lists every group's full id). **The node is not hidden**, because a hidden label
+        // --- would be a group that is silently nameless.
+        if withheld_set.contains(&label.0) {
+            if text.0 != ELIDED {
+                text.0 = ELIDED.to_owned();
+            }
+            // --- **And it is placed like any other**, so the marker sits where the name would be.
+            // --- **From the node's own place**, for the same reason the boxes are: the projection
+            // --- is the viewport's space and the node is the window's, and the marker must land on
+            // --- the group it names.
+            if let Some((p, advance)) = placed {
+                let half = ELIDED.chars().count() as f32 * advance * 0.5;
+                let s = if ui_scale.0 > 0.0 { ui_scale.0 } else { 1.0 };
+                // --- The same conversion as every other position here: the projection is
+                // --- physical and `Val::Px` is logical, so it is divided — once.
+                let (left, top) = (Val::Px(p.x / s - half), Val::Px(p.y / s + LABEL_DROP));
+                if node.display != Display::Flex || node.left != left || node.top != top {
+                    node.display = Display::Flex;
+                    node.left = left;
+                    node.top = top;
+                }
+            }
+            continue;
+        }
+        // --- **And a label that is drawn again says its name again**, because the node is reused.
+        if text.0 == ELIDED {
+            if let Some(slot) = carousel.0.slots.get(label.0)
+                && let Some(c) = project.compositions.compositions.get(slot.index)
+            {
+                text.0 = c.id.clone();
+            }
+        }
         match placed {
             // Centred by measuring the string, which works because the shipped face is monospace —
             // see `LABEL_CHAR_W`.
             Some((p, advance)) => {
-                let half = text.0.chars().count() as f32 * advance * 0.5;
-                // Into `Val::Px`'s own units, which are scaled ones. A zero or negative scale would be
-                // a host misconfiguration rather than a state to render around; guard so it cannot
-                // produce a NaN position.
-                let s = if ui_scale.0 > 0.0 { ui_scale.0 } else { 1.0 };
-                let (left, top) =
-                    (Val::Px((p.x - half) / s), Val::Px((p.y + LABEL_DROP) / s));
+                // --- **The position the deconfliction chose**, not the raw projection: a neighbour
+                // --- that collided was pushed down one step, and it is drawn where it was put.
+                let (left, top) = match drawn_at.get(&label.0) {
+                    Some(b) => {
+                        // --- **The box is already in `Val::Px`'s own units** — logical pixels
+                        // --- relative to the stage panel — so it is written **unchanged**.
+                        // ---
+                        // --- **Not divided by the scale again.** The scale was applied once, when
+                        // --- the box was built from the physical projection, and applying it a
+                        // --- second time put every label a factor of 2.4 from where the
+                        // --- deconfliction had put it: the labels were tested against each other
+                        // --- in one space and drawn in another, so the test passed and the screen
+                        // --- overlapped.
+                        (Val::Px(b.left), Val::Px(b.top))
+                    }
+                    None => {
+                        // --- Into `Val::Px`'s own units, which are logical ones. The projection
+                        // --- is physical, so it is divided — **once**.
+                        let half = text.0.chars().count() as f32 * advance * 0.5;
+                        let s = if ui_scale.0 > 0.0 { ui_scale.0 } else { 1.0 };
+                        (Val::Px(p.x / s - half), Val::Px(p.y / s + LABEL_DROP))
+                    }
+                };
                 // **Guarded against the no-op write**, the way `editor::refresh_status` is: `Node` is
                 // change-detected, and touching it every frame makes Bevy re-lay the whole UI tree
                 // on every frame the camera happens to be still.
