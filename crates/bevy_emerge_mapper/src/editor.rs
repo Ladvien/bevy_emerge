@@ -6957,7 +6957,9 @@ fn redraw_the_map(
             // **A map whose stacking will not resolve is a map the author has to be told about.**
             // **The last good screen stays**, which is why the sweep happens after the heights
             // are resolved and not before.
-            state.status.problem(format!("the map on disk does not resolve: {e}"));
+            state
+                .status
+                .problem(format!("the map on disk does not resolve: {e}"));
             return;
         }
     };

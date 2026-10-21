@@ -60,11 +60,18 @@ fn project(name: &str) -> std::path::PathBuf {
 /// **The edit is made in the file, not in the editor** — because that is the whole case: a person
 /// in a text editor.
 fn move_the_piece_on_disk(root: &std::path::Path, to: (f32, f32)) {
-    let path = root.join("assets").join("emerge").join("maps").join("m.map.ron");
+    let path = root
+        .join("assets")
+        .join("emerge")
+        .join("maps")
+        .join("m.map.ron");
     let text = std::fs::read_to_string(&path).expect("the map file is there");
     let (x, z) = to;
     let moved = text.replace("at: (0.0, 0.0)", &format!("at: ({x}, {z})"));
-    assert_ne!(moved, text, "the piece's position is not in the file: {text}");
+    assert_ne!(
+        moved, text,
+        "the piece's position is not in the file: {text}"
+    );
     std::fs::write(&path, moved).expect("the map file is written");
 }
 

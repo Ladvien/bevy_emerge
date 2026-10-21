@@ -1716,9 +1716,7 @@ mod tests {
 
         let cfg = VlmConfig::from_lookup(|name| match name {
             "EMERGE_VLM_KEY" => Some("test-key".to_owned()),
-            "EMERGE_VLM_URL" => {
-                Some(format!("http://192.168.1.113:{port}/v1/chat/completions"))
-            }
+            "EMERGE_VLM_URL" => Some(format!("http://192.168.1.113:{port}/v1/chat/completions")),
             _ => None,
         })
         .expect("the config loads");
