@@ -17,13 +17,17 @@
 //! | `emerge_list_operations` | every operation, its parameters' schema, and how it is undone |
 //! | `emerge_preview_operation` | what an operation would change; nothing changes |
 //! | `emerge_apply_operation` | run one, and record it in the operation log |
+//! | `emerge_undo_operation` | take one change back by its id, as a new log line |
 //! | `emerge_read_oplog` | the log, newest last |
+//! | `emerge_state` | what the editor is holding now, as JSON |
+//! | `emerge_capture_still` | one picture of the editor, plus the state |
+//! | `emerge_capture_sequence` | frames at 4 fps, with an optional operation after frame 0 |
 //!
-//! **Four tools, and the set is small on purpose.** An agent's context is spent on the tools it
+//! **Eight tools, and the set is small on purpose.** An agent's context is spent on the tools it
 //! is offered, and a catalogue of ninety-six verbs is a catalogue of ninety-six things to choose
-//! badly from. **The four are a discovery surface**: the first names what exists, and the second
-//! and third run it. Later iterations add one tool per operation as the registry grows, and the
-//! discovery tool goes away when it is not needed.
+//! badly from. **The operation tools are a discovery surface**: the first names what exists, and
+//! the others preview, run and take back what it names. Later iterations add one tool per
+//! operation as the registry grows, and the discovery tool goes away when it is not needed.
 //!
 //! # The transport
 //!
@@ -72,6 +76,20 @@ pub struct ApplyParams {
     pub parameters: Value,
     /// **Whether to preview instead of applying.** `true` changes nothing: the map, the file and
     /// the log are all left alone, and the answer says what would have changed.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// **The parameters of `emerge_undo_operation`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UndoParams {
+    /// **The id of the change to take back**, as `emerge_apply_operation` returned it or as
+    /// `emerge_read_oplog` lists it. Omitted: the newest change that has not been taken back.
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// **Whether to preview instead of undoing.** `true` changes nothing and says what the undo
+    /// would set.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -274,8 +292,8 @@ impl Emerge {
                        parameters' JSON schema and how it is undone. Call this before \
                        emerge_apply_operation so the parameters are the ones the operation \
                        actually takes. Returns the list; it does not change anything. The undo \
-                       column names the strategy an operation declares, and no tool performs an \
-                       undo yet.",
+                       column names the strategy an operation declares; emerge_undo_operation \
+                       performs it.",
         annotations(
             title = "List the editor's operations",
             read_only_hint = true,
@@ -336,9 +354,8 @@ impl Emerge {
                        what would change without changing it. Returns the operation's id, which \
                        can be cited in a report to the developer, and the log's own record of it. \
                        The operation replaces the values it names rather than adding to them, \
-                       so it is marked destructive; there is no undo tool yet, and a change is \
-                       reverted by editing the data file back or by restoring it from version \
-                       control.",
+                       so it is marked destructive. Take a change back with \
+                       emerge_undo_operation and the returned id.",
         annotations(
             title = "Apply an editor operation",
             read_only_hint = false,
@@ -577,6 +594,63 @@ impl Emerge {
         Ok(CallToolResult::success(content))
     }
 
+    /// **`emerge_undo_operation` — take one change back, by its id.**
+    ///
+    /// **The undo is an operation like any other.** The editor looks the change up in the
+    /// operation log, dispatches the inverse it recorded through the same registry the change went
+    /// through, and appends a new line saying which line it undoes. **Nothing is deleted from the
+    /// log.** A change that a newer change has built on is refused, with the newer change named,
+    /// because putting the old values back would overwrite it.
+    #[tool(
+        name = "emerge_undo_operation",
+        description = "Take back one change made through emerge_apply_operation. Pass \
+                       operation_id, the id that call returned; omit it to take back the newest \
+                       change that has not been taken back. The editor applies the inverse the change recorded, writes \
+                       the data file, and appends a new log line naming the line it undoes; the \
+                       log is never edited. Refuses, and changes nothing, when the change was \
+                       already undone, when a newer change exists (the answer names it; undo that \
+                       one first), when the map was changed outside the log since (a hand-edited \
+                       file, the menu, or another map open; the answer names what differs), or \
+                       when the change recorded no inverse. Undoing an undo puts the change back, \
+                       and the change's own id takes it back again. Set dry_run to true to see what the undo would set. \
+                       Returns the undo's own operation id and what it set.",
+        annotations(
+            title = "Undo an editor operation",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn undo_operation(
+        &self,
+        Parameters(p): Parameters<UndoParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // **The project is checked first**, for the reason `apply_operation` gives: an undo
+        // against the wrong project would put the wrong file back.
+        if let Err(why) = self.check_project().await {
+            return Ok(refusal(&why));
+        }
+        match self
+            .editor
+            .call(
+                "emerge/operation_undo",
+                json!({"operation_id": p.operation_id, "dry_run": p.dry_run}),
+            )
+            .await
+        {
+            Ok(v) => {
+                let refused = v.get("outcome").and_then(|o| o.as_str()) == Some("refused");
+                if refused {
+                    Ok(CallToolResult::structured_error(v))
+                } else {
+                    Ok(CallToolResult::structured(v))
+                }
+            }
+            Err(e) => Ok(refusal(&e)),
+        }
+    }
+
     /// **`emerge_read_oplog` — the operation log.**
     ///
     /// **A read.** Every operation writes one line, from a person or an agent, and an undo is a
@@ -586,7 +660,7 @@ impl Emerge {
         description = "The editor's operation log, newest last. Every operation appends one line, \
                        whether a person or an agent did it. Read it to see what has been done to \
                        this project. A refusal is not logged, so a line here is a line about a \
-                       change that happened.",
+                       change that happened. An undo is a new line naming the line it undoes.",
         annotations(
             title = "Read the operation log",
             read_only_hint = true,

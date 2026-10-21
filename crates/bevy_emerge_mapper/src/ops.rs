@@ -120,7 +120,8 @@ pub struct Entry {
     pub op: String,
     /// **What it was called with**, verbatim. So a replay can send the same call.
     pub params: serde_json::Value,
-    /// **What came back**: `applied`, `refused`, or `undone`.
+    /// **What came back**: `applied` or `refused`. An undo is an `applied` line whose `undoes`
+    /// names the line it took back.
     pub outcome: String,
     /// **The refusal's text**, when the outcome is `refused`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,6 +138,16 @@ pub struct Entry {
     /// **The operation this one undid**, when it is an undo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub undoes: Option<String>,
+    /// **The parameters that put this line's change back**, for the same operation.
+    ///
+    /// **Recorded with the change, because only the change knows what it replaced.** An undo
+    /// read from the log afterwards cannot reconstruct the old values from the new ones. Lines
+    /// written before this field existed have none, and [`undo`] refuses them by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inverse: Option<serde_json::Value>,
+    /// **The state this line left behind**, for the guard [`undo`] runs. See [`Outcome::after`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<serde_json::Value>,
 }
 
 /// **The session this editor is running under.**
@@ -213,6 +224,15 @@ pub struct Outcome {
     pub affected: usize,
     /// **Whether the map on disk changed.** The one thing a caller always wants to know.
     pub saved: bool,
+    /// **The parameters that put this change back**, for the same operation — what
+    /// [`undo`] dispatches. `None` for an operation that declares no inverse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inverse: Option<serde_json::Value>,
+    /// **The part of the editor's state this change left behind**, as [`Operation::state`] reads
+    /// it. [`undo`] refuses when the state is no longer this, because something outside the log
+    /// changed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<serde_json::Value>,
 }
 
 /// **The result of a dispatch.**
@@ -295,6 +315,13 @@ pub trait Operation: 'static {
     /// **The only function in the editor that writes an operation's effect.** A front end calls
     /// `dispatch`, never this.
     fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal>;
+
+    /// **The part of the editor's state this operation's inverse restores**, named so it can be
+    /// compared: an undo is safe only while the state is still what the change left. `None` for an
+    /// operation with no inverse.
+    fn state(&self, _ctx: &Ctx) -> Option<serde_json::Value> {
+        None
+    }
 }
 
 /// **Every operation the editor knows, in one list.**
@@ -318,6 +345,17 @@ pub fn find(name: &str) -> Option<Box<dyn Operation>> {
 /// **And the log is written here, once**, so an operation cannot be applied without being
 /// recorded — which is what makes the log a source of truth rather than a report.
 pub fn dispatch(ctx: &mut Ctx, name: &str, params: &serde_json::Value) -> Result<Applied, Refusal> {
+    dispatch_as(ctx, name, params, None)
+}
+
+/// **[`dispatch`], with the line it undoes named** — the one path for a change and for its undo,
+/// so an undo is validated, written and logged exactly as the change was.
+fn dispatch_as(
+    ctx: &mut Ctx,
+    name: &str,
+    params: &serde_json::Value,
+    undoes: Option<&str>,
+) -> Result<Applied, Refusal> {
     let Some(op) = find(name) else {
         return Err(Refusal::new(format!(
             "`{name}` is not an operation this editor knows. The known ones are: {}.",
@@ -346,7 +384,9 @@ pub fn dispatch(ctx: &mut Ctx, name: &str, params: &serde_json::Value) -> Result
         result: Some(outcome.summary.clone()),
         rng_seed: None,
         rules_hash: None,
-        undoes: None,
+        undoes: undoes.map(str::to_owned),
+        inverse: outcome.inverse.clone(),
+        after: outcome.after.clone(),
     };
     // **A log that could not be written is a refusal, not a silent loss.**
     //
@@ -365,6 +405,225 @@ pub fn dispatch(ctx: &mut Ctx, name: &str, params: &serde_json::Value) -> Result
         operation_id: entry.operation_id.clone(),
         entry: Box::new(entry),
     })
+}
+
+/// **What an undo resolved to**: the change being taken back or put back, the log line whose
+/// inverse does it, and that inverse.
+#[derive(Debug, Clone)]
+pub struct UndoPlan {
+    /// **The change**, by the id of the line that first made it.
+    pub change: String,
+    /// **The line whose inverse is dispatched**: the change itself, or the newest undo or redo of
+    /// it. The new line's `undoes` names this one.
+    pub line: Entry,
+    /// **The parameters dispatched.**
+    pub inverse: serde_json::Value,
+}
+
+/// **Which change an undo takes back, and the parameters that do it.**
+///
+/// **Pure: it reads the log and changes nothing**, so a preview and an undo resolve the same way.
+///
+/// **A change is a chain**: the line that made it, then any undo of it, then any undo of that (a
+/// redo), and so on. Each chain is in effect or not, and its newest line is the one whose inverse
+/// flips it. With no `target`, the newest change in effect is taken back. A `target` names any line
+/// of a chain: in effect, the chain is taken back; out of effect, naming the chain's newest line
+/// puts it back (a redo), and naming an older line is refused, pointing at the newest.
+///
+/// **Two guards, because a newer change must never be overwritten:**
+/// - a change still in effect that is newer than this chain's newest line blocks it, named;
+/// - the state must still be what the chain's newest line left ([`Operation::state`]), or
+///   something changed it outside the log (a hand-edited file the watcher adopted, the menu, or a
+///   different map open), and the undo is refused, naming what differs.
+pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal> {
+    use std::collections::{HashMap, HashSet};
+    let Some(project) = ctx.project.as_ref() else {
+        return Err(Refusal::new(
+            "no project is open, so there is no log to undo from.",
+        ));
+    };
+    let path = oplog_path(project);
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut lines = Vec::new();
+    for (n, raw) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let entry: Entry = serde_json::from_str(raw).map_err(|e| {
+            Refusal::new(format!(
+                "line {} of {} is not a log entry ({e}), so the log cannot say what the newest \
+                 change is. Nothing was changed.",
+                n + 1,
+                path.display()
+            ))
+        })?;
+        if entry.outcome == "applied" {
+            lines.push(entry);
+        }
+    }
+    // **Each line's chain, whether each chain is in effect, and each chain's newest line.**
+    let mut chain_of: HashMap<&str, &str> = HashMap::new();
+    let mut in_effect: HashSet<&str> = HashSet::new();
+    let mut newest: HashMap<&str, usize> = HashMap::new();
+    for (i, line) in lines.iter().enumerate() {
+        let chain = match line.undoes.as_deref() {
+            None => line.operation_id.as_str(),
+            Some(undone) => chain_of.get(undone).copied().unwrap_or(undone),
+        };
+        chain_of.insert(line.operation_id.as_str(), chain);
+        // A new change starts in effect; an undo line flips its chain.
+        if line.undoes.is_none() || !in_effect.remove(chain) {
+            in_effect.insert(chain);
+        }
+        newest.insert(chain, i);
+    }
+    // **The log is the project's; a change belongs to one map.** A line's map is the one its
+    // recorded state names, and only changes to the open map are picked, or can block.
+    let here = ctx.open.as_ref().map(|o| o.map.name.as_str());
+    let map_of = |l: &Entry| {
+        l.after
+            .as_ref()
+            .and_then(|a| a.get("map"))
+            .and_then(|m| m.as_str())
+            .map(str::to_owned)
+    };
+    let chain_map = |c: &str| map_of(&lines[newest[c]]);
+    let chain: &str = match target {
+        None => {
+            let Some(chain) = in_effect
+                .iter()
+                .copied()
+                .filter(|c| chain_map(c).as_deref() == here)
+                .max_by_key(|c| newest[c])
+            else {
+                return Err(Refusal::new(
+                    "nothing to undo: no change to the open map is still in effect.",
+                ));
+            };
+            chain
+        }
+        Some(id) => {
+            let Some(chain) = chain_of.get(id).copied() else {
+                return Err(Refusal::new(format!(
+                    "no operation `{id}` is in the log. emerge_read_oplog lists the ids."
+                )));
+            };
+            let head = &lines[newest[chain]].operation_id;
+            if !in_effect.contains(chain) && head != id {
+                return Err(Refusal::new(format!(
+                    "`{id}` is not in effect: `{head}` took it back. Undo `{head}` to put it back."
+                )));
+            }
+            chain
+        }
+    };
+    let line = &lines[newest[chain]];
+    let line_map = map_of(line);
+    if let Some(m) = line_map.as_deref()
+        && Some(m) != here
+    {
+        return Err(Refusal::new(format!(
+            "`{}` changed map `{m}`, and the open map is `{}`. Open `{m}` to take it back.",
+            line.operation_id,
+            here.unwrap_or("none")
+        )));
+    }
+    // **Guard 1: a newer change to the same map, logged, still in effect.**
+    if let Some(blocker) = in_effect
+        .iter()
+        .filter(|c| **c != chain && newest[*c] > newest[chain] && chain_map(c) == line_map)
+        .map(|c| &lines[newest[c]])
+        .max_by_key(|l| l.seq)
+    {
+        return Err(Refusal::new(format!(
+            "`{}` ({} by {:?}) changed the map after `{}`, so putting the old values back would \
+             overwrite it. Undo `{}` first, or leave `{}` as it is.",
+            blocker.operation_id,
+            blocker.op,
+            blocker.source,
+            line.operation_id,
+            blocker.operation_id,
+            line.operation_id
+        )));
+    }
+    let Some(op) = find(&line.op) else {
+        return Err(Refusal::new(format!(
+            "`{}` is not an operation this editor knows.",
+            line.op
+        )));
+    };
+    // **Guard 2: the state is what the line left, or something changed it since.**
+    if let (Some(left), Some(now)) = (line.after.as_ref(), op.state(ctx))
+        && *left != now
+    {
+        // **A logged change is named first**: an undo or redo of another change to this map can
+        // be what moved the state, and blaming an edit outside the log would be false.
+        if let Some(later) = lines[newest[chain] + 1..]
+            .iter()
+            .rev()
+            .find(|l| map_of(l) == line_map)
+        {
+            return Err(Refusal::new(format!(
+                "`{}` ({} by {:?}) changed the map after `{}`, so putting the old values back \
+                 would overwrite it. Take `{}` back, or put it back, first.",
+                later.operation_id, later.op, later.source, line.operation_id, later.operation_id
+            )));
+        }
+        let differs: Vec<String> = match (left.as_object(), now.as_object()) {
+            (Some(l), Some(n)) => l
+                .keys()
+                .filter(|k| l.get(*k) != n.get(*k))
+                .map(|k| {
+                    format!(
+                        "{k} is {} and `{}` left {}",
+                        n.get(k.as_str()).unwrap_or(&serde_json::Value::Null),
+                        line.operation_id,
+                        l[k.as_str()]
+                    )
+                })
+                .collect(),
+            _ => vec![format!(
+                "the state is {now} and `{}` left {left}",
+                line.operation_id
+            )],
+        };
+        return Err(Refusal::new(format!(
+            "the map has changed outside the operation log since `{}` ({}): a file edited by hand, \
+             the menu, or a different map open. Putting the old values back would overwrite that, \
+             so nothing was changed.",
+            line.operation_id,
+            differs.join("; ")
+        )));
+    }
+    let Some(inverse) = line.inverse.clone() else {
+        return Err(Refusal::new(format!(
+            "`{}` recorded no inverse (it was logged before undo existed), so it cannot be taken \
+             back from the log.",
+            line.operation_id
+        )));
+    };
+    Ok(UndoPlan {
+        change: chain.to_owned(),
+        line: line.clone(),
+        inverse,
+    })
+}
+
+/// **Take one change back, or put it back, by dispatching the inverse its newest line recorded.**
+///
+/// **The undo is an operation like any other**: the inverse goes through [`dispatch`]'s own path
+/// (plan, commit, the file written, a new log line) and the new line's `undoes` names the line it
+/// inverted. **Nothing is deleted from the log.**
+pub fn undo(ctx: &mut Ctx, target: Option<&str>) -> Result<(UndoPlan, Applied), Refusal> {
+    let plan = undo_target(ctx, target)?;
+    let applied = dispatch_as(
+        ctx,
+        &plan.line.op,
+        &plan.inverse,
+        Some(&plan.line.operation_id),
+    )?;
+    Ok((plan, applied))
 }
 
 /// **The next sequence number** — the count of lines already in the log.
@@ -631,6 +890,10 @@ pub mod map_set_settings {
             Params::schema()
         }
 
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            ctx.open.as_ref().map(settings_of)
+        }
+
         fn plan(
             &self,
             ctx: &Ctx,
@@ -777,12 +1040,37 @@ pub mod map_set_settings {
                 trim_metres(z)
             );
             ctx.open = Some(open);
+            // **The inverse is the settings this change replaced, all four of them.** Naming every
+            // field, rather than only the ones that changed, keeps the undo exact when a field was
+            // absent (`null` clears it) and keeps it one call.
+            let inverse = serde_json::json!({
+                "origin": [old.origin.0, old.origin.1, old.origin.2],
+                "bounds": [old.bounds.0, old.bounds.1, old.bounds.2],
+                "bash": old.bash,
+                "note": old.note,
+            });
+            let after = ctx.open.as_ref().map(settings_of);
             Ok(Outcome {
                 summary,
                 affected: 1,
                 saved,
+                inverse: Some(inverse),
+                after,
             })
         }
+    }
+
+    /// **Which map, and its four settings** — what an undo of a settings change compares before it
+    /// puts old values back. **The map's name is part of it**, because the log is the project's and
+    /// the operation acts on whichever map is open.
+    pub fn settings_of(open: &OpenMap) -> serde_json::Value {
+        json!({
+            "map": open.map.name,
+            "origin": [open.map.origin.0, open.map.origin.1, open.map.origin.2],
+            "bounds": [open.map.bounds.0, open.map.bounds.1, open.map.bounds.2],
+            "bash": open.map.bash,
+            "note": open.map.note,
+        })
     }
 
     /// **A map's settings, as they were.**

@@ -8,7 +8,7 @@ The server speaks the Model Context Protocol over **stdio**, and reaches the run
 
 ### `emerge_list_operations`
 
-Every operation the running bevy_emerge editor knows, with each one's parameters' JSON schema and how it is undone. Call this before emerge_apply_operation so the parameters are the ones the operation actually takes. Returns the list; it does not change anything. The undo column names the strategy an operation declares, and no tool performs an undo yet.
+Every operation the running bevy_emerge editor knows, with each one's parameters' JSON schema and how it is undone. Call this before emerge_apply_operation so the parameters are the ones the operation actually takes. Returns the list; it does not change anything. The undo column names the strategy an operation declares; emerge_undo_operation performs it.
 
 | annotation | value |
 |---|---|
@@ -28,7 +28,17 @@ What an operation would change, and nothing changed: the map, the data file and 
 
 ### `emerge_apply_operation`
 
-Run one of the editor's operations. Changes the open map, writes the data file, and appends a line to the operation log. Set dry_run to true to see what would change without changing it. Returns the operation's id, which can be cited in a report to the developer, and the log's own record of it. The operation replaces the values it names rather than adding to them, so it is marked destructive; there is no undo tool yet, and a change is reverted by editing the data file back or by restoring it from version control.
+Run one of the editor's operations. Changes the open map, writes the data file, and appends a line to the operation log. Set dry_run to true to see what would change without changing it. Returns the operation's id, which can be cited in a report to the developer, and the log's own record of it. The operation replaces the values it names rather than adding to them, so it is marked destructive. Take a change back with emerge_undo_operation and the returned id.
+
+| annotation | value |
+|---|---|
+| `readOnlyHint` | false |
+| `destructiveHint` | true |
+| `idempotentHint` | false |
+
+### `emerge_undo_operation`
+
+Take back one change made through emerge_apply_operation. Pass operation_id, the id that call returned; omit it to take back the newest change that has not been taken back. The editor applies the inverse the change recorded, writes the data file, and appends a new log line naming the line it undoes; the log is never edited. Refuses, and changes nothing, when the change was already undone, when a newer change exists (the answer names it; undo that one first), when the map was changed outside the log since (a hand-edited file, the menu, or another map open; the answer names what differs), or when the change recorded no inverse. Undoing an undo puts the change back, and the change's own id takes it back again. Set dry_run to true to see what the undo would set. Returns the undo's own operation id and what it set.
 
 | annotation | value |
 |---|---|
@@ -68,7 +78,7 @@ A sequence of frames of the editor, with an optional operation applied once the 
 
 ### `emerge_read_oplog`
 
-The editor's operation log, newest last. Every operation appends one line, whether a person or an agent did it. Read it to see what has been done to this project. A refusal is not logged, so a line here is a line about a change that happened.
+The editor's operation log, newest last. Every operation appends one line, whether a person or an agent did it. Read it to see what has been done to this project. A refusal is not logged, so a line here is a line about a change that happened. An undo is a new line naming the line it undoes.
 
 | annotation | value |
 |---|---|

@@ -243,6 +243,65 @@ fn the_capture_and_state_tools_say_what_they_do() {
     assert!(missing.is_empty(), "these tools are missing: {missing:?}");
 }
 
+/// **The undo tool is listed, its hints match what it does, and a call with no editor is a
+/// refusal an agent can read.**
+///
+/// **Destructive, because an undo replaces values** -- it puts the old ones back over the new
+/// ones, the same kind of write `emerge_apply_operation` makes -- and **not idempotent**, because a
+/// second identical call takes back a different change (or redoes the first). An agent that read
+/// the hints as "safe to retry" would undo twice.
+#[test]
+fn the_undo_tool_says_what_it_does_and_refuses_without_an_editor() {
+    let mut server = Server::start();
+    let listed = server.request("tools/list", json!({}));
+    let tool = listed["result"]["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|t| t["name"] == "emerge_undo_operation"))
+        .cloned()
+        .unwrap_or_else(|| panic!("emerge_undo_operation is not listed: {listed}"));
+    let description = tool["description"].as_str().unwrap_or_default();
+    for promise in ["operation_id", "Refuses", "newer change", "Returns"] {
+        assert!(
+            description.contains(promise) || description.contains(&promise.to_lowercase()),
+            "the description does not mention `{promise}`, so an agent reading only it cannot \
+             tell how to call the tool or what a refusal means: {description}"
+        );
+    }
+    let hints = &tool["annotations"];
+    assert_eq!(hints["readOnlyHint"].as_bool(), Some(false), "{hints}");
+    assert_eq!(hints["destructiveHint"].as_bool(), Some(true), "{hints}");
+    assert_eq!(hints["idempotentHint"].as_bool(), Some(false), "{hints}");
+    // **The schema names the id and the preview**, and nothing else.
+    let props = &tool["inputSchema"]["properties"];
+    assert!(
+        props.get("operation_id").is_some() && props.get("dry_run").is_some(),
+        "the tool's schema does not take operation_id and dry_run: {}",
+        tool["inputSchema"]
+    );
+
+    // **No editor is running, so the answer is a refusal that says so** -- not a protocol error.
+    let answer = server.call(
+        "emerge_undo_operation",
+        json!({"operation_id": "0001-test"}),
+    );
+    assert!(
+        answer.get("error").is_none(),
+        "refused at the protocol level: {answer}"
+    );
+    assert_eq!(
+        answer["result"]["isError"].as_bool(),
+        Some(true),
+        "{answer}"
+    );
+    let text = answer["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("editor") || text.contains("BEVY_BRP_PORT"),
+        "the refusal does not say the editor was not there: {text}"
+    );
+}
+
 /// **An unknown tool is refused, and the answer says which tools there are.**
 #[test]
 fn an_unknown_tool_is_refused_with_the_list() {

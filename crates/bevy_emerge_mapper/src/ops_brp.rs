@@ -62,6 +62,21 @@ pub struct ApplyParams {
     pub dry_run: bool,
 }
 
+/// **The parameters of `emerge/operation_undo`.**
+///
+/// **`deny_unknown_fields`, and `dry_run` defaults to `true`**, for the reason [`ApplyParams`]
+/// gives: this is the raw door, and the MCP tool is the one with a description in front of it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UndoParams {
+    /// **The change to take back**, by its operation id. `None`: the newest one not yet taken back.
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// **Whether to preview.** `true` changes nothing.
+    #[serde(default = "yes")]
+    pub dry_run: bool,
+}
+
 /// **`true`, the default for the fields that mean "yes".**
 fn yes() -> bool {
     true
@@ -429,6 +444,76 @@ fn operation_apply(
     }
 }
 
+/// **`emerge/operation_undo` — take one change back, by its id.**
+///
+/// **A front end and nothing more.** [`ops::undo`] resolves the line, dispatches its recorded
+/// inverse through the registry and appends the new line; this builds the context from the
+/// editor's own resources and puts the map back, exactly as `emerge/operation_apply` does.
+fn operation_undo(
+    In(p): In<UndoParams>,
+    project: Option<ResMut<crate::project::Project>>,
+    mut open: Option<ResMut<crate::project::OpenMap>>,
+) -> Result<Value, String> {
+    if p.dry_run {
+        // **A preview reads the log and plans the inverse, and writes nothing.**
+        let ctx = Ctx {
+            project: project.as_deref().cloned(),
+            open: open.as_deref().cloned(),
+            source: Source::Agent,
+            session: crate::ops::session_id(),
+        };
+        let resolved = ops::undo_target(&ctx, p.operation_id.as_deref()).and_then(|plan| {
+            let op = ops::find(&plan.line.op).ok_or_else(|| {
+                ops::Refusal::new(format!(
+                    "`{}` is not an operation this editor knows.",
+                    plan.line.op
+                ))
+            })?;
+            op.plan(&ctx, &plan.inverse).map(|_| plan)
+        });
+        return Ok(match resolved {
+            Ok(plan) => json!({
+                "operation": plan.line.op,
+                "outcome": "previewed",
+                "change": plan.change,
+                "undoes": plan.line.operation_id,
+                "would_set": plan.inverse,
+            }),
+            Err(e) => json!({"operation": "undo", "outcome": "refused", "refusal": e.0}),
+        });
+    }
+    let mut ctx = take(&project, &open);
+    let undone = ops::undo(&mut ctx, p.operation_id.as_deref());
+    // **The map goes back either way**, so a refused undo leaves the editor holding what it held.
+    put_back(&mut open, ctx);
+    Ok(match undone {
+        Ok((
+            plan,
+            ops::Applied::Done {
+                outcome,
+                operation_id,
+                entry,
+            },
+        )) => json!({
+            "operation": entry.op,
+            "outcome": "applied",
+            // **The change taken back or put back**, by the id of the line that made it, and the
+            // line whose inverse did it.
+            "change": plan.change,
+            "undoes": entry.undoes,
+            "summary": outcome.summary,
+            "saved": outcome.saved,
+            "set": entry.params,
+            // **The undo's own id**, which is what a redo names.
+            "operation_id": operation_id,
+            "log_entry": entry,
+        }),
+        Ok((_, ops::Applied::Refused(e))) | Err(e) => {
+            json!({"operation": "undo", "outcome": "refused", "refusal": e.0})
+        }
+    })
+}
+
 /// **`emerge/oplog_read` — the log, as lines.**
 ///
 /// **Capped and paged, and it says how to narrow.** A log is append-only and a busy session makes
@@ -568,6 +653,21 @@ impl Plugin for OpsBridgePlugin {
                 "dry_run": true
             })),
             operation_apply,
+        );
+
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/operation_undo",
+                "Take one change back by its operation id: the editor dispatches the inverse the \
+                 change recorded and appends a new log line naming the line it undoes. Refuses \
+                 when a newer change exists, naming it. Previews unless dry_run is false.",
+            )
+            .params(
+                "operation_id: the id to take back; omitted means the newest change not yet \
+                     taken back. dry_run: true (the default) previews and changes nothing.",
+            )
+            .example(json!({"operation_id": "0003-ab12", "dry_run": false})),
+            operation_undo,
         );
 
         app.add_debug_command(

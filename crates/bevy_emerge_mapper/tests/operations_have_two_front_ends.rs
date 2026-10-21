@@ -146,6 +146,7 @@ const MCP_TOOLS: &[&str] = &[
     "emerge_list_operations",
     "emerge_preview_operation",
     "emerge_apply_operation",
+    "emerge_undo_operation",
     "emerge_read_oplog",
     "emerge_state",
     "emerge_capture_still",
