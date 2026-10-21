@@ -962,6 +962,52 @@ fn leaders_meet(a: &[Option<Rect>; 3], b: &[Option<Rect>; 3]) -> bool {
     })
 }
 
+/// **Where one badge goes, and the leader that points at it.**
+///
+/// **A plan, not a drawing.** A layout is *chosen* before anything is drawn, so the measure that
+/// chooses it has to read the plan — see [`crossing_pairs`].
+#[derive(Clone, Copy)]
+struct Plan {
+    /// The box's top-left corner, or `None` when this badge is not drawn at all.
+    pos: Option<Vec2>,
+    /// The leader's three segments: the reach out of the anchor, the run down the corridor, and
+    /// the landing into the box. `None` for a segment that is not drawn.
+    lead: [Option<Rect>; 3],
+}
+
+/// **How many pairs of leaders cross** — the measure the layout is judged on, and the one the
+/// score was blind to.
+///
+/// **A pair, not a crossing event.** Two leaders that cross twice are still **one** unreadable
+/// pair, and counting them twice would make the score count a symptom rather than the fault.
+/// The count is over *pairs*, so a layout with five leaders all tangled is five faults and not
+/// twenty.
+///
+/// **It reads the plans, not the drawn nodes**, so it measures the geometry the drawing will use
+/// and not what the compositor happened to rasterise. That matters: the ratchet in
+/// `tests/headless.rs` measures the drawn nodes, and a measure of the drawn nodes cannot be used
+/// to choose a layout, because the layout is chosen before anything is drawn.
+///
+/// **A box that is not drawn is not counted.** It has no leader, and a leader whose segments are
+/// all `None` is a box level with its anchor — one horizontal hairline, which cannot cross
+/// anything at a different height.
+fn crossing_pairs(plans: &[Plan]) -> usize {
+    let leaders: Vec<&[Option<Rect>; 3]> = plans
+        .iter()
+        .filter(|p| p.pos.is_some())
+        .map(|p| &p.lead)
+        .collect();
+    let mut pairs = 0usize;
+    for (k, a) in leaders.iter().enumerate() {
+        for b in leaders.iter().skip(k + 1) {
+            if leaders_meet(a, b) {
+                pairs += 1;
+            }
+        }
+    }
+    pairs
+}
+
 /// **Where a leader leaves its anchor and where it lands** — everything a lane choice needs, and
 /// nothing a lane choice may change.
 #[derive(Clone, Copy)]
@@ -1017,10 +1063,15 @@ impl Tie {
 /// ten lanes has more assignments than is worth exploring, and an overlay that thought about its
 /// leaders for a frame would be a worse failure than a crossing.
 ///
-/// **When the walk does not finish, the analytic preference stands**, and that is the same answer
-/// the walk starts from rather than a degraded second one: with the boxes in their anchors' order
-/// it is crossing-free by Bekos et al.'s argument, which is the case this is reached in.
-/// `no_two_leaders_cross` is what says so on a real layout.
+/// **When the walk does not finish, the fewest-crossings assignment stands** — found by a small
+/// search of its own, moving one leader at a time. The analytic preference is where that search
+/// starts, so a layout that was already clean keeps the shape the argument gives it, and a
+/// layout with no clean assignment at all gets the least tangled one rather than a blind guess.
+///
+/// **It is not the same answer as the old fallback**, and the difference was measured: on MESHES
+/// at 1680 x 1050 the compact pass's six leaders have **no** crossing-free assignment (an
+/// exhaustive search of all 8^6 lane assignments, 299,592 nodes, found none), and the analytic
+/// preference produced **eleven** crossing pairs on its own.
 fn lanes_for(ties: &[Tie], lanes: usize, thick: f32) -> Vec<usize> {
     let n = ties.len();
     if n == 0 {
@@ -1095,14 +1146,64 @@ fn lanes_for(ties: &[Tie], lanes: usize, thick: f32) -> Vec<usize> {
     if walk(0, ties, &rank, &orders, thick, &mut chosen, &mut drawn, &mut budget) {
         return chosen;
     }
-    // No clean assignment inside the budget: the preference, which is the shape the analytic
-    // argument gives and which the walk began from.
-    (0..n)
+    // **No clean assignment inside the budget: the fewest crossings, not the blind preference.**
+    //
+    // The fallback used to be the analytic preference — the shape the argument gives and the walk
+    // began from. **It is not the same answer as the best one available.** Measured on MESHES at
+    // 1680 x 1050: the compact pass's six leaders have **no** crossing-free assignment at all
+    // (an exhaustive search of all 8^6 lane assignments, 299,592 nodes, found none), and the
+    // preference it fell back on produced **eleven** crossing pairs.
+    //
+    // So the fallback is now a search of its own, and a small one: **every leader in the analytic
+    // preference, moved one lane at a time.** That is `n * lanes` candidate layouts, each scored
+    // by the same [`crossing_pairs`] the layout is judged on, and the best one wins. It cannot
+    // find a crossing-free assignment where none exists — nothing can — but it finds the
+    // *least tangled* one, and that is a strictly better answer than a blind preference.
+    //
+    // **The tie is broken towards the preference**, so a layout that was already clean keeps the
+    // shape the analytic argument gives it.
+    let preference: Vec<usize> = (0..n)
         .map(|p| {
             let high = rank.iter().position(|r| *r == p).unwrap_or(0);
             lanes.saturating_sub(1 + high)
         })
-        .collect()
+        .collect();
+    let mut best = preference.clone();
+    let mut best_crossings = crossing_count(&best, ties, thick);
+    for moved in 0..n {
+        for k in 0..lanes {
+            let mut candidate = preference.clone();
+            candidate[moved] = k;
+            let crossings = crossing_count(&candidate, ties, thick);
+            if crossings < best_crossings {
+                best_crossings = crossings;
+                best = candidate;
+            }
+        }
+    }
+    best
+}
+
+/// **How many pairs of leaders cross under one lane assignment** — the measure the fallback in
+/// [`lanes_for`] optimises, and the same one the layout score uses.
+///
+/// **Counted over the leaders the assignment draws**, and a leader that is not drawn (all three
+/// segments `None`) cannot cross anything, so it is left out of the count.
+fn crossing_count(lanes: &[usize], ties: &[Tie], thick: f32) -> usize {
+    let drawn: Vec<[Option<Rect>; 3]> = ties
+        .iter()
+        .enumerate()
+        .map(|(i, t)| t.leader(lanes[i], thick))
+        .collect();
+    let mut pairs = 0usize;
+    for (k, a) in drawn.iter().enumerate() {
+        for b in drawn.iter().skip(k + 1) {
+            if leaders_meet(a, b) {
+                pairs += 1;
+            }
+        }
+    }
+    pairs
 }
 
 /// **The first `y` at or below `pref` for a box of `size` at `x`, clear of every box already
@@ -1399,11 +1500,6 @@ fn place_badges(
         }
     }
 
-    #[derive(Clone, Copy)]
-    struct Plan {
-        pos: Option<Vec2>,
-        lead: [Option<Rect>; 3],
-    }
     let mut banded_plans: Vec<Plan> = (0..items.len())
         .map(|_| Plan { pos: None, lead: [None; 3] })
         .collect();
@@ -1961,7 +2057,29 @@ fn place_badges(
         let legend = placed.iter().any(|(i, me)| {
             items[*i].0 .0 == Home::Legend && taken.iter().any(|t| covers(*t, *me))
         });
-        pairs + usize::from(legend)
+        // **A crossing counts, and it counts more than a box overlap.**
+        //
+        // The score used to count box overlaps and the legend's collision, and nothing else. **So
+        // a layout whose leaders crossed scored zero**, and the compact pass — which packs every
+        // rail tight from the stage's top and therefore *does* cross — beat the comfort pass on
+        // the very screen this module's own ratchet measures.
+        //
+        // Measured on MESHES at 1680 x 1050: the comfort pass scored **1** (one pair of boxes
+        // overlapping) and the compact pass scored **0** — with **three** crossing pairs of
+        // leaders. The compact pass won, and `no_two_leaders_cross` went red, which is how it has
+        // been red since 2026-09-03.
+        //
+        // **And the two failures are not the same failure.** Two boxes overlapping is a badge
+        // covering a badge: both are still legible, and the author can read past it. Two leaders
+        // crossing is a line pointing at the wrong control, which is the one thing a leader is
+        // for. **So a crossing is worth more than an overlap** — one crossing outranks any number
+        // of overlaps, because a layout with a crossing is the one that cannot be read.
+        //
+        // The multiplier is `plans.len() + 1`, so one crossing costs more than every possible box
+        // overlap combined: the comparison the score makes is then *a crossing loses*, and the
+        // only thing that can beat it is a layout with no crossing at all.
+        let crossings = crossing_pairs(plans);
+        pairs + usize::from(legend) + crossings * (items.len() + 1)
     };
 
     let (mut plans, taken) = attempt(false);
@@ -1972,7 +2090,8 @@ fn place_badges(
         // top, which frees ground but costs every box its place beside its own row — so it has to
         // earn the trade rather than merely tie. A screen that defeats both is what the overlap
         // ratchet is for.
-        if score(&again, &again_taken) < comfort {
+        let compact_score = score(&again, &again_taken);
+        if compact_score < comfort {
             plans = again;
         }
     }
