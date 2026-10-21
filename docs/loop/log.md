@@ -241,7 +241,15 @@ Top 5 remaining:
   one drag, undoable in one press. All three in `runs/2026-10-20-02/review.md`, with the captures
   in `runs/2026-10-20-02/evidence/{before,after,crops}/`.
 
-- **Commit:** _(filled in below once pushed)_
+- **Commit:** `aa254e8` — "bevy_emerge_core, bevy_emerge_mapper: a run of a thing, and a filter
+  you can reach". Pushed to `Ladvien/bevy_emerge` `main`.
+  **No PR**, for the same reason as the previous run: this repository has never had one, every
+  commit goes straight to `main`, and `gh pr create` refuses with *"head branch `main` is the same
+  as base branch `main`*. The commit was already on `main` when the PR step was reached, and the
+  owner's rule of 2026-10-20 says a commit that landed on the wrong branch is *"fixed with a new
+  commit or a question, never by resetting a shared working tree or force-pushing"*. The branch
+  `feature/stamps-reach-the-consumer` from the previous run is still on the remote at the same
+  commit; **deleting it is left to the owner**.
 
 - **Run:** `docs/loop/runs/2026-10-20-02/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
   `evidence/{before,after,crops}/`.
