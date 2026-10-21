@@ -1149,6 +1149,28 @@ impl Status {
     /// This is the right call for a refusal the author is not owed an alarm about — clicking bare
     /// ground with the remove tool armed, dragging a box round nothing. Those are answers, not
     /// failures, and a red block for each would teach an author to stop reading red blocks.
+    ///
+    /// # The line between an answer and a refusal
+    ///
+    /// **The test is whether the editor did what was asked.**
+    ///
+    /// | | the slot |
+    /// |---|---|
+    /// | the author asked for nothing in particular — clicked bare ground, dragged a box round nothing | **a note.** The editor answered, and the answer is "there was nothing here" |
+    /// | the author asked for something and the editor **could not do it** | **a problem.** A piece that mounts on a surface cannot be flood filled; a map that cannot be written is not saved |
+    /// | the author asked for something and the editor **did only part of it** | **a problem.** A fill that stopped at the cap laid some of what was asked |
+    ///
+    /// **Three refusals were in this slot and in the wrong one** — the fill's three (`editor.rs`,
+    /// the box fill, the riders and the flood), whose own comments said *"a refusal is the answer,
+    /// not a failure"*. **That sentence read the rule from the wrong half of this contract**: the
+    /// half that says *an answer* is about a no-op the author can see was a no-op, and **a fill that
+    /// could not be laid is not a no-op** — the author asked for a floor and did not get one.
+    ///
+    /// **And the difference is not cosmetic.** A `note` is one dim row, and it is erased by the next
+    /// receipt and by a tab switch ([`Status::clear_note`]). A `problem` reaches the toast and the
+    /// journal, and survives both. NN/g's Error-Message Guidelines: *"the very worst error messages
+    /// are those that don't exist."* **Measured:** a fill that was refused said nothing anywhere the
+    /// author looks, while the ghost's refusal for the same piece was plainly visible.
     pub fn note(&mut self, text: impl Into<String>) {
         self.note = text.into();
     }

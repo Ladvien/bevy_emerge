@@ -128,6 +128,25 @@ Four facts that trip people up:
 - **Kit ≠ mesh folder.** A kit is a *bound* directory (`kits.ron` maps namespace ↔ dir) holding `library.ron` (descriptors) + `project.ron`. The raw GLB packs under `assets/` are just meshes — they become **candidates** when scanned and **descriptors** when imported. One mesh → one descriptor: `bevy_emerge_core::import::scan` skips any mesh the library already has, so a candidate and a library entry can never name the same file (`tiles.rs:3238`).
 - **Compositions and maps are project-level, not per-kit.** A tile can seat two kits' pieces, so it cannot live in either kit; a map resolves against the merged library. Both hang off Project, not Kit (`chooser.rs` "The maps are the project's, not a kit's").
 - **Labels are two things.** The durable `LabelOrigin` record on each descriptor (who wrote each axis, which model, when — `descriptor.rs:123`), and the ephemeral suggestion cache at `target/vlm_suggestions.ron` (gitignored) that stages model answers before apply (`labels.rs:39`). The cache is keyed by id for library entries, mesh path for candidates — never an index.
+- **A refusal is a `Status::problem`, and a receipt is a `Status::note`.** The two slots are not
+  interchangeable, and the `Status` type's own doc says which is which: `note` is for *"a refusal
+  the author is not owed an alarm about — clicking bare ground with the remove tool armed"*, **an
+  answer**; `problem` is for *"the editor could not do what was asked, **or did only part of it**"*
+  — **a refusal**, and it is what reaches the toast and the journal. **A note is one dim row, and
+  it is erased by the next receipt and by a tab switch** (`Status::clear_note`, which exists
+  because a *stale receipt* was the whole of a bug), **so a refusal in a note is a refusal the
+  author never sees.** Measured: the fill's refusals were in the note, the INSPECTOR's receipt row
+  was empty in a capture, and the journal said *"nothing has gone wrong yet"* — while the **ghost's**
+  refusal for the same piece was plainly visible, because the ghost writes a different field.
+  **Twenty-one refusals were in the wrong slot**; the fill's three are fixed (2026-10-20-07b) and
+  the rest are the next item.
+- **A message must not promise what the tool cannot do.** The flood's cap said *"fill again to
+  continue"*, and the second fill **cannot** continue: the flood will not start on a cell that
+  already holds a piece, and the cell the author clicks is the cell the first fill filled. The
+  route that works is a fill from **another empty cell** — the flood stops at anything already
+  placed — and it is what `fill::CAP_ROUTE` says. **One sentence, in one place**, because the two
+  fills are one operation and a message that differs between them is a message one of them got
+  wrong.
 - **A map's name IS its file, and a rename is a move.** `maps/<name>.map.ron` — the path is derived from the name, so a rename is a **rename of the file**, and the old one is removed by the save. **The refusal is the kernel's**: `ron_surgery::save_atomic_no_replace` uses `link(2)`, which fails with `EEXIST` rather than replacing, so a rename onto a name another map has is refused and **that map's bytes are unchanged**. A check-then-write would not do: POSIX gives atomicity to the single call, so the target appearing between the check and the write would be destroyed.
 - **A bash filters what is offered, never what loads.** `bound_library` merges *every* bound kit whatever a map says, so a placement can never be stranded and a composition may still cross kits. `Map::bash` decides only what the palette offers, and `OpenMap::palette_namespaces` unions the namespaces the map already uses back in — which is why naming one cannot break a map. A bash is hand-authored in `kits.ron`; `B` on a map row only picks between the ones declared there.
 

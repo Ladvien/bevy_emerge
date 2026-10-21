@@ -3492,9 +3492,23 @@ fn box_fill_between(
         },
     ) {
         Ok(f) => f,
-        // A refusal is the answer, not a failure — the same call `flood_from_cursor` makes.
+        // **A refusal is a `problem`, not a receipt.** The `Status` type's own doc says where a
+        // refusal goes: *"the editor could not do what was asked, or did only part of it… a refusal
+        // handed back by `bevy_emerge_core`"*. This one is handed back by the core, and it is about
+        // a piece that cannot be laid at all — *"mounts to a `support`, so it cannot be box filled"*.
+        //
+        // **The comment this replaces said the opposite** — *"a refusal is the answer, not a
+        // failure"* — and it was wrong, because it read the rule from the wrong half of the
+        // contract. The half that says *an answer* is for *"clicking bare ground with the remove
+        // tool armed, dragging a box round nothing"*: a no-op the author can see was a no-op. **A
+        // fill that could not be laid is not a no-op** — the author asked for a floor and did not
+        // get one.
+        //
+        // **And the difference is not cosmetic.** A `problem` reaches the toast and the journal; a
+        // `note` is one dim row, and it is erased by the next receipt and by a tab switch. NN/g's
+        // Error-Message Guidelines: *"the very worst error messages are those that don't exist."*
         Err(e) => {
-            state.status.note(e);
+            state.status.problem(e);
             return;
         }
     };
@@ -3524,7 +3538,11 @@ fn box_fill_between(
     doomed.dedup();
     if let Err(e) = riders_refuse(&open.map, &doomed) {
         // Refused whole: a fill that stopped at the first host would leave a half-painted box.
-        state.status.note(e);
+        //
+        // **And it is a `problem`**, for the same reason as the refusal above: the editor could
+        // not do what was asked, and the author needs to know *before* they look at the map and
+        // wonder why the box is short.
+        state.status.problem(e);
         return;
     }
     state.next_id = n;
@@ -3549,8 +3567,9 @@ fn box_fill_between(
     };
     if filled.truncated {
         state.status.problem(format!(
-            "filled {count}{over} — stopped at the {} cell cap",
-            crate::fill::MAX_CELLS
+            "filled {count}{over} — stopped at the {} cell cap. {}",
+            crate::fill::MAX_CELLS,
+            crate::fill::CAP_ROUTE
         ));
     } else {
         state.status.note(format!("filled {count}{over}"));
@@ -9667,10 +9686,17 @@ fn flood_from_cursor(
         },
     ) {
         Ok(f) => f,
-        // A refusal is the answer, not a failure: "outside the map" and "something is already here"
-        // are both things the author needs told rather than worked around.
+        // **A refusal is a `problem`, not a receipt.** "Outside the map" and "something is already
+        // here" are both things the author **needs told** rather than worked around — and a
+        // receipt is the wrong place to tell them, because a receipt is one dim row that the next
+        // receipt overwrites and that a tab switch erases.
+        //
+        // **And this one was measured invisible.** The flood refused; the INSPECTOR's `Field::Last`
+        // row was empty in a capture; and the author had no way to know the fill had not happened.
+        // The ghost's refusal for the same piece — the same fact, from the same piece — was plainly
+        // visible in the amber `Field::Hint` row, because the ghost writes a different field.
         Err(e) => {
-            state.status.note(e);
+            state.status.problem(e);
             return;
         }
     };
@@ -9689,9 +9715,26 @@ fn flood_from_cursor(
     // A cap that stopped the fill has to say so — a truncated fill looks exactly like a finished one,
     // which is the whole argument for it being the loud slot rather than the quiet one.
     if filled.truncated {
+        // **The message names a route that works.**
+        //
+        // It used to say *"fill again to continue"*, and **the second fill could not continue**:
+        // the flood will not start on a cell that already holds something, and the cell the author
+        // clicks is exactly the cell the first fill filled. So the author was told to do a thing
+        // that was refused — and the refusal went to the receipt slot, so **they were told nothing
+        // at all**. Measured, and pinned by `fill::tests::the_caps_promise_cannot_be_kept_by_a_second_fill`.
+        //
+        // **The route that works is a fill from a new cell**, because the flood stops at anything
+        // already placed — and the first fill's pieces are anything already placed. A second flood
+        // from a different empty cell lays the next {MAX_CELLS} and truncates again. Measured: 4,096
+        // more.
+        //
+        // **This is the same sentence the box fill says** (`fill::CAP_ROUTE`), because the two
+        // fills are the same operation and a message that differs between them is a message one
+        // of them got wrong.
         state.status.problem(format!(
-            "filled {count} and STOPPED at the {} cell cap — fill again to continue",
-            crate::fill::MAX_CELLS
+            "filled {count} and STOPPED at the {} cell cap. {}",
+            crate::fill::MAX_CELLS,
+            crate::fill::CAP_ROUTE
         ));
     } else {
         state

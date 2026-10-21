@@ -504,6 +504,9 @@ Top 5 remaining:
 4. **`fill.rs` has no test at all** — 1,058 lines, the one untested module in the mapper, and the
    module that lays the bulk of a level. A flood and a box fill are the two gestures that make a
    level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+   *(**Corrected 2026-10-20-07b: the module has 20 inline tests, and two of them bracket the
+   defect exactly — one says a fill truncates and says so, the other says a fill starting on
+   something is refused — and neither asks what the **next** fill does. The claim was stale.)*
 5. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
    connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
    not `is_near`.
@@ -613,6 +616,9 @@ Top 5 remaining:
 3. **`fill.rs` has no test at all** — 1,058 lines, the one untested module in the mapper, and the
    module that lays the bulk of a level. A flood and a box fill are the two gestures that make a
    level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+   *(**Corrected 2026-10-20-07b: the module has 20 inline tests, and two of them bracket the
+   defect exactly — one says a fill truncates and says so, the other says a fill starting on
+   something is refused — and neither asks what the **next** fill does. The claim was stale.)*
 4. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
    connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
    not `is_near`.
@@ -776,6 +782,9 @@ Top 5 remaining:
 4. **`fill.rs` has no test at all** — 1,058 lines, the one untested module in the mapper, and the
    module that lays the bulk of a level. A flood and a box fill are the two gestures that make a
    level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+   *(**Corrected 2026-10-20-07b: the module has 20 inline tests, and two of them bracket the
+   defect exactly — one says a fill truncates and says so, the other says a fill starting on
+   something is refused — and neither asks what the **next** fill does. The claim was stale.)*
 5. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
    connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
    not `is_near`.
@@ -941,6 +950,168 @@ Top 5 remaining:
 4. **`fill.rs` has no test at all** — 1,058 lines, the one untested module in the mapper, and the
    module that lays the bulk of a level. A flood and a box fill are the two gestures that make a
    level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+   *(**Corrected 2026-10-20-07b: the module has 20 inline tests, and two of them bracket the
+   defect exactly — one says a fill truncates and says so, the other says a fill starting on
+   something is refused — and neither asks what the **next** fill does. The claim was stale.)*
 5. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
    connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
    not `is_near`.
+
+## 2026-10-20-07b: the editor's refusals reach the author, and no message promises what the tool cannot do
+
+- **Change:** **a fill that cannot be done is refused where the author can see it, and a fill that
+  stops at the cap says what to do next.** Four changes, all one defect seen four ways — *the
+  editor's account of what just happened and the truth about it come apart*:
+  1. **A refusal reaches the author.** The editor's `Status` has two slots and its own doc says
+     which belongs where; **the fill's three refusals were in the wrong one** — the receipt slot,
+     which is one dim row, erased by the next receipt and by a tab switch. **They are now
+     `Status::problem`s**, which reach the toast and the journal.
+  2. **No message promises what the tool cannot do.** The flood's cap said *"fill again to
+     continue"*, and **the second fill cannot continue** — the flood will not start on a cell that
+     already holds a piece, and the cell the author clicks is the cell the first fill filled.
+  3. **The cap's message names a route that works** — a fill from another empty cell, which
+     **places 4,096 more** because the flood stops at anything already placed. Measured.
+  4. **The two fills say the same kind of thing.** The box fill said *"stopped at the 4096 cell
+     cap"* — true; the flood said something else, and **it was the one on the more-used gesture**.
+
+- **Why it ranked first:** these defects **happen on every refusal in the editor** — a survey
+  found **21 of them in the wrong slot** — and **one of them destroys work**. The brief's phrase for
+  "most usable" is *"an author gets a real project built faster, with fewer sharp edges, and
+  **trusts the result**"*, and a tool that says *"fill again to continue"* and then refuses the
+  second fill, **and says nothing the author can see**, is not trusted — **and every other feature
+  the editor has inherits that.** The runner-up, **renaming a kit's namespace**, is a *larger*
+  feature but a *rarer* one: it happens **once per project**, and the load-time refusals already
+  stop a half-done rename from opening. **A feature that fires once a project is not worth a day; a
+  feature that fires on every refusal is.**
+
+- **Sources:** NN/g, *Error-Message Guidelines*
+  ([nngroup.com](https://www.nngroup.com/articles/error-message-guidelines/)) — *"The very worst
+  error messages are those that don't exist. When users make a mistake and receive no feedback, it
+  can create a cascade of misunderstanding, wasted effort, and frustration"*; *"Merely stating the
+  problem is also not enough; offer some potential remedies"*; *"Design errors based on their
+  impact"*. Myers, *The Importance of Percent-Done Progress Indicators* (CHI 1985,
+  [10.1145/317456.317459](https://doi.org/10.1145/317456.317459)) — and its finding is a **caution
+  rather than a support**: the bar *"did not need to be accurate"*, so a progress indicator is
+  judged on its presence and its honesty about being **finished**. Google AIP-158 (Pagination) —
+  the primary standard for a resumable cursor: *"Page tokens **must** be limited to providing an
+  indication of where to continue"*, and *"If the end of the collection has been reached… the
+  `next_page_token` field **must** be empty. This is the *only* way to communicate 'end-of-collection'
+  to users."* Zilberstein, *Using Anytime Algorithms in Intelligent Systems* (AI Magazine 1996,
+  [10.1609/aimag.v17i3.1232](https://doi.org/10.1609/aimag.v17i3.1232)) and Hansen & Zilberstein,
+  *Monitoring Anytime Algorithms* (ACM 1996,
+  [10.1145/242587.242593](https://doi.org/10.1145/242587.242593)) — an anytime computation keeps a
+  usable answer when interrupted, and **the fill's "fill again to continue" was an anytime contract
+  it did not honour**. Stanshine, *Modeling silent failures in telecommunications systems* (RAMS
+  1995, [10.1109/rams.1995.513255](https://doi.org/10.1109/rams.1995.513255)) — *"A silent failure
+  is a condition which… remains undetected by normal fault detection methods"*, which is what a
+  quiet refusal is. Norman, *Design rules based on analyses of human error* (CACM 1983,
+  [10.1145/2163.358092](https://doi.org/10.1145/2163.358092)) — the **slip** classification: the
+  author who clicks "fill again" has a proper intention, and the editor does something else.
+  Hutchins, Hollan & Norman, *Direct Manipulation Interfaces* (HCI 1985,
+  [10.1207/s15327051hci0104_2](https://doi.org/10.1207/s15327051hci0104_2)) — the **gulf of
+  evaluation**. Full notes in `runs/2026-10-20-07b/research.md`.
+
+- **The measurement, and it is the heart of the run.** The flood's cap message said *"fill again to
+  continue"*, and:
+
+  | what the author does | what happens | measured |
+  |---|---|---|
+  | **fills again in the same cell** | **refused** — *"there is already something here"* | the flood will not start on a cell that already holds a piece |
+  | **fills again in a *different* empty cell** | **works** — 4,096 more | the flood stops at anything already placed, and the first fill's pieces are anything already placed |
+
+  **So the promise was achievable, but only by clicking somewhere new — and nothing said so.** And
+  the refusal that followed **was not on screen**: the INSPECTOR's receipt row was empty and the
+  journal said *"nothing has gone wrong yet"*, while the **ghost's** refusal for the same piece was
+  plainly visible in the amber row, because the ghost writes a different field.
+
+- **The `Status` doc was right and the code was wrong.** `Status::note`'s own doc says it is for
+  *"a refusal the author is not owed an alarm about — clicking bare ground with the remove tool
+  armed… **Those are answers, not failures**"*, and `Status::problem`'s says it is for *"the editor
+  could not do what was asked, **or did only part of it**"*. **The fill's three sites had comments
+  saying the opposite** — *"A refusal is the answer, not a failure"* — because they read the rule
+  from the wrong half of the contract. **The code had been quoting itself.** The doc now draws the
+  line, and says which three sites crossed it.
+
+- **The slice, and why it is three of the twenty-one.** A survey of every `status.note` call site
+  in the mapper found **21 refusals in the wrong slot** — in the fill, the placement, the drag, the
+  rename, the labeller and the tile operations. **Each is one line, and each is the same line.**
+  **This run takes the fill's three**, because the two that matter — the cap's false promise and
+  the invisible refusal — are both there, and the fill is **the gesture that lays the bulk of a
+  level**. **And the reason for not taking all twenty-one at once is the habituation literature**
+  (*Tuning Out Security Warnings*, MISQ 2018,
+  [10.25300/misq/2018/14124](https://doi.org/10.25300/misq/2018/14124)): twenty-one new red
+  blocks at once is exactly the habituation it warns about. **The other eighteen are the next
+  item, and the log says where they are.**
+
+- **Tests:**
+  - `crates/bevy_emerge_mapper/src/fill.rs` — **2 new tests**: *the cap's promise cannot be kept by
+    a second fill*, and *a flood from a new cell carries on*. **The first is the proof**: it asserts
+    a fact about the **algorithm**, and it passes with the fix in place — because the **message**
+    was the thing that was wrong, and the test pins the truth the message now tells.
+  - `crates/bevy_emerge_mapper/tests/a_fill_tells_the_truth.rs` — **4 tests**: a refused fill is a
+    `problem`; a refusal survives a receipt and a tab switch; the cap's message names a route that
+    works and does not promise the one that does not; the two fills say the same kind of thing.
+  - `crates/bevy_emerge_mapper/tests/a_refusal_reaches_the_author.rs` — **5 tests**: the three fill
+    sites are `problem`s; a refusal survives; the cap's message; the two fills; a stopped fill and
+    a finished fill differ.
+  - `crates/bevy_emerge_mapper/tests/the_refusal_is_on_screen.rs` — **1 test**: the refusal is on a
+    node with a real size.
+  - `crates/bevy_emerge_mapper/tests/the_toast_is_on_screen.rs` — **1 test**: the refusal is a
+    **card**, in the viewport, where the author is looking.
+  - **Every test was checked against a build without its fix**, and **five of them fail without it**
+    — including the two that measure the layout, which is what settled the question the captures
+    could not: the toast is on for **seven seconds** and is a centred card in the viewport, so a
+    capture taken at the wrong moment shows nothing and looks like a failure.
+  - `cargo test --workspace` → **1,279 pass, 1 fail** — the one failure is
+    `bevy_emerge_mapper --test headless`'s `no_two_leaders_cross`, **red since at least
+    2026-09-03** and unchanged by this run.
+  - Clippy: **no new finding in any file this run touches.**
+  - `cargo fmt --check`: **no new diff in the files this run touches** — `editor.rs` 87,
+    `chrome.rs` 16, `fill.rs` 0, **all the baseline's counts.**
+  - Headless boot against Sanctuary's real project: **12 frames, 4,096 entities, no panic.**
+  - Timings in `runs/2026-10-20-07b/perf.md`.
+
+- **A flake this run's tests made likely, and fixed.** `chooser::tests::a_new_project_opens_and_
+  bootstraps` began failing in the full-suite run. **It is a pre-existing race on a shared path**:
+  `create_project` makes a *sibling* of the directory it is given, so the test created the project
+  at `<temp>/porch_kit` — **a fixed path in the directory every test in every binary shares** —
+  and the line that removed *"a sibling the previous run left behind"* removed the directory
+  **another run was writing**. **Three more test files meant more parallel workers, and the race
+  became reachable.** The project is now made **inside the test's own directory**, so nothing else
+  can be inside it and nothing else can delete it. **The project's name and the assertion are
+  unchanged.** Five clean runs of the mapper's lib suite after the fix.
+
+- **A stale claim in this log, corrected.** The list said *"`fill.rs` has no test at all — 1,058
+  lines, the one untested module in the mapper"*. **It has 20 inline tests**, and this run adds
+  two more. **The claim was stale**, and the module's own tests **bracketed the defect exactly** —
+  one says a fill truncates and says so, the other says a fill starting on something is refused —
+  **and neither asked what the *next* fill does.** That is the question between them, and it is
+  the author's only route past the cap.
+
+- **Verdicts:** **Function: GREAT** — the three fill refusals reach the toast and the journal; the
+  cap names a route that works; both fills say the same thing. **Zoom: GREAT** — the measurement
+  moved to the layout, where the claim lives: the refusal is a card, in the viewport, surviving a
+  receipt and a tab switch, and the cap's message at 2× names the way on. **Fresh eyes: GREAT** —
+  the key overlay names the verb, the ghost warns before the click, the refusal is a card and a
+  journal line, and the cap says what to do. All three in `runs/2026-10-20-07b/review.md`, with the
+  captures in `runs/2026-10-20-07b/evidence/`.
+
+- **Run:** `docs/loop/runs/2026-10-20-07b/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
+  `evidence/`.
+
+Top 5 remaining:
+
+1. **The other eighteen mis-slotted refusals** — measured, and each is one line: the placement
+   (`editor.rs:4981`, `5017`), the drag move (`8156`), the subject resolution (`7832`), the
+   labeller's three (`labels.rs:412`, `464`, `988`), the composition rename's two
+   (`compose.rs:986`, `1003`), the tile operations (`tiles.rs:2560`, `1718`), the build's two
+   (`build.rs:1718`, `1795`), and the input refusals (`editor.rs:3091`, `5127`, `5685`, `8986`).
+   **The mechanism is now proven** — the fill's three are the proof — **and the habituation
+   literature says the batch comes after the first three have been seen in place.**
+2. **A resumable flood with a real cursor** — AIP-158's shape, bound to the piece, the map and the
+   region. **The flood's behaviour is already correct**; the *cursor* is the new mechanism, and it
+   needs its own preconditions and its own refusals.
+3. **Renaming a kit's namespace** — 744 mentions across 4 files, and no multi-file atomicity. A
+   **larger** feature and a **rarer** one.
+4. **`fill.rs` having no test** — **stale**, and corrected above.
+5. **The 282 hand-placed fences** — content, and the owner's.

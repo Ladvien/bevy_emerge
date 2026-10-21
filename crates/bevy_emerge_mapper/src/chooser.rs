@@ -1642,10 +1642,20 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{}: {e}", vocab.display()));
 
-        let parent = root.0.parent().unwrap_or_else(|| panic!("temp dir has a parent"));
-        // A sibling the previous run left behind — `Root::new` cleans only its own directory.
-        let _ = std::fs::remove_dir_all(parent.join("porch_kit"));
-        let dir = create_project(parent, "Porch Kit", &vocab).unwrap_or_else(|e| panic!("{e}"));
+        // **The project is made INSIDE this test's own directory**, not beside it.
+        //
+        // `create_project` makes a *sibling* of the directory it is given, so passing the temp
+        // root's parent put the project at `<temp>/porch_kit` — **a fixed path in a directory every
+        // test in every binary shares**. Two tests running at once, or the same test in two runs,
+        // then race on it: and the line that removed "a sibling the previous run left behind"
+        // removed the directory the *other* run was writing.
+        //
+        // **The project's own name is unchanged** — `Porch Kit`, forced to `porch_kit` — and the
+        // assertion below still checks exactly that. **Only where it is made has changed**, and
+        // that is the whole of the fix: the directory is now the test's own, so nothing else can
+        // be inside it and nothing else can delete it.
+        let _ = std::fs::remove_dir_all(root.0.join("porch_kit"));
+        let dir = create_project(&root.0, "Porch Kit", &vocab).unwrap_or_else(|e| panic!("{e}"));
         assert!(
             dir.ends_with("porch_kit"),
             "forced to snake_case: {}",
