@@ -11,6 +11,7 @@
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
+use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::project::OpenMap;
 
 mod fixtures;
@@ -209,10 +210,8 @@ fn the_inspector_names_the_next_undo_and_redo() {
         after_undo.iter().any(|(t, _, _)| t == &run_name),
         "after Cmd+Z the UNDO row must name the run as {run_name:?}; drawn: {after_undo:?}"
     );
-    let redo_name = format!(
-        "map size back to {} x {} x {}",
-        resized.0, resized.1, resized.2
-    );
+    // Redo puts the size back to the resized one, so it reads "to", not "back".
+    let redo_name = format!("map size to {} x {} x {}", resized.0, resized.1, resized.2);
     assert!(
         after_undo.iter().any(|(t, _, _)| t == &redo_name),
         "after Cmd+Z the REDO row must name the resize as {redo_name:?}; drawn: {after_undo:?}"
@@ -268,5 +267,139 @@ fn a_long_name_does_not_wrap_the_row() {
         height_of(&filled, &undo_text),
         empty_height,
         "a long name wrapped the UNDO row, so the panel moves"
+    );
+}
+
+/// **The drawn top of the row labelled `label`**, in physical pixels.
+fn top_of(texts: &[(String, f32, f32)], label: &str) -> f32 {
+    texts
+        .iter()
+        .find(|(t, _, _)| t == label)
+        .unwrap_or_else(|| panic!("no drawn `{label}` row; drawn: {texts:?}"))
+        .1
+}
+
+/// **A grouped change names every part.** A place over pieces already there replaces them: one act
+/// that removes the old rows and adds the new. UNDO must say both halves, and after Cmd+Z the REDO
+/// row must say both halves the other way round.
+#[test]
+fn a_grouped_change_names_every_part() {
+    let mut app = editor("nextundogroup", "fence");
+    let start = map(&app).placements.len();
+    bevy_emerge_mapper::editor::run_for_test(app.world_mut(), "fence", (0.0, 0.0), (8.0, 0.0));
+    app.update();
+    let run = map(&app).placements.len() - start;
+    assert!(
+        run > 1,
+        "the run laid {run} piece(s); a place over needs two to replace"
+    );
+
+    // One piece dropped at x = 1 overlaps the run's first two pieces: the place removes them and
+    // adds one, so the change is one group of two parts.
+    let before = map(&app).placements.len();
+    bevy_emerge_mapper::editor::place_for_test(app.world_mut(), "fence", (1.0, 0.0));
+    app.update();
+    let after = map(&app).placements.len();
+    let removed = before + 1 - after;
+    assert!(
+        removed > 0,
+        "the place over replaced nothing, so the group is not exercised"
+    );
+
+    // The run is still on the undo stack beneath the place over, so the row carries " (+1)".
+    let undo_name = format!("remove 1 fence, restore {removed} fence (+1)");
+    let drawn = drawn_texts(&mut app);
+    assert!(
+        drawn.iter().any(|(t, _, _)| t == &undo_name),
+        "the UNDO row must name every part of the place over as {undo_name:?}; drawn: {drawn:?}"
+    );
+
+    chord(&mut app, KeyCode::KeyZ, false);
+    let redo_name = format!("remove {removed} fence, restore 1 fence");
+    let after_undo = drawn_texts(&mut app);
+    assert!(
+        after_undo.iter().any(|(t, _, _)| t == &redo_name),
+        "after Cmd+Z the REDO row must name every part of the place over as {redo_name:?}; drawn: \
+         {after_undo:?}"
+    );
+}
+
+/// **A hint or a receipt does not move the UNDO row.** The hint row is empty most of the time and
+/// grows when it speaks, so it sits below UNDO and REDO where it cannot push them down. A receipt
+/// that fits the two lines B-009 reserves does not move them either.
+#[test]
+fn a_hint_or_a_receipt_does_not_move_the_undo_row() {
+    let mut app = editor("nextundomove", "fence");
+    let still = top_of(&drawn_texts(&mut app), "UNDO");
+
+    let hint = "a fence needs a surface under it";
+    app.world_mut().resource_mut::<EditorState>().hint = hint.to_owned();
+    let hinted = drawn_texts(&mut app);
+    assert!(
+        hinted.iter().any(|(t, _, _)| t == hint),
+        "the hint did not draw, so the test drives nothing; drawn: {hinted:?}"
+    );
+    assert_eq!(
+        top_of(&hinted, "UNDO"),
+        still,
+        "setting the hint moved the UNDO row; drawn: {hinted:?}"
+    );
+
+    let receipt = "ran 8 piece(s) along the line, and this receipt is long enough to wrap";
+    app.world_mut()
+        .resource_mut::<EditorState>()
+        .status
+        .note(receipt.to_owned());
+    let receipted = drawn_texts(&mut app);
+    assert_eq!(
+        top_of(&receipted, "UNDO"),
+        still,
+        "a receipt moved the UNDO row; drawn: {receipted:?}"
+    );
+}
+
+/// **A stacked long name stays on one line.** The phrase is clamped to 36 characters and the stack
+/// count goes after it, so the row keeps its one line with the count on it.
+#[test]
+fn a_stacked_long_name_stays_on_one_line() {
+    let long_id = "fence_with_a_very_long_descriptor_name_for_the_inspector_row";
+    let mut app = editor("longstacked", long_id);
+    let start = map(&app).placements.len();
+    let empty_height = height_of(&drawn_texts(&mut app), "nothing");
+
+    bevy_emerge_mapper::editor::run_for_test(app.world_mut(), long_id, (0.0, 0.0), (8.0, 0.0));
+    app.update();
+    bevy_emerge_mapper::editor::run_for_test(app.world_mut(), long_id, (0.0, 2.0), (8.0, 2.0));
+    app.update();
+    let laid = map(&app).placements.len() - start;
+    assert!(
+        laid > 0,
+        "the runs laid nothing, so there is nothing to name"
+    );
+
+    let drawn = drawn_texts(&mut app);
+    let undo_text = drawn
+        .iter()
+        .map(|(t, _, _)| t)
+        .find(|t| t.starts_with("remove ") && t.ends_with(" (+1)"))
+        .unwrap_or_else(|| {
+            panic!("the UNDO row does not say one more is stacked; drawn: {drawn:?}")
+        })
+        .clone();
+    let name = undo_text.strip_suffix(" (+1)").unwrap_or_default();
+    assert!(
+        name.chars().count() <= 36,
+        "the clamped name is {} characters, past 36: {name:?}",
+        name.chars().count()
+    );
+    assert!(
+        undo_text.chars().count() <= 42,
+        "the stacked UNDO row is {} characters, past the ~42 that fit one line: {undo_text:?}",
+        undo_text.chars().count()
+    );
+    assert_eq!(
+        height_of(&drawn, &undo_text),
+        empty_height,
+        "a stacked long name wrapped the UNDO row, so the panel moves"
     );
 }

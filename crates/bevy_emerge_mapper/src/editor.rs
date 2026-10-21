@@ -238,12 +238,12 @@ impl EditorState {
 
     /// **The newest undo, named**, for the INSPECTOR's UNDO row and `emerge/state`.
     pub fn undo_next(&self, map: &bevy_emerge_core::map::Map) -> Option<String> {
-        self.undo.last().map(|op| op.describe(map))
+        self.undo.last().map(|op| op.describe(map, false))
     }
 
     /// **The newest redo, named the same way**, for the REDO row and `emerge/state`.
     pub fn redo_next(&self, map: &bevy_emerge_core::map::Map) -> Option<String> {
-        self.redo.last().map(|op| op.describe(map))
+        self.redo.last().map(|op| op.describe(map, true))
     }
 
     /// **How many redos are stacked**, for the REDO row's ` (+N)`.
@@ -625,17 +625,32 @@ enum Undo {
 }
 
 impl Undo {
-    /// **What applying this entry does, named in the author's words.** This is the phrase the
-    /// INSPECTOR's UNDO and REDO rows show and `emerge/state` reports, so the two cannot disagree.
-    /// It reads the map as it is now: an entry on a stack acts on pieces the map holds (the stack
-    /// discipline guarantees it), so the names come from the map and no file is read.
-    fn describe(&self, map: &bevy_emerge_core::map::Map) -> String {
+    /// **What applying this entry does, named in the author's words.** The INSPECTOR's UNDO and REDO
+    /// rows and `emerge/state` both show this phrase, so the two cannot disagree. It reads the map as
+    /// it is now and no file, and names only pieces the map holds: an entry that can no longer act
+    /// says `cannot: …` rather than naming a piece it will not touch.
+    ///
+    /// `redo` says which stack the entry sits on. A redo-stack entry is the inverse an undo produced,
+    /// so the same change reads "turn X back" on the undo stack and "turn X again" on the redo stack.
+    fn describe(&self, map: &bevy_emerge_core::map::Map, redo: bool) -> String {
+        clamp_phrase(self.phrase(map, redo))
+    }
+
+    /// The phrase before it is clamped. A group joins its parts from here, so [`join_parts`] can
+    /// count what did not fit and keep every part's words whole.
+    fn phrase(&self, map: &bevy_emerge_core::map::Map, redo: bool) -> String {
         let name_at = |i: usize| {
             map.placements
                 .get(i)
                 .map_or("piece", |p| p.descriptor.as_str())
         };
-        let phrase = match self {
+        let gone = |i: usize| map.placements.get(i).is_none();
+        // `back` on the undo stack, `again` on the redo stack. A pin takes neither word on the undo
+        // stack: `pin crate` and `unpin crate` are what applying does, and `unpin crate back` is not
+        // English.
+        let back = if redo { " again" } else { " back" };
+        let pin_again = if redo { " again" } else { "" };
+        match self {
             Undo::Added { count } => {
                 let names: Vec<&str> = map
                     .placements
@@ -652,32 +667,70 @@ impl Undo {
             }
             Undo::Moved { moved } => {
                 let names: Vec<&str> = moved.was.iter().map(|(i, _, _)| name_at(*i)).collect();
-                format!("move {} back", piece_count(&names))
+                format!("move {}{back}", piece_count(&names))
             }
             Undo::RemoveAt { indices } => {
-                let names: Vec<&str> = indices.iter().map(|i| name_at(*i)).collect();
-                format!("remove {}", piece_count(&names))
+                // Apply skips an index past the end, so the phrase names only what it will take out.
+                let present: Vec<&str> = indices
+                    .iter()
+                    .filter(|i| !gone(**i))
+                    .map(|i| name_at(*i))
+                    .collect();
+                match (present.is_empty(), indices.first()) {
+                    (true, Some(first)) => format!("cannot: piece {first} is gone"),
+                    (true, None) => "nothing".to_owned(),
+                    (false, _) => format!("remove {}", piece_count(&present)),
+                }
             }
-            Undo::Turned { index, .. } => format!("turn {} back", name_at(*index)),
-            Undo::Lifted { index, .. } => format!("lift {} back", name_at(*index)),
-            Undo::Tipped { index, .. } => format!("tip {} back", name_at(*index)),
+            Undo::Turned { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
+            Undo::Turned { index, .. } => format!("turn {}{back}", name_at(*index)),
+            Undo::Lifted { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
+            Undo::Lifted { index, .. } => format!("lift {}{back}", name_at(*index)),
+            Undo::Tipped { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
+            Undo::Tipped { index, .. } => format!("tip {}{back}", name_at(*index)),
+            Undo::Pinned { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
             Undo::Pinned { index, owned, .. } => {
                 let verb = if *owned { "pin" } else { "unpin" };
-                format!("{verb} {} back", name_at(*index))
+                format!("{verb} {}{pin_again}", name_at(*index))
             }
-            Undo::Group { ops } => match ops.first() {
-                Some(first) => first.describe(map),
-                None => "nothing".to_owned(),
-            },
+            Undo::Group { ops } => {
+                let parts: Vec<String> = ops.iter().map(|op| op.phrase(map, redo)).collect();
+                if parts.is_empty() {
+                    "nothing".to_owned()
+                } else {
+                    join_parts(&parts)
+                }
+            }
             Undo::Stamped { count } => format!("remove {}", stamps(*count)),
             Undo::UnstampedMany { items } => format!("restore {}", stamps(items.len())),
-            Undo::UnstampAt { indices } => format!("remove {}", stamps(indices.len())),
-            Undo::MovedStamp { id, .. } => format!("move {id} back"),
+            Undo::UnstampAt { indices } => {
+                // Apply skips an index past the end and refuses when none are left, so count
+                // what it will take.
+                let present = indices
+                    .iter()
+                    .filter(|i| stamp_is_present(map, **i))
+                    .count();
+                match (present, indices.first()) {
+                    (0, Some(first)) => format!("cannot: stamp {first} is gone"),
+                    (0, None) => "nothing".to_owned(),
+                    (n, _) => format!("remove {}", stamps(n)),
+                }
+            }
+            Undo::MovedStamp { id, .. } if !map.stamps.iter().any(|s| s.id == *id) => {
+                format!("cannot: stamp {id} is gone")
+            }
+            Undo::MovedStamp { id, .. } => format!("move {id}{back}"),
             Undo::Settings {
                 bounds: (x, y, z), ..
-            } => format!("map size back to {x} x {y} x {z}"),
-        };
-        clamp_phrase(phrase)
+            } => {
+                let to = if redo {
+                    "map size to"
+                } else {
+                    "map size back to"
+                };
+                format!("{to} {x} x {y} x {z}")
+            }
+        }
     }
 }
 
@@ -698,6 +751,40 @@ fn stamps(n: usize) -> String {
     } else {
         format!("{n} stamps")
     }
+}
+
+/// Whether a stamp index still names a stamp on the map. An undo entry can outlive the stamp it
+/// pointed at, so the phrase checks before it promises a removal. This is an index check against
+/// the map's own stamp list, not a count the census owns; the phrase only needs yes or no.
+fn stamp_is_present(map: &bevy_emerge_core::map::Map, index: usize) -> bool {
+    index < map.stamps.len()
+}
+
+/// **Joins a group's parts in the order they apply, within the phrase budget.** A part is never cut
+/// mid-phrase: the parts that fit are named, and the rest are counted as `, +N more`, so no part
+/// disappears without a trace. A first part too long on its own is clamped by [`clamp_phrase`] like
+/// any other phrase.
+fn join_parts(parts: &[String]) -> String {
+    let mut out = String::new();
+    for (i, part) in parts.iter().enumerate() {
+        let joined = if out.is_empty() {
+            part.clone()
+        } else {
+            format!("{out}, {part}")
+        };
+        let left = parts.len() - i - 1;
+        let tail = if left == 0 {
+            0
+        } else {
+            format!(", +{left} more").chars().count()
+        };
+        if out.is_empty() || joined.chars().count() + tail <= PHRASE_MAX {
+            out = joined;
+        } else {
+            return format!("{out}, +{} more", parts.len() - i);
+        }
+    }
+    out
 }
 
 /// **The longest phrase a row shows.** The value column holds about 42 characters on one line, and
@@ -1800,13 +1887,16 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Map,
                     Field::Under,
                     Field::Last,
-                    Field::Hint,
                     // **After the receipt, not above it.** The receipt has no label of its own, so
                     // whatever row sits above it lends it one: with UNDO/REDO above, "map is 300 x
                     // 44 ..." read as REDO's value. Here the pair reads as what happened (the
                     // receipt) and then what Cmd+Z / Cmd+Shift+Z would do about it.
                     Field::Undo,
                     Field::Redo,
+                    // **Below the pair, not above it.** A hint comes and goes with the cursor, and a
+                    // row spawned above UNDO moved UNDO whenever one appeared (UNDO's top was 289 with
+                    // a hint and 273 without). Below the pair, a hint cannot move what the author reads.
+                    Field::Hint,
                     Field::Edges,
                 ] {
                     let mut spawned = s.spawn(Node {
