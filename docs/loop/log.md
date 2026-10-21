@@ -507,3 +507,110 @@ Top 5 remaining:
 5. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
    connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
    not `is_near`.
+
+## 2026-10-20-05: the door switch — the editor's two halves, and the key between them
+
+- **Change:** **one key crosses between the Kit door and the Map door**, and the crossing **keeps
+  the project**. The door strip names the other door beside the current one, and the key is `=`.
+  **A house is on the map, and the house's own door is one key away — with no menu, no column
+  walk, and no project reload.**
+
+- **Why it ranked first:** it was the only item on the list that was **structurally impossible**
+  rather than merely missing. Every other candidate is a thing an author may *want*; this was a
+  thing the editor could not *do* — and no content decision fixes it. Measured on 2026-10-21: the
+  round trip was **`Cmd+O`, `right`, `Enter`** each way — three keystrokes and a **full project
+  reload** — to move between two halves of one project. It beat the runner-up (the six missing
+  editor operations — kit rename, project rename, project delete, bash creation, policy patch add,
+  composition rename/delete) because that is **six features**, each needing a new on-disk writer,
+  while the door switch is **one** — and it is the one every one of the other six would be *done
+  from*: an author renames a kit on the Kit door and then wants to see the map that uses it.
+
+- **Evidence:**
+  - **The round trip, measured**: `Cmd+O`, `right`, `Enter` — three keystrokes and a **full
+    project reload** each way. The reload re-reads `kits.ron`, `vocab.ron` and `rules.ron`,
+    re-validates **332 library descriptors** and **16 compositions**, and **re-measures every
+    GLB's triangle count** by reading its JSON chunk. None of that changes when the author walks
+    from one door to the other to look at the thing they just made.
+  - **The `Ownership` table already said so**: `Project` is *"reloaded when the kit is not"*, and a
+    same-kit crossing is not a kit change. **The crossing obeys the table.**
+  - **The proof, over three crossings** (the editor's own log prints a line per project read):
+    **project reads 2 before, 2 after**; map reads 2 before, 3 after — the map is re-read once,
+    because one crossing went *to* the Map door, and **a map is a map**.
+  - **The teardown is still a teardown**: every entity the old door made is gone, and every
+    `Ownership::Door` resource is back at its opening value. `tests/the_door_switch_crosses.rs`
+    says so — and **found its own bug**: the first version passed while the door's working state
+    *survived*, because the headless harness never registered `ScreenPlugin` and so the teardown had
+    never run. **The harness registers it now.**
+  - **The live check**: three crossings driven over BRP on Sanctuary's town map — **zero panics**,
+    and the project-read count did not move.
+
+- **Sources:** Braem & Egner, *Getting a grip on cognitive flexibility* (2018,
+  `10.1177/0963721418787475`) — a task set is *"a configuration of context-dependent production
+  ('if, then') rules"*, and a door is one; the **switch cost** is the metric, and it is *"slower and
+  less accurate performance on task switches than task repetitions"*; and the design instruction is
+  that a cue should be *"a general readiness to switch between tasks rather than to switch to one
+  particular alternative task"* — which is why the key says **"the other door"** and never names a
+  direction. On Crump & Logan (2010), from the same paper: *"switch costs can be reduced for stimuli
+  that are presented at a screen location associated with a higher likelihood of task switches"* —
+  which is why the cue is a **place** (the door strip) and not a menu. Dourish & Bellotti, *Awareness
+  and coordination in shared workspaces* (1992, `10.1145/143457.143468`) — awareness carried
+  **passively by the workspace itself**, which is what the strip is. Ishii, *TeamWorkStation* (1990,
+  `10.1145/99332.99337`) — the **cognitive seam** between two workspaces, and the shared surface
+  that reduces it. Cockburn et al., *Supporting Novice to Expert Transitions in User Interfaces*
+  (2014, `10.1145/2659796`) — **intermodal improvement**: a *mode* with a higher ceiling, which is
+  why the crossing is a different action from the menu's and not a second way to do one thing. Full
+  notes and quotes in `runs/2026-10-20-05/research.md`.
+
+- **Test / perf:**
+  - `cargo test --workspace --no-fail-fast` → **1,234 pass, 1 fail**. The one failure is
+    `no_two_leaders_cross`, **red since 2026-09-03 and untouched by this work** (the baseline
+    measured 1,229; this run adds 5). **The suite was run three times, with the same result each
+    time** — no flaky test.
+  - New: `tests/the_door_switch_crosses.rs` (5 tests).
+  - `cargo test -p bevy_emerge_mapper --lib keys::` → 32 pass, **including
+    `the_key_space_has_no_collisions`** — so the new row costs no key.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: **no finding in any file this change
+    touches.** `cargo fmt --check`: every file this change touches keeps its **pre-existing** diff
+    count, and `args.rs` drops from 1 to 0. `cargo doc --no-deps`: **25 unresolved-link warnings,
+    the same 25 as the baseline** — this change adds none.
+  - Headless boot against Sanctuary's real project: `town` → 12 frames, 8,192 entities, no panic;
+    `town_block` → 4,096 entities, no panic.
+  - Sanctuary's own suite: 1,014 pass, 4 fail — **the same four that were already red**.
+  - Timings in `runs/2026-10-20-05/perf.md`.
+
+- **Verdicts:** **Function: GREAT** — one key crosses; the project is never re-read (2 reads before,
+  2 after three crossings); the teardown is still a teardown. **Zoom: GREAT** — the cue is one
+  statement in one place, the key is legible, and the hierarchy puts the panels first and the cue
+  beside them. **Fresh eyes: GREAT** — the cue is on screen without being pressed, the key is one
+  `K` away, and the map comes back as the map you left. All three in
+  `runs/2026-10-20-05/review.md`, with the captures in `runs/2026-10-20-05/evidence/`.
+
+- **Commit:** _(filled in below once pushed)_
+
+- **Run:** `docs/loop/runs/2026-10-20-05/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
+  `evidence/`.
+
+Top 5 remaining:
+
+1. **The six missing editor operations** — kit rename, project rename, project delete, bash
+   creation, policy patch add, composition rename/delete. A scout of `bevy_emerge_core` found **no
+   function for any of the six** — not even one without a UI caller. Each needs a new on-disk writer
+   with its own re-parse-before-save discipline, and the scout's note is that a `Patch` has a
+   multi-line `because` and a nested `Descriptor`, so `LineDoc::append` — the one-line-record tool —
+   is not a direct fit. **The door switch is what makes them all easier**: an author renames a kit
+   on the Kit door and then wants to see the map that uses it.
+2. **The 282 hand-placed fences.** Measured, and the largest single number in the map. But
+   `rules.ron` already says the *game* lays the blocks out, and the fences are the *border* of a
+   block — so this is content, and the last three iterations called it the owner's.
+3. **`fill.rs` has no test at all** — 1,058 lines, the one untested module in the mapper, and the
+   module that lays the bulk of a level. A flood and a box fill are the two gestures that make a
+   level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+4. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
+   connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
+   not `is_near`.
+5. **The composition *authoring* path.** The COMPOSE tab reads a group; it does not author one.
+   `compositions.ron` is hand-written today — sixteen houses, each with 18–38 members, written by
+   hand — and a group captured on the map (`M`) becomes a composition. **The capture exists and the
+   authoring does not**, and the two halves of that are the same shape as the door split: the tool
+   for making one and the tool for editing one are on different doors, and now they are one key
+   apart.

@@ -238,10 +238,13 @@ pub fn build_headless_at(
     mode: crate::tiles::Mode,
 ) -> Result<App, String> {
     let door = crate::tiles::Door::showing(mode);
-    let project = crate::project::Project::open(root, kit)?;
+    let mut project = crate::project::Project::open(root, kit)?;
     // **The map is its own resource**, because four of the five doors do not have one — see
     // `project::OpenMap`. The headless harness stands up the Maps door, which does.
     let open_map = crate::project::OpenMap::open(&project, map)?;
+    // **And the project remembers the map's name**, so a crossing from the Kit door back to the Map
+    // door knows which map to open. See `Project::open_map_name`.
+    project.open_map_name = Some(open_map.map.name.clone());
     let mut app = App::new();
 
     // **The injected-pointer resource, without the plugin that owns it.**
@@ -324,6 +327,24 @@ pub fn build_headless_at(
     }
 
     add_editor_plugins(&mut app);
+    // **The screen plugin, so a test can change the door.**
+    //
+    // The harness stands up a door by inserting the state directly, and it did **not** register
+    // `ScreenPlugin` — so `OnExit(Editor)` never ran and `close_the_door` was unreachable. That was
+    // found on 2026-10-21, when the door switch's own test went green while the door's working
+    // state **survived** the crossing: the teardown had not run at all.
+    //
+    // **Registering it is safe for the other tests**, because `ScreenPlugin` only adds `OnExit` and
+    // `OnEnter` schedules for `Screen`, and the harness's state is `Screen::Editor` — so `OnEnter`
+    // runs on the first frame and `OnExit` only runs when a test asks to leave. The harness's own
+    // `insert_state(Screen::Editor)` is what `OnEnter(Editor)` is for, and it is the *same* set of
+    // spawns the binary's first frame runs.
+    //
+    // **Guarded, because a test may add it itself** — `leaving_a_door_survives_the_frames_after_it`
+    // does, and Bevy refuses a plugin added twice.
+    if !app.is_plugin_added::<crate::screen::ScreenPlugin>() {
+        app.add_plugins(crate::screen::ScreenPlugin);
+    }
     install_font(&mut app, &root)?;
     Ok(app)
 }

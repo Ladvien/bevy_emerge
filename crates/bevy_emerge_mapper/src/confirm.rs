@@ -68,6 +68,13 @@ pub enum Asked {
     QuitApp,
     /// The editor is leaving a map with unsaved edits.
     LeaveMap,
+    /// **The editor is crossing to the other door with unsaved edits.**
+    ///
+    /// A question of its own rather than a reuse of [`Asked::LeaveMap`], because the two answers
+    /// go to **different places**: leaving goes to the menu, and crossing goes to the other door.
+    /// One question with two destinations would need the answer to know which question it was
+    /// answering, and the panel does not know that.
+    SwitchDoor,
     /// A labelling walk found pieces in scope that already carry labels.
     RelabelJudged,
 }
@@ -90,7 +97,10 @@ impl Asked {
             Asked::RelabelJudged => true,
             // Quitting keeps everything saved; leaving a map saves it on the way out. Both are
             // ordinary, and the affirmative is simply the obvious thing to do.
-            Asked::QuitApp | Asked::LeaveMap => false,
+            //
+            // **And crossing saves the map on the way out too** — the same rule, the same reason:
+            // nothing is thrown away, so the affirmative is not destructive and must not look it.
+            Asked::QuitApp | Asked::LeaveMap | Asked::SwitchDoor => false,
         }
     }
 }

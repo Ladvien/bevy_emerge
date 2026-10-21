@@ -3597,6 +3597,9 @@ impl Plugin for TilesPlugin {
                         paint_label_progress,
                         apply_what_arrives,
                         hide_filter_on_the_tiles_page.run_if(in_tiles_panel),
+                        // **The cue that names the other door.** It is written every frame it
+                        // changes, and the door is what changes it.
+                        name_the_other_door,
                     ),
                     (
                         rebuild_candidates
@@ -3832,7 +3835,103 @@ fn spawn_tab_strip(
                 })
                 .observe(click_tab);
             }
+            // **The other door, and the key that reaches it.**
+            //
+            // **The cue is a place, and the place is here.** Braem & Egner, *Getting a grip on
+            // cognitive flexibility* (2018, `10.1177/0963721418787475`), on Crump & Logan (2010):
+            // *"switch costs can be reduced for stimuli that are presented at a screen location
+            // associated with a higher likelihood of task switches."* The strip is where the editor
+            // already says which door is open, so it is where the author looks — and a cue that is
+            // always on screen costs nothing to read.
+            //
+            // **It says "the other door", and names it.** The key is a *readiness* to switch rather
+            // than a direction — the same finding's *"a general readiness to switch between tasks
+            // rather than to switch to one particular alternative task"* — so the same words and the
+            // same key mean the same thing on both doors. The strip says which way is other.
+            //
+            // **The name is here; the key is the badge's.** The strip's own convention is that a
+            // control states its key in its own text and the badge cluster repeats it — the tab
+            // chips print `1`, `2`, `3` and the badges print them again. So this prints the *name*
+            // and the badge prints the *key*, and the two are complementary rather than two
+            // statements of the same fact.
+            p.spawn((
+                Node {
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(crate::chrome::GAP_ROW),
+                    margin: UiRect::left(Val::Px(crate::chrome::GAP_GROUP)),
+                    ..default()
+                },
+                OtherDoorMark,
+            ))
+            .with_children(|m| {
+                m.spawn((
+                    Text::new("the other door"),
+                    TextColor(MUTED),
+                    // **`BODY`, not `LABEL`.** `LABEL` is 10 px and the strip's own labels are
+                    // `TAB`'s 13 — so at `LABEL` the phrase is a whisper beside a shout. `BODY` is
+                    // 11 px, the readable default, and it is still a step below the panels: **the
+                    // panels are the strip's subject, and the cue is a sentence beside them.**
+                    crate::chrome::font(crate::chrome::text::BODY),
+                    Node {
+                        margin: UiRect::right(Val::Px(crate::chrome::GAP_ROW)),
+                        ..default()
+                    },
+                    OtherDoorLabel,
+                ));
+            });
         });
+}
+
+/// **The mark that names the other door** — the cue the crossing hangs on.
+///
+/// A component rather than plain text, because the *name* of the other door changes with the door
+/// that is open, and a text node that is written once cannot be written again without being
+/// rebuilt.
+#[derive(Component)]
+pub struct OtherDoorMark;
+
+/// The name, inside [`OtherDoorMark`].
+#[derive(Component)]
+pub struct OtherDoorLabel;
+
+/// **Name the other door**, so the cue says which way is other.
+///
+/// **The Rigs door is not a door the author crosses to.** It is the rig bench — a character asset
+/// rather than level content — and `screen.rs` says it *"crosses with neither"*. So the mark names
+/// the **Map** door from the Kit door and the **Kit** door from the Map door, and the Rigs door
+/// names nothing: there is nowhere for the author to go, and a cue that leads nowhere is a lie.
+fn name_the_other_door(
+    door: Option<Res<Door>>,
+    mut labels: Query<&mut Text, With<OtherDoorLabel>>,
+    mut marks: Query<&mut Node, With<OtherDoorMark>>,
+) {
+    let Some(door) = door else { return };
+    let other = match *door {
+        Door::Map => Some(Door::Kit),
+        Door::Kit => Some(Door::Map),
+        Door::Rigs => None,
+    };
+    for mut label in &mut labels {
+        let text = match other {
+            Some(d) => format!("the {} door", d.label().to_lowercase()),
+            None => String::new(),
+        };
+        if label.0 != text {
+            label.0 = text;
+        }
+    }
+    // **And the whole mark goes when there is no other door**, rather than showing an empty name
+    // beside a key that does nothing.
+    for mut node in &mut marks {
+        let want = if other.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != want {
+            node.display = want;
+        }
+    }
 }
 
 /// **The tab chips answer the pointer again, and this is the record of how.**
@@ -4556,6 +4655,8 @@ mod pack_fold_tests {
             emerge_dir: std::path::PathBuf::from("/nonexistent"),
             project_dir: std::path::PathBuf::from("/nonexistent"),
             maps_dir: std::path::PathBuf::from("/nonexistent/maps"),
+            // A test project has no map open.
+            open_map_name: None,
             kits: Vec::new(),
             bashes: Vec::new(),
             namespace: "nonexistent".to_owned(),
@@ -10159,6 +10260,8 @@ mod write_library_tests {
             root: dir.to_path_buf(),
             emerge_dir: dir.to_path_buf(),
             project_dir: dir.to_path_buf(),
+            // A test project has no map open.
+            open_map_name: None,
             maps_dir: dir.join("maps"),
             // **One kit, itself.** Not empty: `merged_with` rebuilds the palette from these layers,
             // so a Project holding none would merge to nothing and the first import in a test would

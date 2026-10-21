@@ -10750,9 +10750,9 @@ fn leaving_a_door_survives_the_frames_after_it() {
 
     let root = Fixture::new("leave-door").descriptor("floor", "alpha").build("m");
     let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
-    // The harness inserts `Screen::Editor` and omits the plugin that owns the way out, so without
-    // this nothing ever drops the `Project`, which is the state the real binary reaches.
-    app.add_plugins(bevy_emerge_mapper::screen::ScreenPlugin);
+    // **The harness registers `ScreenPlugin` now** — 2026-10-21, when the door switch's own test
+    // went green while the door's working state survived the crossing, because the teardown had
+    // never run. So the plugin is here, and this test does not add it.
     for _ in 0..3 {
         app.update();
     }

@@ -28,9 +28,15 @@ use bevy_emerge_mapper::project::{OpenMap, Project};
 use bevy_emerge_mapper::screen::{Ownership, ownership};
 use fixtures::Fixture;
 
-/// A project with one composition, one piece, and one map.
-fn project() -> std::path::PathBuf {
-    Fixture::new("arm-crosses")
+/// **A project with a composition, a piece and a map — under a name of its own.**
+///
+/// **A fixture's directory is keyed by the process id and its name**, and the tests run **in
+/// parallel** in one process. Two tests sharing a name share a directory, and each one's
+/// `Fixture::new` **deletes** it — so they remove each other's project. That is not a flake to
+/// shrug at: it was measured as a test that passed on three runs out of six, and the fix is a
+/// name per test.
+fn own_project(name: &str) -> std::path::PathBuf {
+    Fixture::new(name)
         .descriptor("site/wall", "alpha")
         .composition("site/room", &[("site/wall", "site/wall", (0.0, 0.0))])
         .build("m")
@@ -73,7 +79,7 @@ fn the_arms_type_is_not_in_the_door_reset_list() {
 /// `Ownership::Door` resets — so this fails there, with the arm empty.
 #[test]
 fn an_armed_composition_is_still_armed_after_the_door_changes() {
-    let root = project();
+    let root = own_project("arm-crosses-keeps");
     let mut app = harness::build_headless(&root, "m", None)
         .unwrap_or_else(|e| panic!("the fixture project must open: {e}"));
     app.update();
@@ -112,7 +118,7 @@ fn an_armed_composition_is_still_armed_after_the_door_changes() {
 /// same call a click on the row makes — so this cannot pass while the click path is broken.
 #[test]
 fn the_map_door_can_arm_a_composition_and_stamp_it() {
-    let root = project();
+    let root = own_project("arm-crosses-tears");
     let mut app = harness::build_headless(&root, "m", None)
         .unwrap_or_else(|e| panic!("the fixture project must open: {e}"));
     app.update();
@@ -179,7 +185,7 @@ fn the_map_door_can_arm_a_composition_and_stamp_it() {
 /// They must be one answer, or "what is armed" has three.
 #[test]
 fn every_way_to_arm_lands_on_the_same_answer() {
-    let root = project();
+    let root = own_project("arm-crosses-arms");
     let mut app = harness::build_headless(&root, "m", None)
         .unwrap_or_else(|e| panic!("the fixture project must open: {e}"));
     app.update();
@@ -195,18 +201,46 @@ fn every_way_to_arm_lands_on_the_same_answer() {
     assert_eq!(app.world().resource::<Armed>().id(), Some("site/room"));
 
     // The COMPOSE tab's own `Enter`, through the same writer.
+    //
+    // **The editor's own arm, not a local copy** — a copy would leave the resource alone and the
+    // assertion would pass for the wrong reason. And the resource is *taken out* of the world for
+    // the call, because `resource_scope` lends it exclusively and the writer needs the project too.
+    //
+    // **It is a toggle, and the composition is already armed** — so the COMPOSE tab's `Enter` on
+    // the *same* composition **disarms** it. That is the answer both doors must give: one writer,
+    // one meaning. The question this test asks is *"do the two doors agree about which composition
+    // is armed?"* — and the way to ask it is to have the two doors arm **different** compositions
+    // and see that the last one wins, rather than having them agree by accident.
     app.world_mut()
         .resource_scope(|world: &mut World, project: Mut<Project>| {
+            let mut armed = world.remove_resource::<Armed>().expect("the arm is there");
             let mut state = world.resource_mut::<bevy_emerge_mapper::compose::ComposeState>();
-            let mut armed = Armed::default();
             bevy_emerge_mapper::compose::toggle_arm(&mut state, &mut armed, &project);
+            world.insert_resource(armed);
+        });
+    app.update();
+    assert_eq!(
+        app.world().resource::<Armed>().id(),
+        None,
+        "the COMPOSE tab's `Enter` did not disarm the composition the picker had armed. The two \
+         doors are the same verb and must be the same answer — and a toggle on an armed composition \
+         disarms it."
+    );
+
+    // **And the other way round**: the picker disarms what the COMPOSE tab armed.
+    app.world_mut()
+        .resource_scope(|world: &mut World, project: Mut<Project>| {
+            let mut armed = world.remove_resource::<Armed>().expect("the arm is there");
+            let mut status = bevy_emerge_mapper::chrome::Status::default();
+            bevy_emerge_mapper::compose::picker::arm_row(0, &project, &mut armed, &mut status);
+            world.insert_resource(armed);
         });
     app.update();
     assert_eq!(
         app.world().resource::<Armed>().id(),
         Some("site/room"),
-        "the COMPOSE tab's `Enter` armed a *different* composition from the picker's, so the two \
-         doors disagree about what is armed. They are the same verb and must be the same answer."
+        "the picker did not arm the composition the COMPOSE tab had disarmed, so the two doors \
+         disagree about what is armed. They are the same verb and must be the same answer."
     );
 }
 
@@ -216,7 +250,7 @@ fn every_way_to_arm_lands_on_the_same_answer() {
 /// cleared — so the next click does not stamp nothing without saying so.
 #[test]
 fn an_arm_naming_a_composition_the_project_no_longer_has_is_refused_by_name() {
-    let root = project();
+    let root = own_project("arm-crosses-refused");
     let mut app = harness::build_headless(&root, "m", None)
         .unwrap_or_else(|e| panic!("the fixture project must open: {e}"));
     app.update();

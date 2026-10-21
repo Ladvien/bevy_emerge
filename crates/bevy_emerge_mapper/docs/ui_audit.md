@@ -406,6 +406,46 @@ editor's docks. `←`/`→` clamp at the ends instead of carousel-wrapping.
 - Every clickable must be one of the three builders; every overlay must declare a `GlobalZIndex`;
   every panel must come from `panel_root`.
 
+### F20 — The editor's two halves could not be crossed without the menu *(new, 2026-10-21)*
+
+**This audit found every *visual* defect in the editor, and missed this one** — which is worth
+saying plainly, because it is the same class as F19: the finding is not a picture.
+
+The editor has two doors. The **Kit** door authors content — meshes, tiles, compositions. The
+**Map** door builds the level out of it. The door is chosen at startup (`--door kit`,
+`--door map`), and there was **no key that changed it**.
+
+**Measured on 2026-10-21, the round trip was three keystrokes and a full project reload**:
+`Cmd+O`, walk a column, `Enter` — each way. The reload re-reads `kits.ron`, `vocab.ron` and
+`rules.ron`, re-validates 332 library descriptors and 16 compositions, and **re-measures every
+GLB's triangle count** from its JSON chunk. None of that changes when the author walks from one
+door to the other to look at the thing they just made.
+
+**And the workflow it broke** is the one the editor exists for: *stamp a house on the map, walk to
+the Kit door, read the house's members and what has gone stale under them, walk back, place the
+next one.* **Each of those walks was three keystrokes and a reload.**
+
+**Fixed 2026-10-21** — one key (`=`) crosses, and the crossing **keeps the project**. The `Ownership`
+table already said it should: `Project` is *"reloaded when the kit is not"*.
+
+**Three things the fix had to learn, and none of them were about the key:**
+
+- **A crossing must happen in `PreUpdate`.** The editor's Map-door systems are gated by
+  `Door::map_door_is_open` — a **run condition on the tuple** — and Bevy evaluates a *set's*
+  conditions **once per schedule** (`bevy_ecs-0.20.0/src/schedule/executor/multi_threaded.rs`:
+  `evaluated_sets`). A crossing inside `Update` left that condition evaluated against the *old*
+  door, and four systems that take a `Res<OpenMap>` ran on the Kit door, which has no map — and
+  Bevy 0.19 **panics a system whose `Res<T>` is missing** rather than skipping it.
+- **The world must never be without a project.** The first version took the `Project` out and put
+  it back in `Chosen`, and **twenty** editor systems read one in the frame it was missing.
+- **The key has to be legible, and only the picture said so.** The backquote was the first choice —
+  the industry's cue for "the other place" — and **at 11 px it read as a speck**. `=` is the widest
+  mark on the keyboard, the most legible of the free ones, and the shape of a toggle.
+
+**And the headless harness never registered `ScreenPlugin`**, so a door change had **no test at
+all** — which is why the crossing's own test went green while the door's working state *survived*
+it. The harness registers it now.
+
 ### F19 — The Map door could not arm a composition, and the arm died with the door *(new, 2026-10-21)*
 
 **This audit found every visual defect in the editor and missed this one**, which is worth saying
@@ -504,6 +544,7 @@ its own rule and nothing else.
 | F11 | Dead and invisible clickables | **Fixed.** `KitRow` clicks, `ShelfChip` lights, `PaletteRow` joined the shared repainter and `editor::style_rows` is deleted |
 | F12 | Headings mean four things | **Fixed.** `INSPECTOR` / `PIECES` / `PLACE` / `RIGS`; no panel named for the application, no anagrams |
 | **F19** | **The Map door could not arm a composition, and the arm died with the door** | **Fixed 2026-10-21** — the arm is its own `Session` resource and the Map door grew a COMPOSITIONS picker |
+| **F20** | **The editor's two halves could not be crossed without the menu** | **Fixed 2026-10-21** — one key (`=`) crosses, and the crossing **keeps the project** |
 | F13 | Four dimmers, three opacities | **Fixed.** One `modal_card` |
 | F14 | Two modals, two contracts | **Fixed.** One shell, one z ladder |
 | F15 | Layout not uniform | **Fixed.** One `CONTROLS_W`, every left dock scrolls |

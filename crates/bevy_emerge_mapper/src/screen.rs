@@ -28,12 +28,27 @@
 //! that survives into the next door. A reload cannot be wrong; a partial teardown can be, silently,
 //! and the bug lands weeks later looking like something else.
 //!
-//! # Doors are still reached through the menu
+//! # Doors are reached through the menu — and now also through a key
 //!
-//! No direct Kit↔Map key. It became affordable once the process boundary went — the design doc had
-//! rejected it when it meant a relaunch — and it was declined anyway: with full teardown the saving
-//! is the menu round-trip rather than the reload, and a second way to do one thing is the pattern
-//! this crate spends its refusals on.
+//! **The menu is still the way a door is _opened_**, and it is still the only one. A key does not
+//! open a door; it **changes** which door is open, from inside one.
+//!
+//! It was declined once, on a premise that has expired. The note said: *"It became affordable once
+//! the process boundary went — the design doc had rejected it when it meant a relaunch — and it was
+//! declined anyway: with full teardown the saving is the menu round-trip rather than the reload."*
+//! **The relaunch is gone** — the menu and the editor are one application — and so is the reload it
+//! was weighed against: a crossing **keeps the project** (see [`cross`]), which is what the
+//! [`Ownership`] table has always said a same-kit door change should do.
+//!
+//! Measured on 2026-10-21: the round trip was **three keystrokes and a full project reload** each
+//! way — `Cmd+O`, walk a column, `Enter` — re-reading `kits.ron`, `vocab.ron` and `rules.ron`,
+//! re-validating 332 library descriptors and 16 compositions, and **re-measuring every GLB's
+//! triangle count** from its JSON chunk. None of that changes when the author walks from one door
+//! to the other to look at the thing they just made.
+//!
+//! **And the two are different acts**, which is why they are different actions: the menu *opens* a
+//! door, and the crossing *changes* one. A second way to do one thing is the pattern this crate
+//! spends its refusals on; this is not that.
 
 use bevy::prelude::*;
 
@@ -105,8 +120,167 @@ fn open_the_door(world: &mut World) {
 /// does a door change do to this resource?"* without standing up a second application.
 pub fn close_the_door(world: &mut World) {
     despawn_scene(world);
+    // **A crossing is in flight: the door's own resources stay.**
+    //
+    // The crossing has *already* put the new door's `Project`, `OpenMap`, `Door` and `Mode` into
+    // the world — it is a state change, not a place the project is kept. So the teardown must not
+    // take them away, or it would undo the crossing.
+    //
+    // **What the teardown still does, unchanged:** the entity sweep and the door's own working
+    // state. The teardown is a teardown; only the *door's own* resources are spared, and they are
+    // spared because they now belong to the *next* door.
+    if world.remove_resource::<Crossing>().is_some() {
+        reset_door_state(world);
+        return;
+    }
     crate::args::Opened::remove_from(world);
     reset_door_state(world);
+}
+
+/// **A door change is in flight** — the teardown is part of a crossing, not of a leave.
+///
+/// The mark is what tells [`close_the_door`] that the `Project` and the `OpenMap` in the world are
+/// already the **new** door's, and must survive the teardown that is about to run.
+#[derive(Resource)]
+pub struct Crossing;
+
+/// **Cross to the other door, keeping the project.**
+///
+/// # What it replaces
+///
+/// The round trip. Measured on 2026-10-21: **`Cmd+O`, `right`, `Enter`** each way — three
+/// keystrokes and a **full project reload**, to move between two halves of one project. The reload
+/// re-reads `kits.ron`, `vocab.ron` and `rules.ron`, re-validates every bound kit's
+/// `library.ron`, and **re-measures the triangle count of every GLB** by reading its JSON chunk.
+/// Nothing in any of that changes when the author walks from one door to the other.
+///
+/// The [`crate::screen::Ownership`] table already says so: `Project` is *"reloaded when the kit is
+/// not"*. **This is the crossing that obeys the table.**
+///
+/// # How it crosses
+///
+/// **`NextState::set(Screen::Editor)`, while already in `Screen::Editor`.** Bevy 0.20 runs
+/// `OnExit` and `OnEnter` for a same-state transition — `NextState::set` is `Pending`, and only
+/// `PendingIfDifferent` suppresses the schedules. So `OnExit(Editor)` runs [`close_the_door`] — the
+/// teardown, unchanged — and `OnEnter(Editor)` runs the spawns.
+///
+/// **And the chooser never appears.** A same-state transition runs neither `OnExit(Menu)` nor
+/// `OnEnter(Menu)`, so `ChooserPlugin`'s `build_chooser` / `spawn_screen` / `spawn_menu_bars` never
+/// run. The author sees the editor tear down and the other door build, in one frame.
+///
+/// The alternative — hopping through `Screen::Menu` — would build the whole chooser UI and tear it
+/// down, which is a flash of the wrong screen on every crossing.
+///
+/// # The `Project` never leaves the world
+///
+/// **The first version of this took the `Project` out of the world** and put it back in
+/// `Chosen` — which is what `close_the_door` removes and `open_the_door` restores. **And the live
+/// test found it in one frame:** twenty editor systems ran with no `Project` to read, and Bevy 0.19
+/// **panics a system whose `Res<T>` is missing** rather than skipping it. The crossing tore the
+/// door down and left the editor without a project for the rest of the frame.
+///
+/// So the `Project` is **moved, not copied** — it is not `Clone` — and it is moved **into the new
+/// door's place**: the crossing takes it out and puts it straight back, so the world holds a
+/// project at every moment of the crossing, and the *teardown* is what removes it, exactly as it
+/// does today.
+///
+/// The crossing therefore does the swap itself, rather than letting `close_the_door` and
+/// `open_the_door` do it in two schedules with a gap between them.
+pub fn cross(world: &mut World, to: crate::tiles::Door) -> Result<(), String> {
+    // **The project is TAKEN, not copied** — it is not `Clone`.
+    let Some(mut project) = world.remove_resource::<crate::project::Project>() else {
+        return Err("there is no project open to carry across".to_owned());
+    };
+    // **The map's name, carried across.** The Kit door has no map — so without this, crossing back
+    // to the Map door has nothing to open, and the refusal it gives is *true* and useless: the
+    // author was on a map a moment ago.
+    //
+    // **The name is the project's own**, because it is the author's intent about which map they are
+    // working on, and it outlives the door it was opened in — the same argument the armed
+    // composition makes.
+    let carried = world
+        .get_resource::<crate::project::OpenMap>()
+        .map(|m| m.map.name.clone())
+        .or_else(|| project.open_map_name.clone());
+    // **The target's resources, built from the project that is already loaded.** The Kit door needs
+    // a project and no map; the Map door needs a project and a map — and the *map* is re-read,
+    // because a map is a map and the Map door's subject is the one the author is editing.
+    let (open_map, mode) = match to {
+        crate::tiles::Door::Map => {
+            let Some(name) = carried else {
+                world.insert_resource(project);
+                return Err("the Map door needs a map, and none has been open".to_owned());
+            };
+            match crate::project::OpenMap::open(&project, &name) {
+                Ok(m) => {
+                    // **And the project remembers it**, so the next crossing back knows.
+                    project.open_map_name = Some(name);
+                    (Some(m), crate::tiles::Mode::Map)
+                }
+                Err(e) => {
+                    // **The project goes back.** The crossing failed and the editor is untouched.
+                    world.insert_resource(project);
+                    return Err(e);
+                }
+            }
+        }
+        other => (None, other.opens_on()),
+    };
+    // **And it goes straight back in.** The world holds a project at every instant of the
+    // crossing: the editor's systems run in the same frame as the keypress, and **twenty** of
+    // them take a `Res<Project>`, and Bevy 0.19 **panics a system whose `Res<T>` is missing**
+    // rather than skipping it. The first version of this function left the world without a
+    // project for the rest of the frame, and the live test found it in one frame.
+    world.insert_resource(project);
+    match open_map {
+        Some(m) => {
+            world.insert_resource(m);
+        }
+        None => {
+            world.remove_resource::<crate::project::OpenMap>();
+        }
+    }
+    world.insert_resource(to);
+    world.insert_resource(mode);
+    // **And a `Chosen` for the teardown to give back.**
+    //
+    // `close_the_door` — which the transition runs — **removes** the `Project`, and something has
+    // to put the new door's back. `install_the_door` is that something, and it reads a `Chosen`.
+    //
+    // **But the `Project` is not `Clone`, and it is already in the world.** So the `Chosen` cannot
+    // hold it as well.
+    //
+    // **The answer is that the teardown does not need to take the project away at all.** The
+    // crossing has *already* put the new door's resources in the world — the project, the map, the
+    // door and the mode. What the teardown has to do is take away everything else the old door
+    // made, and reset the door's own working state. The project and the map are **the new door's**
+    // by then, and taking them away would be undoing the crossing.
+    //
+    // So the crossing **marks** the transition, and `close_the_door` reads the mark: a crossing is
+    // in flight, so the door's *own* resources stay and only the old door's entities and working
+    // state go.
+    world.insert_resource(crate::screen::Crossing);
+    // **And the transition does the teardown and the rebuild.**
+    //
+    // **`NextState::set(Screen::Editor)`, while already in `Screen::Editor`.** Bevy 0.20 runs
+    // `OnExit` and `OnEnter` for a same-state transition — `NextState::set` is `Pending`, and only
+    // `PendingIfDifferent` suppresses the schedules. So `OnExit(Editor)` runs [`close_the_door`] —
+    // the teardown, unchanged — and `OnEnter(Editor)` runs the spawns.
+    //
+    // **The project is put back by `install_the_door`**, which reads the `Chosen` the crossing
+    // left behind. That is the one thing `close_the_door` cannot do on its own: it *removes* the
+    // project, and something has to put the new door's back.
+    //
+    // **The chooser never appears.** A same-state transition runs neither `OnExit(Menu)` nor
+    // `OnEnter(Menu)`, so `ChooserPlugin`'s `build_chooser` / `spawn_screen` / `spawn_menu_bars`
+    // never run. The author sees the editor tear down and the other door build, in one frame.
+    //
+    // **The alternative — hopping through `Screen::Menu` — would build the whole chooser UI and
+    // tear it down**, which is a flash of the wrong screen on every crossing.
+    if let Some(mut next) = world.get_resource_mut::<NextState<Screen>>() {
+        next.set(Screen::Editor);
+    }
+    Ok(())
 }
 
 /// **Put every [`Ownership::Door`] resource back to its opening value.**

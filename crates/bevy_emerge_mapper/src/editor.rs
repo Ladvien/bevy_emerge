@@ -970,6 +970,34 @@ impl Plugin for EditorPlugin {
                 )
                     .run_if(in_state(crate::screen::Screen::Editor)),
             )
+            // **The door switch, and it is on every door.** The key says *"the other door"*, so it
+            // has to be live in both — and the crossing takes the project out of the world, which is
+            // why it is an exclusive system.
+            //
+            // **In `PreUpdate`, and that is the whole design.**
+            //
+            // **The live test found why.** The editor's Map-door systems are gated by
+            // `Door::map_door_is_open` — a **run condition on the tuple**, and Bevy evaluates a
+            // *set's* conditions **once per schedule** (`schedule/executor/multi_threaded.rs`:
+            // `evaluated_sets`). So a crossing that ran inside `Update` left that condition
+            // evaluated against the *old* door, and four systems that take a `Res<OpenMap>` ran on
+            // the Kit door — which has no map — and Bevy 0.19 **panics a system whose `Res<T>` is
+            // missing** rather than skipping it.
+            //
+            // **`PreUpdate` runs before `StateTransition`, which runs before `Update`.** So the
+            // crossing reads the key in `PreUpdate`, sets the pending state, and the transition —
+            // the teardown and the rebuild — happens before any `Update` system evaluates its
+            // conditions against the new door.
+            .add_systems(
+                PreUpdate,
+                switch_door.run_if(in_state(crate::screen::Screen::Editor)),
+            )
+            // **The door switch's own answer**, and it is in `PreUpdate` for the same reason the
+            // switch is: it crosses.
+            .add_systems(
+                PreUpdate,
+                answer_the_switch_prompt.run_if(in_state(crate::screen::Screen::Editor)),
+            )
             .add_systems(
                 OnEnter(crate::screen::Screen::Editor),
                 (
@@ -1325,6 +1353,71 @@ fn back_to_the_menu(
     }
 }
 
+/// **Cross to the other door, keeping the project.**
+///
+/// **The same verb on both doors.** The key says *"the other door"* and never names a direction — a
+/// key that meant "the Map door" would mean the opposite thing on the Map door, which is a mode
+/// error wearing a chord. Braem & Egner's *Getting a grip on cognitive flexibility* (2018) is the
+/// instruction: a switching cue should be *"a general readiness to switch between tasks rather
+/// than to switch to one particular alternative task"*.
+///
+/// **It asks before it goes, exactly as the menu route does.** Leaving the Map door for the Kit
+/// door leaves the map, and the map may hold unsaved edits — so the same question is raised, and
+/// the same answer path saves it.
+///
+/// **A refusal is a refusal.** A crossing that cannot complete says so and **stays put**: the same
+/// door, the same project, the same map, the same arm. See [`crate::screen::cross`].
+fn switch_door(world: &mut World) {
+    // **The key first, and it is read the way every other verb reads it.**
+    let pressed = {
+        let keyboard = world.resource::<ButtonInput<KeyCode>>();
+        let live = *world.resource::<keys::Live>();
+        keys::just_pressed(keyboard, live, Action::SwitchDoor)
+    };
+    if !pressed {
+        return;
+    }
+    // **A prompt still owns the keyboard while it is up.**
+    if world.resource::<EditorState>().leaving {
+        return;
+    }
+    let Some(door) = world.get_resource::<crate::tiles::Door>().copied() else {
+        return;
+    };
+    let to = match door {
+        crate::tiles::Door::Map => crate::tiles::Door::Kit,
+        _ => crate::tiles::Door::Map,
+    };
+    // **The unsaved question, and it is the menu's question.** Leaving the Map door leaves the
+    // map; the map may differ from disk. The Kit door has no map, so the question only arises on
+    // the way out of the Map door — and on the way *into* it, the map that is already open is the
+    // one the author is coming back to.
+    let dirty = world.get_resource::<OpenMap>().is_some_and(|o| o.dirty());
+    if dirty {
+        world.resource_mut::<EditorState>().leaving = true;
+        world.resource_mut::<crate::confirm::Confirm>().ask(
+            crate::confirm::Asked::SwitchDoor,
+            "Leave this map?",
+            "It has unsaved edits. Leaving saves them first.",
+            "Save and go",
+            "Stay",
+        );
+        return;
+    }
+    // **The crossing itself.** It takes the project out of the world, so it is an exclusive
+    // system — and it is where the refusal happens, before anything is torn down.
+    match crate::screen::cross(world, to) {
+        Ok(()) => world
+            .resource_mut::<EditorState>()
+            .status
+            .note(format!("the {} door", to.label().to_lowercase())),
+        Err(e) => world
+            .resource_mut::<EditorState>()
+            .status
+            .problem(format!("cannot cross: {e}")),
+    }
+}
+
 /// **Answer the leaving question, and nothing else.**
 ///
 /// The keys are `crate::confirm`'s now — `Y` proceeds, `N` stops, `Esc` a synonym for `N` — so this
@@ -1365,6 +1458,83 @@ fn answer_the_leaving_prompt(
         &mut state,
         &mut next,
     );
+}
+
+/// **Answer the door switch's own question** — and it goes to the **other door**, not the menu.
+///
+/// **A question of its own**, because the two answers go to different places: leaving goes to the
+/// menu and crossing goes to the other door, and one question with two destinations would need
+/// the answer to know which question it was answering.
+///
+/// **Saving is the going**, exactly as it is on the menu's route — so a refused save keeps the
+/// author here with the reason, rather than crossing on a map that was never written.
+fn answer_the_switch_prompt(world: &mut World) {
+    let Some(agreed) = world
+        .resource_mut::<crate::confirm::Confirm>()
+        .answer(crate::confirm::Asked::SwitchDoor)
+    else {
+        return;
+    };
+    world.resource_mut::<EditorState>().leaving = false;
+    if !agreed {
+        world
+            .resource_mut::<EditorState>()
+            .status
+            .note("staying on this map".to_owned());
+        return;
+    }
+    // **Save first, and only cross if the save worked.** A refused save must not cross — the
+    // author would arrive on the other door with their work still unsaved and now somewhere else.
+    //
+    // **The map and the project are taken out of the world for the save**, because `OpenMap::save`
+    // wants the project and the world will not lend both at once — and `Project` is **not
+    // `Clone`**, so it is moved rather than copied. Both go back, whatever the save says.
+    let saved = match world.remove_resource::<OpenMap>() {
+        Some(mut open) => {
+            let project = world.remove_resource::<Project>();
+            let result = match project {
+                Some(ref p) => open.save(p),
+                None => Ok(()),
+            };
+            // **The project goes back first**, and the map second — so a failure leaves the editor
+            // exactly as it was.
+            if let Some(p) = project {
+                world.insert_resource(p);
+            }
+            match result {
+                Ok(()) => {
+                    world.insert_resource(open);
+                    true
+                }
+                Err(e) => {
+                    // **The map goes back**, and the author stays on it with the reason.
+                    world.insert_resource(open);
+                    world
+                        .resource_mut::<EditorState>()
+                        .status
+                        .problem(format!("NOT SAVED: {e} — staying on this map"));
+                    false
+                }
+            }
+        }
+        None => true,
+    };
+    if !saved {
+        return;
+    }
+    let Some(door) = world.get_resource::<crate::tiles::Door>().copied() else {
+        return;
+    };
+    let to = match door {
+        crate::tiles::Door::Map => crate::tiles::Door::Kit,
+        _ => crate::tiles::Door::Map,
+    };
+    if let Err(e) = crate::screen::cross(world, to) {
+        world
+            .resource_mut::<EditorState>()
+            .status
+            .problem(format!("cannot cross: {e}"));
+    }
 }
 
 /// **Give every back button its click, wherever a panel put one.**
@@ -10592,6 +10762,8 @@ mod tests {
             emerge_dir: std::path::PathBuf::from("assets/emerge"),
             project_dir: std::path::PathBuf::from("assets/emerge"),
             maps_dir: std::path::PathBuf::from("assets/emerge/maps"),
+            // A test project has no map open.
+            open_map_name: None,
             kits: Vec::new(),
             // A test project declares no combinations; every map in it offers every bound kit.
             bashes: Vec::new(),

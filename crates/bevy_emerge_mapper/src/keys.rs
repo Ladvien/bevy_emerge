@@ -523,6 +523,19 @@ pub enum Action {
     /// binding per action and the two doors' contexts never overlap. One writer underneath:
     /// `Armed::toggle`.
     ArmComposition,
+    /// **Cross to the other door** — the Kit door and the Map door, without the menu.
+    ///
+    /// **The same verb on both sides.** Braem & Egner's *Getting a grip on cognitive flexibility*
+    /// (2018, `10.1177/0963721418787475`) is the instruction: a cue that is associated with
+    /// switching should be *"a general readiness to switch between tasks rather than to switch to
+    /// one particular alternative task"*. So this says **"the other door"** and never names a
+    /// direction — a key that meant "the Map door" would mean the opposite thing on the Map door,
+    /// which is a mode error wearing a chord.
+    ///
+    /// It is **not** the menu's route. `Action::MainMenu` opens the chooser, and the chooser opens
+    /// a door; this *changes* which door is open. Different acts, different actions, and the
+    /// census can tell them apart.
+    SwitchDoor,
     /// Walk the selected group's members. A second cursor, under the one that walks the groups.
     ComposeMemberPrev,
     ComposeMemberNext,
@@ -1108,6 +1121,39 @@ pub const BINDINGS: &[Binding] = &[
         "back to the menu",
     )
     .at(Home::Control(ControlId::Back)),
+    // **The door switch, and the key is `=`.**
+    //
+    // **The key has to be global** — the crossing must work from both doors — and `Context::Global`
+    // overlaps every tab, so **every letter is taken**: `C` in Tiles and Anim, `I` and `L` in Meshes,
+    // and so on. The free bare keys are `Digit4`–`Digit0`, `Minus`, `Equal`, `Semicolon`, `Quote`,
+    // `Backquote`, `Backslash` and `Tab`.
+    //
+    // **And it has to be legible**, which is the half the census cannot measure. The backquote was
+    // the first choice — it is the industry's cue for "the other place" (`Cmd+\`` is VS Code's
+    // *toggle terminal*, `Ctrl+\`` is Blender's *toggle console*) — and **it was measured at 11 px
+    // and read as a speck**: a grave accent is a small mark at any size, and a key the author cannot
+    // see is a key they will not press. `Quote` is the same problem in a different glyph.
+    //
+    // **`=` is the widest mark on the keyboard and the most legible of the free ones**, and it is
+    // also the shape of a toggle — which is what the crossing is: the same key, the other door. The
+    // rest are worse for one reason each: `Tab` is Bevy's focus traversal, the digits are **the
+    // most learned keys in this editor** (`1`/`2`/`3` are the door-relative panel slots), `;` and `-`
+    // are punctuation the author reads as punctuation, and `\` is the shell's "leave this level" —
+    // a meaning this key does not have.
+    //
+    // **The home is the door strip**, because the strip is where the editor already says which door
+    // is open — and Braem & Egner, on Crump & Logan (2010): *"switch costs can be reduced for stimuli
+    // that are presented at a screen location associated with a higher likelihood of task
+    // switches."* The cue belongs beside the door's name.
+    b(
+        Action::SwitchDoor,
+        KeyCode::Equal,
+        false,
+        Context::Global,
+        "=",
+        "the other door",
+    )
+    .at(Home::Control(ControlId::DoorStrip)),
     // **`Cmd+E` for the errors, and the legend is where it lives** — the panel it opens is not on
     // screen to carry a badge, which is exactly the case `Home::Legend` is for.
     //
@@ -3414,6 +3460,7 @@ mod tests {
             Action::CarouselNext,
             Action::Save,
             Action::MainMenu,
+            Action::SwitchDoor,
             Action::Undo,
             Action::Redo,
             Action::Shortcuts,
@@ -4050,7 +4097,26 @@ mod tests {
             // into the three door-relative slots (`1`/`2`/`3`, "the kit stops being the project")
             // and `ShowErrors` arrived. Two keys of headroom nobody granted, closed on the day it
             // was noticed.
-            (Context::Global, 17),
+            // 17 -> 18: `SwitchDoor`, on the backquote. The Kit door and the Map door are one
+            // application and one project, and there was no way to cross between them except the
+            // menu: `Cmd+O`, walk a column, `Enter` — three keystrokes and a **full project
+            // reload** each way, re-reading `kits.ron`, `vocab.ron` and `rules.ron`, re-validating
+            // 332 library descriptors and 16 compositions, and **re-measuring every GLB's triangle
+            // count** from its JSON chunk. Nothing in any of that changes when the author walks from
+            // one door to the other to look at the thing they just made.
+            //
+            // The `Ownership` table already says the project is *"reloaded when the kit is not"*;
+            // this is the crossing that obeys the table.
+            //
+            // **It is `Global` because it must work from both doors**, and `Context::Map` is only
+            // live on the Map door — so a `Map` row would leave the Kit door with no way back. That
+            // costs this one row in every context's budget, which is what the pin is for.
+            //
+            // **The backquote, and why that key.** It is the industry's cue for "the other place"
+            // (`Cmd+\`` is VS Code's *toggle terminal*, `Ctrl+\`` is Blender's *toggle console*, and
+            // `` ` `` is Emacs's *other window*), and it is the only free bare key that is not a
+            // letter: every letter is bare-bound in some tab, and `Global` overlaps every tab.
+            (Context::Global, 18),
             // 16 -> 17: `FocusFilter`, on `Cmd+F`. **The filter box was mouse-only on every tab
             // but one.** `FocusFilter` was `Context::Tiles`, so the Map tab's PLACE palette and the
             // Rigs tab's rig list had no keyboard route to their own filter at all — and a box the

@@ -127,9 +127,19 @@ pub struct Project {
     /// Held so `G` can lay a block the way the game will (`editor::generate_from`), instead of
     /// learning from the whole map at the editor's own 1 m step.
     pub rules: bevy_emerge_core::rules::Rules,
-    /// **Where every map in this project lives** — see [`MAPS_DIR`]. Held rather than re-derived, so
+    /// Where every map in this project lives — see [`MAPS_DIR`]. Held rather than re-derived, so
     /// a rename follows the name without re-deciding which directory a map belongs to.
     pub maps_dir: PathBuf,
+    /// **The map that was open**, by name — the last one this project had open.
+    ///
+    /// **The Kit door has no map, and the crossing needs to know which one to come back to.**
+    /// Without this, crossing from the Kit door to the Map door has nothing to open — and the
+    /// refusal it gives is *true* and useless: the author was on a map a moment ago.
+    ///
+    /// So the name is **carried across the crossing**, the way the armed composition is: it is the
+    /// author's intent about which map they are working on, and it outlives the door it was opened
+    /// in. It is a name and not a path, so a map that has been renamed since is refused by name.
+    pub open_map_name: Option<String>,
     /// **Descriptor ids whose resolved form changed since the Map last redrew**, and which therefore
     /// have placements standing on screen built from an older shape.
     ///
@@ -371,6 +381,8 @@ impl Project {
             masks,
             project_dir,
             maps_dir,
+            // **No map yet.** The Map door sets it when it opens one, and the crossing carries it.
+            open_map_name: None,
             touched: Vec::new(),
             triangles,
         })
