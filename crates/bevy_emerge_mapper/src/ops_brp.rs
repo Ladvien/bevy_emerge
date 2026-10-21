@@ -53,6 +53,11 @@ pub struct ApplyParams {
     #[serde(default)]
     pub parameters: Value,
     /// **Whether to actually do it.** `true` previews and changes nothing.
+    ///
+    /// **The default is `true` here and `false` on the MCP tool**, and the difference is
+    /// deliberate. **The BRP surface is a raw door**, and a raw door that changed the editor by
+    /// default would be a door an agent could fall into; **the MCP tool is the door with a
+    /// description in front of it**, and an agent that reads it knows what it is asking for.
     #[serde(default = "yes")]
     pub dry_run: bool,
 }
@@ -90,30 +95,6 @@ fn fifty() -> usize {
     50
 }
 
-/// **The session this editor is running under.**
-///
-/// **One per launch, and it is what tells two agents' work apart in a log they both read.** The
-/// id is the process id and the start time, which is enough to be unique among the editors
-/// running on one machine and is free — no dependency, no clock call at every operation.
-fn session_id() -> String {
-    format!("{}-{}", std::process::id(), editor_start())
-}
-
-/// **When this editor started, in seconds since the epoch.**
-///
-/// **Computed once and kept**, because the session id has to be stable for the editor's life and
-/// a per-call clock read would make it a different id every time.
-fn editor_start() -> u64 {
-    use std::sync::OnceLock;
-    static START: OnceLock<u64> = OnceLock::new();
-    *START.get_or_init(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    })
-}
-
 /// **Build a context from the editor's own resources.**
 ///
 /// **The two `Option`s, and why they are options.** A map door has an open map and a kit door
@@ -132,8 +113,65 @@ fn context(
         project: project.map(|p| p.into_inner().clone()),
         open: open.map(|o| o.into_inner().clone()),
         source: Source::Agent,
-        session: session_id(),
+        session: crate::ops::session_id(),
     }
+}
+
+/// **The context, built from the editor's own resources, and the resources back afterwards.**
+///
+/// **The change has to land in the RUNNING editor, and not only in the file.** A context that
+/// holds a *copy* means the operation edits the copy, writes the file, and the editor's own map
+/// is untouched — so the screen shows the old settings until the watcher notices the file, up to
+/// a quarter of a second later, and any edit the author makes in that window is thrown away when
+/// the watcher swaps the map in.
+///
+/// **So the context is built from clones and the result is written back**, which is the same
+/// thing the UI path does with the map it owns: the operation's answer *is* the editor's new
+/// state.
+///
+/// **`ResMut::into_inner` hands back a borrow, not the value** — so the value is cloned out and
+/// the changed one is cloned back. **The clone is the price of the registry's `dyn`**, and it is
+/// paid once per operation rather than once per frame.
+fn take(
+    project: &Option<ResMut<crate::project::Project>>,
+    open: &Option<ResMut<crate::project::OpenMap>>,
+) -> Ctx {
+    Ctx {
+        project: project.as_deref().cloned(),
+        open: open.as_deref().cloned(),
+        source: Source::Agent,
+        session: crate::ops::session_id(),
+    }
+}
+
+/// **Put the operation's map back into the editor's own resource.**
+///
+/// **Only the map.** The project is the editor's, and the operation does not change it — the
+/// operation reads the library and writes the file.
+fn put_back(open: &mut Option<ResMut<crate::project::OpenMap>>, ctx: Ctx) {
+    if let Some(fresh) = ctx.open
+        && let Some(handle) = open.as_deref_mut()
+    {
+        *handle = fresh;
+    }
+}
+
+/// **`emerge/project_root` — which project the editor has open.**
+///
+/// **A read, and the one fact the MCP server cannot know for itself.** The server is told a
+/// project on the command line and the editor knows which one it has open, and **the two have to
+/// be the same** or a change lands in the wrong place.
+fn project_root(
+    _: In<serde_json::Value>,
+    project: Option<Res<crate::project::Project>>,
+) -> Result<Value, String> {
+    let Some(project) = project else {
+        return Err("no project is open.".to_owned());
+    };
+    Ok(json!({
+        "project_root": project.root.to_string_lossy(),
+        "map": project.open_map_name,
+    }))
 }
 
 /// **`emerge/operation_list` — every operation, its schema, and how it is undone.**
@@ -199,7 +237,7 @@ fn operation_preview(
 fn operation_apply(
     In(p): In<ApplyParams>,
     project: Option<ResMut<crate::project::Project>>,
-    open: Option<ResMut<crate::project::OpenMap>>,
+    mut open: Option<ResMut<crate::project::OpenMap>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -212,9 +250,20 @@ fn operation_apply(
                 .join(", ")
         ));
     };
-    let mut ctx = context(project, open);
     // **A preview is the plan, and nothing else.**
+    //
+    // **And a preview takes the resources by *reference*, not by ownership** — a preview that
+    // took them mutably would mark them changed, and every system gated on a change would
+    // rebuild the interface for a call that changed nothing.
     if p.dry_run {
+        let read_project = project.as_deref();
+        let read_open = open.as_deref();
+        let ctx = Ctx {
+            project: read_project.cloned(),
+            open: read_open.cloned(),
+            source: Source::Agent,
+            session: crate::ops::session_id(),
+        };
         return match op.plan(&ctx, &p.parameters) {
             Ok(plan) => Ok(json!({
                 "operation": p.operation,
@@ -228,16 +277,36 @@ fn operation_apply(
             })),
         };
     }
-    // **And the real thing.** The dispatch writes the log, so the operation id in the answer is
-    // the one in the log.
-    match ops::dispatch(&mut ctx, &p.operation, &p.parameters) {
-        Ok(outcome) => Ok(json!({
+    // **And the real thing**, which takes the editor's own map and project and gives them back.
+    let mut ctx = take(&project, &open);
+    let applied = ops::dispatch(&mut ctx, &p.operation, &p.parameters);
+    // **The map goes back either way** — changed, refused, or not — so the editor's own state is
+    // never left holding a half-applied edit.
+    put_back(&mut open, ctx);
+    match applied {
+        Ok(ops::Applied::Done {
+            outcome,
+            operation_id,
+            entry,
+        }) => Ok(json!({
             "operation": p.operation,
             "outcome": "applied",
             "summary": outcome.summary,
             "affected": outcome.affected,
             "saved": outcome.saved,
+            // **The id the agent cites and the human reverts by.** The brief asks for it on every
+            // mutating tool, and an operation whose id nobody can name is an operation nobody can
+            // present.
+            "operation_id": operation_id,
+            "log_entry": entry,
         })),
+        Ok(ops::Applied::Refused(e)) => Ok(json!({
+            "operation": p.operation,
+            "outcome": "refused",
+            "refusal": e.0,
+        })),
+        // **A refusal from the dispatch itself** — the plan refused, or the log could not be
+        // written. It is a refusal like any other, and it says why.
         Err(e) => Ok(json!({
             "operation": p.operation,
             "outcome": "refused",
@@ -291,6 +360,15 @@ pub struct OpsBridgePlugin;
 impl Plugin for OpsBridgePlugin {
     fn build(&self, app: &mut App) {
         use bevy_debugger_bevy::{DebugCommandInfo, DebugCommandsAppExt};
+
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/project_root",
+                "Which project the editor has open, and which map. A read.",
+            )
+            .example(json!({})),
+            project_root,
+        );
 
         app.add_debug_command(
             DebugCommandInfo::new(

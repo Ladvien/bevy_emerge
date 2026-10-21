@@ -148,7 +148,11 @@ fn slot_of_call_containing(src: &str, marker_at: usize) -> Option<String> {
     // comments — so the two indices drifted apart and the helper found nothing in files whose
     // refusals were all correctly filed. **A `Vec<char>` makes every index the same kind.**
     let chars: Vec<char> = src.chars().collect();
-    let flat: Vec<char> = chars.iter().copied().filter(|c| !c.is_whitespace()).collect();
+    let flat: Vec<char> = chars
+        .iter()
+        .copied()
+        .filter(|c| !c.is_whitespace())
+        .collect();
 
     // **The marker's position in the flattened text.**
     //
@@ -186,7 +190,10 @@ fn slot_of_call_containing(src: &str, marker_at: usize) -> Option<String> {
             .take_while(|c| c.is_ascii_alphabetic())
             .collect();
         // **The argument list: from the `(` to its matching `)`.**
-        let open = flat[after..].iter().position(|c| *c == '(').map(|p| after + p);
+        let open = flat[after..]
+            .iter()
+            .position(|c| *c == '(')
+            .map(|p| after + p);
         let mut end = None;
         if let Some(open) = open {
             let mut depth = 0i32;

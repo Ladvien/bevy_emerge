@@ -118,10 +118,7 @@ fn meshes_at_1680(root: &std::path::Path) -> App {
         .expect("the MESHES tab is one of the enumerated modes");
     let mut app =
         harness::build_headless_at(root, "m", None, mode).unwrap_or_else(|e| panic!("{e}"));
-    hold(
-        &mut app,
-        vec![keys::binding(keys::Action::Shortcuts).key],
-    );
+    hold(&mut app, vec![keys::binding(keys::Action::Shortcuts).key]);
     for _ in 0..8 {
         app.update();
     }
@@ -168,7 +165,12 @@ fn crossing_pairs_on_screen(app: &mut App) -> (usize, Vec<String>) {
     let leaders: Vec<(String, Vec<Rect>)> = owned
         .into_iter()
         .map(|(name, segs)| {
-            (name, segs.iter().filter_map(|e| rect_of.get(e).copied()).collect())
+            (
+                name,
+                segs.iter()
+                    .filter_map(|e| rect_of.get(e).copied())
+                    .collect(),
+            )
         })
         .filter(|(_, segs): &(String, Vec<Rect>)| !segs.is_empty())
         .collect();
@@ -180,7 +182,10 @@ fn crossing_pairs_on_screen(app: &mut App) -> (usize, Vec<String>) {
                 for q in b_segs {
                     let hit = p.intersect(*q);
                     if hit.width() > 0.0 && hit.height() > 0.0 {
-                        met.push(format!("{a_name}'s leader meets {b_name}'s at {:?}", hit.min));
+                        met.push(format!(
+                            "{a_name}'s leader meets {b_name}'s at {:?}",
+                            hit.min
+                        ));
                     }
                 }
             }

@@ -480,15 +480,27 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::tiles::Mode", Ownership::Project),
     // Derived from the kit's meshes: a different kit means different thumbnails.
     ("bevy_emerge_mapper::thumbs::Thumbnails", Ownership::Project),
-    ("bevy_emerge_mapper::thumbs::ThumbGeneration", Ownership::Project),
-    ("bevy_emerge_mapper::labels::Suggestions", Ownership::Project),
+    (
+        "bevy_emerge_mapper::thumbs::ThumbGeneration",
+        Ownership::Project,
+    ),
+    (
+        "bevy_emerge_mapper::labels::Suggestions",
+        Ownership::Project,
+    ),
     // **`Project`, because the model is read off the project's own `.env`.** A different project may
     // configure a different endpoint, and the resource latches that it has read one — so carrying it
     // across would leave the band naming a model this project never asked for. The link state goes
     // with it, which is right: it is evidence about a round trip that was made for that project.
     ("bevy_emerge_mapper::labels::Labeler", Ownership::Project),
-    ("bevy_emerge_mapper::anim_watch::BenchReports", Ownership::Project),
-    ("bevy_emerge_mapper::anim_watch::RigWatch", Ownership::Project),
+    (
+        "bevy_emerge_mapper::anim_watch::BenchReports",
+        Ownership::Project,
+    ),
+    (
+        "bevy_emerge_mapper::anim_watch::RigWatch",
+        Ownership::Project,
+    ),
     // **The file watcher's stamps, and they are `Project` because the files are the project's.**
     // A door change can land on a different project — the chooser's own door is a different
     // project — and the stamps are the watcher's memory of *those* files. Carried across, the
@@ -498,7 +510,6 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     // **And the tick's own scratch, for the same reason** — it names the files that changed
     // since the last tick, and those are the previous project's files.
     ("bevy_emerge_mapper::watch::Due", Ownership::Project),
-
     // **`Session`, and that is the whole point of it.** Every other problem list in this editor is a
     // tab's working state, capped and cleared by `Esc`; this one answers *"what has gone wrong since
     // the application started"*, which a value thrown away with the door cannot.
@@ -546,13 +557,28 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::tiles::DrawnRows", Ownership::Door),
     ("bevy_emerge_mapper::compose::ComposeState", Ownership::Door),
     ("bevy_emerge_mapper::compose::Budget", Ownership::Door),
-    ("bevy_emerge_mapper::compose::StagedCarousel", Ownership::Door),
+    (
+        "bevy_emerge_mapper::compose::StagedCarousel",
+        Ownership::Door,
+    ),
     ("bevy_emerge_mapper::anim_tab::BenchState", Ownership::Door),
-    ("bevy_emerge_mapper::anim_tab::AdoptExclude", Ownership::Door),
+    (
+        "bevy_emerge_mapper::anim_tab::AdoptExclude",
+        Ownership::Door,
+    ),
     ("bevy_emerge_mapper::anim_stage::BenchAb", Ownership::Door),
-    ("bevy_emerge_mapper::anim_stage::BenchCamera", Ownership::Door),
-    ("bevy_emerge_mapper::anim_stage::BenchScrub", Ownership::Door),
-    ("bevy_emerge_mapper::anim_watch::MeasureQueue", Ownership::Door),
+    (
+        "bevy_emerge_mapper::anim_stage::BenchCamera",
+        Ownership::Door,
+    ),
+    (
+        "bevy_emerge_mapper::anim_stage::BenchScrub",
+        Ownership::Door,
+    ),
+    (
+        "bevy_emerge_mapper::anim_watch::MeasureQueue",
+        Ownership::Door,
+    ),
     ("bevy_emerge_mapper::labels::LabelQueue", Ownership::Door),
     ("bevy_emerge_mapper::filter::Filters", Ownership::Door),
     ("bevy_emerge_mapper::notice::Showing", Ownership::Door),
@@ -573,8 +599,10 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::view::Rig", Ownership::Door),
     // A half-typed token draft is the door's working state — a draft naming a token for one
     // kit's vocabulary is meaningless standing in another.
-    ("bevy_emerge_mapper::token_prompt::TokenPrompt", Ownership::Door),
-
+    (
+        "bevy_emerge_mapper::token_prompt::TokenPrompt",
+        Ownership::Door,
+    ),
     // ── True for as long as the application runs ────────────────────────────────────────────────
     // The surface is how this application DRAWS — see `crate::surface`, and `scene_roots`, which
     // excludes its entities for the same reason.
@@ -590,12 +618,30 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::view::Pointer", Ownership::Session),
     // Persisted to disk under `target/`, so that STALE is truthful at startup rather than after the
     // bench's first audit.
-    ("bevy_emerge_mapper::anim_cache::BenchCache", Ownership::Session),
-    ("bevy_emerge_mapper::anim_watch::BenchGeneration", Ownership::Session),
-    ("bevy_emerge_mapper::anim_plots::BenchPlots", Ownership::Session),
-    ("bevy_emerge_mapper::anim_stage::GhostMaterial", Ownership::Session),
-    ("bevy_emerge_mapper::label_booth::ShotRig", Ownership::Session),
-    ("bevy_emerge_mapper::labels::LabelGeneration", Ownership::Session),
+    (
+        "bevy_emerge_mapper::anim_cache::BenchCache",
+        Ownership::Session,
+    ),
+    (
+        "bevy_emerge_mapper::anim_watch::BenchGeneration",
+        Ownership::Session,
+    ),
+    (
+        "bevy_emerge_mapper::anim_plots::BenchPlots",
+        Ownership::Session,
+    ),
+    (
+        "bevy_emerge_mapper::anim_stage::GhostMaterial",
+        Ownership::Session,
+    ),
+    (
+        "bevy_emerge_mapper::label_booth::ShotRig",
+        Ownership::Session,
+    ),
+    (
+        "bevy_emerge_mapper::labels::LabelGeneration",
+        Ownership::Session,
+    ),
     // In-flight vision-model work. Dropping it mid-request would strand the task, not cancel it.
     ("bevy_emerge_mapper::labels::LabelTasks", Ownership::Session),
     // **The armed composition, and the same answer.** It is the author's intent — *which
@@ -613,7 +659,10 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     // **The composition picker's cursor, and the same answer.** It is the author's cursor in the
     // author's list, and it is where the arm is going to be taken from — so it belongs with the arm
     // rather than with the door's own working state.
-    ("bevy_emerge_mapper::compose::picker::Picker", Ownership::Session),
+    (
+        "bevy_emerge_mapper::compose::picker::Picker",
+        Ownership::Session,
+    ),
 ];
 
 /// What a door change does to this resource, or `None` if nobody has said.

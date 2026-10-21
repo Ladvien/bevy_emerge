@@ -120,6 +120,35 @@ impl Emerge {
         &self.project
     }
 
+    /// **Is the editor on the project this server was told about?**
+    ///
+    /// **The one thing the two processes have to agree on**, and the server cannot know it by
+    /// itself: the editor is the one that knows which project it has open. **So the server asks
+    /// the editor for its project root and compares**, and a mismatch is a refusal with a sentence
+    /// rather than a change to somebody else's map.
+    pub async fn check_project(&self) -> Result<(), String> {
+        let told = self
+            .project
+            .canonicalize()
+            .unwrap_or_else(|_| self.project.clone());
+        let answer = self.editor.call("emerge/project_root", json!({})).await?;
+        let editor_root = answer
+            .get("project_root")
+            .and_then(|v| v.as_str())
+            .ok_or("the editor did not say which project it has open.")?;
+        let editor_root = std::path::PathBuf::from(editor_root);
+        let editor_root = editor_root.canonicalize().unwrap_or(editor_root);
+        if editor_root != told {
+            return Err(format!(
+                "the editor has `{}` open and this server was told `{}`. Point both at the same \
+                 project, or the changes would land in the wrong one.",
+                editor_root.display(),
+                told.display()
+            ));
+        }
+        Ok(())
+    }
+
     /// **`emerge_list_operations` — every operation, its schema, and how it is undone.**
     ///
     /// **A read.** It asks the running editor, so the list is the editor's own and cannot be out
@@ -129,7 +158,9 @@ impl Emerge {
         description = "Every operation the running bevy_emerge editor knows, with each one's \
                        parameters' JSON schema and how it is undone. Call this before \
                        emerge_apply_operation so the parameters are the ones the operation \
-                       actually takes. Returns the list; it does not change anything.",
+                       actually takes. Returns the list; it does not change anything. The undo \
+                       column names the strategy an operation declares, and no tool performs an \
+                       undo yet.",
         annotations(
             title = "List the editor's operations",
             read_only_hint = true,
@@ -139,7 +170,7 @@ impl Emerge {
         )
     )]
     async fn list_operations(&self) -> Result<CallToolResult, ErrorData> {
-        match self.editor.call("emerge/operation_list", json!({})) {
+        match self.editor.call("emerge/operation_list", json!({})).await {
             Ok(v) => Ok(CallToolResult::structured(v)),
             Err(e) => Ok(refusal(&e)),
         }
@@ -166,10 +197,14 @@ impl Emerge {
         &self,
         Parameters(p): Parameters<OperationParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        match self.editor.call(
-            "emerge/operation_preview",
-            json!({"operation": p.operation, "parameters": p.parameters}),
-        ) {
+        match self
+            .editor
+            .call(
+                "emerge/operation_preview",
+                json!({"operation": p.operation, "parameters": p.parameters}),
+            )
+            .await
+        {
             Ok(v) => Ok(CallToolResult::structured(v)),
             Err(e) => Ok(refusal(&e)),
         }
@@ -184,11 +219,15 @@ impl Emerge {
         description = "Run one of the editor's operations. Changes the open map, writes the data \
                        file, and appends a line to the operation log. Set dry_run to true to see \
                        what would change without changing it. Returns the operation's id, which \
-                       can be cited in a report to the developer, and the log's own record of it.",
+                       can be cited in a report to the developer, and the log's own record of it. \
+                       The operation replaces the values it names rather than adding to them, \
+                       so it is marked destructive; there is no undo tool yet, and a change is \
+                       reverted by editing the data file back or by restoring it from version \
+                       control.",
         annotations(
             title = "Apply an editor operation",
             read_only_hint = false,
-            destructive_hint = false,
+            destructive_hint = true,
             idempotent_hint = false,
             open_world_hint = false
         )
@@ -197,14 +236,24 @@ impl Emerge {
         &self,
         Parameters(p): Parameters<ApplyParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        match self.editor.call(
-            "emerge/operation_apply",
-            json!({
-                "operation": p.operation,
-                "parameters": p.parameters,
-                "dry_run": p.dry_run,
-            }),
-        ) {
+        // **The project is checked before anything is changed.** A change to the wrong project is
+        // worse than no change, and the server cannot know which project the editor has open
+        // except by asking.
+        if let Err(why) = self.check_project().await {
+            return Ok(refusal(&why));
+        }
+        match self
+            .editor
+            .call(
+                "emerge/operation_apply",
+                json!({
+                    "operation": p.operation,
+                    "parameters": p.parameters,
+                    "dry_run": p.dry_run,
+                }),
+            )
+            .await
+        {
             Ok(v) => {
                 // **A refusal is an error, and the tool says so.** The editor answers a refusal
                 // with `outcome: "refused"` and a reason, and the agent must be able to tell that
@@ -227,8 +276,9 @@ impl Emerge {
     #[tool(
         name = "emerge_read_oplog",
         description = "The editor's operation log, newest last. Every operation appends one line, \
-                       whether a person or an agent did it, and an undo is recorded as a new line \
-                       rather than a deletion. Read it to see what has been done to this project.",
+                       whether a person or an agent did it. Read it to see what has been done to \
+                       this project. A refusal is not logged, so a line here is a line about a \
+                       change that happened.",
         annotations(
             title = "Read the operation log",
             read_only_hint = true,
@@ -241,10 +291,14 @@ impl Emerge {
         &self,
         Parameters(p): Parameters<LogParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        match self.editor.call(
-            "emerge/oplog_read",
-            json!({"since_seq": p.since_seq, "limit": p.limit}),
-        ) {
+        match self
+            .editor
+            .call(
+                "emerge/oplog_read",
+                json!({"since_seq": p.since_seq, "limit": p.limit}),
+            )
+            .await
+        {
             Ok(v) => Ok(CallToolResult::structured(v)),
             Err(e) => Ok(refusal(&e)),
         }
@@ -336,9 +390,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let project = project.unwrap_or_else(|| PathBuf::from("."));
-    let service = Emerge::new(Brp::from_env(), project)
-        .serve(rmcp::transport::stdio())
-        .await?;
+    let server = Emerge::new(Brp::from_env(), project);
+    // **The project is checked when a tool is called, not when the server starts.**
+    //
+    // **A server that refuses to start is a server an agent cannot ask anything.** The editor may
+    // be closed when the server starts and opened later — or the server may be started first on
+    // purpose — and a server that exits because nothing is listening has told the agent
+    // nothing except that the editor was not up. **So the check is per call**, and a call with
+    // no editor answers with a sentence.
+    let service = server.serve(rmcp::transport::stdio()).await?;
     service.waiting().await?;
     Ok(())
 }

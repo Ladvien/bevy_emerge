@@ -292,8 +292,9 @@ fn ink(
         }
         // The overlay's own children paint over everything by design; they are not ground it has to
         // dodge. Walked rather than filtered by marker, because a badge's `Text` carries none.
-        let mine = std::iter::successors(Some(entity), |e| parents.get(*e).ok().map(|p| p.parent()))
-            .any(|e| e == layer);
+        let mine =
+            std::iter::successors(Some(entity), |e| parents.get(*e).ok().map(|p| p.parent()))
+                .any(|e| e == layer);
         if !mine {
             out.push(rect);
         }
@@ -367,7 +368,12 @@ impl FreeGround {
                     here + sum[y * w + x + 1] + sum[(y + 1) * w + x] - sum[y * w + x];
             }
         }
-        Self { origin, cols, rows, sum }
+        Self {
+            origin,
+            cols,
+            rows,
+            sum,
+        }
     }
 
     /// Is every cell this rectangle touches clear? A rectangle reaching outside the window is not
@@ -639,7 +645,9 @@ fn rebuild_badges(
     for entity in clusters.iter().chain(segs.iter()) {
         commands.entity(entity).despawn();
     }
-    let Some((tab, stance, on_screen)) = key else { return };
+    let Some((tab, stance, on_screen)) = key else {
+        return;
+    };
 
     // **This tab's verbs, then the frame's** — the order the old list used, so anyone who learned it
     // finds the same things in the same order. `badges` returns declaration order and never sorts:
@@ -756,7 +764,11 @@ fn rebuild_badges(
                         } else {
                             FlexDirection::Row
                         },
-                        flex_wrap: if labelled { FlexWrap::NoWrap } else { FlexWrap::Wrap },
+                        flex_wrap: if labelled {
+                            FlexWrap::NoWrap
+                        } else {
+                            FlexWrap::Wrap
+                        },
                         // **A legend's rows are all one width**, so it reads as a block rather than
                         // as a ragged stack of boxes — `Stretch` takes the widest and gives it to
                         // every row. A cluster of bare chords wants the opposite: each box hugs its
@@ -770,7 +782,11 @@ fn rebuild_badges(
                         } else {
                             AlignItems::Start
                         },
-                        max_width: if labelled { Val::Auto } else { Val::Px(CLUSTER_W) },
+                        max_width: if labelled {
+                            Val::Auto
+                        } else {
+                            Val::Px(CLUSTER_W)
+                        },
                         // **A labelled cluster is ONE box, and its rows are rows.**
                         //
                         // This was true of the legend alone, and the asymmetry was a bug with two
@@ -790,7 +806,11 @@ fn rebuild_badges(
                         //
                         // A band's cluster still carries no box — there each badge is its own chip
                         // beside a control whose own words are already the verb.
-                        padding: if labelled { chrome::CHIP_PAD } else { UiRect::ZERO },
+                        padding: if labelled {
+                            chrome::CHIP_PAD
+                        } else {
+                            UiRect::ZERO
+                        },
                         border: if labelled {
                             UiRect::all(Val::Px(chrome::EDGE_W))
                         } else {
@@ -868,10 +888,9 @@ fn anchor(
             // Asked of the frame, not of a height: `chrome::Frame` names these three, so a band that
             // grows or shrinks cannot make this answer stale the way a pixel threshold would.
             let bands = [frame.chrome_bar, frame.door_strip, frame.status];
-            let banded = std::iter::successors(Some(entity), |e| {
-                parents.get(*e).ok().map(|p| p.parent())
-            })
-            .any(|e| bands.contains(&e));
+            let banded =
+                std::iter::successors(Some(entity), |e| parents.get(*e).ok().map(|p| p.parent()))
+                    .any(|e| bands.contains(&e));
             Some(Anchored { at, fold, banded })
         }
         Home::Legend => {
@@ -879,7 +898,11 @@ fn anchor(
             // window that belongs to nothing — the anchor here is only the preferred corner's rect;
             // [`settle_legend`] is what actually finds the ground.
             let (node, tf) = rects.get(frame.viewport).ok()?;
-            laid_out_rect(node, tf).map(|at| Anchored { at, fold: None, banded: false })
+            laid_out_rect(node, tf).map(|at| Anchored {
+                at,
+                fold: None,
+                banded: false,
+            })
         }
     }
 }
@@ -1143,7 +1166,16 @@ fn lanes_for(ties: &[Tie], lanes: usize, thick: f32) -> Vec<usize> {
         false
     }
 
-    if walk(0, ties, &rank, &orders, thick, &mut chosen, &mut drawn, &mut budget) {
+    if walk(
+        0,
+        ties,
+        &rank,
+        &orders,
+        thick,
+        &mut chosen,
+        &mut drawn,
+        &mut budget,
+    ) {
         return chosen;
     }
     // **No clean assignment inside the budget: the fewest crossings, not the blind preference.**
@@ -1501,7 +1533,10 @@ fn place_badges(
     }
 
     let mut banded_plans: Vec<Plan> = (0..items.len())
-        .map(|_| Plan { pos: None, lead: [None; 3] })
+        .map(|_| Plan {
+            pos: None,
+            lead: [None; 3],
+        })
         .collect();
     let mut taken: Vec<Rect> = Vec::new();
 
@@ -1541,7 +1576,12 @@ fn place_badges(
         } else {
             (a.at.min.x, x + size.x)
         };
-        banded_plans[i].lead = elbow(Vec2::new(a_x, a.at.center().y), a_x, box_edge, a.at.center().y);
+        banded_plans[i].lead = elbow(
+            Vec2::new(a_x, a.at.center().y),
+            a_x,
+            box_edge,
+            a.at.center().y,
+        );
         taken.push(me);
         for seg in banded_plans[i].lead.iter().flatten() {
             taken.push(*seg);
@@ -1562,8 +1602,10 @@ fn place_badges(
     let rail_of = |left: bool| -> Vec<usize> {
         let mut rail: Vec<usize> = (0..items.len())
             .filter(|i| {
-                matches!(items[*i].0 .0, Home::Control(_))
-                    && anchors[*i].as_ref().is_some_and(|a| !a.banded && side_of(a) == left)
+                matches!(items[*i].0.0, Home::Control(_))
+                    && anchors[*i]
+                        .as_ref()
+                        .is_some_and(|a| !a.banded && side_of(a) == left)
             })
             .collect();
         // **Ordered by the edge a leader will leave from, not by the anchor's centre.**
@@ -1583,19 +1625,25 @@ fn place_badges(
                 anchors[*y].as_ref().map(|a| a.at.max.y).unwrap_or(0.0),
             );
             ax.total_cmp(&ay)
-                .then(place_order(items[*x].0 .0).cmp(&place_order(items[*y].0 .0)))
+                .then(place_order(items[*x].0.0).cmp(&place_order(items[*y].0.0)))
         });
         rail
     };
 
     let attempt = |compact: bool| -> (Vec<Plan>, Vec<Rect>) {
         let mut plans: Vec<Plan> = (0..items.len())
-            .map(|_| Plan { pos: None, lead: [None; 3] })
+            .map(|_| Plan {
+                pos: None,
+                lead: [None; 3],
+            })
             .collect();
         // Banded boxes were placed once above; copy their plans and ground into this attempt.
         for (i, p) in banded_plans.iter().enumerate() {
             if p.pos.is_some() {
-                plans[i] = Plan { pos: p.pos, lead: p.lead };
+                plans[i] = Plan {
+                    pos: p.pos,
+                    lead: p.lead,
+                };
             }
         }
         let mut taken = banded_taken.clone();
@@ -1663,7 +1711,9 @@ fn place_badges(
                 // `rail_of` filters on `is_some`, so this is never `None` today — but stating that
                 // with a panic would hand a future edit to `rail_of` a crash instead of a skipped
                 // box, and this crate refuses panic paths (`CLAUDE.md`).
-                let Some(a) = anchors[i].as_ref() else { continue };
+                let Some(a) = anchors[i].as_ref() else {
+                    continue;
+                };
                 if let Some(f) = a.fold {
                     let seen = a.at.intersect(f);
                     if seen.width() <= 0.0 || seen.height() <= 0.0 {
@@ -1930,7 +1980,13 @@ fn place_badges(
                 };
                 ties.push((
                     i,
-                    Tie { at: Vec2::new(from, a_y), edge: box_edge, mid, lane0, step },
+                    Tie {
+                        at: Vec2::new(from, a_y),
+                        edge: box_edge,
+                        mid,
+                        lane0,
+                        step,
+                    },
                     a_x,
                     at_home,
                 ));
@@ -2054,9 +2110,9 @@ fn place_badges(
             .flat_map(|(k, (_, a))| placed.iter().skip(k + 1).map(move |(_, b)| (a, b)))
             .filter(|(a, b)| covers(**a, **b))
             .count();
-        let legend = placed.iter().any(|(i, me)| {
-            items[*i].0 .0 == Home::Legend && taken.iter().any(|t| covers(*t, *me))
-        });
+        let legend = placed
+            .iter()
+            .any(|(i, me)| items[*i].0.0 == Home::Legend && taken.iter().any(|t| covers(*t, *me)));
         // **A crossing counts, and it counts more than a box overlap.**
         //
         // The score used to count box overlaps and the legend's collision, and nothing else. **So
@@ -2075,11 +2131,19 @@ fn place_badges(
         // for. **So a crossing is worth more than an overlap** — one crossing outranks any number
         // of overlaps, because a layout with a crossing is the one that cannot be read.
         //
-        // The multiplier is `plans.len() + 1`, so one crossing costs more than every possible box
-        // overlap combined: the comparison the score makes is then *a crossing loses*, and the
-        // only thing that can beat it is a layout with no crossing at all.
+        // **The multiplier is the number of pairs a layout can have, plus two.** With `n` boxes
+        // there are `n(n-1)/2` pairs, and the legend's collision is one more, so a crossing has
+        // to cost more than *all* of them to make the comparison the score states: **a crossing
+        // loses, whatever the overlaps are.**
+        //
+        // **The first version used `n + 1`**, which is smaller than the number of pairs for any
+        // `n` past three — so a layout with nineteen overlapping pairs would have beaten a layout
+        // with one crossing, **and the claim the comment made was not the claim the arithmetic
+        // kept.** A reviewer caught it, and it was right to.
+        let n = items.len();
+        let all_pairs = n.saturating_mul(n.saturating_sub(1)) / 2;
         let crossings = crossing_pairs(plans);
-        pairs + usize::from(legend) + crossings * (items.len() + 1)
+        pairs + usize::from(legend) + crossings * (all_pairs + 2)
     };
 
     let (mut plans, taken) = attempt(false);
@@ -2119,7 +2183,11 @@ fn place_badges(
             let Ok((mut node, mut vis)) = segs.get_mut(*entity) else {
                 continue;
             };
-            let want = if plans[i].pos.is_none() { None } else { plans[i].lead[k] };
+            let want = if plans[i].pos.is_none() {
+                None
+            } else {
+                plans[i].lead[k]
+            };
             match want {
                 Some(r) => {
                     let (l, t) = (Val::Px(r.min.x / scale), Val::Px(r.min.y / scale));
@@ -2213,7 +2281,7 @@ fn flash_live_badges(
 
 #[cfg(test)]
 mod tests {
-    use super::{FreeGround, CELL};
+    use super::{CELL, FreeGround};
     use bevy::prelude::*;
 
     fn window() -> Rect {
@@ -2412,16 +2480,15 @@ fn one_badge(
             ))
             .with_children(|w| {
                 w.spawn((
-    Text::new(badge.does.to_owned()),
-    // Quieter than the chord: the chord is what the eye scans
-    // for, the words are what tell it whether to stop.
-    TextColor(chrome::DIM),
-    chrome::font(chrome::text::HINT),
-    TextLayout::new(Justify::Left, LineBreak::WordBoundary),
-    bevy::picking::Pickable::IGNORE,
+                    Text::new(badge.does.to_owned()),
+                    // Quieter than the chord: the chord is what the eye scans
+                    // for, the words are what tell it whether to stop.
+                    TextColor(chrome::DIM),
+                    chrome::font(chrome::text::HINT),
+                    TextLayout::new(Justify::Left, LineBreak::WordBoundary),
+                    bevy::picking::Pickable::IGNORE,
                 ));
             });
         }
     });
-
 }

@@ -44,4 +44,5 @@ ureq = { version = "3", features = ["json"] }
 [dev-dependencies]
 # **The MCP client, for the integration test.** The brief asks for a test that calls a tool "as an
 # outside agent would" — through a client, over the protocol, not by calling the function.
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "process"] }
+# **The MCP client, for the integration test.** The brief asks for a test that calls a tool "as an
+# outside agent would" — through a client, over the protocol, not by calling the function.

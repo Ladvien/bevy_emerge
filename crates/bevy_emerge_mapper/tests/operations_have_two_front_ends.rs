@@ -31,7 +31,7 @@
 //! place `map_set_settings` may be committed from, and the registry is the only list of
 //! operations.
 
-use bevy_emerge_mapper::keys::{Action, BINDINGS};
+use bevy_emerge_mapper::keys::Action;
 
 mod fixtures;
 
@@ -59,22 +59,17 @@ const BRP_COMMANDS: &[&str] = &[
 /// **So there are four**: a discovery one, a preview one, an apply one and a log reader — **and
 /// the apply one dispatches by name.** The operation's own name is the parameter, so the
 /// vocabulary is still the operation's, and `emerge_list_operations` says what the names are.
-const _: fn() = || {
-    // **The registry is not empty**, and this is the anti-vacuity floor: a parity test that
-    // passes because there is nothing to check is not a test.
-    assert!(
-        !bevy_emerge_mapper::ops::registry().is_empty(),
-        "the registry is empty, so the parity rules are being enforced against nothing"
-    );
-};
-
 /// **The operations that have a UI entry point.
 ///
 /// **A map's settings are set from the Map door's own settings panel**, and the panel's verbs are
 /// the ones this run migrated. The list is a table rather than a scan, because a scan of the
 /// mapper's twenty thousand lines for "which key writes a map's origin" is a heuristic and a
 /// heuristic that finds nothing is not a proof.
-const UI_ENTRY_POINTS: &[(&str, Action)] = &[];
+const UI_ENTRY_POINTS: &[(&str, &str)] = &[
+    // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
+    // own way of doing what `map_set_settings` does. It dispatches the operation.
+    ("map_set_settings", "SizeField(Axis)"),
+];
 
 /// **Every operation has a BRP command, and the editor running is what says so.**
 ///
@@ -366,7 +361,11 @@ const UNMIGRATED: &[Action] = &[
 
 /// **The ratchet.** It is lowered in the same commit that migrates an action, and it is the only
 /// thing that stops the list growing.
-const UNMIGRATED_MAX: usize = UNMIGRATED.len();
+///
+/// **A literal, and not `UNMIGRATED.len()`.** The first version compared the list's length with
+/// **its own length**, which is a tautology that can never fail — **and a ratchet that cannot fail
+/// is not a ratchet.** It is a number a human lowers, and the test says so when it is wrong.
+const UNMIGRATED_MAX: usize = 128;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///
@@ -387,38 +386,110 @@ fn the_allowlist_of_unmigrated_actions_only_shrinks() {
     // The second half is what makes the list a *complete* claim rather than a list of examples.
     // **A `Vec`, not a `HashSet`** — `Action` derives `PartialEq` and `Eq` but not `Hash`, and
     // adding a derive to a hundred-variant enum for one test's convenience is the wrong trade.
-    let mut both = Vec::new();
-    for action in UNMIGRATED {
-        if UI_ENTRY_POINTS.iter().any(|(_, a)| a == action) {
-            both.push(format!("{action:?}"));
+    // **Every action is on the list, and the list is the whole of the actions.**
+    //
+    // **The completeness half, and it is what stops the list from being a list of examples.** A
+    // verb that is neither listed nor migrated would be invisible to this test, and the list
+    // would quietly become a lie.
+    assert_eq!(
+        UNMIGRATED.len(),
+        Action::ALL.len(),
+        "the unmigrated list holds {} actions and there are {} in total, so {} are neither \
+         migrated nor listed — and an action nobody accounts for is an action nobody checks. \
+         A new action must be added to the list in the same commit that adds it.",
+        UNMIGRATED.len(),
+        Action::ALL.len(),
+        Action::ALL.len() - UNMIGRATED.len()
+    );
+    // **And every action in the enum is on the list, by name.**
+    //
+    // **The count is not enough.** A list of the right length with the wrong members is a list
+    // that lies, and the count is the only thing a count can check. **So the members are
+    // checked by name**, against the enum the crate generates.
+    for action in Action::ALL {
+        assert!(
+            UNMIGRATED.contains(&action),
+            "{action:?} is in the editor's vocabulary and on neither list: it is neither \
+             migrated nor accounted for, so nothing checks it."
+        );
+    }
+}
+
+/// **Every operation in the registry has a UI entry point, and every UI entry point names an
+/// operation in the registry.**
+///
+/// **The walk, and it is the half that was missing.** The first version of this file checked the
+/// four BRP commands and the MCP tools, **but never walked the registry** — so an operation with
+/// no UI entry point failed nothing, and an entry point naming an operation that did not exist
+/// failed nothing. **The registry is the list of what exists**, and the two lists either side of
+/// it have to agree with it.
+#[test]
+fn every_operation_has_a_ui_entry_point_and_the_other_way_round() {
+    let registry = bevy_emerge_mapper::ops::registry();
+    assert!(
+        !registry.is_empty(),
+        "the registry is empty, so the parity rules are being enforced against nothing"
+    );
+    let mut without = Vec::new();
+    for op in &registry {
+        if !UI_ENTRY_POINTS.iter().any(|(name, _)| *name == op.name()) {
+            without.push(op.name());
         }
     }
     assert!(
-        both.is_empty(),
-        "these actions are on the unmigrated list and are also a registered operation's UI entry \
-         point. An action is one or the other:\n  {}",
-        both.join("\n  ")
+        without.is_empty(),
+        "these operations have no UI entry point, so a person at the keyboard cannot do what an \
+         agent can: {:?}. Every operation needs a UI path, and a UI path that is not an operation \
+         is a second way to do one thing.",
+        without
+    );
+    let mut orphaned = Vec::new();
+    for (name, _) in UI_ENTRY_POINTS {
+        if !registry.iter().any(|op| op.name() == *name) {
+            orphaned.push(*name);
+        }
+    }
+    assert!(
+        orphaned.is_empty(),
+        "these UI entry points name an operation the registry does not have: {orphaned:?}. A UI \
+         path that dispatches nothing is a UI path that does the work itself."
     );
 }
 
-/// **The UI entry points name real actions, and those actions are bound to a key.**
+/// **Every UI entry point names a place that is really there, and dispatches the operation.**
 ///
-/// **A UI entry point that names an unbound action is a claim about a control that does not
-/// exist.** The binding check is against `BINDINGS`, which is the one list of what the keyboard
-/// does.
+/// **A UI entry point that names a control the source does not contain is a claim about a
+/// control that does not exist** — and a claim about a control that does not exist is the exact
+/// drift the parity test exists to catch.
 #[test]
-fn every_ui_entry_point_is_a_bound_action() {
-    let mut unbound = Vec::new();
-    for (op, action) in UI_ENTRY_POINTS {
-        if !BINDINGS.iter().any(|b| b.action == *action) {
-            unbound.push(format!(
-                "the operation `{op}`'s entry point {action:?} is not bound to a key"
+fn every_ui_entry_point_is_in_the_source_and_dispatches_the_operation() {
+    let editor = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
+    let mut missing = Vec::new();
+    for (op, place) in UI_ENTRY_POINTS {
+        if !editor.contains(place) {
+            missing.push(format!(
+                "the operation `{op}`'s entry point `{place}` is not in editor.rs, so the UI path \
+                 it names is not there."
             ));
         }
     }
     assert!(
-        unbound.is_empty(),
-        "these entry points are not bound to anything:\n  {}",
-        unbound.join("\n  ")
+        missing.is_empty(),
+        "these entry points are not in the source:\n  {}",
+        missing.join("\n  ")
+    );
+    // **And the editor dispatches the operation**, rather than writing the state itself.
+    assert!(
+        editor.contains("crate::ops::dispatch("),
+        "the editor does not dispatch any operation, so every UI path is a second way to do a \
+         thing the registry also does."
+    );
+    // **And the map's bounds are written in ONE place.** A second write to `open.map.bounds`
+    // would be a second way to change the map's size, whatever the first one is called.
+    let writes = editor.matches("open.map.bounds = ").count();
+    assert!(
+        writes <= 1,
+        "editor.rs writes `open.map.bounds` {writes} time(s). The map's size is changed by the \
+         operation, and a second write is a second way to do it."
     );
 }

@@ -501,9 +501,16 @@ impl ControlId {
     }
 }
 
-/// Everything the editor can be asked to do.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
+enumerated! {
+    /// Everything the editor can be asked to do.
+    ///
+    /// **Generated with the enum by [`enumerated!`], so the count and the list cannot disagree** —
+    /// the same mechanism `ControlId` uses, and for the same reason: a hand-typed list of a
+    /// hundred-and-twenty-eight variants is a list that goes stale. **The parity test needs `ALL`**
+    /// to say that every action is either migrated or on the unmigrated list, and a list that
+    /// cannot be checked against the enum is a list that is not checked.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Action {
     /// Jump to this door's first, second or third panel. **Three, because the widest door holds
     /// three** — Kit is Meshes/Tiles/Compose. A fourth would be a fourth row here and a fourth in
     /// every context's list, which is what the twelve-row cap is for.
@@ -820,6 +827,9 @@ pub enum Action {
     ToggleGhost,
     /// The stage camera's framing: figure / feet / side / ground.
     CycleCamPreset,
+    }
+    /// Every action, so a ratchet can enumerate them.
+    ALL;
 }
 
 impl Action {
@@ -2508,7 +2518,6 @@ pub const BINDINGS: &[Binding] = &[
         "suggest / all / abandon",
     )
     .at(Home::Control(ControlId::Tags)),
-
     bs(
         Action::DiscardAllSuggestions,
         KeyCode::KeyY,
@@ -3149,7 +3158,8 @@ impl Plugin for KeysPlugin {
             // `chain()` makes the sets run in the order listed
             // (`bevy-0.19.0/examples/ecs/ecs_guide.rs:330`).
             .configure_sets(Update, (Phase::Sense, Phase::Text, Phase::Act).chain())
-            .add_systems(Update,
+            .add_systems(
+                Update,
                 (crate::editor::sense_context.in_set(Phase::Sense))
                     .run_if(in_state(crate::screen::Screen::Editor)),
             );
@@ -3213,15 +3223,7 @@ pub enum Holder {
 /// sets both — `Context::Typing` at `.0` and [`Holder::Filter`] at `.2` — and the tab is preserved
 /// through `Holder::Filter`'s own `b.context.overlaps` clause rather than through `.0`.
 pub fn live(tab: Context, typing: bool, stance: Stance, holder: Holder) -> Live {
-    Live(
-        if typing {
-            Context::Typing
-        } else {
-            tab
-        },
-        stance,
-        holder,
-    )
+    Live(if typing { Context::Typing } else { tab }, stance, holder)
 }
 
 /// May an action bound to `want` fire, given who owns the keyboard?
@@ -3805,7 +3807,6 @@ mod tests {
         }
     }
 
-
     /// **The composition verb names its own key**, because it was reported missing twice while on
     /// screen.
     ///
@@ -3993,7 +3994,11 @@ mod tests {
             drawn.sort_by_key(|a| format!("{a:?}"));
             live.sort_by_key(|a| format!("{a:?}"));
             drawn.dedup();
-            assert_eq!(drawn.len(), live.len(), "{context:?}/{stance:?}: a badge repeats an action");
+            assert_eq!(
+                drawn.len(),
+                live.len(),
+                "{context:?}/{stance:?}: a badge repeats an action"
+            );
         }
     }
 
@@ -4404,7 +4409,11 @@ mod tests {
         input.press(binding(Action::Shortcuts).key);
         for tab in [Context::Map, Context::Meshes, Context::Anim] {
             assert!(
-                pressed(&input, Live(tab, Stance::Idle, Holder::Tab), Action::Shortcuts),
+                pressed(
+                    &input,
+                    Live(tab, Stance::Idle, Holder::Tab),
+                    Action::Shortcuts
+                ),
                 "the shortcuts overlay must be reachable from {tab:?}"
             );
         }
@@ -4463,18 +4472,30 @@ mod tests {
         let mut input = ButtonInput::<KeyCode>::default();
         input.press(KeyCode::KeyK);
         assert!(
-            just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), Action::Shortcuts),
+            just_pressed(
+                &input,
+                Live(Context::Map, Stance::Idle, Holder::Tab),
+                Action::Shortcuts
+            ),
             "K did not fire Shortcuts"
         );
         assert!(
-            !just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), Action::Cancel),
+            !just_pressed(
+                &input,
+                Live(Context::Map, Stance::Idle, Holder::Tab),
+                Action::Cancel
+            ),
             "K fired an unrelated action"
         );
 
         let mut input = ButtonInput::<KeyCode>::default();
         input.press(KeyCode::Escape);
         assert!(
-            just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), Action::Cancel),
+            just_pressed(
+                &input,
+                Live(Context::Map, Stance::Idle, Holder::Tab),
+                Action::Cancel
+            ),
             "Escape did not fire Cancel"
         );
     }
@@ -4494,12 +4515,20 @@ mod tests {
         }
         for b in BINDINGS {
             assert!(
-                !just_pressed(&input, Live(Context::Typing, Stance::Idle, Holder::Tab), b.action),
+                !just_pressed(
+                    &input,
+                    Live(Context::Typing, Stance::Idle, Holder::Tab),
+                    b.action
+                ),
                 "{:?} fired while a text field owned the keyboard",
                 b.action
             );
             assert!(
-                !pressed(&input, Live(Context::Typing, Stance::Idle, Holder::Tab), b.action),
+                !pressed(
+                    &input,
+                    Live(Context::Typing, Stance::Idle, Holder::Tab),
+                    b.action
+                ),
                 "{:?} read as held while a text field owned the keyboard",
                 b.action
             );
@@ -4548,7 +4577,8 @@ mod tests {
                 let want =
                     b.while_filtering && b.context.overlaps(tab) && stance_ok(b, Stance::Idle);
                 assert_eq!(
-                    fires, want,
+                    fires,
+                    want,
                     "{:?} {} while a filter box owned the keyboard on {tab:?} — a row that did not \
                      call `Draft::also_filtered` must stay suppressed, a walk that did must stay \
                      live, and neither may reach across tabs",
@@ -4616,7 +4646,8 @@ mod tests {
             let fires = just_pressed(&input, live, b.action);
             let want = b.while_journal && b.needs_mod && stance_ok(b, Stance::Idle);
             assert_eq!(
-                fires, want,
+                fires,
+                want,
                 "{:?} must {}fire while the journal owned the keyboard",
                 b.action,
                 if want { "" } else { "not " }
@@ -4687,7 +4718,11 @@ mod tests {
             Action::PanBack
         ));
         assert!(
-            !just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), Action::Save),
+            !just_pressed(
+                &input,
+                Live(Context::Map, Stance::Idle, Holder::Tab),
+                Action::Save
+            ),
             "bare S must not save"
         );
 
@@ -4698,11 +4733,19 @@ mod tests {
         input.press(MOD_KEYS[0]);
         input.press(KeyCode::KeyS);
         assert!(
-            just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), Action::Save),
+            just_pressed(
+                &input,
+                Live(Context::Map, Stance::Idle, Holder::Tab),
+                Action::Save
+            ),
             "{MOD_NAME}+S must save"
         );
         assert!(
-            !just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), Action::PanBack),
+            !just_pressed(
+                &input,
+                Live(Context::Map, Stance::Idle, Holder::Tab),
+                Action::PanBack
+            ),
             "{MOD_NAME}+S must not also pan"
         );
     }
@@ -4721,7 +4764,11 @@ mod tests {
         input.press(MOD_KEYS[0]);
         input.press(KeyCode::KeyZ);
         assert!(
-            just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), Action::Undo),
+            just_pressed(
+                &input,
+                Live(Context::Map, Stance::Idle, Holder::Tab),
+                Action::Undo
+            ),
             "{MOD_NAME}+Z must undo"
         );
         assert!(
@@ -4744,7 +4791,11 @@ mod tests {
             "bare Z must mark the lattice cell solid"
         );
         assert!(
-            !just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), Action::Undo),
+            !just_pressed(
+                &input,
+                Live(Context::Map, Stance::Idle, Holder::Tab),
+                Action::Undo
+            ),
             "bare Z must not undo"
         );
     }
@@ -4776,7 +4827,8 @@ mod tests {
                 Action::GenerateDeclared,
                 Action::GenerateComposed,
             ] {
-                let fired = just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), other);
+                let fired =
+                    just_pressed(&input, Live(Context::Map, Stance::Idle, Holder::Tab), other);
                 assert_eq!(
                     fired,
                     other == wanted,
@@ -4937,7 +4989,10 @@ mod tests {
         let mut prev = interval_after(0.0);
         for i in 1..=100 {
             let now = interval_after(REPEAT_RAMP_SECS * i as f32 / 100.0);
-            assert!(now <= prev, "the interval grew at step {i}: {prev} -> {now}");
+            assert!(
+                now <= prev,
+                "the interval grew at step {i}: {prev} -> {now}"
+            );
             prev = now;
         }
     }
@@ -4995,7 +5050,13 @@ mod tests {
         repeating(&input, live, Action::TurnPieceLeft, &mut repeat, 1.0 / 60.0);
         input.clear_just_released(key);
         input.press(key);
-        assert!(repeating(&input, live, Action::TurnPieceLeft, &mut repeat, 0.0));
+        assert!(repeating(
+            &input,
+            live,
+            Action::TurnPieceLeft,
+            &mut repeat,
+            0.0
+        ));
         input.clear_just_pressed(key);
         let mut after = 0usize;
         for _ in 0..30 {

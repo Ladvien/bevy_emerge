@@ -41,24 +41,32 @@ impl Brp {
         Brp::new(format!("http://127.0.0.1:{port}/"))
     }
 
-    /// **Call one BRP method.**
+    /// **Call one BRP method, without blocking the async runtime.**
     ///
-    /// **An error, never a panic.** The editor may be closed, may not be ready, or may refuse the
-    /// call — and an agent's tool call that finds no editor running is a *refusal with a
-    /// sentence*, not a crash of the server.
-    pub fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        let id = self
-            .next_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    /// **The editor answers in a frame or two**, and a tool call an agent is waiting on should
+    /// not hold up the runtime's other tasks while it waits. **So the call is made on the blocking
+    /// pool** — `ureq` is a blocking client, and calling it on the async thread would park the
+    /// whole runtime for the length of the request.
+    pub async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        let url = self.url.clone();
+        let name = method.to_owned();
+        let next_id = self.next_id.clone();
+        tokio::task::spawn_blocking(move || {
+            let id = next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Self::call_blocking(&url, &name, id, params)
+        })
+        .await
+        .map_err(|e| format!("the editor call did not finish: {e}"))?
+    }
+
+    /// **The call itself, on a thread that is allowed to block.**
+    fn call_blocking(url: &str, method: &str, id: u64, params: Value) -> Result<Value, String> {
         let body = json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": method,
             "params": params,
         });
-        // **A short timeout, because a tool call an agent is waiting on should not hang.** The
-        // editor answers a registered command in a frame or two; five seconds is a long time to
-        // wait for one.
         // **A five-second cap, because a tool call an agent is waiting on should not hang.** The
         // editor answers a registered command in a frame or two; five seconds is a long time to
         // wait for one.
@@ -67,11 +75,10 @@ impl Brp {
                 .timeout_global(Some(std::time::Duration::from_secs(5)))
                 .build(),
         );
-        let response = agent.post(&self.url).send_json(&body).map_err(|e| {
+        let response = agent.post(url).send_json(&body).map_err(|e| {
             format!(
-                "the editor did not answer `{method}` at {}: {e}. Is it running, and is \
-                     BEVY_BRP_PORT the same on both sides?",
-                self.url
+                "the editor did not answer `{method}` at {url}: {e}. Is it running, and is \
+                 BEVY_BRP_PORT the same on both sides?"
             )
         })?;
         let text = response
@@ -86,6 +93,16 @@ impl Brp {
                 .get("message")
                 .and_then(|m| m.as_str())
                 .unwrap_or("the editor refused the call");
+            // **"Method not found" means the editor is not the one we think it is** — an editor
+            // that is not running, or one built without the debugger's command table. **Saying
+            // "method not found" would send the agent looking for a typo**, and the answer is
+            // that there is no editor to answer.
+            if message.contains("not found") {
+                return Err(format!(
+                    "the editor at {url} does not answer `{method}` — it is probably not running, \
+                     or it was built without its BRP commands. Start it and try again."
+                ));
+            }
             return Err(format!("{method}: {message}"));
         }
         parsed

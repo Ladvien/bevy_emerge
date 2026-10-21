@@ -635,18 +635,23 @@ impl Axis {
             Axis::Z => "Z",
         }
     }
+    /// **The axis, as the operation names it.**
+    ///
+    /// **The editor's `Axis` and the operation's `Axis` are two types that mean the same thing**,
+    /// and this is the one line that says so. The operation owns the vocabulary — an agent reads
+    /// its schema — and the editor's own axis is the UI's half of the same three letters.
+    fn op_axis(self) -> crate::ops::map_set_settings::Axis {
+        match self {
+            Axis::X => crate::ops::map_set_settings::Axis::X,
+            Axis::Y => crate::ops::map_set_settings::Axis::Y,
+            Axis::Z => crate::ops::map_set_settings::Axis::Z,
+        }
+    }
     fn get(self, b: (f32, f32, f32)) -> f32 {
         match self {
             Axis::X => b.0,
             Axis::Y => b.1,
             Axis::Z => b.2,
-        }
-    }
-    fn set(self, b: &mut (f32, f32, f32), v: f32) {
-        match self {
-            Axis::X => b.0 = v,
-            Axis::Y => b.1 = v,
-            Axis::Z => b.2 = v,
         }
     }
 }
@@ -2261,6 +2266,7 @@ fn size_edit_keys(
     mut edit: ResMut<SizeEdit>,
 
     mut open: ResMut<OpenMap>,
+    project: Option<ResMut<Project>>,
     mut state: ResMut<EditorState>,
 ) {
     if edit.active.is_none() {
@@ -2297,17 +2303,46 @@ fn size_edit_keys(
                     ));
                     return;
                 }
-                let mut bounds = open.map.bounds;
-                axis.set(&mut bounds, want);
-                if bounds != open.map.bounds {
-                    open.map.bounds = bounds;
-                }
-                state.status.note(format!(
-                    "map is {} x {} x {} m",
-                    trim_metres(bounds.0),
-                    trim_metres(bounds.1),
-                    trim_metres(bounds.2)
+                // **Through the registry, and not around it.** The size field and an agent's
+                // `map_set_settings` call are **one operation**, so they cannot drift: the same
+                // validation, the same write to the file, the same line in the operation log, and
+                // the same refusal text. **A UI path that changed the map's bounds without
+                // dispatching the operation would be a second way to do one thing** — and the
+                // brief's rule is that a UI path which changes editor state without dispatching a
+                // registered operation is a must-fix bug.
+                //
+                // **The map is *taken*, not copied** — the operation edits it, and a copy would
+                // leave the editor's own map behind the change. **And it comes back either way**,
+                // so a refusal cannot leave the editor holding an empty map.
+                let mut taken_open = Some(std::mem::replace(
+                    &mut *open,
+                    OpenMap::new(bevy_emerge_core::map::Map::default(), std::path::PathBuf::new()),
                 ));
+                let mut ctx = crate::ops::Ctx {
+                    project: project.as_deref().map(|p| p.clone()),
+                    open: taken_open.take(),
+                    source: crate::ops::Source::Human,
+                    session: crate::ops::session_id(),
+                };
+                let outcome = crate::ops::dispatch(
+                    &mut ctx,
+                    "map_set_settings",
+                    &serde_json::json!({
+                        "axis": axis.op_axis(),
+                        "axis_value": want,
+                    }),
+                );
+                if let Some(fresh) = ctx.open.take() {
+                    *open = fresh;
+                }
+                match outcome {
+                    Ok(crate::ops::Applied::Done { outcome, .. }) => {
+                        state.status.note(outcome.summary);
+                    }
+                    Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+                        state.status.problem(e.0);
+                    }
+                }
             }
             Key::Escape => {
                 edit.active = None;
@@ -3036,15 +3071,6 @@ pub(crate) fn in_map_mode(mode: Option<Res<crate::tiles::Mode>>) -> bool {
 
 /// Type a name. Snake case is applied to what is shown and to what is committed, so the illegal state
 /// is never reachable rather than merely being rejected at the end.
-/// A metre count with no trailing `.0` — `32` rather than `32.0`, `3.5` as itself.
-fn trim_metres(m: f32) -> String {
-    if (m - m.round()).abs() < 1e-4 {
-        format!("{m:.0}")
-    } else {
-        format!("{m:.1}")
-    }
-}
-
 fn rename_keys(
     mut events: MessageReader<KeyboardInput>,
     keyboard: Res<ButtonInput<KeyCode>>,

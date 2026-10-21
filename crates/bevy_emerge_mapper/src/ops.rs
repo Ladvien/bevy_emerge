@@ -60,6 +60,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::project::{OpenMap, Project};
 
+/// **A metre count with no trailing `.0`** — `32` rather than `32.0`, `3.5` as itself.
+///
+/// **It lives here, and not in the editor**, because the receipt that uses it is written by the
+/// operation, and a receipt's wording is part of the operation's contract.
+pub fn trim_metres(m: f32) -> String {
+    if (m - m.round()).abs() < 1e-4 {
+        format!("{m:.0}")
+    } else {
+        format!("{m:.1}")
+    }
+}
+
 /// **Where the operation log lives** — in the project's own directory.
 ///
 /// **At the project level, not inside a kit's.** The log records what was done to *the project* —
@@ -127,6 +139,34 @@ pub struct Entry {
     pub undoes: Option<String>,
 }
 
+/// **The session this editor is running under.**
+///
+/// **One per launch, and it is what tells two agents' work apart in a log they both read.** The
+/// id is the process id and the start time, which is enough to be unique among the editors
+/// running on one machine and is free — no dependency, no clock call at every operation.
+///
+/// **It lives here, and not in the BRP bridge**, because the keyboard's own edits are in the log
+/// too, and a session id that only the agent's door could produce would leave the person's
+/// work without one.
+pub fn session_id() -> String {
+    format!("{}-{}", std::process::id(), editor_start())
+}
+
+/// **When this editor started, in seconds since the epoch.**
+///
+/// **Computed once and kept**, because the session id has to be stable for the editor's life and
+/// a per-call clock read would make it a different id every time.
+fn editor_start() -> u64 {
+    use std::sync::LazyLock;
+    static START: LazyLock<u64> = LazyLock::new(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    });
+    *START
+}
+
 /// **How an operation is undone.**
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Undo {
@@ -178,8 +218,19 @@ pub struct Outcome {
 /// **The result of a dispatch.**
 #[derive(Debug, Clone, PartialEq)]
 pub enum Applied {
-    /// **It happened.** The summary says what.
-    Done(Outcome),
+    /// **It happened.** The summary says what, and the id is what the agent cites.
+    Done {
+        /// **What happened.**
+        outcome: Outcome,
+        /// **The id the agent cites and the human reverts by.**
+        operation_id: String,
+        /// **The log's own record of it** — the same line that was appended.
+        ///
+        /// **Boxed, because the entry is a big datum and the refusal arm is not.** An enum whose
+        /// variants differ by four times their size costs every match on it the size of the
+        /// larger arm, and the refusal arm is on the hot path of every refused call.
+        entry: Box<Entry>,
+    },
     /// **It could not.** The refusal says why.
     Refused(Refusal),
 }
@@ -266,7 +317,7 @@ pub fn find(name: &str) -> Option<Box<dyn Operation>> {
 ///
 /// **And the log is written here, once**, so an operation cannot be applied without being
 /// recorded — which is what makes the log a source of truth rather than a report.
-pub fn dispatch(ctx: &mut Ctx, name: &str, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+pub fn dispatch(ctx: &mut Ctx, name: &str, params: &serde_json::Value) -> Result<Applied, Refusal> {
     let Some(op) = find(name) else {
         return Err(Refusal::new(format!(
             "`{name}` is not an operation this editor knows. The known ones are: {}.",
@@ -297,8 +348,23 @@ pub fn dispatch(ctx: &mut Ctx, name: &str, params: &serde_json::Value) -> Result
         rules_hash: None,
         undoes: None,
     };
-    append(ctx, &entry);
-    Ok(outcome)
+    // **A log that could not be written is a refusal, not a silent loss.**
+    //
+    // The log is the source of truth, so an operation applied without a record of it is an
+    // operation that happened and cannot be told about — and an agent that cannot cite what it
+    // did cannot present it. **So a failed append fails the operation**, and the caller is told
+    // why.
+    append(ctx, &entry).map_err(|e| {
+        Refusal::new(format!(
+            "the operation was applied but the log could not be written, so it cannot be reported \
+             or undone: {e}"
+        ))
+    })?;
+    Ok(Applied::Done {
+        outcome,
+        operation_id: entry.operation_id.clone(),
+        entry: Box::new(entry),
+    })
 }
 
 /// **The next sequence number** — the count of lines already in the log.
@@ -376,32 +442,29 @@ fn civil_from_unix(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
 /// **An append, not a replace.** The file is opened with `append(true)`, so the log cannot lose
 /// an earlier line by being rewritten — and the crate's own `ron_surgery::save_atomic` rules do
 /// not apply to it, because it is not a document anybody edits.
-fn append(ctx: &Ctx, entry: &Entry) {
+fn append(ctx: &Ctx, entry: &Entry) -> Result<(), String> {
     let Some(project) = ctx.project.as_ref() else {
-        return;
+        return Err("no project is open, so there is nowhere to write the log.".to_owned());
     };
     let path = oplog_path(project);
-    let line = match serde_json::to_string(entry) {
-        Ok(l) => l,
-        // **A log that cannot be written is a problem the author must see**, and this module has
-        // no status bar to say it in. The refusal is returned by `dispatch` in a later slice; for
-        // now the line goes to the log, which is where a reader looks for it.
-        Err(e) => format!(
-            "{{\"op\":\"{name}\",\"outcome\":\"unloggable\",\"error\":\"{e}\"}}",
-            name = entry.op
-        ),
-    };
+    // **A line that cannot be serialised is a failure, not a substitute.** A log line that says
+    // "unloggable" is a line about the log, in a log about the work, and a reader cannot tell
+    // the two apart.
+    let line = serde_json::to_string(entry)
+        .map_err(|e| format!("the log entry could not be written: {e}"))?;
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new()
+    let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
-    {
-        use std::io::Write;
-        let _ = writeln!(f, "{line}");
-    }
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    use std::io::Write;
+    writeln!(f, "{line}").map_err(|e| format!("{}: {e}", path.display()))?;
+    f.sync_data()
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(())
 }
 
 /// **The operations a map's own settings are changed by.**
@@ -425,12 +488,58 @@ pub mod map_set_settings {
         /// **How big the map is**, in metres on each axis. A triple.
         #[serde(default)]
         pub bounds: Option<(f32, f32, f32)>,
+        /// **One axis of the bounds, in metres.**
+        ///
+        /// **The UI's own shape, and it is here for the UI's reason.** The editor's size field
+        /// edits **one** axis at a time — X, then Y, then Z — and the author sees the other two
+        /// on screen while they type. **So the operation takes an axis as well as a whole
+        /// triple**, and the UI's field and an agent's call are the same call.
+        ///
+        /// **`None` means "the whole triple", and `bounds` and `axis` together are a refusal** —
+        /// two ways of saying the same thing is not a thing an operation should guess about.
+        #[serde(default)]
+        pub axis: Option<Axis>,
+        /// **The value for `axis`, in metres.**
+        ///
+        /// **Required when `axis` is given, and refused without it.** An axis with no value is a
+        /// half-said thing, and the operation says so rather than guessing.
+        #[serde(default)]
+        pub axis_value: Option<f32>,
         /// **The named combination of kits the map offers**, or `None` for every bound kit.
         #[serde(default)]
         pub bash: Option<Option<String>>,
         /// **The map's note** — the header prose, as data.
         #[serde(default)]
         pub note: Option<Option<String>>,
+    }
+
+    /// **Which axis of the map's bounds.**
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum Axis {
+        X,
+        Y,
+        Z,
+    }
+
+    impl Axis {
+        /// **The axis's own letter**, for a receipt.
+        pub fn label(self) -> &'static str {
+            match self {
+                Axis::X => "X",
+                Axis::Y => "Y",
+                Axis::Z => "Z",
+            }
+        }
+
+        /// **The axis's place in a bounds triple.**
+        pub fn index(self) -> usize {
+            match self {
+                Axis::X => 0,
+                Axis::Y => 1,
+                Axis::Z => 2,
+            }
+        }
     }
 
     impl Params {
@@ -454,6 +563,15 @@ pub mod map_set_settings {
                         "maxItems": 3,
                         "description": "How big the map is, in metres on each axis, as [x, y, z]."
                     },
+                    "axis": {
+                        "description": "One axis of the bounds, for an edit that changes one axis and leaves the others. Use `axis_value` for its size.",
+                        "type": ["string", "null"],
+                        "enum": ["x", "y", "z", null]
+                    },
+                    "axis_value": {
+                        "description": "The size of `axis`, in metres. Required when `axis` is given.",
+                        "type": "number"
+                    },
                     "bash": {
                         "description": "The named combination of kits the map offers. Null means every bound kit.",
                         "type": ["string", "null"]
@@ -473,8 +591,8 @@ pub mod map_set_settings {
         pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
             serde_json::from_value(raw.clone()).map_err(|e| {
                 Refusal::new(format!(
-                    "these are not a map's settings: {e}. The fields are `origin`, `bounds`, `bash` \
-                     and `note`, and nothing else."
+                    "these are not a map's settings: {e}. The fields are `origin`, `bounds`, `axis`, \
+                     `axis_value`, `bash` and `note`, and nothing else."
                 ))
             })
         }
@@ -516,8 +634,39 @@ pub mod map_set_settings {
                 && (b.0 <= 0.0 || b.1 <= 0.0 || b.2 <= 0.0)
             {
                 return Err(Refusal::new(format!(
-                    "a map's bounds are metres on each axis, and every one has to be positive — \
-                     `{b:?}` is not. The map is {b:?}."
+                    "a map's bounds are metres on each axis, and every one has to be positive —                      `{b:?}` is not."
+                )));
+            }
+            // **An axis needs its value, and only its value.**
+            //
+            // **Two ways of saying the same thing is a refusal, not a guess.** A caller that
+            // sends both `bounds` and `axis` has said two things about the bounds, and the
+            // operation will not pick one — because picking wrong writes a size the author did
+            // not ask for.
+            if p.bounds.is_some() && p.axis.is_some() {
+                return Err(Refusal::new(
+                    "say the bounds one way or the other: `bounds` for all three axes, or `axis`                      and `axis_value` for one. Sending both is two answers to one question.",
+                ));
+            }
+            if p.axis.is_some() && p.axis_value.is_none() {
+                return Err(Refusal::new(
+                    "an axis needs its size: send `axis` and `axis_value` together.",
+                ));
+            }
+            if p.axis_value.is_some() && p.axis.is_none() {
+                return Err(Refusal::new(
+                    "`axis_value` is a size for an axis, and no axis was named.",
+                ));
+            }
+            // **And the axis's size has to be a size.** A map's axis runs `MIN_BOUND..MAX_BOUND`
+            // metres, and a value outside that is a map whose edges are inside it.
+            if let (Some(axis), Some(value)) = (p.axis, p.axis_value)
+                && !(value.is_finite() && value > 0.0)
+            {
+                return Err(Refusal::new(format!(
+                    "the {} axis is metres across the map, and it has to be a positive number — \
+                     `{value}` is not.",
+                    axis.label()
                 )));
             }
             // **The preview is the change, stated.**
@@ -549,6 +698,17 @@ pub mod map_set_settings {
             if let Some(v) = p.bounds {
                 open.map.bounds = v;
             }
+            // **One axis, and only that one.** The editor's size field edits X, then Y, then Z,
+            // and the author sees the other two on screen while they type — so an axis edit
+            // changes one number and leaves the other two exactly as they were.
+            if let (Some(axis), Some(value)) = (p.axis, p.axis_value) {
+                let (x, y, z) = open.map.bounds;
+                open.map.bounds = match axis {
+                    Axis::X => (value, y, z),
+                    Axis::Y => (x, value, z),
+                    Axis::Z => (x, y, value),
+                };
+            }
             if let Some(v) = p.bash {
                 open.map.bash = v;
             }
@@ -563,6 +723,10 @@ pub mod map_set_settings {
             // **A refusal to save is a refusal of the whole operation**, not a half-applied change
             // that reports success.
             let Some(project) = ctx.project.as_ref() else {
+                // **The map goes back before the refusal.** The commit took it out of the
+                // context, and a refusal that dropped it would leave the editor holding nothing
+                // — the map would come back as a default, and the author's work with it.
+                ctx.open = Some(open);
                 return Err(Refusal::new("no project is open."));
             };
             let saved = match open.save(project) {
@@ -578,16 +742,26 @@ pub mod map_set_settings {
                     open.map.note = old.note;
                     ctx.open = Some(open);
                     return Err(Refusal::new(format!(
-                        "the settings were changed but the file refused them, so nothing was \\
+                        "the settings were changed but the file refused them, so nothing was \
                          written: {e}"
                     )));
                 }
             };
             // **The map goes back into the context, changed or not.** The refusal arm restores
             // the old values *before* this, so the editor and the file always agree.
+            //
+            // **The receipt is written before the move**, because the map is the context's after
+            // this line and the summary is about the map.
+            let (x, y, z) = open.map.bounds;
+            let summary = format!(
+                "map is {} x {} x {} m, and the file was written",
+                trim_metres(x),
+                trim_metres(y),
+                trim_metres(z)
+            );
             ctx.open = Some(open);
             Ok(Outcome {
-                summary: "map settings changed, and the file was written".to_owned(),
+                summary,
                 affected: 1,
                 saved,
             })

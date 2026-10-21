@@ -1281,8 +1281,11 @@ Top 5 remaining:
   the refusal rule; Bekos, Kaufmann, Symvonis & Wolff (2007) for the order-preservation argument
   the badge layout depends on; and the previous runs' records of the two bugs.
 
-- **Test / perf:** `cargo test --workspace` → **all green** for the first time since 2026-09-03.
-  **Five new test files, 22 new tests**, and **no existing test changed, weakened or skipped**.
+- **Test / perf:** `cargo test --workspace` → **1,320 pass, 0 fail** — all green for the first time
+  since 2026-09-03. **Five new test files, 24 new tests**, and **one existing test changed**: the
+  candidate-import test now reads its refusal from `status.problem_text()` rather than
+  `status.note_text()`, because B-002 moved that refusal into the problem slot where a refusal
+  belongs. **Its assertions are unchanged**, and no test was weakened or skipped.
   Clippy: **zero findings in any file this run touched** (the workspace's pre-existing findings
   are in other files and unchanged). `cargo fmt`: no new diff in the new files. **Frame time
   unchanged** — the watcher runs on a 250 ms tick and reads four to six files' *metadata*, not

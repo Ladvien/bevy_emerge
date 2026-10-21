@@ -42,19 +42,19 @@
 //! argument parsing and the app; everything else lives here, where `tests/` can reach it.
 
 pub mod anim_cache;
-pub mod args;
-pub mod badges;
 pub mod anim_plots;
 pub mod anim_stage;
 pub mod anim_tab;
 pub mod anim_watch;
+pub mod args;
+pub mod badges;
 pub mod build;
 pub mod chooser;
 pub mod chrome;
-pub mod confirm;
 pub mod compass;
 pub mod compose;
 pub mod compose_labels;
+pub mod confirm;
 pub mod devshot;
 pub mod editor;
 pub mod fill;
@@ -76,6 +76,6 @@ pub mod surface;
 pub mod thumbs;
 pub mod tiles;
 pub mod token_prompt;
-pub mod watch;
 pub mod view;
 pub mod vlm;
+pub mod watch;

@@ -57,6 +57,114 @@ fn every_tool_has_a_schema() {
     );
 }
 
+/// **The reference's tool list is the SERVER's tool list, not a copy of it.**
+///
+/// **The first version compared the reference with `docs::TOOLS`** — and `docs::TOOLS` is a
+/// hand-written copy of the `#[tool]` attributes. **So changing an annotation in the server
+/// passed every test**, and the reference could say the opposite of what the server does.
+///
+/// **So the server's own tool list is the one compared.** The server is asked, over MCP, what
+/// tools it has; the reference is asked the same way; and the two must agree.
+#[tokio::test]
+async fn the_reference_names_the_servers_own_tools() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_bevy_emerge_mcp"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the server binary starts");
+    let mut stdin = child.stdin.take().expect("the server has a stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("the server has a stdout"));
+
+    let send =
+        |stdin: &mut std::process::ChildStdin, id: u64, method: &str, params: serde_json::Value| {
+            let body = serde_json::json!({
+                "jsonrpc": "2.0", "id": id, "method": method, "params": params,
+            });
+            writeln!(stdin, "{body}").expect("the server's stdin is writable");
+            stdin.flush().expect("the server's stdin flushes");
+        };
+    // **A notification has no id and no answer.** Sending one with an id makes the server treat
+    // it as a request, and it answers it — so the reader waiting for the next id takes the
+    // notification's answer instead and the real answer is never read.
+    let notify = |stdin: &mut std::process::ChildStdin, method: &str| {
+        let body = serde_json::json!({"jsonrpc": "2.0", "method": method, "params": {}});
+        writeln!(stdin, "{body}").expect("the server's stdin is writable");
+        stdin.flush().expect("the server's stdin flushes");
+    };
+    // **Read until the answer with the id asked for.** The server may send a notification in
+    // between — the handshake's own — and a reader that takes the first line would take that
+    // instead of the answer.
+    let read =
+        |stdout: &mut BufReader<std::process::ChildStdout>, want: u64| -> serde_json::Value {
+            loop {
+                let mut line = String::new();
+                let n = stdout
+                    .read_line(&mut line)
+                    .expect("the server's stdout is readable");
+                assert!(n > 0, "the server's stdout ended before it answered");
+                let value: serde_json::Value =
+                    serde_json::from_str(line.trim_end()).expect("the server sent JSON");
+                if value.get("id").and_then(|i| i.as_u64()) == Some(want) {
+                    return value;
+                }
+            }
+        };
+
+    // **The handshake carries a protocol version and a client name**, because the server reads
+    // them — an initialize with empty params is not a handshake, and the server answers it with
+    // an error the reader then waits past.
+    send(
+        &mut stdin,
+        1,
+        "initialize",
+        serde_json::json!({
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "bevy_emerge's own test", "version": "0.1.0"},
+        }),
+    );
+    let _ = read(&mut stdout, 1);
+    // **The notification is a notification, and it has no answer.** It is sent and not read, and
+    // the reader skips it because it carries no id.
+    notify(&mut stdin, "notifications/initialized");
+    send(&mut stdin, 3, "tools/list", serde_json::json!({}));
+    let listed = read(&mut stdout, 3);
+    // **The process is waited for**, not just killed: a killed child is a zombie until it is
+    // reaped, and a test file that leaves one behind is a test file that leaks.
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let server: Vec<String> = listed["result"]["tools"]
+        .as_array()
+        .expect("the tool list is an array")
+        .iter()
+        .map(|t| t["name"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    let documented: Vec<String> = bevy_emerge_mcp::docs::TOOLS
+        .iter()
+        .map(|t| t.name.to_owned())
+        .collect();
+    // **The same SET, and not the same order.** The server lists its tools in the order the
+    // router holds them, which is alphabetical; the reference is in the order they are declared,
+    // which is the order a reader wants. **The order is a presentation choice and the set is
+    // the contract** — so the set is compared, and a tool that is in one and not the other is
+    // the failure.
+    let mut server_sorted = server.clone();
+    server_sorted.sort();
+    let mut documented_sorted = documented.clone();
+    documented_sorted.sort();
+    assert_eq!(
+        server_sorted, documented_sorted,
+        "the reference documents {documented:?} and the server has {server:?}. The reference is \
+         generated from the server's declarations, and a hand-written copy of them is a second \
+         vocabulary."
+    );
+}
+
 /// **Every tool is prefixed, and the prefix is what keeps the namespaces apart.**
 #[test]
 fn every_tool_is_prefixed() {

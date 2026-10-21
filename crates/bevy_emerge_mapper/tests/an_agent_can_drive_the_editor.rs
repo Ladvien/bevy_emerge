@@ -257,6 +257,68 @@ fn a_refusal_changes_nothing_and_says_why() {
     );
 }
 
+/// **An apply changes the RUNNING editor, not only the file.**
+///
+/// **The reviewer's gap, and it was a real one.** The bridge gave the operation a *clone* of the
+/// map, so the operation edited the clone and wrote the file, and **the editor's own map was
+/// untouched** — the screen showed the old settings until the watcher noticed the file, up to a
+/// quarter of a second later, **and any edit the author made in that window was thrown away** when
+/// the watcher swapped the map in.
+///
+/// **So the resource itself is read after the apply.** Not the file: the file was already checked,
+/// and the file is the easy half.
+#[test]
+fn an_apply_changes_the_running_editor_and_not_only_the_file() {
+    let root = project("agentrunning");
+    let mut app = editor_with_bridge(&root);
+    for _ in 0..8 {
+        app.update();
+    }
+    let before = app
+        .world()
+        .resource::<bevy_emerge_mapper::project::OpenMap>()
+        .map
+        .bounds;
+    assert_ne!(
+        before,
+        (64.0, 8.0, 64.0),
+        "the fixture already has the bounds the test sets, so the test would pass without the \
+         apply doing anything"
+    );
+
+    let applied = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({
+            "operation": "map_set_settings",
+            "parameters": {"bounds": [64.0, 8.0, 64.0]},
+            "dry_run": false,
+        }),
+    )
+    .unwrap_or_else(|e| panic!("the apply answers: {e}"));
+    assert_eq!(applied["outcome"], "applied", "{applied}");
+
+    // **The editor's own map.**
+    let after = app
+        .world()
+        .resource::<bevy_emerge_mapper::project::OpenMap>()
+        .map
+        .bounds;
+    assert_eq!(
+        after,
+        (64.0, 8.0, 64.0),
+        "the file was written but the editor's own map was not changed, so the screen still shows \
+         the old settings and an edit the author makes now would be thrown away."
+    );
+    // **And the operation's id, which the agent cites and the human reverts by.**
+    assert!(
+        applied["operation_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty()),
+        "the apply did not return an operation id, so the agent cannot cite what it did: {applied}"
+    );
+}
+
 /// **A misspelled field is refused, not ignored.**
 ///
 /// **A field that is silently dropped is the worst outcome an agent can have**: it believes it

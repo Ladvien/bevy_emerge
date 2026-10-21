@@ -88,9 +88,19 @@ impl Watched {
     /// changes when a kit is bound or a map is opened, and a fixed list would be stale — which is
     /// the same failure as a hard-coded list of a project's kits.
     fn files_of(project: &Project, open: Option<&OpenMap>) -> Vec<PathBuf> {
+        // **The project's own files, by the names the core uses to find them.**
+        //
+        // **The names are the core's constants, not literals here.** The first version watched
+        // `<root>/library.ron` — **a file that does not exist** — because the library lives in
+        // each kit's own directory and the root holds `kits.ron` instead. A watcher that names a
+        // file nobody writes is a watcher that never sees a change it should.
         let mut out = vec![
             project.root.join(crate::project::VOCAB),
-            project.root.join(crate::project::LIBRARY_FILE),
+            project.project_dir.join(bevy_emerge_core::kits::KITS_FILE),
+            project
+                .project_dir
+                .join(bevy_emerge_core::composition::Compositions::FILE),
+            project.project_dir.join(bevy_emerge_core::rules::FILE),
         ];
         // **Every bound kit's own files**, because each kit has a library and a policy of its own.
         for kit in &project.kits {
@@ -203,14 +213,14 @@ pub fn tick_watch(
 /// — so a frame in which nothing changed costs one `stat` per file and nothing else.
 pub fn adopt_changes(
     due: Res<Due>,
-    mut project: Option<ResMut<Project>>,
+    project: Option<ResMut<Project>>,
     mut open: Option<ResMut<OpenMap>>,
     mut status: Option<ResMut<crate::tiles::ImportState>>,
 ) {
     if due.changed.is_empty() {
         return;
     }
-    let Some(mut res) = project else { return };
+    let Some(res) = project else { return };
     let project = res.into_inner();
     for path in &due.changed {
         // **The open map's own file, re-read.**
