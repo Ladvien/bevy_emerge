@@ -1282,6 +1282,15 @@ impl Plugin for EditorPlugin {
                     .run_if(in_state(crate::screen::Screen::Editor))
                     .run_if(crate::tiles::Door::map_door_is_open),
             )
+            // **Paint follows the map, not the edit.** A piece's drawn paint can change when a
+            // different piece is laid, so this runs on every map change and redraws only what went
+            // stale. Gated like the rest of the Map door, because it takes `Res<OpenMap>`.
+            .add_systems(
+                Update,
+                relevel_placements
+                    .run_if(in_state(crate::screen::Screen::Editor))
+                    .run_if(crate::tiles::Door::map_door_is_open),
+            )
             // **The ghost pair is NOT map-door gated** — the map block above was swallowing it. A
             // tile's picked-but-not-dropped mesh (`StagedTile` + `Ghost`) is assembled on the Tiles
             // tab, so `fade_ghost` and `brighten_held` never ran under the kit door, and the ghost
@@ -4695,6 +4704,7 @@ fn spawn_range(
             return;
         }
     };
+    let paints = bevy_emerge::drawn_paints(&open.map, &project.library);
     for (i, p) in open.map.placements.iter().enumerate().skip(first) {
         let (Some(d), Some(&y)) = (descriptor_of(&project.library, p), ys.get(i)) else {
             continue;
@@ -4708,6 +4718,10 @@ fn spawn_range(
             y,
         ) {
             commands.entity(e).insert(Placement(p.id.clone()));
+            let paint = paints[i];
+            if paint != 0 {
+                commands.entity(e).insert(bevy_emerge::Paint(paint));
+            }
         }
     }
 }
@@ -5028,6 +5042,7 @@ fn spawn_existing(
             return;
         }
     };
+    let paints = bevy_emerge::drawn_paints(&open.map, &project.library);
     for (i, p) in open.map.placements.iter().enumerate() {
         let Some(d) = descriptor_of(&project.library, p) else {
             // Loud, not silent: a placement naming a descriptor the library does not have is a hole
@@ -5048,6 +5063,10 @@ fn spawn_existing(
             y,
         ) {
             commands.entity(e).insert(Placement(p.id.clone()));
+            let paint = paints[i];
+            if paint != 0 {
+                commands.entity(e).insert(bevy_emerge::Paint(paint));
+            }
         }
     }
 }
@@ -7174,6 +7193,7 @@ fn redraw_placements(
         }
     }
     let ys = heights(project, open)?;
+    let paints = bevy_emerge::drawn_paints(&open.map, &project.library);
     for &i in indices {
         let Some(p) = open.map.placements.get(i) else {
             continue;
@@ -7190,9 +7210,53 @@ fn redraw_placements(
             y,
         ) {
             commands.entity(e).insert(Placement(p.id.clone()));
+            if let Some(&paint) = paints.get(i).filter(|paint| **paint != 0) {
+                commands.entity(e).insert(bevy_emerge::Paint(paint));
+            }
         }
     }
     Ok(())
+}
+
+/// **A map edit can change the drawn paint of a piece it did not touch.** A larger field laid under
+/// existing roads makes each road the smaller piece, so the road's level rises while the road itself
+/// is unedited, and its standing entity keeps the paint it was spawned with. This redraws exactly the
+/// standing pieces whose drawn paint no longer matches, by the same despawn and respawn
+/// [`redraw_placements`] does. It reads the map rather than the edit, so every change reaches it.
+fn relevel_placements(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    project: Res<Project>,
+    open: Res<OpenMap>,
+    placed: Query<(Entity, &Placement)>,
+    painted: Query<&bevy_emerge::Paint>,
+) {
+    if !open.is_changed() {
+        return;
+    }
+    let paints = bevy_emerge::drawn_paints(&open.map, &project.library);
+    let standing: std::collections::HashMap<&str, i8> = placed
+        .iter()
+        .map(|(e, m)| (m.0.as_str(), painted.get(e).map_or(0, |p| p.0)))
+        .collect();
+    let stale: Vec<usize> = open
+        .map
+        .placements
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            standing
+                .get(p.id.as_str())
+                .is_some_and(|now| *now != paints[*i])
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if stale.is_empty() {
+        return;
+    }
+    if let Err(e) = redraw_placements(&mut commands, &assets, &project, &open, &placed, &stale) {
+        error!("{e}");
+    }
 }
 
 /// **A map edited on disk reaches the pieces already standing on the map.**
