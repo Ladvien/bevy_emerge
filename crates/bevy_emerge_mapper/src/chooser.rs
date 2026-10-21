@@ -5595,7 +5595,18 @@ fn on_row_click(
             chooser.focus = Focus::Maps;
             chooser.map = row.index;
         }
-        RowPane::Settings => chooser.focus = Focus::Settings,
+        RowPane::Settings => {
+            chooser.focus = Focus::Settings;
+            // **And the field the row names.** The `•` mark is drawn on the row whose field matches
+            // `chooser.field`, so a click that moved only the focus opened whatever field the
+            // arrows had left open — **clicking `NAME` opened `ORIGIN`**, and the author typed a
+            // map's name into the origin and was told *"0 x 0 x 0town_block_ is not three
+            // numbers"*.
+            //
+            // The settings rows are built in `settings_rows` with their fields in the order they
+            // are drawn, so the row's index is the field.
+            chooser.field = Field::ALL.get(row.index).copied().unwrap_or(Field::Name);
+        }
         RowPane::Projects => {
             chooser.focus = Focus::Projects;
             chooser.project = row.index;
@@ -5707,6 +5718,22 @@ fn type_into_field(mut events: MessageReader<KeyboardInput>, mut chooser: ResMut
                 chooser.problem = None;
                 chooser.editing = false;
                 chooser.swallowed = true;
+                // **And the draft goes with the field.** This is the one place that can clear it,
+                // because `swallowed` stops the chord handler from reading this same press — and
+                // the chord handler's Escape is the only other place that clears it.
+                //
+                // **What a surviving draft costs.** `map_rows` matches on `(&self.creating,
+                // self.current_map())` and the `(Some(New::Map(d)), _)` arm comes **first**, so a
+                // surviving draft keeps winning over the map the cursor is on — and the MAP INFO
+                // panel reads *"NEW MAP IN kit / NAME (needs a name) / BOUNDS 10 x 4 x 10"* while
+                // the MAPS list beside it highlights a real map with 727 pieces. **Every fact in
+                // the panel was about an object that does not exist**, and nothing on screen said
+                // so.
+                //
+                // Measured: one `Escape` too few, and the panel stopped following the selection
+                // entirely. A second `Escape` — the one the chord handler reads — cleared the
+                // draft and the panel snapped back.
+                chooser.creating = None;
                 return;
             }
             Key::Backspace => {

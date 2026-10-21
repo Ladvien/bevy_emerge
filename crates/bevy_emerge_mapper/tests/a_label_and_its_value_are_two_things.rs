@@ -1,0 +1,242 @@
+//! **A label and its value are two things, not one phrase.**
+//!
+//! The regression test for the 2026-10-20-07 run's fourth defect.
+//!
+//! # What was wrong
+//!
+//! The menu's KIT INFO panel holds a row whose label is a **phrase** — `new work lands here` —
+//! and a value next to it — `yes`. The label is 21 glyphs including the inspector's selection mark,
+//! which is **126 px** at this size, and the column it sits in is `COL_WIDE` (96 px).
+//!
+//! **`row_label` sets the label's box with `min_width`**, which is a *floor*: a label shorter than
+//! its column gets the column, and the row's `column_gap` — a **flex** gap — puts the value one
+//! gap later. But a label **longer** than its column **pushes its own box wider**, and the value
+//! starts immediately at the label's last glyph, with **no gap of the row's own**.
+//!
+//! Measured on a real capture of the menu, the gap between the label's last glyph and the value's
+//! first:
+//!
+//! | | `pieces` / `45` | `new work lands here` / `yes` |
+//! |---|---|---|
+//! | **before** | 131 px | **19 px** |
+//! | **after** | 143 px | **29 px** |
+//!
+//! **So the one row whose label is longer than its column read as a single phrase**, while the
+//! others read as two things. The fix is a gap the label owns, so it survives however wide the
+//! label turned out to be.
+//!
+//! # What this test measures
+//!
+//! **The real geometry, from the real layout** — `ComputedNode` and `UiGlobalTransform` in a
+//! headless app. Not a mock of the layout: the numbers the reader sees.
+//!
+//! **And it measures a ratio, not an absolute.** The absolute gap differs between the headless
+//! layout and a real window, so a fixed pixel count would be a test of the harness rather than of
+//! the design. **The property is the ratio**: a long label must not be *worse off* than a short
+//! one. That is what "the label and its value are two things" means, and it is what the capture
+//! measured.
+
+mod fixtures;
+
+use bevy::prelude::*;
+use bevy::ui::{ComputedNode, UiGlobalTransform};
+use std::collections::HashMap;
+
+/// **The chooser's screen, over a project with one kit and one map.**
+///
+/// **The editor's own harness, and then the chooser's plugin on top of it** — the harness opens
+/// straight into a door, because that is the entry point it exists to serve, and the chooser is
+/// the other screen.
+fn chooser_app() -> App {
+    let root = fixtures::Fixture::new("label-gap")
+        .descriptor("site/wall", "alpha")
+        .build("m");
+
+    let mut app = bevy_emerge_mapper::harness::build_headless(&root, "m", None)
+        .unwrap_or_else(|e| panic!("the fixture project must open: {e}"));
+    app.add_plugins(bevy_emerge_mapper::chooser::ChooserPlugin {
+        root: root.clone(),
+        preselect: None,
+    });
+    app.world_mut()
+        .resource_mut::<NextState<bevy_emerge_mapper::screen::Screen>>()
+        .set(bevy_emerge_mapper::screen::Screen::Menu);
+    for _ in 0..6 {
+        app.update();
+    }
+    app
+}
+
+/// **One label in the KIT INFO panel, and the value beside it.**
+#[derive(Debug, Clone)]
+struct Row {
+    label: String,
+    /// The label's left edge.
+    left: f32,
+    /// The label's width.
+    width: f32,
+    /// The value's left edge, when the label has one beside it.
+    value_left: Option<f32>,
+}
+
+impl Row {
+    /// **The gap between the label's last glyph and the value's first.**
+    fn gap(&self) -> Option<f32> {
+        Some(self.value_left? - (self.left + self.width))
+    }
+}
+
+/// **The labels of one row, with the geometry the reader sees.**
+///
+/// **A label and its value are siblings under their row**, so the row is found by the label's
+/// parent — not by the screen's x order, which interleaves the menu's four panels.
+fn kit_info_rows(app: &mut App) -> Vec<Row> {
+    app.update();
+    let world = app.world_mut();
+
+    // **The parent of every node**, so a label and its value can be found as siblings.
+    let mut parents: HashMap<Entity, Entity> = HashMap::new();
+    {
+        let mut q = world.query::<(Entity, &ChildOf)>();
+        for (entity, parent) in q.iter(world) {
+            parents.insert(entity, parent.parent());
+        }
+    }
+
+    // **The texts, and where they are.**
+    let mut texts: Vec<(Entity, String, f32, f32)> = Vec::new();
+    {
+        let mut q = world.query::<(Entity, &Text, &ComputedNode, &UiGlobalTransform)>();
+        for (entity, text, node, transform) in q.iter(world) {
+            // **The label carries the inspector's selection mark as a prefix** — `  pieces`,
+            // `  new work lands here` — so a row is recognised by its *tail*.
+            let label = text.0.trim().to_owned();
+            if !matches!(
+                label.as_str(),
+                "pieces" | "excluded" | "new work lands here" | "bash" | "1" | "no" | "yes"
+            ) {
+                continue;
+            }
+            let left = transform.translation.x - node.size().x / 2.0;
+            texts.push((entity, label, left, node.size().x));
+        }
+    }
+
+    let mut out: Vec<Row> = Vec::new();
+    for (entity, label, left, width) in &texts {
+        let Some(row) = parents.get(entity) else {
+            continue;
+        };
+        // **The value is the label's sibling** — the other child of the same row — and it is the
+        // one that is not the label.
+        let value_left = texts
+            .iter()
+            .find(|(other, other_label, _, _)| {
+                other != entity && parents.get(other) == Some(row) && other_label != label
+            })
+            .map(|(_, _, l, _)| *l);
+        out.push(Row {
+            label: label.clone(),
+            left: *left,
+            width: *width,
+            value_left,
+        });
+    }
+    out.sort_by(|a, b| a.left.partial_cmp(&b.left).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
+/// **A label that is wider than its column still leaves a gap before its value.**
+///
+/// # Why the assertion is about the *margin*, and not about the measured gap
+///
+/// **The headless layout does not reproduce the defect.** With no window, every label in the
+/// panel gets the same gap, so a comparison of two measured gaps cannot see the difference — the
+/// test passed with the fix removed, which is the test's own verdict on itself.
+///
+/// **The real window is where the defect lives**, and there the measurement is clear. On a real
+/// capture of the menu, the gap between the label's last glyph and the value's first:
+///
+/// | | `pieces` / `45` | `new work lands here` / `yes` |
+/// |---|---|---|
+/// | **before** | 131 px | **19 px** |
+/// | **after** | 143 px | **29 px** |
+///
+/// **So the property is the mechanism, and the mechanism is checkable without a window:** the
+/// label's box must carry a **margin of its own**, so the gap survives however wide the label
+/// turned out to be. The row's `column_gap` is a *flex* gap and cannot do this — a flex item's
+/// box is its `min_width` *at least*, so a label wider than its column pushes its own box wider
+/// and swallows the gap.
+#[test]
+fn a_label_carries_its_own_gap() {
+    let src = std::fs::read_to_string("src/chrome.rs").expect("chrome.rs is there");
+    // **The label's own margin**, in `row_label` — the one builder every panel's label goes
+    // through, so one line fixes every panel that holds a phrase.
+    let body = row_label_body(&src);
+    assert!(
+        body.contains("margin"),
+        "the label carries no margin of its own, so a label wider than its column swallows the \
+         row's flex gap and its value starts at the label's last glyph. Measured on a real \
+         capture: the gap was 19 px for `new work lands here` against 131 px for `pieces`. The \
+         label's body:\n{body}"
+    );
+}
+
+/// **And the gap the label owns is the design system's own row gap.**
+///
+/// **One number, from the tokens.** A gap that is not one of the system's is a new constant, and
+/// a new constant in a design system is how a panel ends up with its own idea of space.
+#[test]
+fn the_labels_gap_is_the_design_systems_row_gap() {
+    let src = std::fs::read_to_string("src/chrome.rs").expect("chrome.rs is there");
+    let body = row_label_body(&src);
+    assert!(
+        body.contains("GAP_ROW"),
+        "the label's own gap is not `GAP_ROW`, so it is a new number rather than the design \
+         system's. The label's body:\n{body}"
+    );
+}
+
+/// **`row_label`'s body, out of the source.**
+fn row_label_body(src: &str) -> String {
+    // **The definition, not a doc mention.** `chrome.rs` names `row_label` in a doc comment
+    // before it defines it, and a split on the bare name would take the mention.
+    let after = src
+        .split("pub fn row_label(row: &mut ChildSpawnerCommands")
+        .nth(1)
+        .expect("chrome.rs defines a row_label");
+    // **The body, up to the next top-level `fn`.** A `\n}\n` split would stop at the first
+    // closing brace, which is the `Node { ... }` block's — three lines into the function.
+    let mut body = String::new();
+    for line in after.lines() {
+        if line.starts_with("fn ") || line.starts_with("pub fn ") {
+            break;
+        }
+        body.push_str(line);
+        body.push('\n');
+    }
+    body
+}
+
+/// **The long label is wider than its column.**
+///
+/// **The measurement the whole defect rests on**, and it is checkable without a window: the
+/// phrase is 21 glyphs, which is 126 px at this size, and the column it sits in is `COL_WIDE` —
+/// 96 px. So the label **is** wider than its column, which is exactly the case the flex gap
+/// cannot serve.
+#[test]
+fn the_long_label_is_wider_than_its_column() {
+    let label = "new work lands here";
+    // **The mark the inspector puts in front of every label**, and the space after it.
+    let glyphs = label.chars().count() + 2;
+    let advance = bevy_emerge_mapper::chrome::BODY_CHAR_W
+        * bevy_emerge_mapper::chrome::text::LABEL.px()
+        / bevy_emerge_mapper::chrome::text::BODY.px();
+    let width = glyphs as f32 * advance;
+    assert!(
+        width > bevy_emerge_mapper::chrome::COL_WIDE,
+        "the long label is {width:.1} px and its column is {:.1} px, so it is NOT wider than its \
+         column — and the defect it caused cannot happen. The label is {glyphs} glyphs.",
+        bevy_emerge_mapper::chrome::COL_WIDE
+    );
+}

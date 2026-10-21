@@ -877,10 +877,71 @@ impl OpenMap {
         // tiles — which was right while a project was one kit and is now the opposite of right: the
         // library that draws a map is the merge of every bound kit, so filing it under one of them
         // picks a winner arbitrarily.
-        self.map_path = project.maps_dir.join(naming::map_file_name(&self.map.name));
+        let path = project.maps_dir.join(naming::map_file_name(&self.map.name));
         let text = ron::ser::to_string_pretty(&self.map, ron::ser::PrettyConfig::default())
             .map_err(|e| format!("map: serialize: {e}"))?;
-        bevy_emerge_core::ron_surgery::save_atomic(&self.map_path, &text)?;
+
+        // **A rename is a move, and a move is not a copy.**
+        //
+        // This is where the map's name and the file's name come apart, and where they were
+        // allowed to: the old file was never removed, so a rename left **two files answering to one
+        // map** — and the stale one *"refuses to open with `<path>` calls itself `<name>`"*, a
+        // message about a schema mismatch, for a rename that half-happened. The old file's removal
+        // belongs here, at the save, and not on the keystroke that typed the name: the editor's own
+        // reason for not removing it there was *"deleting it here would destroy a file on a
+        // keystroke"*, which is true and is why the removal waits for the write.
+        let renamed = path != self.map_path;
+
+        if renamed {
+            // **The refusal, and it is the kernel's.** `save_atomic_no_replace` will not replace an
+            // existing target, and it will not *check* first either — POSIX gives atomicity to the
+            // single call, so a check-then-write would leave a window in which the target appears
+            // and is then removed. A map is a file the author spent hours on, and "silently
+            // replaced" is not a thing that may happen to one.
+            //
+            // **And it names the map that is in the way**, because the author needs to know *which*
+            // name to change.
+            if path.exists() {
+                // **The name that is taken, and the file that holds it.** The author needs to know
+                // *which* name to change, and the map that is in the way is a file they can open.
+                //
+                // **And it is the new name twice, on purpose**: the name the map is *becoming* is
+                // the one that is taken, and the map it is *becoming it from* is the file the
+                // author is editing. Saying it once would leave the author with two names and no
+                // way to tell which is which.
+                let was = self
+                    .map_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| self.map.name.clone());
+                return Err(format!(
+                    "NOT SAVED: `{}` is already a map in this project — {} — so the map now \
+                     called `{}` cannot take that name. Rename this map to something else.",
+                    self.map.name,
+                    path.display(),
+                    was
+                ));
+            }
+            bevy_emerge_core::ron_surgery::save_atomic_no_replace(&path, &text)?;
+            // **And now the old file goes.** The new one is on disk and correct, so the rename has
+            // happened; leaving the old name behind would be the duplicate.
+            //
+            // **A failure to remove is reported, not discarded.** A removal that fails leaves two
+            // files answering to one map, and the stale one then refuses to open — so the author
+            // has to be told which file is stale and where it is, because the alternative is a
+            // message about a schema mismatch for a rename that half-happened.
+            if let Err(e) = std::fs::remove_file(&self.map_path) {
+                return Err(format!(
+                    "saved as `{}`, but the old file {} could not be removed: {e}. Delete it by hand \
+                     — until then the list shows this map twice.",
+                    self.map.name,
+                    self.map_path.display()
+                ));
+            }
+        } else {
+            bevy_emerge_core::ron_surgery::save_atomic(&path, &text)?;
+        }
+        self.map_path = path;
         self.saved = self.map.clone();
         Ok(())
     }

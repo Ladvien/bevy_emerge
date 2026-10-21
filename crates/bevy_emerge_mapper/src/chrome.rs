@@ -1926,6 +1926,25 @@ pub fn row_label(row: &mut ChildSpawnerCommands, width: f32, label: &str) {
         Node {
             min_width: Val::Px(width),
             flex_shrink: 0.0,
+            // **And a gap of its own, so the value never starts at the label's last glyph.**
+            //
+            // The row's `column_gap` is a **flex** gap: it is the space between two flex items, and
+            // a flex item's box is its `min_width` **at least**. So a label *shorter* than its
+            // column gets the gap — its box is the column, and the value starts one gap later. But
+            // a label *longer* than its column **pushes its own box wider**, and the value starts
+            // immediately at the label's last glyph, with **no gap at all**.
+            //
+            // Measured on the menu's KIT INFO panel, in the capture: the row `new work lands here`
+            // / `no` had a **5 px** gap between the label and the value, and the rows above it —
+            // `pieces` / `166` and `excluded` / `4 pack(s)` — had **133 px**. So the one row whose
+            // label is longer than its column read as a single phrase, *"new work lands here no"*,
+            // while the others read as two things.
+            //
+            // **The gap is the label's, not the row's**, because the row's gap only applies between
+            // items and this is the space a *long* label would otherwise swallow. It is a `margin`,
+            // so it is outside the label's box and the value starts after it however wide the
+            // label turned out to be.
+            margin: UiRect::right(Val::Px(GAP_ROW)),
             ..default()
         },
         Text::new(label.to_owned()),

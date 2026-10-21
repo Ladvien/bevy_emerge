@@ -3091,12 +3091,25 @@ fn rename_keys(
                         .note("a map needs a name; nothing was changed".to_owned());
                 } else if name != open.map.name {
                     let was = std::mem::replace(&mut open.map.name, name.clone());
-                    // The file follows the name on the next save, and the old one stays where it is
-                    // — deleting it here would destroy a file on a keystroke.
+                    // **What the rename costs, named.**
+                    //
+                    // A map's name is **a string in the game's code**, not a file the game
+                    // discovers — Sanctuary reads `town` from `town_map.rs:35` and
+                    // `["town_block", "town"]` from `emerge_data.rs:28`. So renaming a map here
+                    // **strands the game**, and the author is the only one who can fix it.
+                    //
+                    // **The receipt says so**, because the editor is the only place that knows both
+                    // facts: the name the author just typed, and the fact that the consumer reads
+                    // the map by name. The composition rename has the opposite property — the game
+                    // finds compositions by *prefix*, so a rename strands nothing there — and both
+                    // are checked rather than assumed.
+                    //
                     // The modifier from the census, not typed: this sentence naming a key the build
                     // does not read is the same failure as the panel doing it.
                     state.status.note(format!(
-                        "renamed `{was}` to `{name}` ({}+S writes the new file)",
+                        "renamed `{was}` to `{name}` — the file follows on the next {}+S, and the \
+                         old one is removed. **The game reads this map by name**, so it needs the \
+                         new one.",
                         keys::MOD_NAME
                     ));
                 }

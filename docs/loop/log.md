@@ -779,3 +779,157 @@ Top 5 remaining:
 5. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
    connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
    not `is_near`.
+
+## 2026-10-20-07: the editor's story about a named thing matches the disk
+
+- **Change:** a map can now be **renamed safely**, and the editor's account of a named thing and the
+  disk's account of it no longer come apart. Four defects, all measured, all fixed:
+  1. **A rename onto a name another map has destroyed that map.** `OpenMap::save` derived the path
+     from the map's *name*, and `ron_surgery::save_atomic` ended in `fs::rename` — which POSIX
+     specifies as **replacing** the target (IEEE Std 1003.1-2024: *"if the directory entry named by
+     `new` exists, it shall be removed and `old` renamed to `new`"*). **Now the refusal is the
+     kernel's**: `ron_surgery::save_atomic_no_replace` uses `link(2)`, which fails with `EEXIST`
+     rather than replacing, and never modifies the target.
+  2. **A rename left a duplicate.** The old file was never removed, so the project ended up with
+     **two files answering to one map**, and the stale one refuses to open with a message about a
+     schema mismatch. **The old file is now removed by the save** — after the new one lands — and a
+     failed removal is *reported*, not discarded.
+  3. **One `Escape` too few left the chooser's MAP INFO panel describing a map that does not
+     exist.** The name field's `Escape` sets `swallowed`, which stops the chord handler — the only
+     other place that clears a draft — from reading the same press, so a `New::Map` draft survived
+     and `map_rows`' `(Some(New::Map(d)), _)` arm kept winning over the selected map. **The panel
+     read "NEW MAP IN kit / NAME (needs a name) / BOUNDS 10 x 4 x 10" while the MAPS list beside it
+     highlighted a real map with 727 pieces.** The field's `Escape` now clears the draft it belongs
+     to.
+  4. **Clicking a settings row's value opened the wrong field.** The click moved the focus but not
+     the field, so clicking `NAME` opened `ORIGIN` and the author's map name went into the origin:
+     *"0 x 0 x 0town_block_ is not three numbers"*. The `•` mark — drawn from the same value the
+     field handler reads — now lands on the row that was clicked.
+
+  **And a fifth, smaller one:** the KIT INFO panel's row `new work lands here` / `yes` rendered with
+  a **5 px** gap, so it read as one phrase, while the rows above had **133 px**. `chrome::row_label`
+  uses `min_width` (a floor) and the row's `column_gap` is a **flex** gap, so a label *wider* than
+  its column pushes its own box wider and swallows the gap. **The label now carries a margin of its
+  own**, and every panel that holds a phrase is fixed at once.
+
+- **Why it ranked first:** these defects **happen on every map, on every rename, and one of them
+  destroys work.** The brief's phrase for "most usable" is *"an author gets a real project built
+  faster, with fewer sharp edges, and **trusts the result**"*, and a tool that can destroy a map
+  without saying so, or show a panel about the wrong map, is not trusted — **and every other feature
+  the editor has inherits that.** The runner-up, **renaming a kit's namespace**, is 744 mentions
+  across 4 files with no multi-file atomicity — a **larger** feature, but a *rarer* one: it happens
+  **once per project**, and the load-time refusals already stop a half-done rename from opening.
+  **A feature that fires once a project is not worth a day; a feature that fires on every save is.**
+
+- **Sources:** POSIX `rename()` ([IEEE Std 1003.1-2024](https://pubs.opengroup.org/onlinepubs/9799919799/functions/rename.html))
+  — *"if the directory entry named by `new` exists, it shall be removed"* — and the no-replace
+  primitive that fixes it (macOS's `renamex_np(RENAME_EXCL)`, `EEXIST`; Linux's
+  `renameat2(RENAME_NOREPLACE)`). Lampson, *Hints for computer system design* (SOSP 1983,
+  [10.1145/800217.806614](https://doi.org/10.1145/800217.806614)) — *"Make actions atomic or
+  restartable."* Schlichting & Schneider, *Fail-stop processors* (ACM TOCS 1983) — *"halts in response
+  to any internal failure and does so before the effects of that failure become visible."* Pillai et
+  al., *All file systems are not created equal* (OSDI 2014,
+  [10.5555/2685048.2685082](https://doi.org/10.5555/2685048.2685082)) — on why a two-step update
+  protocol is where correctness is lost. Hutchins, Hollan & Norman, *Direct Manipulation Interfaces*
+  (HCI 1985, [10.1207/s15327051hci0104_2](https://doi.org/10.1207/s15327051hci0104_2)) — the **gulf
+  of evaluation**, which is a panel describing the wrong object. Norman, *Design rules based on
+  analyses of human error* (CACM 1983, [10.1145/2163.358092](https://doi.org/10.1145/2163.358092)) —
+  the **slip** classification, which is exactly what a stale draft after `Escape` is. Shneiderman,
+  *Direct Manipulation* (IEEE Computer 1983,
+  [10.1109/MC.1983.1654471](https://doi.org/10.1109/MC.1983.1654471)) — *"Permit easy reversal of
+  actions… the user knows that errors can be undone."* Full notes in
+  `runs/2026-10-20-07/research.md`.
+
+- **Why `link(2)` and not `renameat2`/`renamex_np`.** `renameat2(RENAME_NOREPLACE)` is the exact
+  primitive and is the right one **where it exists** — but it is Linux-only, and the editor runs on
+  macOS, where the equivalent is a libc call with an `unsafe` declaration. **This crate has no
+  `unsafe` today and no `libc` dependency.** `link(2)` is POSIX, is on every filesystem this crate
+  runs on, **creates the target as a second name for the same inode, and fails with `EEXIST` if the
+  target exists** — and it never modifies the target. **One call, so the refusal is atomic with the
+  write.** A check-then-write would not do: POSIX gives atomicity to the single call, so the target
+  appearing between the check and the write would be destroyed. `EXDEV` is a **refusal, not a
+  fallback** — a fallback is the defect the function exists to remove.
+
+- **Tests:**
+  - `crates/bevy_emerge_core/tests/a_rename_never_replaces.rs` — **7 tests**: the write lands; a
+    taken path is refused and the target's bytes are unchanged; **a file that appears before the
+    write is still refused**; the refusal names the path; no `.tmp` is left on either path; the
+    parent directory is made.
+  - `crates/bevy_emerge_mapper/tests/a_rename_is_all_or_nothing.rs` — **5 tests**: a rename onto a
+    taken name is refused and the other map's bytes are unchanged; a rename leaves **one** file,
+    named for the map, whose own `name:` agrees; a rename and back leaves the same set of files;
+    the name field's `Escape` clears the draft; a settings click sets the field.
+  - `crates/bevy_emerge_mapper/tests/a_label_and_its_value_are_two_things.rs` — **3 tests**: the
+    label carries a margin of its own; the margin is the design system's own `GAP_ROW`; the long
+    label is wider than its column.
+  - **Every test was checked against a build without its fix** — and one **failed that check and
+    was rewritten**: the first gap test compared two *measured* gaps and **passed with the fix
+    removed**, because the **headless layout does not reproduce the defect**. It now asserts the
+    mechanism, and the measurement moved to the visual review, where the window is.
+  - `cargo test --workspace` → **1,267 pass, 1 fail** — the one failure is
+    `bevy_emerge_mapper --test headless`'s `no_two_leaders_cross`, **red since at least
+    2026-09-03** and unchanged by this run.
+  - Clippy: **one finding, in `grammar.rs`** — a file this run does not touch.
+  - `cargo fmt --check`: **no new diff in the files this run touches** — `ron_surgery.rs` 5,
+    `project.rs` 11, `chooser.rs` 78, `chrome.rs` 16, `editor.rs` 87, **all the baseline's counts.**
+  - `cargo doc --no-deps`: no new warnings.
+  - Headless boot against Sanctuary's real project: **12 frames, 4,096 entities, no panic.**
+  - Sanctuary's own suite: **1,018 pass, 4 fail** — **the same four with this change stashed**
+    (`town_map`, `save`, `flankers`, `research`).
+  - Timings in `runs/2026-10-20-07/perf.md`.
+
+- **Measured, on a copy of Sanctuary's project:** a rename to a fresh name moved
+  `town_block.map.ron` (77,947 bytes) to **`town_renamed.map.ron`** and **removed the old file** —
+  one map, one file, one name, and the file's own `name:` agrees with its filename. A rename onto a
+  taken name changed **nothing**: both files byte-identical afterwards.
+
+- **The consumer's callsites: none broken.** The change is inside `bevy_emerge_mapper` and
+  `bevy_emerge_core::ron_surgery`; the game calls neither, and it reads maps by name from a list it
+  owns. **But a rename strands the game**, because a map's name is **a string in Sanctuary's code**
+  — `town_map.rs:35` `MAP = "town"`, `emerge_data.rs:28` `MAPS = ["town_block", "town"]` — and the
+  editor's receipt now says so. **This is the opposite of a composition rename**, which the game
+  finds by *prefix* and which strands nothing; both were checked, not assumed.
+
+- **Verdicts:** **Function: GREAT** — every state captured, the refusal and the move both measured
+  on disk. **Zoom: GREAT** — the gap fix measured on a controlled before-and-after (19 px → 29 px
+  for the long label, 131 px → 143 px for the short one), and the `•` mark on the row that was
+  clicked. **Fresh eyes: GREAT** — the key overlay names the field, the field opens holding what is
+  in it, the refusal writes nothing, and the move leaves one file. All three in
+  `runs/2026-10-20-07/review.md`, with the captures in `runs/2026-10-20-07/evidence/`.
+
+- **An incident, recorded because it is part of this run's evidence:** the consumer's
+  `AGENTS_CHAT.md` was **overwritten instead of appended to**, and **1,095 lines of other agents'
+  notes were lost**. The file is gitignored, so git had no copy, and the session transcripts hold
+  only 12 lines of it. The recoverable 12 are restored, **the loss is stated in the file itself**,
+  and the whole account is in `runs/2026-10-20-07/an-incident.md`. **The lesson, and the rule:**
+  `write` replaces, so a file that says to append must be appended to — and a file another agent
+  owns is a message, and a message is not replaced.
+
+- **Run:** `docs/loop/runs/2026-10-20-07/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
+  `an-incident.md`, `evidence/`.
+
+Top 5 remaining:
+
+1. **Renaming a kit's namespace** — the same idea with a much larger blast radius: **744 mentions
+   across 4 files** (`town.map.ron` 383, `town_block.map.ron` 289, `town/library.ron` 49,
+   `compositions.ron` 16, `rules.ron` 7). **And there is no multi-file atomicity**: `save_atomic` is
+   per file, and a half-finished rename leaves a project that **fails to open**, because
+   `bound_library` refuses a namespace mismatch whichever file is written first. **This run's
+   `save_atomic_no_replace` is one piece of that atomicity** — the piece that refuses instead of
+   replacing — and the shape is the same: a writer that returns **every** new text, and a caller
+   that writes them **only if every one succeeded**.
+2. **The other four missing editor operations** — project rename, project delete, bash creation,
+   policy patch add. The policy patch is the hardest: a `Patch` has a multi-line `because` and a
+   nested `Descriptor`, so `LineDoc::append` — the one-line-record tool — is not a direct fit. The
+   scout's measurement: Sanctuary's `kit/project.ron` carries **18 hand-written patch records** with
+   the same `because` text, and the append primitive and the remove both exist — **only the add path
+   has no caller.**
+3. **The 282 hand-placed fences.** Measured, and the largest single number in the map. But
+   `rules.ron` already says the *game* lays the blocks out, and the fences are the *border* of a
+   block — so this is content, and the last three iterations called it the owner's.
+4. **`fill.rs` has no test at all** — 1,058 lines, the one untested module in the mapper, and the
+   module that lays the bulk of a level. A flood and a box fill are the two gestures that make a
+   level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+5. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
+   connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
+   not `is_near`.
