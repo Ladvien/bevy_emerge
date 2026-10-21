@@ -1,70 +1,6 @@
 {
   "items": [
     {
-      "id": "B-001",
-      "kind": "bug",
-      "area": "badges",
-      "title": "Badge leaders crossed on MESHES at 1680x1050, because the layout score counted box overlaps and not crossings",
-      "must_fix": {
-        "blocks": true,
-        "common": true,
-        "no_workaround": true,
-        "evidence": "tests/headless.rs::no_two_leaders_cross was red from 2026-09-03; measured comfort score 1 (1 box overlap, 0 crossings) vs compact score 0 (0 overlaps, 3 crossing pairs)"
-      },
-      "status": "fixed",
-      "evidence": "tests/the_layout_score_counts_crossings.rs (2 tests, both fail on the unfixed code)",
-      "last_failure": "",
-      "first_seen": "2026-09-03"
-    },
-    {
-      "id": "B-002",
-      "kind": "bug",
-      "area": "status",
-      "title": "Twelve refusals were filed in Status::note, where the next receipt erases them",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": true,
-        "evidence": "A note is one dim row, erased by the next receipt and by a tab switch (Status::clear_note). A refusal there is a refusal the author never sees."
-      },
-      "status": "fixed",
-      "evidence": "tests/every_refusal_is_in_a_problem.rs (2 tests; the first fails on the unfixed code with every site named)",
-      "last_failure": "",
-      "first_seen": "2026-10-20"
-    },
-    {
-      "id": "B-003",
-      "kind": "bug",
-      "area": "watch",
-      "title": "The file watcher took ResMut<Project> and ResMut<OpenMap> every frame, and Bevy's conflict resolution deferred the badge layout past the frame",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": true,
-        "evidence": "The headless suite went from 189 pass / 0 fail to 2-4 failures whose set changed every run. Bisection: watcher disabled -> 189/0 twice; watcher as one system -> 2-4 fail, varying; watcher split into a tick and an act -> 189/0 twice."
-      },
-      "status": "fixed",
-      "evidence": "crates/bevy_emerge_mapper/src/watch.rs (tick_watch and adopt_changes) and the headless suite",
-      "last_failure": "",
-      "first_seen": "2026-10-21"
-    },
-    {
-      "id": "E-001",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "An agent can drive the editor through typed operations, over MCP, with the file changing under it",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": true,
-        "evidence": "Before: the editor's verbs were key handlers, so an agent could only synthesise keystrokes, and a data file edited on disk was invisible until a restart."
-      },
-      "status": "fixed",
-      "evidence": "tests/an_agent_can_drive_the_editor.rs (8 tests); crates/bevy_emerge_mcp/tests/an_agent_calls_the_server.rs (3 tests); crates/bevy_emerge_mcp/tests/docs_are_current.rs (4 tests); crates/bevy_emerge_mapper/tests/operations_have_two_front_ends.rs (5 tests)",
-      "last_failure": "",
-      "first_seen": "2026-10-21"
-    },
-    {
       "id": "E-002",
       "kind": "enhancement",
       "area": "mcp",
@@ -129,22 +65,6 @@
       "first_seen": "2026-10-21"
     },
     {
-      "id": "B-004",
-      "kind": "bug",
-      "area": "vlm",
-      "title": "probe reports Ready for any non-loopback host without connecting, so a LAN endpoint that is down is reported ready",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": true,
-        "evidence": "probe() answered Reach::Ready for any host not spelled localhost/127./::1, so a LAN endpoint on a closed port was reported ready without a connect. The LAN bind is the documented portable setup; no config makes the preflight run there."
-      },
-      "status": "fixed",
-      "evidence": "crates/bevy_emerge_mapper/src/vlm.rs::tests::a_lan_host_that_is_down_is_not_reported_as_ready",
-      "last_failure": "",
-      "first_seen": "2026-09-03"
-    },
-    {
       "id": "E-006",
       "kind": "enhancement",
       "area": "release",
@@ -157,22 +77,6 @@
       },
       "status": "open",
       "evidence": "cargo info bevy_emerge_core@0.1.0 (and the other six)",
-      "last_failure": "",
-      "first_seen": "2026-10-21"
-    },
-    {
-      "id": "E-007",
-      "kind": "bug",
-      "area": "editor",
-      "title": "A map edited on disk reaches the editor's memory but not the screen: the placed pieces are spawned once, at open",
-      "must_fix": {
-        "blocks": true,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "Wrong result on screen: the file says the piece moved, the editor's map agrees, the viewport does not (tests/a_map_edited_on_disk_reaches_the_screen.rs failed: 'piece on SCREEN is at Vec3(0.0, 0.0, 0.0)'). Common: editing the map file is the hot-reload path. Workaround: restart the editor."
-      },
-      "status": "fixed",
-      "evidence": "tests/a_map_edited_on_disk_reaches_the_screen.rs::a_piece_moved_on_disk_stands_in_its_new_place; docs/loop/iterations/assets/2026-10-21-d131ce7/E-007-{before,after}.gif",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -193,20 +97,52 @@
       "first_seen": "2026-10-21"
     },
     {
-      "id": "E-009",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "Undo is declared in the registry and performed by no tool",
       "must_fix": {
         "blocks": false,
         "common": false,
         "no_workaround": false,
-        "evidence": "ops.rs declares Undo::Inverse and Undo::Snapshot, the tool list names the strategy, and no tool performs an undo. The tool descriptions now say so rather than promising one."
+        "evidence": ""
       },
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-010",
+      "kind": "enhancement",
+      "area": "editor",
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::Undo",
-      "last_failure": "2026-10-21: stopped on repeated failure (Non-negotiable 5). Tried to route emerge_undo through ops::dispatch by lending the editor's undo to ops::Ctx as a callback. Attempt 1: Box<dyn FnOnce + '_> needs a lifetime on Ctx, which every Ctx user would carry. Attempt 2: a 'static callback cannot hold the system's Commands/Res<AssetServer>/Query (E0521 'lifetime may not live long enough'). Hypothesis for next iteration: the flag-and-system shape E-007's fix uses -- the registry's undo operation queues a request (resource), an Update system in keys::Phase::Act pops EditorState::undo through the existing editor::undo body and records the log entry; the BRP command returns the queued operation id and the MCP tool polls emerge_state for the result, as emerge_capture_sequence already does. WIP patch (not committed): target/loop/2026-10-21-f9a9ac6/undo-wip.patch.",
-      "first_seen": "2026-10-21"
+      "title": "The human cannot undo a map-settings change: Cmd+Z takes back placements only, and no UI reverts by operation id",
+      "evidence": "Agent side shipped as emerge_undo_operation (39ab825). User problem: a size-field typo is fixed by retyping; frequency: every settings edit; saving: one keystroke; risk: Cmd+Z then has two histories unless it dispatches ops::undo."
+    },
+    {
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": ""
+      },
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-011",
+      "kind": "enhancement",
+      "area": "mcp",
+      "status": "open",
+      "title": "Frame time is unmeasurable through MCP and unreliable on a shared machine",
+      "evidence": "emerge_state has no frame clock; bevy_debugger/status tick counting gave 33.1 / 20.2 / 67.2 ms medians at load 2 agents / idle / load-avg 30.8. A per-frame CPU-time diagnostic in emerge_state would separate the editor from the machine."
+    },
+    {
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": ""
+      },
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-012",
+      "kind": "enhancement",
+      "area": "tests",
+      "status": "open",
+      "title": "Signature-reading ratchets cannot see resources inside #[derive(SystemParam)] bundles",
+      "evidence": "B-005 introduced 32 bundles; the_sweep_is_finished and every_resource_says_what_a_door_does_to_it read fn signatures, so a bare Res in a bundle used by an on_* observer would pass. on_shelf_click was kept unbundled for this reason; the ratchets should resolve bundle fields."
     }
   ]
 }

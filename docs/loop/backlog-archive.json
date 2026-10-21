@@ -1,0 +1,164 @@
+{
+  "items": [
+    {
+      "id": "B-001",
+      "kind": "bug",
+      "area": "badges",
+      "title": "Badge leaders crossed on MESHES at 1680x1050, because the layout score counted box overlaps and not crossings",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "tests/headless.rs::no_two_leaders_cross was red from 2026-09-03; measured comfort score 1 (1 box overlap, 0 crossings) vs compact score 0 (0 overlaps, 3 crossing pairs)"
+      },
+      "status": "fixed",
+      "evidence": "tests/the_layout_score_counts_crossings.rs (2 tests, both fail on the unfixed code)",
+      "last_failure": "",
+      "first_seen": "2026-09-03"
+    },
+    {
+      "id": "B-002",
+      "kind": "bug",
+      "area": "status",
+      "title": "Twelve refusals were filed in Status::note, where the next receipt erases them",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "A note is one dim row, erased by the next receipt and by a tab switch (Status::clear_note). A refusal there is a refusal the author never sees."
+      },
+      "status": "fixed",
+      "evidence": "tests/every_refusal_is_in_a_problem.rs (2 tests; the first fails on the unfixed code with every site named)",
+      "last_failure": "",
+      "first_seen": "2026-10-20"
+    },
+    {
+      "id": "B-003",
+      "kind": "bug",
+      "area": "watch",
+      "title": "The file watcher took ResMut<Project> and ResMut<OpenMap> every frame, and Bevy's conflict resolution deferred the badge layout past the frame",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "The headless suite went from 189 pass / 0 fail to 2-4 failures whose set changed every run. Bisection: watcher disabled -> 189/0 twice; watcher as one system -> 2-4 fail, varying; watcher split into a tick and an act -> 189/0 twice."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/watch.rs (tick_watch and adopt_changes) and the headless suite",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-001",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "An agent can drive the editor through typed operations, over MCP, with the file changing under it",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Before: the editor's verbs were key handlers, so an agent could only synthesise keystrokes, and a data file edited on disk was invisible until a restart."
+      },
+      "status": "fixed",
+      "evidence": "tests/an_agent_can_drive_the_editor.rs (8 tests); crates/bevy_emerge_mcp/tests/an_agent_calls_the_server.rs (3 tests); crates/bevy_emerge_mcp/tests/docs_are_current.rs (4 tests); crates/bevy_emerge_mapper/tests/operations_have_two_front_ends.rs (5 tests)",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "B-004",
+      "kind": "bug",
+      "area": "vlm",
+      "title": "probe reports Ready for any non-loopback host without connecting, so a LAN endpoint that is down is reported ready",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "probe() answered Reach::Ready for any host not spelled localhost/127./::1, so a LAN endpoint on a closed port was reported ready without a connect. The LAN bind is the documented portable setup; no config makes the preflight run there."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/vlm.rs::tests::a_lan_host_that_is_down_is_not_reported_as_ready",
+      "last_failure": "",
+      "first_seen": "2026-09-03"
+    },
+    {
+      "id": "E-007",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A map edited on disk reaches the editor's memory but not the screen: the placed pieces are spawned once, at open",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Wrong result on screen: the file says the piece moved, the editor's map agrees, the viewport does not (tests/a_map_edited_on_disk_reaches_the_screen.rs failed: 'piece on SCREEN is at Vec3(0.0, 0.0, 0.0)'). Common: editing the map file is the hot-reload path. Workaround: restart the editor."
+      },
+      "status": "fixed",
+      "evidence": "tests/a_map_edited_on_disk_reaches_the_screen.rs::a_piece_moved_on_disk_stands_in_its_new_place; docs/loop/iterations/assets/2026-10-21-d131ce7/E-007-{before,after}.gif",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-009",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "Undo is declared in the registry and performed by no tool",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "ops.rs declares Undo::Inverse and Undo::Snapshot, the tool list names the strategy, and no tool performs an undo. The tool descriptions now say so rather than promising one."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/tests/an_agent_can_take_its_own_change_back.rs (12 tests); crates/bevy_emerge_mcp/tests/an_agent_calls_the_server.rs::the_undo_tool_says_what_it_does_and_refuses_without_an_editor; docs/loop/iterations/assets/2026-10-21-556158d/enh-{before,after}.gif",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "bevy_emerge_core 73, mapper 155, rng 2, solver 2, bevy_emerge 1; core failed under clippy so downstream crates were never linted"
+      },
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "B-005",
+      "kind": "bug",
+      "area": "lint",
+      "status": "fixed",
+      "title": "cargo clippy --workspace --all-targets -D warnings was red (233 findings), so no iteration's gate could pass",
+      "evidence": "cargo clippy --workspace --all-targets -- -D warnings exits 0 (commits ada4a8d, 093e3b6)"
+    },
+    {
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "destructiveHint server=true docs=false, three descriptions differed; not must-fix, fixed because trivial and in files the enhancement touched"
+      },
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "B-006",
+      "kind": "bug",
+      "area": "mcp",
+      "status": "fixed",
+      "title": "docs/mcp-tools.md said emerge_apply_operation is not destructive; the reference was checked against a hand copy, by name only",
+      "evidence": "crates/bevy_emerge_mcp/tests/docs_are_current.rs::the_reference_names_the_servers_own_tools (now compares descriptions and hints)"
+    },
+    {
+      "must_fix": {
+        "blocks": true,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "wrong result reported as success; schema says null clears"
+      },
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "B-007",
+      "kind": "bug",
+      "area": "ops",
+      "status": "fixed",
+      "title": "map_set_settings answered applied to \"note\": null and left the note set, because serde reads null as absent",
+      "evidence": "crates/bevy_emerge_mapper/tests/an_agent_can_drive_the_editor.rs::a_null_clears_the_note_and_the_bash"
+    }
+  ]
+}
