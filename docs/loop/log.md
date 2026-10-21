@@ -1335,3 +1335,112 @@ Top 5 remaining:
 5. **Enclosure wish and weight are still hard-coded** in the editor (`ENCLOSURE_WISH = 0.25`,
    `ENCLOSURE_WEIGHT = 200`), so an author who wants more enclosed rooms still edits Rust — and
    the brief's rule is that a value somebody would tune belongs in data.
+
+## 2026-10-21-03: the editor's own eyes, and the moment the action landed
+
+**Change:** an agent can **see** the editor. Three new tools on the MCP server — `emerge_state`,
+`emerge_capture_still`, `emerge_capture_sequence` — and one new module in the editor,
+`crates/bevy_emerge_mapper/src/sequencer.rs`.
+
+**Evidence:** `docs/loop/runs/2026-10-21-03/` — the research, the plan, the perf numbers, the
+review, `evidence/after/` (the two frames), `evidence/crops/` (the inspector at 3x, before and
+after) and `video/the-sequence.mp4`.
+
+**Why it ranked first.** The previous run (2026-10-21-02) gave the editor a **third door**: an
+agent dispatches *operations* over MCP. **And it could not check anything.** Every answer was a
+**summary string** the editor wrote about itself — `"map is 300 x 20 x 1120 m, and the file was
+written"` — so an agent that applied a change and was told "done" had learned one thing: that
+the editor did not refuse. **An agent that cannot verify cannot be trusted with an edit a human
+would check**, and this editor is meant to be driven by one.
+
+**The one sentence:** *a summary is a claim, and the editor's own pixels are the ground truth.*
+
+**The design that mattered.** The obvious design puts the sequencing in the MCP server: capture a
+frame, apply the operation, capture the next. **It is wrong**, because the screenshot reads the
+**rendered** frame — so an operation applied before frame 0's readback would be **in** frame 0,
+and a sequence that begins with the thing it was supposed to show the absence of is worse than no
+sequence. The two round trips have no ordering between them, and the readback lands a frame or
+two after the request. **So the sequencer lives in the editor:** it takes the frames on its own
+clock and applies the operation **after frame 0 has been asked for**. The ordering is a property
+of the editor's code, and it is pinned by a test.
+
+**Measured, live, against Sanctuary's `town` map** (727 placements):
+
+- `emerge_capture_still` → **206 ms**, one PNG (1,363,909 bytes, 2560×1406) of the **whole
+  editor** — world and interface together, because the inspector is where the editor reports what
+  it did — plus the state, in one answer.
+- `emerge_capture_sequence` → **880 ms** for four frames. **The operation went in at 0.121 s;
+  frame 0 was taken at 0.061 s.** The pixels agree: frame 0's inspector reads **Y 35**, frame
+  1's reads **Y 48**, and the operation set Y to 48.
+- The editor's clock drove the timing; the server made one call and waited.
+
+**Bugs found and fixed while building it** (three, each caught by the thing that measures it):
+
+1. **The sequence reported 3 images for 4 frames.** The run finished when the frames were *asked
+   for*, and the last PNG was still being written. **A caller that trusted the answer and read
+   the files would have found one missing, for no reason it could see.** The run now finishes on
+   the *write*, and an observer records it.
+2. **The headless editor hung for 20 seconds.** With no render world a screenshot never produces
+   a readback, and my first fix made the run *wait* for a frame that cannot exist. The question is
+   now settled **once, at startup** — `RenderPlugin` creates the `RenderApp` sub-app only when a
+   backend was available, so the sub-app's presence *is* the fact — and a headless run **ends and
+   says why**: *"this editor has no render world, so no frame could be written"*, rather than
+   reporting success with no picture behind it.
+3. **`emerge_state`'s description never said it *returned* anything.** The test that holds the
+   descriptions to the brief's rule — *"read only the description, call the tool, and check the
+   result is usable with no project knowledge"* — failed on it, and the description was fixed.
+
+**And a ratchet caught the new resources.** `every_resource_is_classified` failed on
+`sequencer::Sequencer` and `sequencer::CanRender`, and its own failure message said what to do:
+add each to `screen::OWNERSHIP`. Both are `Session` — a capture in flight is bound to this
+application, and a door change does not make a headless editor able to render.
+
+**Sources:** the MCP specification and `rmcp` 3.3.0's own source for the tool contract
+(`ToolAnnotations` at `src/model/tool.rs:54`); Norman and Carroll for the rule that a message
+describes the *state* and not the *sender's* action; Buxton's three pillars and Schuler's
+interactive visualization for the feedback loop as the product; WebArena and SeeAct for the
+screenshot as the observation an action is grounded in; and the editor's own `Status` contract for
+the refusal rule.
+
+**Test / perf:** `cargo test --workspace` → **1,325 pass, 0 fail** (up from 1,320). **Two new test
+files, 4 new tests, and 2 new tests in existing files.** Clippy: **zero findings in any file this
+run touched** (the workspace's pre-existing findings are in other crates and unchanged — the
+`bevy_emerge_core` and `bevy_emerge_rng` ones are not mine and were there before).
+`cargo fmt`: **every file this run touched is rustfmt-clean** under edition 2024 (the repository
+as a whole is not — thousands of pre-existing diffs in other files, unchanged by this run).
+`cargo doc --no-deps`: clean. The headless boot against Sanctuary's project: **12 frames, 4096
+entities, no panic**. Sanctuary's own suite: green. **A still capture is 206 ms; a four-frame
+sequence with an operation is 880 ms.**
+
+**One honest limit.** The headless harness runs with `WgpuSettings { backends: None }`, so **no
+PNG is written there** — the headless test proves the *ordering* and the run says why it has no
+picture; **the pixels are proved in a real windowed editor**, and that is the run's evidence.
+
+**Verdicts:** **Function: GREAT** — every state captured: the state, the still, frame 0 before
+the action, frames 1..n after it, and the manifest's timings. **Zoom: GREAT** — the inspector's
+`MAP SIZE` block at 3x, before (`Y 35`) and after (`Y 48`), legible and on the same baseline.
+**Fresh eyes: GREAT** — a cold editor, a cold server, and the tools are findable by listing them;
+the one description that was not enough was found by the test and fixed.
+
+**Commits:** see below. **No PR**, for the same reason as the previous eight runs: this repository
+has never had one (`gh api repos/Ladvien/bevy_emerge/pulls` returns **0**), every commit goes
+straight to `main`, and `gh pr create` refuses with *"head branch `main` is the same as base
+branch `main`"*.
+
+Top 5 remaining:
+
+1. **The 128 unmigrated actions** — the allowlist is in place, with the ratchet that stops it
+   growing. **Migrate the second workflow** (the placement, or the fill) and the slice is cheap:
+   the registry, the log, the watcher and the bridge are all proven.
+2. **The operation log has a single-writer assumption** — the MCP server and the editor are
+   separate processes, and both could append and claim the same sequence number. An advisory file
+   lock would fix it, and it is the one thing in the new code that could lose an agent's record.
+3. **A capture is a whole-surface readback per frame, and the editor's cost of that is not
+   measured.** The 4 fps is a deliberate design rate, not a measured limit — **the editor has not
+   been shown to be unable to go faster**, and a person authoring with the editor open would be
+   paying for a capture they did not ask for.
+4. **The remaining mis-slotted refusals** — 18 of the 21 sites found on 2026-10-21 are still in
+   the receipt slot rather than the problem slot, and the same class of bug as the twelve that
+   were fixed.
+5. **`bevy_emerge_mcp` is unpublished** — the pre-publish gate (`semver-checks`, `package --list`,
+   the dry run) has not been run, and the brief says not to publish from a red gate.

@@ -607,6 +607,25 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     // The surface is how this application DRAWS — see `crate::surface`, and `scene_roots`, which
     // excludes its entities for the same reason.
     ("bevy_emerge_mapper::surface::Surface", Ownership::Session),
+    // **The sequencer's own state is `Session`, and the reason is the same as the surface's.**
+    // A capture in flight is bound to *this* application — to the renderer that can read the
+    // pixels back and to the clock that is counting the frames. **A door change does not
+    // invalidate it**: the run carries on, and the frames it takes are of the editor as it is,
+    // which is the point of the run. The run's *work* — the operation it applies — is dispatched
+    // through the operation registry against the map that is open, and the map is `Project`, so
+    // the map it acts on is the one the door change reloads.
+    (
+        "bevy_emerge_mapper::sequencer::Sequencer",
+        Ownership::Session,
+    ),
+    // **And whether this application can write a frame at all** — settled once, at startup, from
+    // the render world's presence. It cannot change while the application runs, so it is
+    // `Session` for the same reason: a door change does not make a headless editor able to
+    // render.
+    (
+        "bevy_emerge_mapper::sequencer::CanRender",
+        Ownership::Session,
+    ),
     ("bevy_emerge_mapper::keys::Live", Ownership::Session),
     ("bevy_emerge_mapper::keys::Repeat", Ownership::Session),
     // **The one prompt outlives a door on purpose**, because it is asked on both sides of one:

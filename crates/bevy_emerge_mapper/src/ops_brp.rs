@@ -174,6 +174,113 @@ fn project_root(
     }))
 }
 
+/// **`emerge/state` — what the editor is holding right now.**
+///
+/// **A read, and the answer to "what does the editor look like?"** — the question an agent asks
+/// before it changes anything, and the question it asks afterwards to check that the change landed.
+///
+/// **It is a summary, not a dump.** The editor holds a great deal: a library of hundreds of
+/// descriptors, a map of thousands of placements, a grid of cells. **None of that is what an agent
+/// needs to know**; what it needs is the *shape* of the current state — which map, how big, how
+/// many pieces, what is armed, what is selected, what the editor last said, and what has gone
+/// wrong. **So the state is the handful of numbers a person would read off the screen**, and the
+/// picture is a separate tool.
+///
+/// **And it is cheap.** Everything here is already in memory, so the whole command is a read and
+/// a `json!` — no scanning, no measuring, no rendering.
+fn editor_state(
+    _: In<serde_json::Value>,
+    project: Option<Res<crate::project::Project>>,
+    open: Option<Res<crate::project::OpenMap>>,
+    state: Option<Res<crate::editor::EditorState>>,
+    tiles: Option<Res<crate::tiles::ImportState>>,
+    armed: Option<Res<crate::compose::Armed>>,
+    door: Option<Res<crate::tiles::Door>>,
+    mode: Option<Res<crate::tiles::Mode>>,
+) -> Result<Value, String> {
+    // **The map, and what is in it.**
+    let map = open.as_ref().map(|o| {
+        json!({
+            "name": o.map.name,
+            "path": o.map_path.to_string_lossy(),
+            "bounds": [o.map.bounds.0, o.map.bounds.1, o.map.bounds.2],
+            "origin": [o.map.origin.0, o.map.origin.1, o.map.origin.2],
+            // **The rows a consumer will spawn** -- the map's own placements plus every stamp
+            // expanded -- because that is the number the game will see and the number an agent
+            // should reason about.
+            "placements": o.map.placements.len(),
+            "stamps": o.map.stamps.len(),
+            "bash": o.map.bash,
+            "note": o.map.note,
+            // **Whether the file and the editor agree.** An agent that changed something needs to
+            // know it reached the disk.
+            "dirty": o.dirty(),
+        })
+    });
+    // **The project, and what it holds.**
+    let project_summary = project.as_ref().map(|p| {
+        json!({
+            "root": p.root.to_string_lossy(),
+            "kit": p.namespace,
+            "descriptors": p.library.descriptors.len(),
+            "compositions": p.compositions.compositions.len(),
+            "kits": p.kits.len(),
+        })
+    });
+    // **What the editor is holding and what it last said.**
+    //
+    // **The armed piece's id, not its index.** An index means nothing to a reader; the id is what
+    // the palette shows and what an agent would name. And the index is into the *library*, so the
+    // name is looked up there.
+    let armed_piece = match (state.as_ref(), project.as_ref()) {
+        (Some(s), Some(p)) => s
+            .brush
+            .and_then(|i| p.library.descriptors.get(i))
+            .map(|d| d.id.clone()),
+        _ => None,
+    };
+    let editor = state.as_ref().map(|s| {
+        json!({
+            "armed_piece": armed_piece,
+            "brush_yaw_deg": s.brush_yaw,
+            "tool": format!("{:?}", s.tool),
+            "status": s.status.note_text(),
+            "problems": s.status.problems().iter().map(|p| p.line()).collect::<Vec<_>>(),
+            "journal_entries": s.status.raised(),
+        })
+    });
+    Ok(json!({
+        "map": map,
+        "project": project_summary,
+        "editor": editor,
+        "armed_composition": armed.and_then(|a| a.id().map(|s| s.to_owned())),
+        "selected": tiles.as_ref().map(|t| t.selected_library_id.clone()),
+        "door": door.map(|d| d.label()),
+        "mode": mode.map(|m| m.label()),
+    }))
+}
+
+/// **`emerge/capture_sequence_start` — begin a capture sequence.**
+///
+/// **A refusal, and not a note** — the sequence is an agent's request, and a request that cannot
+/// be honoured has to say so where the agent reads it.
+fn capture_sequence_start(
+    In(p): In<crate::sequencer::SequenceParams>,
+    time: Res<Time>,
+    mut sequencer: ResMut<crate::sequencer::Sequencer>,
+) -> Result<Value, String> {
+    let id = sequencer.start(&p, time.elapsed_secs())?;
+    Ok(json!({ "id": id }))
+}
+
+/// **`emerge/capture_sequence_status` — what the sequence is doing.**
+fn capture_sequence_status(
+    In(p): In<crate::sequencer::StatusParams>,
+    sequencer: Res<crate::sequencer::Sequencer>,
+) -> Result<Value, String> {
+    Ok(sequencer.status(p.id))
+}
+
 /// **`emerge/operation_list` — every operation, its schema, and how it is undone.**
 ///
 /// **A discovery tool, not a page of tools.** The MCP server exposes one tool per operation, but
@@ -368,6 +475,48 @@ impl Plugin for OpsBridgePlugin {
             )
             .example(json!({})),
             project_root,
+        );
+
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/state",
+                "What the editor is holding right now: the open map and its bounds, how many \
+                 pieces it has, what is armed, what is selected, which door and tab are open, and \
+                 what the editor last said. A read.",
+            )
+            .example(json!({})),
+            editor_state,
+        );
+
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/capture_sequence_start",
+                "Begin a capture sequence: the editor takes the frames, so frame 0 is the state \
+                 before the operation and the operation is applied after it. Returns the run's id; \
+                 poll emerge/capture_sequence_status with it.",
+            )
+            .params("label: a snake_case name for the sequence. out_dir: the absolute directory the \
+                     frames are written to. seconds: how long the sequence runs. fps: 4, or 2 for a \
+                     long slow operation. operation: an optional operation to apply once frame 0 is \
+                     in.")
+            .example(json!({
+                "label": "fill_preview",
+                "out_dir": "/tmp/seq",
+                "seconds": 2.0,
+                "fps": 4,
+            })),
+            capture_sequence_start,
+        );
+
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/capture_sequence_status",
+                "What a capture sequence is doing: running, done, or failed, and the frames it \
+                 wrote. A read.",
+            )
+            .params("id: the run's id, as emerge/capture_sequence_start returned it.")
+            .example(json!({"id": 1})),
+            capture_sequence_status,
         );
 
         app.add_debug_command(

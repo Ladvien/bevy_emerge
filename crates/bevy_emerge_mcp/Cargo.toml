@@ -40,6 +40,12 @@ schemars = "1"
 # the body and the `Content-Type`, and a JSON-RPC server that gets a wrong content type answers
 # with a parse error rather than with the refusal it meant to send.
 ureq = { version = "3", features = ["json"] }
+# **Base64, for the frames the editor writes to disk.**
+#
+# The BRP screenshot path hands back a base64 PNG, which passes straight through; a frame read
+# back from a file does not, and the MCP image content wants base64. `base64` is what encodes it,
+# and it is a dependency of `rmcp` already -- so this is the same crate, named directly.
+base64 = "0.22"
 
 [dev-dependencies]
 # **The MCP client, for the integration test.** The brief asks for a test that calls a tool "as an

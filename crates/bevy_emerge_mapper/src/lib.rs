@@ -71,6 +71,7 @@ pub mod ops;
 pub mod ops_brp;
 pub mod project;
 pub mod screen;
+pub mod sequencer;
 pub mod stages;
 pub mod surface;
 pub mod thumbs;

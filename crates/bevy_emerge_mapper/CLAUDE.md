@@ -72,6 +72,20 @@ Scripts live in `guides/` as JSON, not as constants in the source: an agent post
 
 **One plugin list, two entry points.** `main.rs` and `harness::build_headless` share it — "not a second code path", the same argument the parent repo's `sim_harness.rs` makes.
 
+**And an agent can now see the editor, and see *when* its own action landed** (2026-10-21). `src/sequencer.rs` is the editor's half: it takes the frames on **the editor's own clock** and applies the operation **after frame 0 has been asked for**.
+
+**Why the sequencer is on this side and not in the MCP server.** The screenshot reads the **rendered** frame, so an operation applied before frame 0's readback would be **in** frame 0 — and a sequence that begins with the thing it was supposed to show the absence of is worse than no sequence, because it says the action was invisible when it was not. The server cannot promise the ordering: it would take two round trips — capture, then apply — with no ordering between them, and the readback lands a frame or two after the request. **On this side the ordering is a property of the code**, and `tests/a_sequence_starts_before_the_action.rs` pins it.
+
+Three things there are load-bearing:
+
+- **The run finishes when every frame has been WRITTEN, not when they were asked for.** The readback lands a frame or two after the spawn, and a run that finished on the ask reported itself done while its last PNG was still on its way — the answer carried 3 images for 4 frames, and a caller that trusted the answer and read the files would have found one missing for no reason it could see.
+- **`CanRender` is settled once, at startup, from the `RenderApp` sub-app's presence.** `RenderPlugin` creates that sub-app only when a backend was available, so the sub-app's presence *is* the fact that a frame can be written. A headless editor therefore **ends the run and says why** — *"this editor has no render world, so no frame could be written"* — rather than reporting success with no picture behind it, and rather than waiting for a frame that can never exist.
+- **The operation goes through `crate::ops::dispatch`**, the same call the editor's own size field makes. The sequencer is a way of *when* an operation happens; it must not be a second way of *what* happens.
+
+**The frames are the editor's own surface** — world and interface together, because the editor draws both into one image and the inspector is where the editor reports what it did. `src/ops_brp.rs` carries the three commands the MCP server calls (`emerge/state`, `emerge/capture_still`, `emerge/capture_sequence_start` and its `…_status`), and `crates/bevy_emerge_mcp/` is the server's half.
+
+**And the parity test now checks the seam.** `every_brp_method_the_server_calls_is_registered_in_the_bridge` walks the server's source for every `"emerge/…"` it calls and checks the bridge registers it — **a method the server calls and the bridge does not register is a tool that fails at the call**, which reads like the editor being down.
+
 **Borrowed, not copied.** The editor spawns through `bevy_emerge::spawn_descriptor`, previews rigs through the real `bevy_emerge_anim` blender, and captures through `bevy_devshot` — never a local copy of any of them. A map that looked one way here and another in the game would be the whole failure this design exists to prevent.
 
 ## Rules

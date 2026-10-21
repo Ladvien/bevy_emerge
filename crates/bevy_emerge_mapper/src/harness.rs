@@ -106,6 +106,9 @@ pub fn add_editor_plugins(app: &mut App) -> &mut App {
             // about debugging: the editor holds a parsed copy of the project's files, and without
             // this a developer who edited one saw nothing happen until they restarted.
             crate::watch::WatchPlugin,
+            // **The capture sequencer** -- the editor takes the frames, so frame 0 is the state
+            // before the operation and the operation is applied after it.
+            crate::sequencer::SequencerPlugin,
         ),
     ));
     // **The guide vocabulary belongs in the shared list; the transport does not.**

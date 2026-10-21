@@ -147,6 +147,9 @@ const MCP_TOOLS: &[&str] = &[
     "emerge_preview_operation",
     "emerge_apply_operation",
     "emerge_read_oplog",
+    "emerge_state",
+    "emerge_capture_still",
+    "emerge_capture_sequence",
 ];
 
 /// **The MCP server can reach every operation, and the tools are the four the server declares.**
@@ -453,6 +456,47 @@ fn every_operation_has_a_ui_entry_point_and_the_other_way_round() {
         orphaned.is_empty(),
         "these UI entry points name an operation the registry does not have: {orphaned:?}. A UI \
          path that dispatches nothing is a UI path that does the work itself."
+    );
+}
+
+/// **Every BRP method the MCP server calls exists in the editor's bridge.**
+///
+/// **The two lists are written down in two places, and that is how they drift.** The server calls
+/// `emerge/…` and `bevy_debugger/…`; the bridge registers `emerge/…`. **A method the server calls
+/// and the bridge does not register is a tool that fails at the call**, and the failure is an
+/// editor that is not running, which reads like the editor being down.
+///
+/// **The debugger's own methods are exempt by prefix** — they come from the debugger's plugin, not
+/// from this crate.
+#[test]
+fn every_brp_method_the_server_calls_is_registered_in_the_bridge() {
+    let server = std::fs::read_to_string("../bevy_emerge_mcp/src/main.rs")
+        .expect("the MCP server's source is there");
+    let bridge = std::fs::read_to_string("src/ops_brp.rs").expect("the bridge's source is there");
+
+    // **Every `"emerge/…"` the server names.**
+    let mut wanted: Vec<String> = Vec::new();
+    let mut rest = server.as_str();
+    while let Some(i) = rest.find("\"emerge/") {
+        rest = &rest[i + 1..];
+        let Some(end) = rest.find('"') else { break };
+        wanted.push(rest[..end].to_owned());
+    }
+    assert!(
+        !wanted.is_empty(),
+        "no `emerge/` method was found in the server's source, so the rule is being enforced \
+         against nothing"
+    );
+    let mut missing = Vec::new();
+    for method in wanted {
+        if !bridge.contains(&format!("\"{method}\"")) {
+            missing.push(method);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "the MCP server calls these methods and the editor's bridge does not register them, so \
+         the tools would fail at the call: {missing:?}"
     );
 }
 

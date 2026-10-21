@@ -58,6 +58,39 @@ pub const TOOLS: &[ToolDoc] = &[
         idempotent: false,
     },
     ToolDoc {
+        name: "emerge_state",
+        description: "What the editor is holding right now: the open map and its bounds, how many \
+                       pieces it has, what is armed, what is selected, which door and tab are open, \
+                       and what the editor last said and what has gone wrong. Returns that summary \
+                       as JSON, and changes nothing. Call it before a change to know what you are \
+                       changing, and after one to check that it landed.",
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+    },
+    ToolDoc {
+        name: "emerge_capture_still",
+        description: "A picture of the editor as it is now -- the world and the interface, because \
+                       the editor draws both into one image -- plus a state summary of the same \
+                       moment. The picture is returned as an image and written to a file whose path \
+                       is in the answer. Use this after a change to see what it did, or before one \
+                       to see what it was like.",
+        read_only: false,
+        destructive: false,
+        idempotent: false,
+    },
+    ToolDoc {
+        name: "emerge_capture_sequence",
+        description: "A sequence of frames of the editor, with an optional operation applied \
+                       once the first frame is in -- so frame 0 is the state before the action and \
+                       the later frames are what it did. The frames are written to a directory and \
+                       their paths are in the answer. The editor takes the frames, so the timing \
+                       does not depend on this server's round trips.",
+        read_only: false,
+        destructive: true,
+        idempotent: false,
+    },
+    ToolDoc {
         name: "emerge_read_oplog",
         description: "The editor's operation log, newest last. Every operation appends one line, \
                       whether a person or an agent did it, and an undo is recorded as a new line \
@@ -135,6 +168,33 @@ pub fn schemas() -> Value {
                 "parameters": {"type": "object"},
                 "dry_run": {"type": "boolean", "default": false},
             },
+        },
+        "emerge_state": {"type": "object", "additionalProperties": false},
+        "emerge_capture_still": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label"],
+            "properties": {
+                "label": {"type": "string", "description": "A snake_case name for the capture."}
+            }
+        },
+        "emerge_capture_sequence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label"],
+            "properties": {
+                "label": {"type": "string", "description": "A snake_case name for the sequence."},
+                "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 10, "default": 2.0},
+                "fps": {"type": "integer", "enum": [4, 2], "default": 4},
+                "operation": {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {
+                        "name": {"type": "string"},
+                        "parameters": {"type": "object"}
+                    }
+                }
+            }
         },
         "emerge_read_oplog": {
             "type": "object",

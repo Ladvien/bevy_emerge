@@ -184,6 +184,65 @@ fn a_call_with_no_editor_is_a_refusal_and_not_a_crash() {
     );
 }
 
+/// **The new tools are listed, and their descriptions are enough to call them.**
+///
+/// **The brief's test: "list the tools, read only the description, call the tool, and check the
+/// result is usable with no project knowledge."** This reads the descriptions and checks that
+/// each of the three new tools says what it does, what it does not do, and what comes back — and
+/// that the annotations are the ones the tool's behaviour earns.
+#[test]
+fn the_capture_and_state_tools_say_what_they_do() {
+    let mut server = Server::start();
+    let listed = server.request("tools/list", json!({}));
+    let tools = listed["result"]["tools"]
+        .as_array()
+        .expect("the tool list is an array");
+
+    // **The three new tools, and what each of them must say.**
+    let expected: &[(&str, bool, bool, bool)] = &[
+        // name, read_only, destructive, idempotent
+        // **A read is idempotent** — `emerge_state` changes nothing, so calling it twice is the
+        // same as calling it once. The two captures are not: each writes a file.
+        ("emerge_state", true, false, true),
+        ("emerge_capture_still", false, false, false),
+        ("emerge_capture_sequence", false, true, false),
+    ];
+    let mut missing = Vec::new();
+    for (name, read_only, destructive, idempotent) in expected {
+        let Some(tool) = tools.iter().find(|t| t["name"] == *name) else {
+            missing.push(format!("the tool `{name}` is not listed"));
+            continue;
+        };
+        let description = tool["description"].as_str().unwrap_or_default();
+        // **The description has to say what comes back**, or an agent cannot tell a result from
+        // a failure.
+        assert!(
+            description.contains("Returns")
+                || description.contains("returns")
+                || description.contains("answer")
+                || description.contains("picture"),
+            "the tool `{name}` does not say what comes back: {description}"
+        );
+        let annotations = &tool["annotations"];
+        assert_eq!(
+            annotations["readOnlyHint"].as_bool(),
+            Some(*read_only),
+            "the tool `{name}` has the wrong readOnlyHint: {annotations}"
+        );
+        assert_eq!(
+            annotations["destructiveHint"].as_bool(),
+            Some(*destructive),
+            "the tool `{name}` has the wrong destructiveHint: {annotations}"
+        );
+        assert_eq!(
+            annotations["idempotentHint"].as_bool(),
+            Some(*idempotent),
+            "the tool `{name}` has the wrong idempotentHint: {annotations}"
+        );
+    }
+    assert!(missing.is_empty(), "these tools are missing: {missing:?}");
+}
+
 /// **An unknown tool is refused, and the answer says which tools there are.**
 #[test]
 fn an_unknown_tool_is_refused_with_the_list() {

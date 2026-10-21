@@ -76,6 +76,53 @@ pub struct ApplyParams {
     pub dry_run: bool,
 }
 
+/// **The parameters of `emerge_capture_still`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StillParams {
+    /// **A name for the capture**, in snake_case. It names the file it is written under.
+    pub label: String,
+}
+
+/// **The parameters of `emerge_capture_sequence`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SequenceParams {
+    /// **A name for the sequence**, in snake_case. It names the directory the frames land in.
+    pub label: String,
+    /// **How long the sequence runs, in seconds.** Between a moment and ten.
+    #[serde(default = "two_seconds")]
+    pub seconds: f32,
+    /// **How many frames a second.** Four, or two for a long slow operation.
+    #[serde(default = "four_fps")]
+    pub fps: u32,
+    /// **The operation to apply, once frame 0 is in.** Without it the sequence is the settle
+    /// alone, which is what a reviewer wants when they are checking that nothing moved.
+    #[serde(default)]
+    pub operation: Option<SequenceOperation>,
+}
+
+/// **The operation a sequence applies.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SequenceOperation {
+    /// **The operation's name**, as `emerge_list_operations` gives it.
+    pub name: String,
+    /// **Its parameters.**
+    #[serde(default)]
+    pub parameters: Value,
+}
+
+/// **Two seconds, which is one contact sheet at four frames a second.**
+fn two_seconds() -> f32 {
+    2.0
+}
+
+/// **Four frames a second, the brief's default.**
+fn four_fps() -> u32 {
+    4
+}
+
 /// **The parameters of `emerge_read_oplog`.**
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -118,6 +165,74 @@ impl Emerge {
     /// **The project's root, for a tool that names a file.**
     pub fn project(&self) -> &std::path::Path {
         &self.project
+    }
+
+    /// **Grab a picture of the editor, as base64 PNG.**
+    ///
+    /// **Two calls, because the screenshot is asynchronous.** The editor answers
+    /// `bevy_debugger/screenshot` with an id, and the picture is ready a frame or two later, when
+    /// `bevy_debugger/capture` answers with the bytes. **So this asks, waits, and asks again** —
+    /// and the wait is bounded, because a capture that never lands must not hang an agent.
+    async fn grab(&self) -> Result<String, String> {
+        let asked = self
+            .editor
+            .call("bevy_debugger/screenshot", json!({"source": "offscreen"}))
+            .await?;
+        let id = asked
+            .get("id")
+            .and_then(|i| i.as_u64())
+            .ok_or("the editor did not give the capture an id")?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let answer = self
+                .editor
+                .call("bevy_debugger/capture", json!({"id": id}))
+                .await?;
+            match answer.get("status").and_then(|s| s.as_str()) {
+                Some("done") => {
+                    return answer
+                        .get("png_base64")
+                        .and_then(|p| p.as_str())
+                        .map(|p| p.to_owned())
+                        .ok_or_else(|| "the editor's capture had no picture in it".to_owned());
+                }
+                Some("failed") => {
+                    let why = answer
+                        .get("error")
+                        .and_then(|e| e.as_str())
+                        .unwrap_or("the editor did not say why");
+                    return Err(format!("the editor's capture failed: {why}"));
+                }
+                _ => {}
+            }
+            if std::time::Instant::now() > deadline {
+                return Err("the editor's capture did not arrive within ten seconds.".to_owned());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    /// **Where a capture lands.**
+    ///
+    /// **Under the project, in a directory the brief calls working files.** The brief says raw
+    /// captures go under `target/loop/<date>-<sha>/`, and **the project directory is where the
+    /// editor's own data lives** — so a capture is written beside the project, under `target`,
+    /// and never into the project's own data.
+    fn capture_dir(&self, label: &str) -> std::path::PathBuf {
+        self.project
+            .join("target")
+            .join("loop")
+            .join("captures")
+            .join(label)
+    }
+
+    /// **A name for a capture, unique enough that two do not collide.**
+    fn stamp(&self) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        format!("{now}")
     }
 
     /// **Is the editor on the project this server was told about?**
@@ -269,6 +384,199 @@ impl Emerge {
         }
     }
 
+    /// **`emerge_state` — what the editor is holding right now.**
+    ///
+    /// **A read, and the answer to "what does the editor look like?"** — the question an agent
+    /// asks before it changes anything, and the question it asks afterwards to check that the
+    /// change landed.
+    ///
+    /// **It is a summary, not a dump.** The editor holds hundreds of descriptors and thousands of
+    /// placements; **none of that is what an agent needs to know.** What it needs is the *shape* of
+    /// the current state — which map, how big, how many pieces, what is armed, what is selected,
+    /// which door and tab are open, and what the editor last said.
+    #[tool(
+        name = "emerge_state",
+        description = "What the editor is holding right now: the open map and its bounds, how many \
+                       pieces it has, what is armed, what is selected, which door and tab are open, \
+                       and what the editor last said and what has gone wrong. Returns that summary \
+                       as JSON, and changes nothing. Call it before a change to know what you are \
+                       changing, and after one to check that it landed.",
+        annotations(
+            title = "Read the editor's state",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn state(&self) -> Result<CallToolResult, ErrorData> {
+        match self.editor.call("emerge/state", json!({})).await {
+            Ok(v) => Ok(CallToolResult::structured(v)),
+            Err(e) => Ok(refusal(&e)),
+        }
+    }
+
+    /// **`emerge_capture_still` — a picture of the editor as it is now.**
+    ///
+    /// **A read of the screen, and a write of a file.** The picture comes from the editor's own
+    /// surface — the world *and* the interface, because the editor draws both into one image —
+    /// and the state beside it is the same summary `emerge_state` returns, so a picture is never
+    /// evidence on its own.
+    ///
+    /// **The file is written here and not by the editor.** The editor's own capture path writes
+    /// one file in the working directory and overwrites it; **a tool that overwrote the last
+    /// capture would make two runs indistinguishable.**
+    #[tool(
+        name = "emerge_capture_still",
+        description = "A picture of the editor as it is now -- the world and the interface, because \
+                       the editor draws both into one image -- plus a state summary of the same \
+                       moment. The picture is returned as an image and written to a file whose path \
+                       is in the answer. Use this after a change to see what it did, or before one \
+                       to see what it was like.",
+        annotations(
+            title = "Capture a still of the editor",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn capture_still(
+        &self,
+        Parameters(p): Parameters<StillParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // **The state first**, so the picture and the state are the same moment as near as the
+        // editor can make them.
+        let state = self
+            .editor
+            .call("emerge/state", json!({}))
+            .await
+            .unwrap_or(Value::Null);
+        let png = match self.grab().await {
+            Ok(png) => png,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        // **The file, written here.** A directory per label, and a name that says when it was
+        // taken, so two captures never collide.
+        let dir = self.capture_dir(&p.label);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return Ok(refusal(&format!("{}: {e}", dir.display())));
+        }
+        let path = dir.join(format!("still-{}.png", self.stamp()));
+        let bytes = match base64_decode(&png) {
+            Some(b) => b,
+            None => return Ok(refusal("the editor's picture was not base64.")),
+        };
+        if let Err(e) = std::fs::write(&path, &bytes) {
+            return Ok(refusal(&format!("{}: {e}", path.display())));
+        }
+        let answer = json!({
+            "path": path.to_string_lossy(),
+            "bytes": bytes.len(),
+            "state": state,
+        });
+        Ok(CallToolResult::success(vec![
+            rmcp::model::ContentBlock::image(png, "image/png"),
+            rmcp::model::ContentBlock::text(
+                serde_json::to_string_pretty(&answer).unwrap_or_default(),
+            ),
+        ]))
+    }
+
+    /// **`emerge_capture_sequence` — a sequence of frames, with an action in the middle.**
+    ///
+    /// **The editor takes the frames, and that is the point.** The brief's rule is that frame 0 is
+    /// the state *before* the action, and only the editor can promise that: the picture is of a
+    /// rendered frame, so an action applied before frame 0 was read back would be *in* frame 0.
+    /// **So the editor times the frames and applies the operation after frame 0**, and the delay is
+    /// in the answer.
+    #[tool(
+        name = "emerge_capture_sequence",
+        description = "A sequence of frames of the editor, with an optional operation applied \
+                       once the first frame is in -- so frame 0 is the state before the action and \
+                       the later frames are what it did. The frames are written to a directory and \
+                       their paths are in the answer. The editor takes the frames, so the timing \
+                       does not depend on this server's round trips.",
+        annotations(
+            title = "Capture a sequence of the editor",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn capture_sequence(
+        &self,
+        Parameters(p): Parameters<SequenceParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let dir = self.capture_dir(&p.label);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return Ok(refusal(&format!("{}: {e}", dir.display())));
+        }
+        let operation = p
+            .operation
+            .as_ref()
+            .map(|o| json!({"name": o.name, "parameters": o.parameters}));
+        let started = match self
+            .editor
+            .call(
+                "emerge/capture_sequence_start",
+                json!({
+                    "label": p.label,
+                    "out_dir": dir.to_string_lossy(),
+                    "seconds": p.seconds,
+                    "fps": p.fps,
+                    "operation": operation,
+                }),
+            )
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        let id = started.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
+        // **Poll for the end.** The editor answers when the frames are in, and the wait is bounded
+        // by the sequence's own length plus a margin for the last readback.
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs_f32(p.seconds + 10.0);
+        let status = loop {
+            let answer = match self
+                .editor
+                .call("emerge/capture_sequence_status", json!({"id": id}))
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => return Ok(refusal(&e)),
+            };
+            let done = answer.get("status").and_then(|s| s.as_str()) != Some("running");
+            if done || std::time::Instant::now() > deadline {
+                break answer;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        };
+        // **The frames are read back and returned as images**, so the caller sees the sequence
+        // without opening the files.
+        let mut content = vec![];
+        if let Some(frames) = status.get("frames").and_then(|f| f.as_array()) {
+            for frame in frames {
+                let Some(path) = frame.get("path").and_then(|p| p.as_str()) else {
+                    continue;
+                };
+                let Ok(bytes) = std::fs::read(path) else {
+                    continue;
+                };
+                content.push(rmcp::model::ContentBlock::image(
+                    base64_encode(&bytes),
+                    "image/png",
+                ));
+            }
+        }
+        content.push(rmcp::model::ContentBlock::text(
+            serde_json::to_string_pretty(&status).unwrap_or_default(),
+        ));
+        Ok(CallToolResult::success(content))
+    }
+
     /// **`emerge_read_oplog` — the operation log.**
     ///
     /// **A read.** Every operation writes one line, from a person or an agent, and an undo is a
@@ -401,4 +709,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let service = server.serve(rmcp::transport::stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+/// **Decode base64 into bytes.**
+///
+/// **Only the standard alphabet, and only the padded form** — which is what the editor's
+/// capture path produces and what `base64::engine` writes.
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.decode(text).ok()
+}
+
+/// **Encode bytes into base64.**
+fn base64_encode(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
