@@ -8,7 +8,7 @@ The server speaks the Model Context Protocol over **stdio**, and reaches the run
 
 ### `emerge_list_operations`
 
-Every operation the running bevy_emerge editor knows, with each one's parameters' JSON schema and how it is undone. Call this before emerge_apply_operation so the parameters are the ones the operation actually takes. Returns the list; it does not change anything.
+Every operation the running bevy_emerge editor knows, with each one's parameters' JSON schema and how it is undone. Call this before emerge_apply_operation so the parameters are the ones the operation actually takes. Returns the list; it does not change anything. The undo column names the strategy an operation declares, and no tool performs an undo yet.
 
 | annotation | value |
 |---|---|
@@ -28,12 +28,12 @@ What an operation would change, and nothing changed: the map, the data file and 
 
 ### `emerge_apply_operation`
 
-Run one of the editor's operations. Changes the open map, writes the data file, and appends a line to the operation log. Set dry_run to true to see what would change without changing it. Returns the operation's id, which can be cited in a report to the developer, and the log's own record of it.
+Run one of the editor's operations. Changes the open map, writes the data file, and appends a line to the operation log. Set dry_run to true to see what would change without changing it. Returns the operation's id, which can be cited in a report to the developer, and the log's own record of it. The operation replaces the values it names rather than adding to them, so it is marked destructive; there is no undo tool yet, and a change is reverted by editing the data file back or by restoring it from version control.
 
 | annotation | value |
 |---|---|
 | `readOnlyHint` | false |
-| `destructiveHint` | false |
+| `destructiveHint` | true |
 | `idempotentHint` | false |
 
 ### `emerge_state`
@@ -68,7 +68,7 @@ A sequence of frames of the editor, with an optional operation applied once the 
 
 ### `emerge_read_oplog`
 
-The editor's operation log, newest last. Every operation appends one line, whether a person or an agent did it, and an undo is recorded as a new line rather than a deletion. Read it to see what has been done to this project.
+The editor's operation log, newest last. Every operation appends one line, whether a person or an agent did it. Read it to see what has been done to this project. A refusal is not logged, so a line here is a line about a change that happened.
 
 | annotation | value |
 |---|---|

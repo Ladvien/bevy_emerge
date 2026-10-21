@@ -163,6 +163,46 @@ async fn the_reference_names_the_servers_own_tools() {
          generated from the server's declarations, and a hand-written copy of them is a second \
          vocabulary."
     );
+
+    // **And each tool says the same thing in both places.** Names alone were the first version of
+    // this check, and the reference then said `emerge_apply_operation` was not destructive while
+    // the server said it was — an agent reading the reference would treat a tool that replaces
+    // values as harmless. **The description and the three hints are the contract**, so they are
+    // compared one by one, against the server's own answer.
+    let mut drift = Vec::new();
+    for doc in bevy_emerge_mcp::docs::TOOLS {
+        let Some(tool) = listed["result"]["tools"]
+            .as_array()
+            .and_then(|tools| tools.iter().find(|t| t["name"] == doc.name))
+        else {
+            continue;
+        };
+        if tool["description"].as_str() != Some(doc.description) {
+            drift.push(format!(
+                "{}: description\n  server:    {}\n  reference: {}",
+                doc.name, tool["description"], doc.description
+            ));
+        }
+        let hints = &tool["annotations"];
+        for (hint, documented) in [
+            ("readOnlyHint", doc.read_only),
+            ("destructiveHint", doc.destructive),
+            ("idempotentHint", doc.idempotent),
+        ] {
+            if hints[hint].as_bool() != Some(documented) {
+                drift.push(format!(
+                    "{}: {hint} is {} on the server and {documented} in the reference",
+                    doc.name, hints[hint]
+                ));
+            }
+        }
+    }
+    assert!(
+        drift.is_empty(),
+        "the reference and the server disagree, so an agent reading docs/mcp-tools.md is told \
+         something the server does not do:\n{}",
+        drift.join("\n")
+    );
 }
 
 /// **Every tool is prefixed, and the prefix is what keeps the namespaces apart.**
