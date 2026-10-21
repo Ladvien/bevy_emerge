@@ -1291,6 +1291,20 @@ Top 5 remaining:
   unchanged** — the watcher runs on a 250 ms tick and reads four to six files' *metadata*, not
   their contents.
 
+- **An independent review, and what it changed.** A fresh-context reviewer, given only the
+  diffs, the plan, the visuals and the gate output, found **nineteen gaps** — and the ones that
+  were right were **fixed in the same iteration**: the "one operation layer, two front ends"
+  claim was **false** (three UI paths changed map settings around the registry; the editor's own
+  size field now dispatches it), an agent's apply changed **the file but not the running
+  editor** (the operation's map is now written back into the resource), the **operation id was
+  never returned** though the tool said it was, **`destructiveHint: false` was wrong**, the **B-001
+  multiplier was too small** for the claim the comment made, the **parity test's ratchet compared
+  a number with itself**, the **watcher named a file that does not exist**, the **log could be
+  lost silently**, the **docs were a hand-written copy** of the server's tool list, the **MCP
+  server blocked the async runtime**, and **`--project` did nothing**. **The report was corrected
+  to say what the code does**, and the three gaps that were left are in the backlog with their
+  reasons.
+
 - **Verdicts:** **Function: GREAT** — every state of the new path is captured: discovery,
   preview, apply, refusal, the misspelled field, the log's own record, and both latencies.
   **Fresh eyes: GREAT** — a cold start finds the tools by asking the server what it has, and a

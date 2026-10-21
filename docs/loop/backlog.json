@@ -159,6 +159,54 @@
       "evidence": "cargo info bevy_emerge_core@0.1.0 (and the other six)",
       "last_failure": "",
       "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-007",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "A map edited on disk reaches the editor's memory but not the screen: the placed pieces are spawned once, at open",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "watch.rs::adopt_map replaces open.map, but spawn_existing runs once when the editor opens (editor.rs:1024), so a placement edited in a text editor is adopted into memory and the viewport keeps showing the old pieces. next_id is not re-seeded either (editor.rs:4791)."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt_map and crates/bevy_emerge_mapper/src/editor.rs::spawn_existing",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-008",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "The chooser's new-map dialog writes name, bounds, origin and note directly, outside the registry",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "chooser.rs:5907-5910 (write_settings) and chooser.rs:662 (write_bash) write the map's settings without dispatching map_set_settings. They are a different subject -- a new map with no open map -- and the honest claim is that one operation has two front ends, not that every verb does."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/chooser.rs::write_settings",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-009",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "Undo is declared in the registry and performed by no tool",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "ops.rs declares Undo::Inverse and Undo::Snapshot, the tool list names the strategy, and no tool performs an undo. The tool descriptions now say so rather than promising one."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::Undo",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
     }
   ]
 }
