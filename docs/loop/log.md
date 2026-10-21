@@ -1476,3 +1476,4 @@ Top 5 remaining:
 
 - 2026-10-21 d131ce7 hot-reload: fixes only — a map edited on disk now reaches the screen (E-007), the VLM preflight probes LAN hosts (B-004); emerge_undo (E-009) stopped on repeated failure and reverted — no release — [report](iterations/2026-10-21-hot-reload-d131ce7.md)
 - 2026-10-21 39ab825 undo: shipped emerge_undo_operation (an agent takes its change back by id, through the registry and the log); fixed B-005 (clippy gate green, 233 → 0), B-006 (tool reference drift), B-007 (null ignored) — no release — [report](iterations/2026-10-21-undo-39ab825.md)
+- 2026-10-21 5275c48 undo: fixes only — Cmd+Z after a resize takes back the resize, not an older placement (B-008); B-009 (inspector reflow on every receipt) found and deferred, Phase 2 skipped on context budget — no release — [report](iterations/2026-10-21-undo-5275c48.md)

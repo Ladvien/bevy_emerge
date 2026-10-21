@@ -105,22 +105,6 @@
       },
       "last_failure": "",
       "first_seen": "2026-10-21",
-      "id": "E-010",
-      "kind": "enhancement",
-      "area": "editor",
-      "status": "open",
-      "title": "The human cannot undo a map-settings change: Cmd+Z takes back placements only, and no UI reverts by operation id",
-      "evidence": "Agent side shipped as emerge_undo_operation (39ab825). User problem: a size-field typo is fixed by retyping; frequency: every settings edit; saving: one keystroke; risk: Cmd+Z then has two histories unless it dispatches ops::undo."
-    },
-    {
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": ""
-      },
-      "last_failure": "",
-      "first_seen": "2026-10-21",
       "id": "E-011",
       "kind": "enhancement",
       "area": "mcp",
@@ -143,6 +127,32 @@
       "status": "open",
       "title": "Signature-reading ratchets cannot see resources inside #[derive(SystemParam)] bundles",
       "evidence": "B-005 introduced 32 bundles; the_sweep_is_finished and every_resource_says_what_a_door_does_to_it read fn signatures, so a bare Res in a bundle used by an on_* observer would pass. on_shelf_click was kept unbundled for this reason; the ratchets should resolve bundle fields."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "B-009",
+      "kind": "bug",
+      "area": "chrome",
+      "status": "open",
+      "title": "The inspector's receipt row has no reserved height, so every receipt pushes MAP SIZE and the lists down two lines and back",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "B-008 sequences f002->f003 and f007->f008: MAP SIZE moves ~90 px when 'map is 300 x 44 x 1120 m, and the file was written' wraps to two lines under UNDER; docs/loop/iterations/assets/2026-10-21-5275c48/B-009-receipt-row-jump.png"
+      },
+      "evidence": "Must-fix by the rule (common + no workaround); deferred under the brief's context-budget clause on 2026-10-21. Pre-existing: identical in the pre-fix reference."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-013",
+      "kind": "enhancement",
+      "area": "editor",
+      "status": "open",
+      "title": "The person's Cmd+Z cannot reject an agent's change; only emerge_undo_operation can",
+      "evidence": "Agent applies go to the log but not to EditorState's stack. User problem: the developer sees an agent's change and wants it gone; frequency: every agent proposal they dislike; saving: one keystroke instead of asking the agent; risk: ordering the agent's lines against the person's stack, and a second front end for the same undo."
     }
   ]
 }
