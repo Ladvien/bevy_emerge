@@ -739,6 +739,17 @@ Top 5 remaining:
   hand-written `note:` is **intact byte for byte**, and the map that does not stamp the composition
   is **not written at all**.
 
+- **Commit:** `9690dfe` - "bevy_emerge_core, bevy_emerge_mapper: the composition can be renamed".
+  Pushed to `Ladvien/bevy_emerge` `main`.
+  **No PR**, for the same reason as the previous five runs: this repository has never had one
+  (`gh api repos/Ladvien/bevy_emerge/pulls` returns **0**), every commit goes straight to `main`,
+  and `gh pr create` refuses with *"head branch `main` is the same as base branch `main`"*. The
+  commit was already on `main` when the PR step was reached, and the owner's rule of 2026-10-20
+  says a commit that landed on the wrong branch is *"fixed with a new commit or a question, never by
+  resetting a shared working tree or force-pushing"*. The branch `feature/stamps-reach-the-consumer`
+  from the run before that is still on the remote at the same commit; **deleting it is left to the
+  owner**.
+
 - **Run:** `docs/loop/runs/2026-10-20-06/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
   `evidence/`.
 
