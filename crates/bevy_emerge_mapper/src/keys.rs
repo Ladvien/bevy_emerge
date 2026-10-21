@@ -407,6 +407,13 @@ enumerated! {
         Detail,
         /// The id headline of the piece being defined — the thing `I` types.
         IdField,
+        /// **The COMPOSE tab's list of composition names** — the thing its `I` renames.
+        ///
+        /// **Its own id, and the ratchet is why.** The Meshes tab's `I` badge is on `IdField`, and
+        /// `every_control_the_census_homes_a_verb_at_is_on_screen` **fails on two visible nodes
+        /// claiming one id** — so the COMPOSE tab's badge cannot share it. The names are where the
+        /// name being renamed is, so the badge belongs on them.
+        ComposeNames,
         /// The `mount` row, which `M` cycles.
         Mount,
         /// The subgrid's own lattice of cells: what the cell cursor walks and what solid/edge/clear
@@ -476,6 +483,7 @@ impl ControlId {
             ControlId::DoorStrip | ControlId::Title | ControlId::Back | ControlId::Hint => true,
             ControlId::Detail
             | ControlId::IdField
+            | ControlId::ComposeNames
             | ControlId::Mount
             | ControlId::CellGrid
             | ControlId::Tags
@@ -508,6 +516,14 @@ pub enum Action {
     ComposeNext,
     /// Arm the selected composition on the map, so a click stamps it.
     ComposeArm,
+    /// **Rename the composition this tab is showing** — type a new name, and every map that stamps
+    /// it follows.
+    ///
+    /// The same verb as [`Action::TypeId`], on a different subject: *"say what this thing is
+    /// called"*. The Meshes tab's `I` renames a *candidate*'s id; this renames a *composition*'s.
+    /// **One verb, two subjects, two contexts** — and the contexts never overlap, so the same key
+    /// serves both.
+    RenameComposition,
     /// **Take the arrows to the composition picker** — the Map door's list of compositions.
     ///
     /// A `Stance` and not a context, because the picker is a *list on the Map tab* rather than a tab
@@ -2610,6 +2626,27 @@ pub const BINDINGS: &[Binding] = &[
         "arm this composition for the map",
     )
     .at(Home::Control(ControlId::Detail)),
+    // **The rename, on `I` — the same key as the Meshes tab's id field.**
+    //
+    // **One verb, two subjects.** `I` says *"say what this thing is called"*, and the Meshes tab
+    // already owns it for a *candidate*'s id. A composition is the same kind of thing to name, and
+    // the two contexts — `Meshes` and `Compose` — never overlap, so the same key serves both
+    // without a collision.
+    //
+    // **The home is the COMPOSE tab's own list**, and the badge is on the name it renames. The
+    // Meshes tab's `I` badge is on `ControlId::IdField` — the line it types into — and a second
+    // visible node claiming one id is a bug: `every_control_the_census_homes_a_verb_at_is_on_screen`
+    // fails on it. So the COMPOSE tab's badge needs a home of its own, and the list is where the
+    // name is.
+    b(
+        Action::RenameComposition,
+        KeyCode::KeyI,
+        false,
+        Context::Compose,
+        "I",
+        "rename this composition",
+    )
+    .at(Home::Control(ControlId::ComposeNames)),
     // Symmetric with the pair above: `up`/`down` walk the groups, `left`/`right` walk the members of
     // the one you are on. Costs no letter, and the two cursors read as one idea.
     b(
@@ -3450,6 +3487,7 @@ mod tests {
             Action::ComposePrev,
             Action::ComposeNext,
             Action::ComposeArm,
+            Action::RenameComposition,
             Action::PickComposition,
             Action::CompositionPrev,
             Action::CompositionNext,
@@ -4233,7 +4271,13 @@ mod tests {
             // `no_home_carries_more_than_it_can_show` allows.
             (Context::Tiles, 31),
             (Context::Anim, 11),
-            (Context::Compose, 7),
+            // 7 -> 8: `RenameComposition`, on `I`. The COMPOSE tab could *read* a group in rich
+            // detail and *write* a new one, and it could not change a group's **name** — which is the
+            // one edit every author needs, and the one the file's own format makes trivial (one
+            // line). `I` is the same key as the Meshes tab's id field, and it is the same verb: *"say
+            // what this thing is called"*. The two contexts never overlap, so one key serves both
+            // and no new letter is learned.
+            (Context::Compose, 8),
         ];
         let mut grown = Vec::new();
         for (context, was) in pinned {

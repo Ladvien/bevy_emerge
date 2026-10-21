@@ -2880,6 +2880,12 @@ pub struct Fields<'w> {
     /// The vocabulary prompt, added with the tag block's `+` chip (2026-08-22). While it is open,
     /// typing a name containing `n` must not rotate the mesh — the guard this list exists to give.
     pub token: Res<'w, crate::token_prompt::TokenPrompt>,
+    /// The COMPOSE tab's rename prompt, added 2026-10-21. **The same reason as `build` above, and
+    /// the same one the `grouping` line records**: the `Enter` that confirms a name is also
+    /// `ComposeArm`, so without this line the same keypress named the composition *and* armed it —
+    /// and the arm's message overwrote the rename's receipt, so the author was told the composition
+    /// was armed and never heard that every map that stamped it follows.
+    pub compose: Res<'w, crate::compose::ComposeState>,
 }
 
 impl Fields<'_> {
@@ -2898,6 +2904,7 @@ impl Fields<'_> {
             || self.height.typing()
             || self.build.naming.is_some()
             || self.token.open.is_some()
+            || self.compose.renaming.is_some()
     }
 }
 

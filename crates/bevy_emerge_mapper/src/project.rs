@@ -615,6 +615,92 @@ impl Project {
         self.compositions = proposed;
         Ok(())
     }
+
+    /// **Rename a composition, and every map that stamps it.**
+    ///
+    /// # Why it lives here
+    ///
+    /// **Because this is the only module allowed to name the compositions file** — see
+    /// `tests/compose_is_read_only.rs`: *"project.rs is the only module that names the file, and
+    /// every tab reaches it there."* The COMPOSE tab asks; it does not write.
+    ///
+    /// # All of it, or none of it
+    ///
+    /// The core's writer returns **every** new text, and this writes them **only if every one
+    /// succeeded** — the composition's file and every map that stamped it. A rename that updated the
+    /// composition and left one map naming the old id would be a **partial rename**, and a partial
+    /// rename is a project that will not open.
+    ///
+    /// **And a refusal changes nothing**: the old name stands, the old files stand, and the reason
+    /// is what the caller is given.
+    pub fn rename_composition(
+        &mut self,
+        from: &str,
+        to: &str,
+        // The map that is open, so the editor shows what the file now says.
+        open: Option<&mut OpenMap>,
+    ) -> Result<(), String> {
+        let path = self
+            .project_dir
+            .join(bevy_emerge_core::composition::Compositions::FILE);
+        let text = read(&path)?;
+
+        // **Every map in the project.** The ones that stamp the composition are edited; the ones that
+        // do not are left byte for byte, which the core's writer does by itself.
+        let map_texts: Vec<(String, String)> = self
+            .maps_dir
+            .read_dir()
+            .map_err(|e| format!("cannot read the maps: {e}"))?
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("ron") {
+                    return None;
+                }
+                let text = std::fs::read_to_string(&path).ok()?;
+                Some((path.display().to_string(), text))
+            })
+            .collect();
+
+        let renamed =
+            bevy_emerge_core::composition::rename_composition(&text, &map_texts, from, to)?;
+
+        // **The composition's file.**
+        bevy_emerge_core::ron_surgery::save_atomic(&path, &renamed.compositions)
+            .map_err(|e| format!("NOT RENAMED: cannot write {}: {e}", path.display()))?;
+
+        // **And every map that named it.** A map the rename did not touch is not written at all —
+        // writing it back would be a second chance to fail.
+        for (name, new_text) in &renamed.maps {
+            let unchanged = map_texts
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, t)| t == new_text)
+                .unwrap_or(true);
+            if unchanged {
+                continue;
+            }
+            bevy_emerge_core::ron_surgery::save_atomic(std::path::Path::new(name), new_text)
+                .map_err(|e| {
+                    format!(
+                        "NOT RENAMED: the composition is renamed but {name} could not be written: \
+                         {e}. The project needs that file fixed before it will open."
+                    )
+                })?;
+        }
+
+        // **And the project, in memory** — the editor must show what the file now says.
+        let set = bevy_emerge_core::composition::Compositions::parse(&renamed.compositions)?;
+        self.compositions = set;
+        if let Some(open) = open {
+            let path = open.map_path.display().to_string();
+            if let Some((_, new_text)) = renamed.maps.iter().find(|(n, _)| *n == path)
+                && let Ok(map) = bevy_emerge_core::map::Map::parse(new_text)
+            {
+                open.map = map;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn read(path: &Path) -> Result<String, String> {

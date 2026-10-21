@@ -25,6 +25,7 @@
 //! disagree, and STALE says which member changed underneath it and by how much. A badge that says
 //! only "something is wrong" would be the version of this tool that gets ignored.
 
+use bevy::input::keyboard::Key;
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 
@@ -135,6 +136,14 @@ pub struct ComposeState {
     /// Index into `project.compositions.compositions`. Clamped on rebuild rather than stored as an
     /// `Option`, because the list is never empty while a selection exists.
     pub selected: usize,
+    /// **The name being typed for a composition**, or `None` when nothing is being named.
+    ///
+    /// **Its own field, and the crate says why**: `chrome::paint_name_box`'s own doc asks for
+    /// exactly this — *"if a second tab ever asks again the answer is another field, not another
+    /// condition on this one."* The Map owns `EditorState::grouping` and the Tiles tab owns
+    /// `Build::naming`; the COMPOSE tab owns this one. Three fields, one box, and the box's title
+    /// says which question is being answered.
+    pub renaming: Option<ComposeRename>,
     /// Index into the selected group's members — the second cursor, under the one above. Clamped the
     /// same way and for the same reason.
     pub member: usize,
@@ -166,12 +175,27 @@ pub struct ComposeState {
     pub status: crate::chrome::Status,
 }
 
+/// **The name being typed for a composition.**
+///
+/// **The raw text and the composition it is for.** The raw text is what the author typed — before
+/// `to_snake_case`, so the field can show what they are typing as they type it and the naming rule
+/// teaches itself. The id it is for is named rather than indexed, because the list is rebuilt
+/// wholesale and an index would silently re-point.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComposeRename {
+    /// What has been typed, before `to_snake_case`.
+    pub raw: String,
+    /// The composition being renamed.
+    pub of: String,
+}
+
 /// Written out rather than derived, so adding a field costs a compile error here — which is the right
 /// place to be asked whether its zero value is the one this tab should open in.
 impl Default for ComposeState {
     fn default() -> Self {
         ComposeState {
             selected: 0,
+            renaming: None,
             member: 0,
             focus: Pane::default(),
             staged: None,
@@ -257,6 +281,14 @@ impl Plugin for ComposePlugin {
                 ((walk, arm, cycle_focus, step_carousel, pick_slot)
                     .in_set(keys::Phase::Act)
                     .run_if(in_compose_mode),)
+                    .run_if(in_state(crate::screen::Screen::Editor)),
+            )
+            // **The rename, in `Phase::Text`** — the fields run last and the actions run first, so
+            // census action cannot fire on a keystroke a field has already swallowed. See
+            // `keys::Phase`.
+            .add_systems(
+                Update,
+                (rename.in_set(keys::Phase::Text).run_if(in_compose_mode),)
                     .run_if(in_state(crate::screen::Screen::Editor)),
             )
             // Not gated on the mode: the staged strip is despawned when the tab is left, and a
@@ -851,6 +883,13 @@ fn arm(
     keys: Res<keys::Live>,
     input: Res<ButtonInput<KeyCode>>,
 ) {
+    // **`Enter` is not the arm's while the name field is open**, and that is the guard's job, not
+    // this function's: `editor::Fields::typing` counts the COMPOSE tab's rename prompt, so
+    // `keys::Context::Typing` holds the keyboard and every other action is refused. See
+    // `editor::Fields` — *"Adding a field is adding a line, here and nowhere else."*
+    //
+    // **The phases do not do this.** `Phase::Text` runs *before* `Phase::Act`, so the rename commits
+    // first and the arm would run second, on the same frame, with the same key still down.
     if !keys::just_pressed(&input, *keys, Action::ComposeArm) {
         return;
     }
@@ -878,6 +917,119 @@ pub fn toggle_arm(state: &mut ComposeState, armed: &mut Armed, project: &Project
             .note(format!("`{}` armed — the map stamps it", c.id));
     } else {
         state.status.note(format!("`{}` disarmed", c.id));
+    }
+}
+
+/// **Rename the composition this tab is showing** — `I` opens the name, `Enter` keeps it, `Esc`
+/// leaves it alone.
+///
+/// **The same shape as the Meshes tab's id field**, because it is the same verb: *"say what this
+/// thing is called"*. The name is forced to snake_case as it is typed, so the naming rule teaches
+/// itself and an illegal id is never *reachable* rather than merely rejected at the end.
+///
+/// **And every map that stamps the composition follows** — see
+/// [`bevy_emerge_core::composition::rename_composition`]. A rename that updated the composition and
+/// left the maps naming the old one would be a **partial rename**, and a partial rename is a project
+/// that will not open.
+fn rename(
+    mut events: MessageReader<bevy::input::keyboard::KeyboardInput>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    live: Res<keys::Live>,
+    mut state: ResMut<ComposeState>,
+    // **Mutable, because the rename writes through it** — `Project::rename_composition` is the one
+    // door, and it hands back the project the file now says.
+    mut project: ResMut<Project>,
+    mut open: Option<ResMut<crate::project::OpenMap>>,
+) {
+    if state.renaming.is_none() {
+        if keys::just_pressed(&keyboard, *live, Action::RenameComposition) {
+            let Some(c) = project.compositions.compositions.get(state.selected) else {
+                state.status.note("no composition to rename");
+                return;
+            };
+            state.renaming = Some(ComposeRename {
+                // **The field starts EMPTY**, so the first keystroke replaces rather than appends —
+                // the same rule the Meshes tab's id field follows.
+                raw: String::new(),
+                of: c.id.clone(),
+            });
+            state
+                .status
+                .note("type a new name — Enter keeps it, Esc leaves it alone".to_owned());
+        }
+        // **Drain before leaving**, or the `I` that opened the field is read as its first character
+        // next frame. The same invariant every field in this crate guards.
+        events.clear();
+        return;
+    }
+
+    for event in events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        match &event.logical_key {
+            Key::Enter => {
+                let Some(rename) = state.renaming.take() else {
+                    return;
+                };
+                // **`to_id`, not `to_snake_case`.** A composition's id may carry a `/`
+                // namespace — *which kit, which piece* — and `to_snake_case` drops every
+                // character that is not a letter or a digit. So `town/house_cottage_brick` typed
+                // into the field came out as `town_house_cottage_brick`: a different id, in a
+                // different namespace, colliding with nothing. `to_id` forces each segment and
+                // keeps the separators.
+                let id = bevy_emerge_core::naming::to_id(&rename.raw);
+                if id.is_empty() {
+                    // **The guidance goes with the field** — the same rule as the refusal below.
+                    state
+                        .status
+                        .note("a name cannot be empty; nothing was changed".to_owned());
+                    return;
+                }
+                // **The write goes through `project.rs`** — the one module allowed to name the
+                // compositions file. See `tests/compose_is_read_only.rs`: *"project.rs is the only
+                // module that names the file, and every tab reaches it there."*
+                if let Err(e) = crate::project::Project::rename_composition(
+                    &mut project,
+                    &rename.of,
+                    &id,
+                    open.as_deref_mut(),
+                ) {
+                    // **The guidance goes with the field.** The note line still said *"type a new
+                    // name — Enter keeps it"* — advice for a field that is now closed, which is
+                    // worse than no advice: an author reading it would press `I` again. The crate's
+                    // own rule is that *"a problem outlives every note"*, so the refusal is safe;
+                    // it is the **note** that is wrong, and the note is the one to replace.
+                    state.status.note(format!("NOT RENAMED: {e}"));
+                    state.status.problem(format!("NOT RENAMED: {e}"));
+                } else {
+                    // **The receipt says how to get back.** The rename is symmetric by
+                    // construction — the same writer, the same rules, the other direction — and
+                    // a reader who wants to back out should not have to work that out. A receipt
+                    // that only says what happened leaves the author hunting for the way back.
+                    state.status.note(format!(
+                        "`{}` is now `{id}`, and every map that stamped it follows. Rename it \
+                         back to undo.",
+                        rename.of
+                    ));
+                }
+            }
+            Key::Escape => {
+                state.renaming = None;
+                state.status.note("the name is unchanged".to_owned());
+            }
+            Key::Backspace => {
+                if let Some(rename) = state.renaming.as_mut() {
+                    rename.raw.pop();
+                }
+            }
+            Key::Character(text) => {
+                if let Some(rename) = state.renaming.as_mut() {
+                    rename.raw.push_str(text);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -2050,6 +2202,15 @@ fn rebuild(
                 Line::Comp { ix, text, selected, armed } => {
                     crate::chrome::list_row(p, selected, (CompRow(ix), ComposeLine)).with_children(
                         |row| {
+                            // **The name, and the badge that renames it.** The row's own text is
+                            // the name, so the badge belongs on it — and the COMPOSE tab's `I` badge
+                            // is its own control id, because the Meshes tab's `IdField` is already
+                            // claimed and two visible nodes claiming one id is a bug the census fails
+                            // on.
+                            row.spawn((
+                                Node::default(),
+                                crate::chrome::Control(crate::keys::ControlId::ComposeNames),
+                            ));
                             row.spawn((
                                 Text::new(text),
                                 TextColor(TEXT),

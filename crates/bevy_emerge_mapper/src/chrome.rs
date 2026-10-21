@@ -2464,6 +2464,7 @@ fn spawn_name_box(mut commands: Commands) {
 fn paint_name_box(
     editor: Res<crate::editor::EditorState>,
     build: Res<crate::build::Build>,
+    compose: Res<crate::compose::ComposeState>,
     mut roots: Query<&mut Node, With<NameBox>>,
     mut titles: Query<
         &mut Text,
@@ -2523,6 +2524,24 @@ fn paint_name_box(
                     "NAME THIS TILE",
                     format!("{}_", bevy_emerge_core::naming::to_snake_case(&prompt.raw)),
                     "Enter opens it.   Esc leaves things as they are.".to_owned(),
+                )
+            })
+        })
+        .or_else(|| {
+            // **The COMPOSE tab's own question.** A third field, not a third condition on one of
+            // the two above — this function's own note asked for exactly that: *"if a second tab
+            // ever asks again the answer is another field, not another condition on this one."* The
+            // tabs are never live together, so the chain picks the one that is asking.
+            compose.renaming.as_ref().map(|rename| {
+                (
+                    "RENAME THIS COMPOSITION",
+                    // **The same spelling the commit will write** — `to_id`, not `to_snake_case`,
+                    // because a composition's id may carry a `/` namespace. A field that shows one
+                    // spelling and writes another is a lie the author finds out about after the
+                    // rename.
+                    format!("{}_", bevy_emerge_core::naming::to_id(&rename.raw)),
+                    "Enter keeps it, and every map that stamps it follows.   Esc leaves it alone."
+                        .to_owned(),
                 )
             })
         });

@@ -622,3 +622,149 @@ Top 5 remaining:
    authoring does not**, and the two halves of that are the same shape as the door split: the tool
    for making one and the tool for editing one are on different doors, and now they are one key
    apart.
+
+## 2026-10-20-06: the composition can be renamed — and every map that stamps it follows
+
+- **Change:** the COMPOSE tab can now **rename the composition it is showing** — `I` opens the name,
+  `Enter` keeps it, `Esc` leaves it alone — and **every map that stamps the composition follows**.
+  Two changes: the core grows one writer, `composition::rename_composition`, which edits
+  `compositions.ron` and every map's stamps **without reformatting either file**; and the COMPOSE
+  tab grows the verb, the same shape as the Meshes tab's `I` field, with the same refusals.
+
+  **The editor could read a group in rich detail and write a new one, and could not change a
+  group's *name*** — which is the one edit every author needs, and the one the file's own format
+  makes trivial (**one line**).
+
+  **The name is forced as it is typed**, and **the namespace survives** — a composition's id is
+  per-segment (`town/house_cottage_plaster` is *which kit* and *which piece*), so the forcing is
+  `naming::to_id`, a function this run added to the core.
+
+- **Why it ranked first:** it is **one of the six missing editor operations** the last review
+  listed, and the only one the editor's own tab is *about*. Measured on Sanctuary's project:
+  `compositions.ron` is **5,817 lines and 204 KB**, and it is **hand-written**, because until this
+  run the editor could not write it. The editor's own capture makes new ones — and the write
+  re-serialized the whole file, dropping every comment.
+
+  **The runner-up is renaming a kit's namespace: 744 mentions across 4 files, and no multi-file
+  atomicity** — a half-done rename **leaves a project that will not open**. This one is bounded:
+  one line in one file, plus the references the editor can enumerate because it has the whole
+  project in memory.
+
+- **Sources:** Feldthaus & Møller, *Semi-automatic rename refactoring for JavaScript* (2013),
+  [10.1145/2544173.2509520](https://doi.org/10.1145/2544173.2509520) — *"there is often no
+  practical alternative to simple syntactic search-and-replace"*, and the answer is *"a
+  combination of static analysis and interaction with the programmer"*. Overbey, *A toolkit for
+  constructing refactoring engines* (2012) — the **precondition check**, whose three properties
+  this project already answers: `naming::is_id` (input validity), `composition::validate`
+  (compilability), the fingerprint (preservation). Kappel & Schrefl, *Local referential integrity*
+  (1992) and Wei, Leck & Link (ICDE 2019),
+  [10.1109/ICDE.2019.00175](https://doi.org/10.1109/ICDE.2019.00175) — **a rename is an operation
+  that must maintain every reference, atomically**. Full notes in `runs/2026-10-20-06/research.md`.
+
+- **The fingerprint is not in the way, and the measurement says so.** A composition's own id *is*
+  folded into its fingerprint (`f.str(&comp.id)`), so a renamed composition is a different
+  composition *to the fingerprint* — **and nothing compares against that fingerprint.**
+  `Stamped::of_fingerprint` is *"what the composition looked like when this was stamped"* and **no
+  code writes it**; it is `None` on every stamp in the shipped file, and `None` means *"never
+  recorded"*, which is a different fact from stale. The `Stale` badge reads `Member::of_fingerprint`,
+  which records the **descriptor's** fingerprint. **So the rename's whole job is the name and the
+  reference** — the members, the envelope and the notes are untouched.
+
+- **The one writer, and the crate says where it lives.** `tests/compose_is_read_only.rs` holds the
+  line that *"`project.rs` is the only module that names the file, and every tab reaches it
+  there."* The first draft put the writer in `compose.rs` and **failed that test** — the crate's
+  own statement of the rule caught the design, and the writer moved to `project.rs` as
+  `Project::rename_composition`.
+
+- **Tests:**
+  - `crates/bevy_emerge_core/tests/a_composition_can_be_renamed.rs` — **9 tests**: the file is
+    edited and not reformatted (a hand-written note survives byte for byte), every map that stamps
+    the composition follows, a map that does not is **untouched byte for byte**, a taken name is
+    refused, an illegal id is refused, a missing composition is refused, the members are untouched,
+    the rename is **reversible**, and the renamed file still parses.
+  - `crates/bevy_emerge_mapper/tests/a_composition_can_be_renamed.rs` — **5 tests**: the door does
+    the work and the map follows, a collision is refused and the file is byte-identical, the tab
+    **reaches the door** rather than writing itself, the namespace survives the field, and the
+    field holds the keyboard while it is open.
+  - `crates/bevy_emerge_core/src/naming.rs` — **4 new tests** for `to_id`.
+  - `cargo test --workspace` → **1,252 pass, 1 fail** — the one failure is
+    `bevy_emerge_mapper --test headless`'s `no_two_leaders_cross`, **red since at least
+    2026-09-03** and unchanged by this run.
+  - Clippy: **zero findings in every file this run touches**; the 15 in `composition.rs` are the
+    same 15 as the baseline, shifted by the 200 lines this run added above the test module.
+  - `cargo fmt --check`: **no new diff in the files this run touches** — `compose.rs` 94,
+    `editor.rs` 87, `keys.rs` 22, `project.rs` 11, `chrome.rs` 16, **all the baseline's counts.**
+    (A blanket `rustfmt` was tried and **reverted**: it turned a +282-line change into a
+    +734-line one by reformatting 67 hunks of code this run never touched.)
+  - `cargo doc --no-deps`: no new warnings; the ones present are pre-existing and in files this run
+    did not touch.
+  - Headless boot against Sanctuary's real project: **12 frames, 4,096 entities, no panic.**
+  - Sanctuary's own suite: **1,018 pass, 4 fail** — and **the same four with the emerge change
+    stashed** (`a_prop_on_a_host_rests_on_its_top`, `the_saved_version_is_five_and_a_save_without_a_
+    forest_section_reads_with_an_empty_forest`, `a_flanker_walks_its_route_at_its_speed_and_is_gone_
+    and_counted_at_the_end`, `the_board_is_three_trees_and_every_item_has_its_effect_written`),
+    **verified by running the suite with this run's change stashed.** The game has **no callsite**
+    in `naming` or the composition writer, and it discovers compositions by **prefix**
+    (`HOUSE_PREFIX = "town/house_"`), so a rename within that namespace strands nothing.
+  - Timings in `runs/2026-10-20-06/perf.md`.
+
+- **The visual review found two real defects, and both are fixed.** Recorded here because the
+  briefs and the tests did not catch them:
+  1. **The namespace was being dropped.** The field forced the name with `naming::to_snake_case`,
+     which drops every character that is not a letter or a digit — **including the `/`**. So
+     `town/house_cottage_brick` came out as `town_house_cottage_brick`: a different id, in a
+     different namespace, **colliding with nothing**, so no refusal was owed and the field
+     **showed one spelling and wrote another**. The rule was already in the crate — `is_id` reads
+     the namespace — and **the forcing was not**, so `naming::to_id` was added: per segment, with
+     the separators kept.
+  2. **The receipt never survived.** `Action::ComposeArm` is `Enter` on the COMPOSE tab, and the
+     rename's field is committed with `Enter` too — so the same keystroke **named the composition
+     and armed it**, and the arm's message overwrote the rename's receipt. `Phase::Text` runs
+     *before* `Phase::Act`, so the phases do not save it. **The crate already had the answer**, in
+     `editor::Fields` — *"Adding a field is adding a line, here and nowhere else"* — and the
+     COMPOSE tab's field was simply not in that list. **One line**, in the one place the crate
+     says a field is added, and the bug is gone. A bespoke guard in `compose.rs` was written first
+     and **removed**: the crate's mechanism is the right one.
+
+- **Verdicts:** **Function: GREAT** — every state captured, and the refusal names both ids and
+  writes nothing. **Zoom: GREAT** — the field's forced spelling is legible at 2x, the namespace
+  slash is there, the receipt wraps sensibly. **Fresh eyes: GREAT** — the key overlay says
+  **`I` — rename this composition**, the field opens empty, the receipt says *"Rename it back to
+  undo"*, and the round trip leaves `compositions.ron` **byte-identical** to Sanctuary's original.
+  All three in `runs/2026-10-20-06/review.md`, with the captures in
+  `runs/2026-10-20-06/evidence/`.
+
+- **Measured, on Sanctuary's own project:** the rename changes **one word in two files** —
+  `compositions.ron` stays at **5,817 lines**, `town.map.ron` stays at **751 lines**, the
+  hand-written `note:` is **intact byte for byte**, and the map that does not stamp the composition
+  is **not written at all**.
+
+- **Run:** `docs/loop/runs/2026-10-20-06/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
+  `evidence/`.
+
+Top 5 remaining:
+
+1. **Renaming a kit's namespace** — the same idea as this run, with a much larger blast radius.
+   Measured over Sanctuary's project: `maps/town.map.ron` **383** mentions of `town/`,
+   `maps/town_block.map.ron` **289**, `town/library.ron` **49**, `compositions.ron` **16**,
+   `rules.ron` **7** — **744 mentions across 4 files**. And there is **no multi-file atomic
+   primitive**: `save_atomic` is per file, and a half-finished rename leaves a project that **fails
+   to open**, because `bound_library` refuses a namespace mismatch whichever file is written first.
+   **This one wants the atomicity designed before the verb**, and it is now the only one of the six
+   missing operations whose *shape* this run has already shown: a writer that returns **every** new
+   text, and a caller that writes them **only if every one succeeded**.
+2. **The other five missing editor operations** — project rename, project delete, bash creation,
+   policy patch add, composition delete. The policy patch is the hardest: a `Patch` has a
+   multi-line `because` and a nested `Descriptor`, so `LineDoc::append` — the one-line-record tool
+   — is not a direct fit. **Composition delete is this run's writer with the opposite direction**,
+   and the maps that stamp it would have to lose their stamps, which is a *deletion* decision
+   rather than a rename.
+3. **The 282 hand-placed fences.** Measured, and the largest single number in the map. But
+   `rules.ron` already says the *game* lays the blocks out, and the fences are the *border* of a
+   block — so this is content, and the last three iterations called it the owner's.
+4. **`fill.rs` has no test at all** — 1,058 lines, the one untested module in the mapper, and the
+   module that lays the bulk of a level. A flood and a box fill are the two gestures that make a
+   level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+5. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
+   connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
+   not `is_near`.
