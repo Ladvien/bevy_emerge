@@ -236,6 +236,21 @@ impl EditorState {
         self.undo.len()
     }
 
+    /// **The newest undo, named**, for the INSPECTOR's UNDO row and `emerge/state`.
+    pub fn undo_next(&self, map: &bevy_emerge_core::map::Map) -> Option<String> {
+        self.undo.last().map(|op| op.describe(map))
+    }
+
+    /// **The newest redo, named the same way**, for the REDO row and `emerge/state`.
+    pub fn redo_next(&self, map: &bevy_emerge_core::map::Map) -> Option<String> {
+        self.redo.last().map(|op| op.describe(map))
+    }
+
+    /// **How many redos are stacked**, for the REDO row's ` (+N)`.
+    pub fn redo_depth(&self) -> usize {
+        self.redo.len()
+    }
+
     /// **Record an edit**, and drop anything that was waiting to be redone.
     ///
     /// One place, so no edit site can forget the second half. A redo stack that survived a new edit
@@ -601,7 +616,100 @@ enum Undo {
     /// keeps the person's Cmd+Z and the agent's undo **one history**. Without this entry the stack
     /// never heard of a resize, and Cmd+Z after one took back an older placement instead. The inverse
     /// is another `Settings` naming the line the undo wrote, so redo is the same arm.
-    Settings { line: String },
+    Settings {
+        line: String,
+        /// **The size this entry puts back**, captured when the change was recorded, so describing
+        /// it never reads a file.
+        bounds: (f32, f32, f32),
+    },
+}
+
+impl Undo {
+    /// **What applying this entry does, named in the author's words.** This is the phrase the
+    /// INSPECTOR's UNDO and REDO rows show and `emerge/state` reports, so the two cannot disagree.
+    /// It reads the map as it is now: an entry on a stack acts on pieces the map holds (the stack
+    /// discipline guarantees it), so the names come from the map and no file is read.
+    fn describe(&self, map: &bevy_emerge_core::map::Map) -> String {
+        let name_at = |i: usize| {
+            map.placements
+                .get(i)
+                .map_or("piece", |p| p.descriptor.as_str())
+        };
+        let phrase = match self {
+            Undo::Added { count } => {
+                let names: Vec<&str> = map
+                    .placements
+                    .iter()
+                    .rev()
+                    .take(*count)
+                    .map(|p| p.descriptor.as_str())
+                    .collect();
+                format!("remove {}", piece_count(&names))
+            }
+            Undo::RemovedMany { items } => {
+                let names: Vec<&str> = items.iter().map(|(_, p)| p.descriptor.as_str()).collect();
+                format!("restore {}", piece_count(&names))
+            }
+            Undo::Moved { moved } => {
+                let names: Vec<&str> = moved.was.iter().map(|(i, _, _)| name_at(*i)).collect();
+                format!("move {} back", piece_count(&names))
+            }
+            Undo::RemoveAt { indices } => {
+                let names: Vec<&str> = indices.iter().map(|i| name_at(*i)).collect();
+                format!("remove {}", piece_count(&names))
+            }
+            Undo::Turned { index, .. } => format!("turn {} back", name_at(*index)),
+            Undo::Lifted { index, .. } => format!("lift {} back", name_at(*index)),
+            Undo::Tipped { index, .. } => format!("tip {} back", name_at(*index)),
+            Undo::Pinned { index, owned, .. } => {
+                let verb = if *owned { "pin" } else { "unpin" };
+                format!("{verb} {} back", name_at(*index))
+            }
+            Undo::Group { ops } => match ops.first() {
+                Some(first) => first.describe(map),
+                None => "nothing".to_owned(),
+            },
+            Undo::Stamped { count } => format!("remove {}", stamps(*count)),
+            Undo::UnstampedMany { items } => format!("restore {}", stamps(items.len())),
+            Undo::UnstampAt { indices } => format!("remove {}", stamps(indices.len())),
+            Undo::MovedStamp { id, .. } => format!("move {id} back"),
+            Undo::Settings {
+                bounds: (x, y, z), ..
+            } => format!("map size back to {x} x {y} x {z}"),
+        };
+        clamp_phrase(phrase)
+    }
+}
+
+/// **The noun of a phrase**: `8 fence` for a run of one name, `3 pieces` for a mix.
+fn piece_count(names: &[&str]) -> String {
+    match names {
+        [] => "pieces".to_owned(),
+        [first, rest @ ..] if rest.iter().all(|n| n == first) => {
+            format!("{} {first}", names.len())
+        }
+        _ => format!("{} pieces", names.len()),
+    }
+}
+
+fn stamps(n: usize) -> String {
+    if n == 1 {
+        "1 stamp".to_owned()
+    } else {
+        format!("{n} stamps")
+    }
+}
+
+/// **The longest phrase a row shows.** The value column holds about 42 characters on one line, and
+/// the ` (+N)` a stacked row adds fits in what is left.
+const PHRASE_MAX: usize = 36;
+
+fn clamp_phrase(phrase: String) -> String {
+    if phrase.chars().count() <= PHRASE_MAX {
+        return phrase;
+    }
+    let kept: String = phrase.chars().take(PHRASE_MAX - 1).collect();
+    format!("{kept}…")
 }
 
 impl Default for EditorState {
@@ -835,6 +943,13 @@ enum Field {
     Brush,
     Yaw,
     Map,
+    /// **What Cmd+Z will take back**, named, so the author reads it before pressing the chord.
+    ///
+    /// The newest entry on the undo stack, read against the map as it is now. UNDO and REDO are two
+    /// rows, not one, because the author compares them.
+    Undo,
+    /// **What Cmd+Shift+Z will put back**, named the same way. An empty history reads `nothing`.
+    Redo,
     /// The last thing that happened — the only line that is prose.
     Last,
     /// **What the cursor is telling you right now**, as opposed to what just happened.
@@ -883,6 +998,8 @@ impl Field {
             Field::Yaw => "YAW",
             Field::Map => "MAP",
             Field::Under => "UNDER",
+            Field::Undo => "UNDO",
+            Field::Redo => "REDO",
             Field::Last => "",
             Field::Hint => "",
         }
@@ -1673,6 +1790,8 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Yaw,
                     Field::Map,
                     Field::Under,
+                    Field::Undo,
+                    Field::Redo,
                     Field::Last,
                     Field::Hint,
                     Field::Edges,
@@ -2363,6 +2482,9 @@ fn size_edit_keys(
                     ));
                     return;
                 }
+                // **The size before this change**, so the entry on the undo stack can name what Cmd+Z
+                // puts back.
+                let was_bounds = open.map.bounds;
                 // **Through the registry, and not around it.** The size field and an agent's
                 // `map_set_settings` call are **one operation**, so they cannot drift: the same
                 // validation, the same write to the file, the same line in the operation log, and
@@ -2404,7 +2526,10 @@ fn size_edit_keys(
                         state.status.note(outcome.summary);
                         // **On the undo stack, so Cmd+Z takes the resize back** and not an older
                         // edit underneath it.
-                        state.record(Undo::Settings { line: operation_id });
+                        state.record(Undo::Settings {
+                            line: operation_id,
+                            bounds: was_bounds,
+                        });
                     }
                     Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
                         state.status.problem(e.0);
@@ -2829,6 +2954,16 @@ fn arm_palette_rows(
     }
 }
 
+/// **One line of the UNDO or REDO row**: the newest entry's name, with ` (+N)` for the entries
+/// stacked behind it, or a dim `nothing` when the stack is empty.
+fn stack_row(next: Option<String>, depth: usize) -> (String, Color) {
+    match next {
+        Some(phrase) if depth > 1 => (format!("{phrase} (+{})", depth - 1), TEXT),
+        Some(phrase) => (phrase, TEXT),
+        None => ("nothing".to_owned(), DIM),
+    }
+}
+
 fn refresh_status(
     project: Res<Project>,
     open: Res<OpenMap>,
@@ -2846,6 +2981,15 @@ fn refresh_status(
         .unwrap_or("none");
 
     for (field, mut text, mut colour) in &mut fields {
+        // **The undo rows are only read when the history or the map changed**, and once when they
+        // spawn (their text starts empty). Recomputing two strings every frame is the cost this avoids.
+        if matches!(field, Field::Undo | Field::Redo)
+            && !text.0.is_empty()
+            && !state.is_changed()
+            && !open.is_changed()
+        {
+            continue;
+        }
         let (want, tint) = match field {
             // Silent when the map agrees with itself, which is the common case and the one a standing
             // line must not shout about. `docs/ui.md` §1.2: more information helps, noise does not.
@@ -2930,6 +3074,10 @@ fn refresh_status(
             // A refusal has to read differently from a success, or "NOT SAVED" scrolls past as if it
             // were a receipt.
             Field::Hint => (state.hint.clone(), ACCENT),
+            // **What the next Cmd+Z and Cmd+Shift+Z will do**, named from the two stacks. See
+            // [`stack_row`].
+            Field::Undo => stack_row(state.undo_next(&open.map), state.undo_depth()),
+            Field::Redo => stack_row(state.redo_next(&open.map), state.redo_depth()),
             // **The receipt only, and never coloured by guessing.** This read
             // `status.starts_with("NOT SAVED")`, which made exactly one refusal red and left every
             // other one — `stamp refused:`, `is not a number of metres`, every `cannot draw it:` —
@@ -6786,7 +6934,10 @@ fn apply(
                 because: was_because,
             }
         }
-        Undo::Settings { line } => {
+        Undo::Settings { line, .. } => {
+            // **Where the size is now**, read before the undo runs. The entry it leaves on the other
+            // stack names the size that redo would put back.
+            let was_bounds = open.map.bounds;
             // **Through the registry**: the map is taken into the operation's context and comes back
             // either way, as the size field does it.
             let mut ctx = crate::ops::Ctx {
@@ -6815,7 +6966,10 @@ fn apply(
                     },
                 )) => {
                     state.status.note(format!("size back: {}", outcome.summary));
-                    Undo::Settings { line: operation_id }
+                    Undo::Settings {
+                        line: operation_id,
+                        bounds: was_bounds,
+                    }
                 }
                 // **A refusal is a refusal, where the author looks** — the agent may already have
                 // taken this change back, or the map may have changed outside the log. Nothing goes

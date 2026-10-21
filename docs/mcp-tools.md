@@ -48,7 +48,7 @@ Take back one change made through emerge_apply_operation. Pass operation_id, the
 
 ### `emerge_state`
 
-What the editor is holding right now: the open map and its bounds, how many pieces it has, what is armed, what is selected, which door and tab are open, and what the editor last said and what has gone wrong. Returns that summary as JSON, and changes nothing. Call it before a change to know what you are changing, and after one to check that it landed.
+What the editor is holding right now: the open map and its bounds, how many pieces it has, what is armed, what is selected, which door and tab are open, and what the editor last said and what has gone wrong. The editor section also names the next undo and redo (undo_next, redo_next) and how many are stacked (undo_depth, redo_depth). Returns that summary as JSON, and changes nothing. Call it before a change to know what you are changing, and after one to check that it landed.
 
 | annotation | value |
 |---|---|

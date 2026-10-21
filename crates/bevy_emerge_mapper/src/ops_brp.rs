@@ -261,6 +261,9 @@ fn editor_state(
             .map(|d| d.id.clone()),
         _ => None,
     };
+    // **What Cmd+Z and Cmd+Shift+Z would do**, named the way the INSPECTOR's UNDO and REDO rows name
+    // them, so an agent and a person read the same words.
+    let undo_map = open.as_ref().map(|o| &o.map);
     let editor = state.as_ref().map(|s| {
         json!({
             "armed_piece": armed_piece,
@@ -269,6 +272,10 @@ fn editor_state(
             "status": s.status.note_text(),
             "problems": s.status.problems().iter().map(|p| p.line()).collect::<Vec<_>>(),
             "journal_entries": s.status.raised(),
+            "undo_next": undo_map.and_then(|m| s.undo_next(m)),
+            "undo_depth": s.undo_depth(),
+            "redo_next": undo_map.and_then(|m| s.redo_next(m)),
+            "redo_depth": s.redo_depth(),
         })
     });
     Ok(json!({
