@@ -1126,3 +1126,102 @@ Top 5 remaining:
    **larger** feature and a **rarer** one.
 4. **`fill.rs` having no test** — **stale**, and corrected above.
 5. **The 282 hand-placed fences** — content, and the owner's.
+
+## 2026-10-21-01: the stage's labels, in one space
+
+- **Change:** the **COMPOSE tab's stage labels** — the name under each group's miniature — are now
+  placed in **the one space the drawing uses**, and they stop overlapping each other, stop being
+  drawn **through their own miniature's wall**, and are withheld (visibly) when they do not fit.
+
+- **The defect, in one sentence:** **the collision test ran in one space and the labels were drawn
+  in another.** The boxes were measured from `world_to_viewport` (which answers in **physical**
+  pixels) and from the node's `UiGlobalTransform` (the **window's** space, **physical**), while
+  the drawing wrote the *node's* box into a `Val::Px` (which is **logical**). **So the test passed
+  and the screen overlapped** — which is how the first version of this shipped.
+
+- **Measured, on a live editor at `UiScale(2.4)`, Sanctuary's `town` kit, the focal group
+  `town/house_cottage_plaster` (26 characters):**
+
+  | | space | measured |
+  |---|---|---|
+  | `world_to_viewport` | **physical** px, relative to the camera's viewport rect | `(1765.0, 878.59)` |
+  | `ComputedNode.size` | **physical** px | `412 × 32` |
+  | `UiGlobalTransform.translation` | **physical** px, the node's **centre** | `(1885.0, 899.0)` |
+  | `Val::Px(x)` | **logical** px — Bevy multiplies it by `UiScale` | — |
+
+  **The check the numbers have to pass:** `Val::Px(699.58) × 2.4 = 1679`, and
+  `1885 − 1679 = 206 = 412 / 2` — the node's centre, the written `Val::Px` and the node's own
+  width agree, so **the scale is applied exactly once**.
+
+  **And the advance constant was never wrong:** the focal node's 412 physical px over 26
+  characters is **6.60** logical px per glyph, against `BODY_CHAR_W`'s **6.6**; the neighbour's 312
+  over 24 is **5.42**, against `6.6 × 9/11 = 5.4`. **The constant was right; the space was not.**
+
+- **The fix, in three parts:**
+  1. **One space** — `compose::label_box` builds the box in **logical** pixels and the drawing
+     writes it into the node **unchanged**, because `Val::Px` *is* logical pixels.
+  2. **One anchor** — `compose::label_anchor` answers "where does this group's label go", and
+     **both** the box builder and the drawing call it, so the test and the drawing cannot disagree
+     about *where* the label is, only about whether it collides.
+  3. **The right point** — the label goes under the footprint's **near ground edge**, not the
+     group's origin. **And "lower" is the *larger* `y`** — a viewport's `y` grows downwards
+     (`bevy_camera`'s `world_to_viewport_core` flips the NDC's `y` for exactly this reason), so the
+     first version took the *smallest* `y` and put the label at the footprint's **far** edge,
+     behind the miniature and therefore inside it.
+
+- **Why it ranked first:** it is the only defect on the tab that **makes the editor lie about what
+  it is showing** — three groups' names drawn on top of each other, and the group you are editing
+  named *through its own house*. The runner-up (the `MESHES` tab's crossing badge leaders) is
+  real and is **already a known baseline failure** (`no_two_leaders_cross`, red since 2026-09-03,
+  in the log's own baseline), so it is carried rather than fixed.
+
+- **Sources:** Bell, Feiner & Höllerer (2001), *View Management for Virtual and Augmented Reality*,
+  UIST ([10.1145/502348.502363](https://doi.org/10.1145/502348.502363)) — *"If no such space can be
+  found, then no label is allocated."* Azuma & Furmanski (2003), ISMAR
+  ([10.1109/ismar.2003.1240689](https://doi.org/10.1109/ismar.2003.1240689)) — *"read labels
+  fastest with the algorithms that most quickly prevented overlap."* Christensen, Marks & Shieber
+  (1995), ACM TOG ([10.1145/212332.212334](https://doi.org/10.1145/212332.212334)) — the problem is
+  NP-hard, so a fast always-correct rule beats an optimal one. Stein & Décoret (2008), NPAR
+  ([10.1145/1377980.1377986](https://doi.org/10.1145/1377980.1377986)) — the order decides the
+  loser, so it is stated. Furnas (2006), CHI
+  ([10.1145/1124772.1124921](https://doi.org/10.1145/1124772.1124921)) — an elision must be
+  **visible**.
+
+- **Tests:** `cargo test --workspace` → **all green**. Three new test files:
+  `the_stage_labels_live_in_one_space` (the conversion, measured against a known value — the scale
+  applied **exactly once**), `the_stage_labels_are_on_screen` (the labels do not overlap,
+  **measured in the real layout**, and there is one box builder and one anchor),
+  `the_stage_labels_do_not_collide` (the deconfliction's rules).
+  **The baseline's one failure, `no_two_leaders_cross`, is unchanged and confirmed pre-existing**
+  (it fails identically on a stashed tree, and the log's own baseline records it red since
+  2026-09-03).
+  **`cargo fmt --check` and `clippy -D warnings` are pre-existing red across the workspace** (876
+  fmt diffs at baseline, in files this run did not touch) — **this run added zero fmt diffs** and
+  zero clippy findings of its own.
+
+- **Perf:** five projections per label per frame instead of one (the four footprint corners plus
+  the centre) — **no measurable cost**: the mapper's suite is 6.23 s against 6.02 s, inside the
+  noise. And the change **removes** a second projection pass: the drawing used to recompute the
+  projection for every label *in addition to* the box builder's pass.
+
+- **Verdicts:** **Function NOT YET → GREAT** (the first capture had the focal label at the
+  *left* of its house, because the anchor took the minimum in both axes), **Zoom GREAT** (the
+  labels clear the miniatures; the amber/`DIM` hierarchy puts the eye on the group being edited),
+  **Fresh eyes GREAT** (a cold start finds the labels where a label belongs, and the withheld
+  neighbour reads as *"a group whose name is one action away"*).
+
+- **Run:** `docs/loop/runs/2026-10-20-07c/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
+  `evidence/{before,after,crops}/`.
+
+Top 5 remaining:
+1. **A leader line for a withheld label.** The `…` marker is placed where the *name* would be,
+   and the name is 24 characters wide, so a wide marker under a small miniature reads as belonging
+   to nothing. **A leader is a feature, not a bug fix** — Peterson et al. (2009) on labels that are
+   ambiguously placed.
+2. **The `MESHES` tab's crossing badge leaders** — `no_two_leaders_cross`, red since 2026-09-03,
+   in the MESHES door, and **not** the stage's labels. A separate mechanism in a separate tab.
+3. **The other eighteen mis-slotted refusals** — carried from 2026-10-20-02, and the mechanism is
+   now proven.
+4. **A resumable flood with a real cursor** — AIP-158's shape, bound to the piece, the map and the
+   region.
+5. **Renaming a kit's namespace** — 744 mentions across 4 files, and no multi-file atomicity.
