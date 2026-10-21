@@ -129,7 +129,7 @@
       "first_seen": "2026-10-21"
     },
     {
-      "id": "B-003",
+      "id": "B-004",
       "kind": "bug",
       "area": "vlm",
       "title": "probe reports Ready for any non-loopback host without connecting, so a LAN endpoint that is down is reported ready",
@@ -137,10 +137,10 @@
         "blocks": false,
         "common": true,
         "no_workaround": true,
-        "evidence": "vlm.rs's probe returns Reach::Ready for a host it cannot resolve to a private address. Needs a test that calls probe, not is_near."
+        "evidence": "probe() answered Reach::Ready for any host not spelled localhost/127./::1, so a LAN endpoint on a closed port was reported ready without a connect. The LAN bind is the documented portable setup; no config makes the preflight run there."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/vlm.rs::probe",
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/vlm.rs::tests::a_lan_host_that_is_down_is_not_reported_as_ready",
       "last_failure": "",
       "first_seen": "2026-09-03"
     },
@@ -162,17 +162,17 @@
     },
     {
       "id": "E-007",
-      "kind": "enhancement",
+      "kind": "bug",
       "area": "editor",
       "title": "A map edited on disk reaches the editor's memory but not the screen: the placed pieces are spawned once, at open",
       "must_fix": {
-        "blocks": false,
-        "common": false,
+        "blocks": true,
+        "common": true,
         "no_workaround": false,
-        "evidence": "watch.rs::adopt_map replaces open.map, but spawn_existing runs once when the editor opens (editor.rs:1024), so a placement edited in a text editor is adopted into memory and the viewport keeps showing the old pieces. next_id is not re-seeded either (editor.rs:4791)."
+        "evidence": "Wrong result on screen: the file says the piece moved, the editor's map agrees, the viewport does not (tests/a_map_edited_on_disk_reaches_the_screen.rs failed: 'piece on SCREEN is at Vec3(0.0, 0.0, 0.0)'). Common: editing the map file is the hot-reload path. Workaround: restart the editor."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt_map and crates/bevy_emerge_mapper/src/editor.rs::spawn_existing",
+      "status": "fixed",
+      "evidence": "tests/a_map_edited_on_disk_reaches_the_screen.rs::a_piece_moved_on_disk_stands_in_its_new_place; docs/loop/iterations/assets/2026-10-21-d131ce7/E-007-{before,after}.gif",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -205,7 +205,7 @@
       },
       "status": "open",
       "evidence": "crates/bevy_emerge_mapper/src/ops.rs::Undo",
-      "last_failure": "",
+      "last_failure": "2026-10-21: stopped on repeated failure (Non-negotiable 5). Tried to route emerge_undo through ops::dispatch by lending the editor's undo to ops::Ctx as a callback. Attempt 1: Box<dyn FnOnce + '_> needs a lifetime on Ctx, which every Ctx user would carry. Attempt 2: a 'static callback cannot hold the system's Commands/Res<AssetServer>/Query (E0521 'lifetime may not live long enough'). Hypothesis for next iteration: the flag-and-system shape E-007's fix uses -- the registry's undo operation queues a request (resource), an Update system in keys::Phase::Act pops EditorState::undo through the existing editor::undo body and records the log entry; the BRP command returns the queued operation id and the MCP tool polls emerge_state for the result, as emerge_capture_sequence already does. WIP patch (not committed): target/loop/2026-10-21-f9a9ac6/undo-wip.patch.",
       "first_seen": "2026-10-21"
     }
   ]
