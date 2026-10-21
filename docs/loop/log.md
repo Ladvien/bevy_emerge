@@ -1096,6 +1096,17 @@ Top 5 remaining:
   journal line, and the cap says what to do. All three in `runs/2026-10-20-07b/review.md`, with the
   captures in `runs/2026-10-20-07b/evidence/`.
 
+- **Commit:** `2be95bb` - "bevy_emerge_mapper: the editor's refusals reach the author, and no
+  message promises what the tool cannot do". Pushed to `Ladvien/bevy_emerge` `main`.
+  **No PR**, for the same reason as the previous seven runs: this repository has never had one
+  (`gh api repos/Ladvien/bevy_emerge/pulls` returns **0**), every commit goes straight to `main`,
+  and `gh pr create` refuses with *"head branch `main` is the same as base branch `main`"*. The
+  commit was already on `main` when the PR step was reached, and the owner's rule of 2026-10-20 says
+  a commit that landed on the wrong branch is *"fixed with a new commit or a question, never by
+  resetting a shared working tree or force-pushing"*. The branch `feature/stamps-reach-the-consumer`
+  from an earlier run is still on the remote at the same commit; **deleting it is left to the
+  owner**.
+
 - **Run:** `docs/loop/runs/2026-10-20-07b/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
   `evidence/`.
 
