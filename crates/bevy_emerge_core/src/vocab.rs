@@ -164,15 +164,15 @@ impl Vocabulary {
             if t.name.trim().is_empty() {
                 return Err(format!("vocab: axis `{axis}` has an empty token at index {i}"));
             }
-            if let Some(j) = self.tokens.iter().position(|o| o.name == t.name) {
-                if j != i {
-                    return Err(format!(
-                        "vocab: axis `{axis}` declares `{}` twice (indices {j} and {i}). Tokens take \
-                         their bit from their position, so a duplicate is two different bits meaning \
-                         one thing.",
-                        t.name
-                    ));
-                }
+            if let Some(j) = self.tokens.iter().position(|o| o.name == t.name)
+                && j != i
+            {
+                return Err(format!(
+                    "vocab: axis `{axis}` declares `{}` twice (indices {j} and {i}). Tokens take \
+                     their bit from their position, so a duplicate is two different bits meaning \
+                     one thing.",
+                    t.name
+                ));
             }
         }
         Ok(())

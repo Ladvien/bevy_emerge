@@ -236,7 +236,7 @@ fn the_runs_posts_are_ordinary_rows_a_map_accepts() {
         })
         .collect();
 
-    let mut map = Map {
+    let map = Map {
         version: MAP_VERSION,
         name: "yard".to_owned(),
         origin: (0.0, 0.0, 0.0),

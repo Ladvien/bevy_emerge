@@ -405,11 +405,13 @@ pub fn placement_at<'a>(
 /// touching unambiguous.
 pub const OVERLAP_EPS: f32 = 0.01;
 
+type PlanRect = ((f32, f32), [(f32, f32); 2], (f32, f32));
+
 /// A placed piece's plan rectangle: centre, its two axis directions at this yaw, and half-extents —
 /// tips folded in via [`crate::descriptor::tipped_extents`], so a wall lying on its side reserves
 /// the long low box it actually fills. `None` when unmeasured, on [`covers`]' own rule: unknown is
 /// not flat, and unknown is not everywhere either.
-fn plan_box(d: &Descriptor, at: (f32, f32), yaw: f32, tip: (u8, u8)) -> Option<((f32, f32), [(f32, f32); 2], (f32, f32))> {
+fn plan_box(d: &Descriptor, at: (f32, f32), yaw: f32, tip: (u8, u8)) -> Option<PlanRect> {
     let (w, _h, depth) = crate::descriptor::tipped_extents(d, tip)?;
     let (s, c) = yaw.to_radians().sin_cos();
     Some((at, [(c, -s), (s, c)], (w * 0.5, depth * 0.5)))
@@ -420,8 +422,8 @@ fn plan_box(d: &Descriptor, at: (f32, f32), yaw: f32, tip: (u8, u8)) -> Option<(
 /// Separating-axis test over the four face normals — exact for any yaw, which matters because yaw
 /// is free degrees here, not the quarter turns a fill rounds to.
 fn plans_overlap(
-    a: ((f32, f32), [(f32, f32); 2], (f32, f32)),
-    b: ((f32, f32), [(f32, f32); 2], (f32, f32)),
+    a: PlanRect,
+    b: PlanRect,
 ) -> bool {
     let (ac, aa, ah) = a;
     let (bc, ba, bh) = b;

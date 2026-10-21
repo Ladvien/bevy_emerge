@@ -176,6 +176,8 @@ fn paint_is_zero(v: &i8) -> bool {
 /// act on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+// Boxing the Descriptor variant's `patch` would change a public field's type, which breaks Sanctuary's path dependency.
+#[allow(clippy::large_enum_variant)]
 pub enum Body {
     Descriptor {
         /// A [`crate::descriptor::Descriptor`] id.
@@ -526,6 +528,8 @@ fn find<'a>(compositions: &'a [Composition], id: &str, who: &str) -> Result<&'a 
     })
 }
 
+type Flattened = (Vec<Flat>, Vec<Location>, Vec<OpenSlot>);
+
 /// Flatten one composition into world-independent members, folding nested transforms in.
 ///
 /// `overrides` apply at the top level only — see [`Override::member`].
@@ -535,7 +539,7 @@ fn flatten(
     overrides: &[Override],
     stack: &mut Vec<String>,
     depth: u32,
-) -> Result<(Vec<Flat>, Vec<Location>, Vec<OpenSlot>), String> {
+) -> Result<Flattened, String> {
     if stack.contains(&comp.id) {
         stack.push(comp.id.clone());
         return Err(format!(
@@ -832,10 +836,7 @@ impl Composition {
         for start in &self.members {
             let mut chain: Vec<&str> = vec![start.id.as_str()];
             let mut at = start;
-            loop {
-                let Body::Descriptor { on: Some(host), .. } = &at.body else {
-                    break;
-                };
+            while let Body::Descriptor { on: Some(host), .. } = &at.body {
                 let Some(next) = self.members.iter().find(|m| &m.id == host) else {
                     break; // dangling; already reported above
                 };
@@ -2221,8 +2222,8 @@ mod tests {
 
     /// Write down what every member's body currently looks like — what an editor does the moment a
     /// composition is authored, and what makes anything later a measurable change rather than a guess.
-    fn record_all(comps: &mut Vec<Composition>, lib: &Library) {
-        let snapshot = comps.clone();
+    fn record_all(comps: &mut [Composition], lib: &Library) {
+        let snapshot = comps.to_vec();
         for c in comps.iter_mut() {
             super::record_fingerprints(c, &snapshot, lib).expect("records");
         }
@@ -2325,7 +2326,7 @@ mod tests {
             locations: Vec::new(),
             note: None,
         };
-        let out = expand(&empty_map(), &[stamp("a1", "lit_desk", (0.0, 0.0), 0.0)], &vec![comp], &lib)
+        let out = expand(&empty_map(), &[stamp("a1", "lit_desk", (0.0, 0.0), 0.0)], &[comp], &lib)
             .expect("expands");
         let lamp = out.placements.iter().find(|p| p.id == "a1/lamp").expect("lamp");
         assert_eq!(lamp.on.as_deref(), Some("a1/desk"));
@@ -2347,7 +2348,7 @@ mod tests {
             locations: Vec::new(),
             note: None,
         };
-        let err = expand(&empty_map(), &[stamp("a1", "floating", (0.0, 0.0), 0.0)], &vec![comp], &lib)
+        let err = expand(&empty_map(), &[stamp("a1", "floating", (0.0, 0.0), 0.0)], &[comp], &lib)
             .expect_err("refuses");
         assert!(err.contains("a1"), "{err}");
         assert!(err.contains("lamp"), "{err}");
@@ -2428,7 +2429,7 @@ mod tests {
             }],
             ..stamp("a1", "stack", (0.0, 0.0), 0.0)
         };
-        let out = expand(&empty_map(), &[s], &vec![comp], &lib).expect("expands");
+        let out = expand(&empty_map(), &[s], &[comp], &lib).expect("expands");
         let patch = out.placements[0].patch.as_ref().expect("carries a patch");
         // The override wins its own field...
         assert_eq!(patch.look, ["scorched"]);
@@ -2809,7 +2810,7 @@ mod tests {
             locations: Vec::new(),
             note: None,
         };
-        let iface = interface(&comp, &vec![comp.clone()], &lib, 1)
+        let iface = interface(&comp, std::slice::from_ref(&comp), &lib, 1)
             .expect("derives")
             .expect("bounded");
         assert!(iface.is_clean(), "{:?}", iface.faults);
@@ -2866,7 +2867,7 @@ mod tests {
             locations: Vec::new(),
             note: None,
         };
-        let iface = interface(&comp, &vec![comp.clone()], &lib, 1)
+        let iface = interface(&comp, std::slice::from_ref(&comp), &lib, 1)
             .expect("derives")
             .expect("bounded");
         assert!(iface.is_clean(), "a gap is not a disagreement: {:?}", iface.faults);
@@ -2902,7 +2903,7 @@ mod tests {
             locations: Vec::new(),
             note: None,
         };
-        let iface = interface(&comp, &vec![comp.clone()], &lib, 1)
+        let iface = interface(&comp, std::slice::from_ref(&comp), &lib, 1)
             .expect("derives")
             .expect("bounded");
         let east: Vec<_> = iface.faces[E].iter().map(|b| (b.y, b.token.as_deref())).collect();
@@ -2927,7 +2928,7 @@ mod tests {
             locations: Vec::new(),
             note: None,
         };
-        let iface = interface(&comp, &vec![comp.clone()], &lib, 1)
+        let iface = interface(&comp, std::slice::from_ref(&comp), &lib, 1)
             .expect("derives")
             .expect("bounded");
         assert_eq!(iface.faces[W].len(), 1, "west read {:?}", iface.faces[W]);
@@ -2957,7 +2958,7 @@ mod tests {
             locations: Vec::new(),
             note: None,
         };
-        let iface = interface(&comp, &vec![comp.clone()], &lib, 1)
+        let iface = interface(&comp, std::slice::from_ref(&comp), &lib, 1)
             .expect("derives")
             .expect("bounded");
         assert!(!iface.is_clean());
@@ -3039,7 +3040,7 @@ mod tests {
         without.members.retain(|m| !matches!(m.body, Body::Slot { .. }));
 
         let read = |c: &Composition| {
-            interface(c, &vec![c.clone()], &lib, 1).expect("derives").expect("bounded")
+            interface(c, std::slice::from_ref(c), &lib, 1).expect("derives").expect("bounded")
         };
         let (a, b) = (read(&with), read(&without));
         assert!(a.is_clean(), "{:?}", a.faults);
@@ -3062,12 +3063,12 @@ mod tests {
         ] {
             let mut c = base.clone();
             c.members[0] = slot("fixture", "wall-fixture", at, lift);
-            let err = validate(&vec![c], &lib).expect_err(&format!("{why} must be refused"));
+            let err = validate(&[c], &lib).expect_err(&format!("{why} must be refused"));
             assert!(err.contains("slot `fixture`"), "{why}: {err}");
             assert!(err.contains("envelope"), "{why}: {err}");
         }
         // And the interior one this varies from is accepted.
-        validate(&vec![base], &lib).expect("an interior slot is fine");
+        validate(&[base], &lib).expect("an interior slot is fine");
     }
 
     /// A hole survives the stamp and lands under its transform, exactly as a row does.

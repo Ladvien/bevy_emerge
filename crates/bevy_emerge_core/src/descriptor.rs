@@ -443,7 +443,7 @@ pub fn tipped_footprint(d: &Descriptor, tip: (u8, u8)) -> Option<(f32, f32)> {
 /// Separate from [`Subgrid::rotated`] because the lattice no longer carries its own divisions: a
 /// caller that turns a tile needs both halves, and having to ask for both is what keeps them in step.
 pub fn rotate_div(div: (u32, u32, u32), quarter: u8) -> (u32, u32, u32) {
-    if quarter % 2 == 0 {
+    if quarter.is_multiple_of(2) {
         div
     } else {
         (div.2, div.1, div.0)
@@ -2319,7 +2319,7 @@ pub fn pick_cell(
     div: (u32, u32, u32),
 ) -> Option<((u32, u32, u32), Option<Face>)> {
     let n = [div.0, div.1, div.2];
-    if n.iter().any(|d| *d == 0) || size.iter().any(|s| *s <= 0.0) {
+    if n.contains(&0) || size.iter().any(|s| *s <= 0.0) {
         return None;
     }
     if ray_origin.iter().chain(dir.iter()).any(|v| !v.is_finite()) {

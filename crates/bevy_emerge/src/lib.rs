@@ -375,6 +375,8 @@ pub fn tip_seat(d: &Descriptor, tip: (u8, u8)) -> f32 {
 ///
 /// Returns `None` only for a descriptor with neither a mesh nor a footprint — which is not an
 /// error: a descriptor may exist to carry tags before anyone has given it geometry.
+// Public entry point; folding these arguments into a struct would change its signature for every caller.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_descriptor(
     commands: &mut Commands,
     assets: &AssetServer,
