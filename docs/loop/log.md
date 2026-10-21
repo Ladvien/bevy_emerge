@@ -471,7 +471,15 @@ Top 5 remaining:
   task. All three in `runs/2026-10-20-04/review.md`, with the captures in
   `runs/2026-10-20-04/evidence/`.
 
-- **Commit:** _(filled in below once pushed)_
+- **Commit:** `a09fcc2` - "bevy_emerge_mapper: the arm crosses the door, and the map can arm a
+  composition". Pushed to `Ladvien/bevy_emerge` `main`.
+  **No PR**, for the same reason as the previous three runs: this repository has never had one,
+  every commit goes straight to `main`, and `gh pr create` refuses with *"head branch `main` is
+  the same as base branch `main`"*. The commit was already on `main` when the PR step was
+  reached, and the owner's rule of 2026-10-20 says a commit that landed on the wrong branch is
+  *"fixed with a new commit or a question, never by resetting a shared working tree or
+  force-pushing"*. The branch `feature/stamps-reach-the-consumer` from the run before is still
+  on the remote at the same commit; **deleting it is left to the owner**.
 
 - **Run:** `docs/loop/runs/2026-10-20-04/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
   `evidence/`.
