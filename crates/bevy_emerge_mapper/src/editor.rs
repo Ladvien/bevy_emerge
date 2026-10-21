@@ -594,6 +594,14 @@ enum Undo {
         owned: bool,
         because: Option<String>,
     },
+    /// **Take back, or put back, a settings change the size field made**, by its operation-log line.
+    ///
+    /// **Not a delta of its own.** A settings change goes through the registry and the log, so its
+    /// undo does too: [`crate::ops::undo`] is the same function `emerge_undo_operation` reaches, which
+    /// keeps the person's Cmd+Z and the agent's undo **one history**. Without this entry the stack
+    /// never heard of a resize, and Cmd+Z after one took back an older placement instead. The inverse
+    /// is another `Settings` naming the line the undo wrote, so redo is the same arm.
+    Settings { line: String },
 }
 
 impl Default for EditorState {
@@ -2363,8 +2371,15 @@ fn size_edit_keys(
                     *open = fresh;
                 }
                 match outcome {
-                    Ok(crate::ops::Applied::Done { outcome, .. }) => {
+                    Ok(crate::ops::Applied::Done {
+                        outcome,
+                        operation_id,
+                        ..
+                    }) => {
                         state.status.note(outcome.summary);
+                        // **On the undo stack, so Cmd+Z takes the resize back** and not an older
+                        // edit underneath it.
+                        state.record(Undo::Settings { line: operation_id });
                     }
                     Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
                         state.status.problem(e.0);
@@ -3657,6 +3672,32 @@ fn box_fill_between(
     } else {
         state.status.note(format!("filled {count}{over}"));
     }
+}
+
+/// **Open the map's size field for one axis, the way a click on it does** — by triggering the
+/// same `Activate` the button sends, so the field's own observer runs. `axis` is `'x'`, `'y'` or
+/// `'z'`. What is typed next goes through the real `KeyboardInput` path. Panics when the field is
+/// not on screen, because a test that silently typed into nothing would pass for the wrong reason.
+pub fn size_field_for_test(world: &mut World, axis: char) {
+    let want = match axis {
+        'x' => Axis::X,
+        'y' => Axis::Y,
+        'z' => Axis::Z,
+        other => panic!("size_field_for_test: `{other}` is not an axis"),
+    };
+    let mut fields = world.query::<(Entity, &SizeField)>();
+    let Some(entity) = fields
+        .iter(world)
+        .find(|(_, f)| f.0 == want)
+        .map(|(e, _)| e)
+    else {
+        panic!(
+            "size_field_for_test: no {} size field is on screen",
+            want.label()
+        )
+    };
+    world.trigger(Activate { entity });
+    world.flush();
 }
 
 /// **A run of `descriptor` between two points**, reachable from `tests/headless.rs`.
@@ -6718,6 +6759,48 @@ fn apply(
                 index,
                 owned: was_owned,
                 because: was_because,
+            }
+        }
+        Undo::Settings { line } => {
+            // **Through the registry**: the map is taken into the operation's context and comes back
+            // either way, as the size field does it.
+            let mut ctx = crate::ops::Ctx {
+                project: Some(project.clone()),
+                open: Some(std::mem::replace(
+                    &mut *open,
+                    OpenMap::new(
+                        bevy_emerge_core::map::Map::default(),
+                        std::path::PathBuf::new(),
+                    ),
+                )),
+                source: crate::ops::Source::Human,
+                session: crate::ops::session_id(),
+            };
+            let undone = crate::ops::undo(&mut ctx, Some(&line));
+            if let Some(fresh) = ctx.open.take() {
+                *open = fresh;
+            }
+            match undone {
+                Ok((
+                    _,
+                    crate::ops::Applied::Done {
+                        outcome,
+                        operation_id,
+                        ..
+                    },
+                )) => {
+                    state.status.note(format!("size back: {}", outcome.summary));
+                    Undo::Settings { line: operation_id }
+                }
+                // **A refusal is a refusal, where the author looks** — the agent may already have
+                // taken this change back, or the map may have changed outside the log. Nothing goes
+                // on the other stack, because nothing changed.
+                Ok((_, crate::ops::Applied::Refused(e))) | Err(e) => {
+                    state
+                        .status
+                        .problem(format!("cannot undo the size change: {}", e.0));
+                    return None;
+                }
             }
         }
     };
