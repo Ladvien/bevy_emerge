@@ -164,3 +164,107 @@ Top 5 remaining:
    it is the module that lays the bulk of a level. A flood and a box fill are the two gestures
    that make a level cheap, and nothing pins their lattice, their refusals, or their
    idempotence.
+
+## 2026-10-20-02: the run of a thing — one piece, repeated along a line
+
+- **Change:** a **run** — arm a piece, drag a line, and the piece repeats along it **at its own
+  pitch**, turning at the corners. `bevy_emerge_core::run` holds the arithmetic (engine-free);
+  `Tool::Run` and `Cmd+B` are the editor's half. A run's posts are **ordinary placements**, so the
+  map file gains rows and nothing else, the game's loader needs no change, and the inspector's
+  count already includes them.
+  With it: **`Cmd+F` reaches the palette's filter on every tab.** It was mouse-only, and a click
+  that missed the box fell through to the map and **replaced a house block with a barrel**.
+
+- **Why it ranked first:** two measurements, and the second is the one that decides it.
+  *Finding a piece* took **~90 keystrokes** — the Map tab's filter was `Context::Tiles`, so the
+  palette's box had **no keyboard route at all**, and the only way through was `Shift+Down`
+  through 211 rows, and **the walk wraps** into the wrong kit. Now it is **2 keystrokes**.
+  *Drawing the fence* took **282 clicks** and could not be done correctly at all: the fill lays
+  a grid at the **project's** pitch, and the fence's posts are 2.032 m apart while the lattice's
+  rungs are 1.000, 0.333 and 0.111 m — so a fill lays them 3.000, 2.333 or 2.111 m apart,
+  **never 2.032**, and 8 cm out at best. A run's pitch is the **piece's own**, and that is the
+  first thing in the editor that can draw this piece's own spacing.
+  It beats the runner-up (**the editor's missing operations** — kit rename, project rename,
+  policy add, bash authoring) because those are *operations an author may want*, while the filter
+  is on **every** task an author does, and its failure mode is **editing the level by accident**.
+
+- **Evidence:**
+  - Drove the real editor over BRP against a copy of Sanctuary's project, before and after.
+  - **Before:** `F` on the Map tab types into a box that ignores it — the box still reads the
+    placeholder `filter` and the palette still shows `KIT · CONTAINER` (`evidence/before/`,
+    `evidence/crops/1-…`). One click during the measurement replaced `block_3_1` with a barrel.
+  - **After:** `Cmd+F` focuses the box, "fence" lands in it, and the palette narrows from **211
+    rows to one** (`evidence/crops/2-…`). **Two keystrokes.**
+  - The run itself: `Cmd+B`, drag, and **six posts stand along the line** — translucent while
+    the drag is in progress, solid after the release, **the same six in the same places**
+    (`evidence/crops/3-…` and `4-…`). `MAP 733 placed` (727 + 6) and `ran 6 piece(s) along the
+    line`.
+  - The pitch is the piece's: 2.064 m, and **not** on any of the lattice's rungs. A test asserts
+    it.
+  - The whole flow is **5 keystrokes and a drag**: `Cmd+F`, "fence", `Enter`, `↓`, `Cmd+B`.
+
+- **Sources:** Alvarez et al., *Interactive Sketching of Urban Procedural Models*, SIGGRAPH Asia
+  2009, DOI 10.1145/2897824.2925951 (§6.2 "Repetition Management" — a repetition is a **first-class
+  gesture**, inferred from drawn segments); Merrell & Manocha, *Model Synthesis*, IEEE TVCG 16(2),
+  2010, DOI 10.1109/TVCG.2010.112, and *Constraint-Based Model Synthesis*, Pacific Graphics 2007
+  (the intent is a **constraint on the output**); Whiting et al., *Procedural Modeling of
+  Structurally-Sound Masonry Buildings*, SIGGRAPH Asia 2009, DOI 10.1145/1618452.1618458 (repeat
+  along an axis, as a standard rule); Shirley et al., *Procedural Content Generation in Games*,
+  ACM Books 2018, ch. 11 (the human has final say; "what novel and useful editing operations can
+  be incorporated?"); Cooper, *Sturgeon*, AIIDE 2022, DOI 10.1609/aiide.v18i1.21944 (a small
+  mid-level API over an arrangement); Cockburn et al., *IJHCS* 69(7), 2011 (Fitts' Law — why a long
+  palette walk is expensive and a filter is not); Gregory, *Game Engine Architecture*, 3rd ed.,
+  ch. 15 (a special-case editing tool for shapes a general one cannot express). Full notes and
+  quotes in `runs/2026-10-20-02/research.md`.
+
+- **Test / perf:**
+  - `cargo test --workspace --no-fail-fast` → **1,219 pass, 1 fail**. The one failure is
+    `no_two_leaders_cross`, **red since 2026-09-03 and untouched by this work** (the baseline
+    measured 1,198 pass, 1 fail; this run adds 21 passing tests).
+  - New: `bevy_emerge_core/tests/a_run_is_laid_in_the_piece_s_own_pitch.rs` (7) and
+    `bevy_emerge_mapper/tests/a_run_lays_a_line_of_pieces.rs` (4), plus 9 unit tests in `run.rs`
+    and 1 in `census.rs`.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: **no finding in any file this change
+    touches.**
+  - `cargo fmt --check`: no diff in the new files.
+  - `cargo doc --no-deps`: no warning from any link this change adds.
+  - Headless boot against Sanctuary's real project: `town` → 12 frames, 8,192 entities, no panic;
+    `town_block` → 4,096 entities, no panic.
+  - **The key budget moved, deliberately and recorded in the pin**: `Context::Map` 24 → **25** for
+    `RunMode`, and `Context::Global` 16 → **17** for `Cmd+F`. Both are stated in
+    `keys.rs`'s pin with their reasons, which is the process the pin itself describes.
+
+- **Verdicts:** **Function: GREAT** — every state reads correctly; one defect found (the drag
+  showed only a line, not the posts) and fixed with a ghost, because a line is the *instruction* to
+  lay, not the landing. **Zoom: GREAT** — the before/after crops of the filter box are the
+  clearest evidence in the run. **Fresh eyes: GREAT** — discoverable in 5 keystrokes, do-able in
+  one drag, undoable in one press. All three in `runs/2026-10-20-02/review.md`, with the captures
+  in `runs/2026-10-20-02/evidence/{before,after,crops}/`.
+
+- **Commit:** _(filled in below once pushed)_
+
+- **Run:** `docs/loop/runs/2026-10-20-02/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
+  `evidence/{before,after,crops}/`.
+
+Top 5 remaining:
+
+1. **The corners.** A run is a straight line, and a fence's corner is the same piece turned 90° —
+   which the *group* model already expresses: four runs, captured as one group, stamped where the
+   enclosure goes. The tool is there; the **content** decision (turning the town's 282 posts into
+   five groups) is the owner's, and the graveyard's 3-post gap needs a `Gap` the editor does not
+   yet draw.
+2. **Editor operations that do not exist** — kit rename, project rename, project delete, adding a
+   policy exclusion or patch, creating a `bash`. The mapper's own `CLAUDE.md` data-model table
+   names every one of them as a hole, and the table is accurate.
+3. **The Map-door crash** — `crates/bevy_emerge_mapper/docs/ui_audit.md` §F3 records it as open
+   and reproduced 4/4: `bevy_emerge_mapper . <map>` dies inside two seconds with *"attachments
+   have differing sizes"* — three cameras share one image and only the 3-D one has a depth
+   attachment, so `prepare_core_3d_depth_textures` allocates per *target*. Two fixes have already
+   been eliminated **by measurement**, and the audit says so; it wants a third, not a fourth
+   guess.
+4. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
+   connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
+   not `is_near`.
+5. **Fill patterns have no test at all** — `fill.rs` is the one untested module in the mapper, and
+   it is the module that lays the bulk of a level. A flood and a box fill are the two gestures
+   that make a level cheap, and nothing pins their lattice, their refusals, or their idempotence.

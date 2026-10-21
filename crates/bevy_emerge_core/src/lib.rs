@@ -55,6 +55,7 @@ pub mod rig_check;
 pub mod rigs;
 pub mod rigs_edit;
 pub mod rules;
+pub mod run;
 /// The deterministic RNG, re-exported at its original path.
 ///
 /// It lives in the `bevy_emerge_rng` crate — a leaf with no dependencies of its own, so every crate

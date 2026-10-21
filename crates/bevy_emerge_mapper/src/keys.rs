@@ -651,6 +651,13 @@ pub enum Action {
     /// Arm the clone tool: drag a box to take a copy of every placement inside it, then click to
     /// stamp the whole set somewhere else — as many times as it is held.
     CloneMode,
+    /// Arm the run tool: drag a line and the armed piece repeats along it, at its own pitch.
+    ///
+    /// The fourth verb on the `B` family, and the one the other three could not be. A flood lays a
+    /// grid — one piece, one yaw, one pitch, over a region — so it cannot draw a fence that turns
+    /// and cannot draw one with a gap in it, and the grid's pitch is the *project's* lattice rather
+    /// than the piece's.
+    RunMode,
     /// The Tiles tab's own history. Separate from [`Action::Undo`] because the two stacks are
     /// separate — see `ImportState::undo`.
     UndoTile,
@@ -1325,7 +1332,7 @@ pub const BINDINGS: &[Binding] = &[
         false,
         Context::Map,
         "B",
-        "move / Shift: clone / M: keep as a composition",
+        "move / Shift: clone / Cmd: run / M: keep as a composition",
     )
     .at(Home::Legend),
     bs(
@@ -1335,7 +1342,28 @@ pub const BINDINGS: &[Binding] = &[
         true,
         Context::Map,
         "B",
-        "move / Shift: clone / M: keep as a composition",
+        "move / Shift: clone / Cmd: run / M: keep as a composition",
+    )
+    .at(Home::Legend),
+    // **The fourth verb on the family, and the one the other three could not be.**
+    //
+    // `Cmd+B` arms the run tool: drag a line and the armed piece repeats along it, at its own
+    // pitch. It shares the family's `does`, so `rows()` still collapses the four into one line —
+    // the Map context is AT its twelve-row ceiling and this costs **no row**.
+    //
+    // **The modifier, not another letter.** `B` is the last free key under the left hand (the
+    // row above says why), the cluster is full, and the run needs the *command* modifier anyway
+    // because the plain `B` is a gesture the author reaches for while moving things around — the
+    // run is a deliberate act, and `Cmd` is the modifier the editor already uses for the
+    // deliberate ones (`Cmd+S` saves, `Cmd+Z` undoes, `Cmd+Delete` edits a piece).
+    bs(
+        Action::RunMode,
+        KeyCode::KeyB,
+        true,
+        false,
+        Context::Map,
+        "B",
+        "move / Shift: clone / Cmd: run / M: keep as a composition",
     )
     .at(Home::Legend),
     // **A third verb on a state that already exists.** `Shift+B` drags a box and leaves a set in
@@ -1349,7 +1377,7 @@ pub const BINDINGS: &[Binding] = &[
         false,
         Context::Map,
         "M",
-        "move / Shift: clone / M: keep as a composition",
+        "move / Shift: clone / Cmd: run / M: keep as a composition",
     )
     .at(Home::Legend),
     b(
@@ -1914,15 +1942,32 @@ pub const BINDINGS: &[Binding] = &[
     // candidate packs, and that page draws neither — so `F` narrowed a list nobody could see and
     // swallowed the keyboard when typed into (N16). `tiles::hide_filter_on_the_tiles_page` hides
     // the box itself for the same reason.
+    // **`Cmd+F` finds, on every tab.**
+    //
+    // It was `F` on the Tiles tab only, which left the Map tab's PLACE palette and the Rigs
+    // tab's rig list with a filter box **no keyboard could reach** — and a box the author cannot
+    // reach by keyboard is a box they will miss, and a click that misses it falls through to the
+    // map and *edits the level*. Measured on Sanctuary's project: reaching one row in a
+    // 211-descriptor palette took **~90 keystrokes** of `Shift+Down`, and the walk wraps — the
+    // fence is in `KIT · FENCE` and the `town` kit's groups come after it, so an over-long walk
+    // lands in the wrong kit.
+    //
+    // **`Cmd+F` and not `F`.** `F` is the Map's *fill* and the Tiles tab's *cell cursor*, and both
+    // are spoken for. `Cmd+F` is the platform's own "find" chord, it is free on every tab, and it
+    // is free on every tab because it is the same idea everywhere: **narrow the list you are
+    // looking at.** The tab decides *which* box, and the chord is the same — one key, one idea,
+    // three lists.
+    //
+    // **Global, because the box is on every tab.** A per-tab row would have cost three keys and
+    // taught three chords for one idea.
     b(
         Action::FocusFilter,
         KeyCode::KeyF,
-        false,
-        Context::Tiles,
+        true,
+        Context::Global,
         "F",
         "filter the list",
     )
-    .unless(Stance::Browsing)
     .at(Home::Control(ControlId::Filter)),
     bp(
         Action::TileListPrev,
@@ -3271,6 +3316,7 @@ mod tests {
             Action::Remove,
             Action::MoveMode,
             Action::CloneMode,
+            Action::RunMode,
             Action::RenameMap,
             Action::OwnToggle,
             Action::Generate,
@@ -3892,7 +3938,20 @@ mod tests {
             // into the three door-relative slots (`1`/`2`/`3`, "the kit stops being the project")
             // and `ShowErrors` arrived. Two keys of headroom nobody granted, closed on the day it
             // was noticed.
-            (Context::Global, 16),
+            (Context::Global, 17),
+            // 16 -> 17: `FocusFilter`, on `Cmd+F`. **The filter box was mouse-only on every tab
+            // but one.** `FocusFilter` was `Context::Tiles`, so the Map tab's PLACE palette and the
+            // Rigs tab's rig list had no keyboard route to their own filter at all — and a box the
+            // author cannot reach by keyboard is a box they will miss, and a click that misses it
+            // falls through to the map and *edits the level*. Measured on Sanctuary's project:
+            // reaching one row in a 211-descriptor palette took **~90 keystrokes** of `Shift+Down`,
+            // and the walk wraps — the fence is in `KIT · FENCE` and the `town` kit's groups come
+            // after it, so an over-long walk lands in the wrong kit.
+            //
+            // `Cmd+F` is the platform's own "find" chord, and it is free on every tab — which is
+            // what makes one Global row the right shape: the tab decides *which* box, and the
+            // chord is the same everywhere. A per-tab row would have cost three keys and taught
+            // three chords for one idea.
             // 25 -> 26: `AcceptProposal`, the generate commit door. Bought deliberately, and it
             // costs no *row* — the four region-fills are `Stance::Idle` and this is
             // `Stance::Proposed`, so the two never share a list. See [`Stance::Proposed`].
@@ -3900,7 +3959,19 @@ mod tests {
             // never re-measured — with `AcceptProposal` in, the table holds 24 `Context::Map` rows.
             // A one-directional assert cannot catch a stale-high pin, so this one is corrected by
             // counting rather than by arithmetic on its predecessor.
-            (Context::Map, 24),
+            //
+            // **24 -> 25: `RunMode`, on `Cmd+B`.** The run tool — drag a line and the armed piece
+            // repeats along it at **its own pitch**. It is the fourth placement gesture, and the
+            // other three could not be it: a flood lays a *grid*, so it cannot draw a fence that
+            // turns and cannot draw one with a gap in it, and the grid's pitch is the *project's*
+            // lattice rather than the piece's — Sanctuary's fence posts stand 2.032 m apart and
+            // the lattice's rungs are 1.000, 0.333 and 0.111 m, so a fill lays them 3.000, 2.333
+            // or 2.111 m apart, never 2.032.
+            //
+            // It **costs no *row*** — it shares the `B` family's `does`, so the badge shows one
+            // line — but the ratchet counts *bindings*, and a family of four is four keys. So the
+            // count goes up by one, deliberately, with the reason here.
+            (Context::Map, 25),
             // 31 -> 32: `ExcludePack`. The importer scans every `.glb` under `assets/`, which is
             // right for finding art and wrong for offering it — a labelling batch spent its tenth
             // call of 778 describing `characters/cipher_field`, a character rig that could not be

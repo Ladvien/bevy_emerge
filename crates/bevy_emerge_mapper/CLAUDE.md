@@ -140,6 +140,7 @@ updates its own row, so this table is correct after every step rather than only 
 | LABEL_ORIGIN | detail pane `labels` row — model/hand + date (`tiles.rs`) | implicit | — | — |
 | COMPOSITION | Compose tab | create/save (`project.rs:497`); no delete/rename | members on Tiles tab | cannot be deleted or renamed |
 | PLACEMENT / STAMP | Map tab | present | `send_to_tiles` back-nav (`editor.rs:6763`) | the MAP row counts the rows a consumer will have, the hand-authored ones and the ones a group brought |
+| RUN | Map tab, `Cmd+B` | drag a line and the armed piece repeats along it, at **its own pitch** | the rows are ordinary placements, so the game gets them and the count includes them | a run is a straight line only — a corner is a *group* of runs, and the group is the author's to capture |
 | MAP | MAPS column | Name/Bounds/Origin/Note | `B` on the row cycles `Map::bash` through the project's declared bashes (`cycle_bash` → `write_bash`); MAP INFO's `bash` row shows it | a bash cannot be created or edited from the editor |
 
 ## In the monorepo

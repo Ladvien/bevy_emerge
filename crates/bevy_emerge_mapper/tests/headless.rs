@@ -83,6 +83,40 @@ fn tap_key(app: &mut App, logical: bevy::input::keyboard::Key, code: KeyCode) {
     app.update();
 }
 
+/// **One keystroke with the platform's command modifier held** — the same call [`tap_key`]
+/// makes, plus the modifier.
+///
+/// The modifier is what makes a chord a chord: `bevy_emerge_mapper::keys::MOD_KEYS` says which
+/// keys count, and a binding with `needs_mod` fires only while one of them is down. The key itself
+/// arrives through the message stream, because that is where every text handler reads from.
+fn press_with_mod(app: &mut App, key: KeyCode) {
+    let modifier = bevy_emerge_mapper::keys::MOD_KEYS[0];
+    app.world_mut()
+        .resource_mut::<bevy::input::ButtonInput<KeyCode>>()
+        .press(modifier);
+    for state in [
+        bevy::input::ButtonState::Pressed,
+        bevy::input::ButtonState::Released,
+    ] {
+        app.world_mut()
+            .write_message(bevy::input::keyboard::KeyboardInput {
+                key_code: key,
+                logical_key: bevy::input::keyboard::Key::Unidentified(
+                    bevy::input::keyboard::NativeKey::Unidentified,
+                ),
+                state,
+                text: None,
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+    }
+    app.update();
+    app.world_mut()
+        .resource_mut::<bevy::input::ButtonInput<KeyCode>>()
+        .release(modifier);
+    app.update();
+}
+
 /// The `KeyCode` a lowercase letter arrives on.
 ///
 /// [`tap_key`] writes only the message stream, which every text handler in this crate matches on
@@ -9742,14 +9776,17 @@ fn f_focuses_the_filter_and_enter_hands_the_keyboard_back() {
     for _ in 0..2 {
         app.update();
     }
-    press(&mut app, key(Action::FocusFilter));
+    // **`Cmd+F`, not `F`.** The filter chord is the platform's own "find" and is the same on every
+    // tab, because the box is on every tab and the tab decides *which* one. `F` is the Map's fill
+    // and the Tiles tab's cell cursor, so it could not be the filter's chord.
+    press_with_mod(&mut app, key(Action::FocusFilter));
     for _ in 0..2 {
         app.update();
     }
     assert_eq!(
         focus(&app),
         Some(Pane::Candidates),
-        "`F` puts the cursor in the box"
+        "`Cmd+F` puts the cursor in the box"
     );
     // **One more frame before typing.** Every field here drains the message stream while it is shut,
     // so the keystroke that opens it cannot become its first character (`keys.rs`, the `xseam` bug).
@@ -9905,14 +9942,15 @@ fn the_list_still_walks_while_its_filter_box_holds_the_keys() {
     for _ in 0..2 {
         app.update();
     }
-    press(&mut app, key(Action::FocusFilter));
+    // **`Cmd+F`, not `F`** — the filter chord is the platform's own "find", the same on every tab.
+    press_with_mod(&mut app, key(Action::FocusFilter));
     for _ in 0..2 {
         app.update();
     }
     assert_eq!(
         app.world().resource::<Filters>().focus_pane(),
         Some(Pane::Candidates),
-        "`F` puts the cursor in the box"
+        "`Cmd+F` puts the cursor in the box"
     );
     // The drain frame — the keystroke that opens a field must not become its first character.
     app.update();
@@ -15457,13 +15495,20 @@ fn every_empty_shelf_says_why() {
     let said = one_sentence(&mut app, "empty judged library");
     assert!(said.contains("no mesh is judged yet"), "{said}");
 
-    // A filter that matches nothing — on the same shelf, since `F` is the Tiles tab's key and the
-    // page has been left (`F` is not bound on the Tiles page, N16).
-    step(&mut app, binding(Action::FocusFilter).key, 3);
+    // A filter that matches nothing — on the same shelf. **`Cmd+F`**, the platform's own "find",
+    // is the filter's chord on every tab; `F` is the Map's fill and the Tiles tab's cell cursor.
+    step_chord(
+        &mut app,
+        vec![
+            bevy_emerge_mapper::keys::MOD_KEYS[0],
+            binding(Action::FocusFilter).key,
+        ],
+        3,
+    );
     assert_eq!(
         app.world().resource::<Filters>().focus_pane(),
         Some(Pane::Candidates),
-        "`F` puts the cursor in the box"
+        "`Cmd+F` puts the cursor in the box"
     );
     // The drain frame — the keystroke that opens a field must not become its first character.
     app.update();

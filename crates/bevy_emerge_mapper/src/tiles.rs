@@ -3914,12 +3914,28 @@ fn style_tabs(
 fn focus_filter(
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<crate::keys::Live>,
+    mode: Res<Mode>,
     mut filters: ResMut<crate::filter::Filters>,
 ) {
     if crate::keys::just_pressed(&keyboard, *live, crate::keys::Action::FocusFilter) {
-        // The pane this tab's list is filtered by — the same one `rebuild_candidates` reads, so the
-        // box that takes the keys is the box above the rows they narrow.
-        filters.take_focus(crate::filter::Pane::Candidates);
+        // **The pane this tab's list is filtered by.** It was always `Candidates` — the Tiles tab's
+        // list — so the Map tab's PLACE filter was **mouse-only**, and the Rigs tab's was too.
+        //
+        // Measured on Sanctuary's project: reaching one row in a 211-descriptor palette took
+        // **~90 keystrokes** of `Shift+Down`, and the walk *wraps* — the fence is in `KIT · FENCE`
+        // and the `town` kit's groups come after it, so an over-long walk lands in the wrong kit.
+        // And a click that missed the box **fell through to the map and replaced a house block with
+        // a barrel**, because a box the author cannot reach by keyboard is a box they will miss.
+        //
+        // So the key focuses the box above the list the author is actually looking at, and the
+        // pane-per-tab mapping is the one the filter module already keeps.
+        let pane = match *mode {
+            Mode::Meshes | Mode::Tiles => crate::filter::Pane::Candidates,
+            Mode::Map => crate::filter::Pane::Palette,
+            Mode::Anim => crate::filter::Pane::Rigs,
+            Mode::Compose => crate::filter::Pane::Candidates,
+        };
+        filters.take_focus(pane);
     }
     if crate::keys::just_pressed(&keyboard, *live, crate::keys::Action::FocusTagFilter) {
         filters.take_focus(crate::filter::Pane::Tags);

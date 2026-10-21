@@ -271,6 +271,21 @@ pub enum Tool {
     /// Drag a box to take a copy of everything inside it; click to stamp the set — as many times
     /// as it is held. See [`CloneDrag`].
     Clone,
+    /// **Drag a line and the armed piece repeats along it**, at its own pitch.
+    ///
+    /// The fourth tool, and the one the other three could not do. A flood lays a *grid* — one
+    /// piece, one yaw, one pitch, over a region — so it cannot draw a fence that turns and cannot
+    /// draw one with a gap in it. And the grid's pitch is the *project's* lattice, which is not
+    /// the piece's: Sanctuary's fence posts stand 2.032 m apart, and the lattice's rungs are
+    /// 1.000, 0.333 and 0.111 m, so a fill lays them 3.000, 2.333 or 2.111 m apart — never
+    /// 2.032, and 8 cm out at best, which is a visible gap in every joint.
+    ///
+    /// A run's pitch is the **piece's own**, and the corners are the same piece turned.
+    ///
+    /// A mode, and Raskin's objection is a mode you can *forget* — so it is drawn: the inspector
+    /// names it, and the posts it would lay stand on the map as a ghost while the drag is in
+    /// progress. A click leaves it, like every other tool.
+    Run,
 }
 
 impl Tool {
@@ -281,6 +296,7 @@ impl Tool {
             Tool::Remove => "removal mode",
             Tool::Move => "move mode",
             Tool::Clone => "clone mode",
+            Tool::Run => "run mode",
         }
     }
 }
@@ -874,6 +890,12 @@ impl Plugin for EditorPlugin {
             .init_resource::<Proposal>()
             .init_resource::<FineAnchor>()
             .init_resource::<PlaceDrag>()
+            // Read by `drive_run`, so this plugin owns it — a missing `ResMut` panics its system in
+            // Bevy 0.19 rather than skipping it (`CLAUDE.md`).
+            .init_resource::<RunDrag>()
+            // Read by `drive_run_ghost`, so this plugin owns it — a missing `ResMut` panics its
+            // system in Bevy 0.19 rather than skipping it (`CLAUDE.md`).
+            .init_resource::<RunGhostDrag>()
             // **This plugin reads it, so this plugin registers it** (CLAUDE.md's rule, and the
             // documented 0.19 trap: every run condition is evaluated, and `rebuild_palette`'s
             // `resource_changed::<ThumbGeneration>` panics if only ThumbsPlugin — which also inits
@@ -992,10 +1014,19 @@ impl Plugin for EditorPlugin {
                     keys.in_set(keys::Phase::Act),
                     // These two stay gated: they read the MOUSE, which the census does not model, so
                     // context is not their guard. Mode is.
-                    drive_place.run_if(not_typing).run_if(in_map_mode),
-                    drive_removal.run_if(not_typing).run_if(in_map_mode),
-                    drive_move.run_if(not_typing).run_if(in_map_mode),
-                    drive_clone.run_if(not_typing).run_if(in_map_mode),
+                    // **Nested, because this tuple is at Bevy 0.19's cap of 20.** The four
+                    // placement tools are one idea — a click or a drag belongs to whichever is
+                    // armed — and they read the MOUSE, which the census does not model, so mode is
+                    // their guard.
+                    (
+                        drive_place,
+                        drive_removal,
+                        drive_move,
+                        drive_clone,
+                        drive_run,
+                    )
+                        .run_if(not_typing)
+                        .run_if(in_map_mode),
                     // Nested for the same reason the pair below is: the tuple is at 20.
                     // `sense_under_cursor` is gated on the mode for `drive_target_marker`'s reason —
                     // it reads the MOUSE, which the census does not model, so context is not its
@@ -1006,7 +1037,13 @@ impl Plugin for EditorPlugin {
                     // two previews: one piece keyed by library index, and a whole set. Not folded
                     // into one system — that would be one system with two subjects and two
                     // lifetimes.
-                    (drive_ghost, drive_clone_ghost, drive_stamp_ghost).run_if(in_map_mode),
+                    (
+                        drive_ghost,
+                        drive_clone_ghost,
+                        drive_stamp_ghost,
+                        drive_run_ghost,
+                    )
+                        .run_if(in_map_mode),
                     // **Not gated on the map.** The stamped rows are part of the map, so they stay
                     // drawn while an author is on Tiles or Compose looking at the group that made
                     // them — a world that empties out when you change tabs would read as the stamp
@@ -3185,6 +3222,16 @@ pub struct PlaceDrag {
     from: Option<(f32, f32)>,
 }
 
+/// **The line being dragged out to run a piece along**, in map space.
+///
+/// Its own resource on the same argument [`PlaceDrag`] makes: written every frame of a drag, and
+/// `rebuild_palette` watches [`EditorState`] rather than this.
+#[derive(Resource, Default)]
+pub struct RunDrag {
+    /// Where the button went down, or `None` while only hovering.
+    from: Option<(f32, f32)>,
+}
+
 /// Fill a dragged box with the brush, as one act.
 ///
 /// Split out of [`drive_place`] so the release path reads as the two things it chooses between —
@@ -3280,6 +3327,41 @@ fn box_fill_between(
     }
 }
 
+/// **A run of `descriptor` between two points**, reachable from `tests/headless.rs`.
+///
+/// The release path of the run tool, without the mouse — the same split `fill_for_test` makes. The
+/// mouse path is not drivable headless, and a test that re-implemented the body would pass while
+/// the real one was broken.
+pub fn run_for_test(world: &mut World, descriptor: &str, from: (f32, f32), to: (f32, f32)) {
+    use bevy::ecs::system::RunSystemOnce;
+    let descriptor = descriptor.to_owned();
+    world
+        .run_system_once(
+            move |mut commands: Commands,
+                  assets: Res<AssetServer>,
+                  mut project: ResMut<Project>,
+                  mut open: ResMut<OpenMap>,
+                  mut state: ResMut<EditorState>| {
+                let Some(d) = project.library.get(&descriptor).cloned() else {
+                    panic!("run_for_test: no descriptor `{descriptor}` in the library");
+                };
+                state.brush_yaw = 0.0;
+                state.brush_tip = (0, 0);
+                run_between(
+                    &mut commands,
+                    &assets,
+                    &mut project,
+                    &mut open,
+                    &mut state,
+                    &d,
+                    from,
+                    to,
+                );
+            },
+        )
+        .unwrap_or_else(|e| panic!("run_for_test: {e}"));
+}
+
 /// The clone tool's marker quad — [`spawn_removal_tile`]'s twin in the clone tint, and spawned
 /// once for the same leak-shaped reason.
 fn spawn_clone_tile(
@@ -3299,6 +3381,223 @@ fn spawn_clone_tile(
         Transform::default(),
         Visibility::Hidden,
     ));
+}
+
+/// **The run tool** — [`drive_place`]'s gesture with a different payload.
+///
+/// The gesture is the fill's gesture: press, drag, release, with the same [`CLICK_EPS`] that tells
+/// a click from a drag and the same `Alt` modifier that means "place one, exactly here". The
+/// difference is what the drag draws: a **line of repeated pieces** rather than a **grid of them**.
+///
+/// **The line is the piece's own pitch, not the project's lattice.** That is the whole reason the
+/// tool exists: Sanctuary's fence posts stand 2.032 m apart, and the lattice's rungs are 1.000,
+/// 0.333 and 0.111 m, so a fill lays them 3.000, 2.333 or 2.111 m apart — never 2.032, and 8 cm
+/// out at best.
+///
+/// Preview and commit live in one system for the reason `drive_place` gives: the line drawn IS the
+/// line committed, and computing it twice is how a preview comes to disagree with what it does.
+#[allow(clippy::too_many_arguments)]
+fn drive_run(
+    mut commands: Commands,
+    mouse: Res<ButtonInput<MouseButton>>,
+    // Held, the platform modifier drops the grid snap — see `map_at`.
+    keyboard: Res<ButtonInput<KeyCode>>,
+    assets: Res<AssetServer>,
+    hovered_ui: Query<&Hovered>,
+    pointer: Res<crate::view::Pointer>,
+    camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
+    mut project: ResMut<Project>,
+    mut open: ResMut<OpenMap>,
+    mut state: ResMut<EditorState>,
+    mut drag: ResMut<RunDrag>,
+    mut ghost_drag: ResMut<RunGhostDrag>,
+    mut gizmos: Gizmos,
+    placed: Query<(Entity, &Placement)>,
+) {
+    if state.tool != Tool::Run {
+        // Read, never write, unless something happened — `rebuild_palette` watches `EditorState`
+        // and `drag` is deliberately not on it, but the same discipline applies.
+        if drag.from.is_some() {
+            drag.from = None;
+        }
+        ghost_drag.line = None;
+        return;
+    }
+    let Some(camera) = camera else {
+        return;
+    };
+    let (cam, cam_tf) = *camera;
+    let over_ui = hovered_ui.iter().any(|h| h.0);
+    let Some(hit) = cursor_ground(pointer.0, cam, cam_tf) else {
+        // **A release ends the drag wherever it happens** — the defect `drive_removal` records.
+        if mouse.just_released(MouseButton::Left) {
+            drag.from = None;
+        }
+        return;
+    };
+    // **A drag that started on the world owns the pointer until it is let go** — the same rule
+    // `drive_place` states, and for the same reason: a fill box dragged across the palette used to
+    // tear the gesture in half.
+    if ui_blocks_gesture(over_ui, drag.from.is_some()) {
+        return;
+    }
+
+    // **Nothing armed places nothing** — and says so, because `F` with nothing armed used to be
+    // indistinguishable from `F` not being bound.
+    let Some(d) = state
+        .brush
+        .and_then(|ix| project.library.descriptors.get(ix))
+        .cloned()
+    else {
+        if drag.from.is_some() {
+            drag.from = None;
+        }
+        if mouse.just_released(MouseButton::Left) {
+            state
+                .status
+                .note("nothing armed to run with — pick a piece from the palette".to_owned());
+        }
+        return;
+    };
+
+    // **The line's ends are the author's own points, not the lattice's.** A run's posts stand at the
+    // piece's pitch, so snapping the ends to the project's lattice would put the first post a
+    // third of a metre off where the author pointed. The ends are the cursor, in map space.
+    let at = open.map.to_map_space((hit.x, hit.z));
+    if mouse.just_pressed(MouseButton::Left) {
+        drag.from = Some(at);
+    }
+
+    // **The line, while it is being dragged.** A gizmo, not a quad: the run is a *line* and a
+    // rectangle would draw a shape the tool does not make.
+    //
+    // **And the posts it would lay**, on their own ghost — because a line is the *instruction* to
+    // lay, not the landing. The author has to see the fence before they let go.
+    if let Some(from) = drag.from {
+        let dragging = (from.0 - at.0).abs() > CLICK_EPS || (from.1 - at.1).abs() > CLICK_EPS;
+        ghost_drag.line = dragging.then_some((from, at));
+        if dragging {
+            gizmos.line(
+                Vec3::new(
+                    open.map.origin.0 + from.0,
+                    open.map.origin.1 + MARKER_LIFT,
+                    open.map.origin.2 + from.1,
+                ),
+                Vec3::new(
+                    open.map.origin.0 + at.0,
+                    open.map.origin.1 + MARKER_LIFT,
+                    open.map.origin.2 + at.1,
+                ),
+                ACCENT,
+            );
+        }
+    }
+
+    if !mouse.just_released(MouseButton::Left) {
+        return;
+    }
+    let Some(from) = drag.from.take() else {
+        return;
+    };
+    // **The ghost goes with the drag** — the posts are about to be real, and a ghost of them would
+    // be a second copy.
+    ghost_drag.line = None;
+    // **A click places one; a drag runs.** The same threshold the removal tool uses, so a hand that
+    // moved a hair while clicking is still a click in both.
+    //
+    // **Never while the modifier is held** — the same rule `drive_place` states, and for the same
+    // reason: holding it means "place one, exactly here".
+    let free = keys::alt_held(&keyboard);
+    if free || ((from.0 - at.0).abs() <= CLICK_EPS && (from.1 - at.1).abs() <= CLICK_EPS) {
+        // **A click in run mode places one piece**, which is what the author meant by a click and
+        // what the mode's own name promises not to swallow.
+        place_one(
+            &mut commands,
+            &assets,
+            &placed,
+            &project,
+            &mut open,
+            &mut state,
+            &d,
+            at,
+            free,
+        );
+        return;
+    }
+    run_between(
+        &mut commands,
+        &assets,
+        &mut project,
+        &mut open,
+        &mut state,
+        &d,
+        from,
+        at,
+    );
+}
+
+/// **The run tool's posts, laid along a dragged line** — one act.
+///
+/// The fourth placement tool, and the one the other three could not be. A flood lays a *grid*: one
+/// piece, one yaw, one pitch, over a region. A run lays a *line*: the piece repeated along it at
+/// **its own pitch**, which is not the project's lattice.
+///
+/// The drag is the fill's drag — press, drag, release — and the line is the one the author drew.
+/// The corners are not drawn: a corner is a *turn*, and a turn is the same piece turned 90°. So a
+/// run of a straight line carries no corners, and the corner rule belongs to the group that the
+/// author makes of four runs.
+fn run_between(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    project: &mut Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    brush: &bevy_emerge_core::descriptor::Descriptor,
+    from: (f32, f32),
+    to: (f32, f32),
+) {
+    let run = bevy_emerge_core::run::Run {
+        descriptor: brush.id.clone(),
+        pitch: None,
+        from,
+        to,
+        corners: Vec::new(),
+        gaps: Vec::new(),
+    };
+    let posts = match bevy_emerge_core::run::lay(&run, &project.library) {
+        Ok(p) => p,
+        // **A refusal is the answer, not a failure** — the same call `flood_from_cursor` makes,
+        // and for the same reason: a fence with a hole in it is worse than no fence.
+        Err(e) => {
+            state.status.problem(e);
+            return;
+        }
+    };
+
+    // **The rows, as ordinary placements.** A run's posts are rows like any other, so the map file
+    // gains rows and nothing else, the game's loader needs no change, and the inspector's count
+    // already includes them.
+    let mut n = state.next_id;
+    let short = short_id(&brush.id).to_owned();
+    let first = open.map.placements.len();
+    for post in &posts {
+        n += 1;
+        open.map.placements.push(Placed {
+            id: format!("{short}@{n}"),
+            descriptor: brush.id.clone(),
+            at: post.at,
+            yaw: post.yaw,
+            ..Placed::default()
+        });
+    }
+    state.next_id = n;
+
+    // Into the map first, drawn second: how high a piece sits is a question about the finished map.
+    spawn_range(commands, assets, project, &*open, state, first);
+    // **One entry for the whole run**, the rule `RemovedMany` states: one act the author performed
+    // is one act to take back.
+    state.record(record_added(posts.len(), Vec::new()));
+    state.status.note(format!("ran {} piece(s) along the line", posts.len()));
 }
 
 /// **The clone tool** — [`drive_removal`]'s shape with the opposite payload: the box takes a COPY
@@ -5307,6 +5606,28 @@ fn keys(
         if state.tool == Tool::Clone {
             state.brush = None;
         }
+        return;
+    }
+
+    // **The run tool.** The `B` family's command-modified sibling: drag a line and the armed piece
+    // repeats along it, at **its own pitch** — not the project's lattice, which is the whole
+    // reason the tool exists.
+    if keys::just_pressed(&keyboard, *live, Action::RunMode) {
+        state.tool = if state.tool == Tool::Run {
+            Tool::Place
+        } else {
+            Tool::Run
+        };
+        let said = if state.tool == Tool::Run {
+            "run mode: drag a line and the armed piece repeats along it, at its own pitch. \
+             Esc to stop."
+                .to_owned()
+        } else {
+            "run mode off".to_owned()
+        };
+        state.status.note(said);
+        move_drag.held = None;
+        clone_drag.held = None;
         return;
     }
 
@@ -7389,6 +7710,9 @@ pub(crate) fn brush_ghost_subject(
         // Move armed with nothing picked up: the honest preview of "click to pick something up" is
         // no ghost.
         (None, Tool::Move) => None,
+        // **The run tool draws its own line**, and a brush ghost beside it would be a second
+        // preview for a drag that repeats the piece rather than placing one.
+        (None, Tool::Run) => None,
         // **A composition outranks the brush**, because `drive_place` stamps it and returns: the
         // click puts the group down, so previewing the palette piece would be a promise about a
         // placement that is not going to happen. `drive_stamp_ghost` draws what will land.
@@ -9547,6 +9871,123 @@ fn drive_stamp_ghost(
 /// The pieces carry [`Ghost`] so [`fade_ghost`] fades them through the one path that already exists,
 /// and **not** [`GhostOf`], which keys the brush ghost by library index — two pieces of one
 /// descriptor in a set would collide on it, and `drive_ghost`'s own clear would take them.
+///
+/// **The run's ghost** — the posts a drag would lay, standing where they would land.
+///
+/// The line alone was not enough, and the review caught it: the author sees a rule on the ground
+/// and has to *imagine* the fence on it. The editor's own rule is that a preview shows what will
+/// happen — *"a preview computing either differently is a promise about a landing that will not
+/// happen, which is the one thing this editor's previews are held to"* — and a line is not the
+/// landing, it is the instruction to land. So the posts stand there, translucent, in the piece's
+/// own pitch.
+#[derive(Component)]
+struct RunGhost;
+
+/// The posts a run would lay, and where.
+///
+/// Its own resource, like every other drag: written every frame of a drag, and
+/// `rebuild_palette` watches [`EditorState`] rather than this.
+#[derive(Resource, Default)]
+pub struct RunGhostDrag {
+    /// The line's two ends, in map space. `None` while nothing is being dragged.
+    pub line: Option<((f32, f32), (f32, f32))>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drive_run_ghost(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    project: Res<Project>,
+    open: Res<OpenMap>,
+    state: Res<EditorState>,
+    drag: Res<RunGhostDrag>,
+    pointer: Res<crate::view::Pointer>,
+    camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
+    ui_nodes: Query<(&bevy::ui::ComputedNode, &bevy::ui::UiGlobalTransform), With<Hovered>>,
+    ghosts: Query<(Entity, &RunGhost)>,
+) {
+    let clear = |commands: &mut Commands| {
+        for (e, _) in &ghosts {
+            commands.entity(e).despawn();
+        }
+    };
+    if state.tool != Tool::Run {
+        clear(&mut commands);
+        return;
+    }
+    let Some((from, to)) = drag.line else {
+        clear(&mut commands);
+        return;
+    };
+    let Some(camera) = camera else {
+        clear(&mut commands);
+        return;
+    };
+    let (cam, cam_tf) = *camera;
+    let on_ui = crate::view::over_ui(
+        pointer.0,
+        cam.target_scaling_factor().unwrap_or(1.0),
+        ui_nodes.iter(),
+    );
+    if on_ui {
+        clear(&mut commands);
+        return;
+    }
+    let _ = cam_tf;
+
+    // **The brush, and the run it would lay.** The same descriptor the commit would use, and the
+    // same `run::lay` — so the preview and the commit cannot disagree.
+    let Some(d) = state
+        .brush
+        .and_then(|ix| project.library.descriptors.get(ix))
+        .cloned()
+    else {
+        clear(&mut commands);
+        return;
+    };
+    let run = bevy_emerge_core::run::Run {
+        descriptor: d.id.clone(),
+        pitch: None,
+        from,
+        to,
+        corners: Vec::new(),
+        gaps: Vec::new(),
+    };
+    let Ok(posts) = bevy_emerge_core::run::lay(&run, &project.library) else {
+        // A run that cannot be laid cannot be committed either, and the commit says so by name.
+        // Drawing nothing is the honest preview of a refusal.
+        clear(&mut commands);
+        return;
+    };
+
+    // **One parent, so the whole set goes at once** — the same lifetime trick the stamp ghost uses.
+    let parent = commands
+        .spawn((RunGhost, Transform::default(), Visibility::default()))
+        .id();
+    let mut drawn = 0usize;
+    for p in &posts {
+        // **At the floor**, because a run's posts stand on the ground: a fence post's height comes
+        // from the map's own datum, and the ghost is a picture of where the posts will be, not a
+        // piece of the map.
+        if let Some(e) = spawn_piece(
+            &mut commands,
+            &assets,
+            &d,
+            p.at,
+            p.yaw,
+            (0, 0),
+            open.map.origin,
+            0.0,
+        ) {
+            commands.entity(e).insert((Ghost, ChildOf(parent)));
+            drawn += 1;
+        }
+    }
+    if drawn == 0 {
+        commands.entity(parent).despawn();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn drive_clone_ghost(
     mut commands: Commands,

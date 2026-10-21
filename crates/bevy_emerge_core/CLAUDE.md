@@ -31,6 +31,17 @@ Two rules follow, and both are load-bearing:
 - **One expander.** `composition::expand` is the only function that turns a stamp into rows. `composition::expand_map` is the same call with the map's own stamps. A second implementation is how the editor and the game drift.
 - **The count an author reads is the count the game has.** `census::of_map` expands, so the inspector's `N placed` is the row count the consumer will have — the hand-authored rows *and* the ones a group brought. A panel that said "727" beside a game holding 745 would be a panel lying.
 
+**A run's pitch is the piece's, not the lattice's.** `run::lay` puts one piece at a time along a
+path, and the pitch it uses is the **piece's own footprint** — not a rung of the project's
+snap lattice. The reason is measured: Sanctuary's fence posts stand 2.032 m apart, and the
+lattice's rungs are 1.000, 0.333 and 0.111 m, so a fill lays that fence 3.000, 2.333 or 2.111 m
+apart — never 2.032, and 8 cm out at best, which is a visible gap in every joint.
+
+A run is the second thing in this crate that needs **its own** lattice rather than a second
+reading of the project's (`fill::Lattice` was the first). The rule is the same: the *project's*
+lattice is what a solver sees and what a composition's envelope is measured against; a piece's
+own spacing is the piece's business.
+
 No Bevy dependency exists here, and none may be added.
 
 ## Rules
