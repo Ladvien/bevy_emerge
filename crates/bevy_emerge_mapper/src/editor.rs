@@ -3088,7 +3088,7 @@ fn rename_keys(
                 if name.is_empty() {
                     state
                         .status
-                        .note("a map needs a name; nothing was changed".to_owned());
+                        .problem("a map needs a name; nothing was changed".to_owned());
                 } else if name != open.map.name {
                     let was = std::mem::replace(&mut open.map.name, name.clone());
                     // **What the rename costs, named.**
@@ -4997,7 +4997,7 @@ fn place_one(
             // Refused, not floored. Dropping it at floor level is the behaviour this replaced: the
             // piece appears, in the wrong place, and looks like an authoring mistake.
             Err(e) => {
-                state.status.note(e);
+                state.status.problem(e);
                 return;
             }
         };

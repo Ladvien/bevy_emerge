@@ -2554,10 +2554,11 @@ fn cell_keys(
                     (n, true, _) => format!("{n} cells' tokens cleared"),
                     (n, false, _) => format!("{n} cells = `{token}`"),
                 };
-                // Nothing landed means nothing to write, and nothing to remember either.
-                // Nothing landed means nothing to write, and nothing to remember either.
+                // Nothing landed means nothing to write, and nothing to remember either — and it
+                // is a **refusal**: the editor could not put the token where it was asked to. The
+                // note slot is for answers, and this one was erased by the next receipt.
                 if wrote == 0 {
-                    state.status.note(said);
+                    state.status.problem(said);
                 } else {
                     state.record(history_before);
                     let wrote = persist(&mut project, where_to, said);
@@ -5124,7 +5125,7 @@ fn rename_candidate(
                 if id.is_empty() {
                     state
                         .status
-                        .note("an id cannot be empty; nothing was changed".to_owned());
+                        .problem("an id cannot be empty; nothing was changed".to_owned());
                 } else {
                     // The candidate this field was opened on, found by the mesh it names rather than
                     // by wherever the selection has since moved to.
@@ -5423,11 +5424,20 @@ pub(crate) fn apply_suggestion(
                 return;
             };
             let said = crate::labels::request_photos(target, &d, label_tasks, rig);
-            state.status.note(format!(
-                "righted `{name}` {} quarter turn(s) about {} — {said}",
-                turn.turns,
-                turn.axis.to_uppercase()
-            ));
+            // **The righting itself happened, so the receipt is a receipt** — but the photo
+            // request inside it may have been refused, and a refusal does not ride in a note.
+            match said {
+                crate::labels::Asked::Said(said) => state.status.note(format!(
+                    "righted `{name}` {} quarter turn(s) about {} — {said}",
+                    turn.turns,
+                    turn.axis.to_uppercase()
+                )),
+                crate::labels::Asked::Refused(why) => state.status.problem(format!(
+                    "righted `{name}` {} quarter turn(s) about {} — {why}",
+                    turn.turns,
+                    turn.axis.to_uppercase()
+                )),
+            }
             return;
         }
         // **A righting that cannot happen drops the proposal**, and that is not tidiness: a refusal
@@ -5682,7 +5692,7 @@ fn commit_candidate(
     }
     let descriptor = candidate.proposed.clone();
     if descriptor.id.trim().is_empty() {
-        state.status.note("give it an id first (I)".to_owned());
+        state.status.problem("give it an id first (I)".to_owned());
         return;
     }
     // **A new id has to agree with the kit it is joining.**
@@ -5720,7 +5730,7 @@ fn commit_candidate(
         // authored, so "select it above to edit that tile" is false for a row that is not there:
         // the id belongs to another bound kit, and the way forward is a different one.
         let mine = project.measured.get(&descriptor.id).is_some();
-        state.status.note(if mine {
+        state.status.problem(if mine {
             format!(
                 "`{}` is already in the library — select it above to edit that tile, or rename \
                  this candidate (I). Accepting it here would replace the tile and take its tags \
@@ -5880,10 +5890,19 @@ fn remove_tile(
             // **An entry with no mesh has nowhere to go back to**, and says so rather than claiming
             // a trip it did not make. Rare — every imported piece has one — but a library is a file
             // somebody can hand-edit.
-            state.status.note(match &mesh {
-                Some(_) => format!("sent `{id}` back to NOT IMPORTED — measured fresh, stripped"),
-                None => format!("removed `{id}` — it named no mesh, so nothing came back"),
-            });
+            //
+            // **And the no-mesh half is a refusal, not a receipt.** The removal happened, but the
+            // thing the author asked for — a piece back on the NOT IMPORTED shelf — did not, and
+            // "the editor did only part of it" is the crate's own definition of a problem. A note
+            // is one dim row that the next receipt erases; this one has to survive.
+            match &mesh {
+                Some(_) => state.status.note(format!(
+                    "sent `{id}` back to NOT IMPORTED — measured fresh, stripped"
+                )),
+                None => state.status.problem(format!(
+                    "removed `{id}` — it named no mesh, so nothing came back"
+                )),
+            }
             info!("sent `{id}` back out of {}", path.display());
         }
         Err(e) => state.status.problem(format!("not sent back: {e}")),

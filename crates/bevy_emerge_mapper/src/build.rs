@@ -1792,7 +1792,7 @@ pub fn build_keys(
         let Some(span) = span else {
             state
                 .status
-                .note("a hole has no width to put flush — nudge it instead".to_owned());
+                .problem("a hole has no width to put flush — nudge it instead".to_owned());
             return;
         };
         let was = build

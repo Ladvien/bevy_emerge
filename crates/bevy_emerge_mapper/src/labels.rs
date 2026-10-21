@@ -334,6 +334,31 @@ impl Plugin for LabelsPlugin {
     }
 }
 
+/// **What a photo request did, and whether the editor could do it.**
+///
+/// **A typed answer, and not a bare `String`, because the two are not interchangeable.** The
+/// no-mesh branch is a **refusal** — the editor could not photograph a piece that has no mesh — and
+/// the crate's rule is that a refusal reaches the toast and the journal, while an answer is one
+/// dim receipt row. Returning one `String` made both go to the same slot, and the refusal was
+/// erased by the next receipt. The two callers now route by this enum.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Asked {
+    /// The request went through, or there was nothing to do. One dim row.
+    Said(String),
+    /// The editor could not do what was asked. The toast and the journal.
+    Refused(String),
+}
+
+impl Asked {
+    /// The line itself, whatever kind of answer it is.
+    #[allow(dead_code, reason = "the shape is the point; the accessor is for the next caller")]
+    pub fn line(&self) -> &str {
+        match self {
+            Asked::Said(s) | Asked::Refused(s) => s,
+        }
+    }
+}
+
 /// Queue one target for its photo shoot — the shared tail of the `L` key, the sentinel, and the
 /// righting-turn relabel, so there is exactly one way a labeling request begins.
 pub(crate) fn request_photos(
@@ -341,12 +366,12 @@ pub(crate) fn request_photos(
     d: &bevy_emerge_core::descriptor::Descriptor,
     tasks: &LabelTasks,
     rig: &mut ShotRig,
-) -> String {
+) -> Asked {
     if tasks.holds(&target) {
-        return format!("`{}` is already at the model", name_of(&target));
+        return Asked::Said(format!("`{}` is already at the model", name_of(&target)));
     }
     let Some(mesh) = d.mesh.clone() else {
-        return "this piece has no mesh — nothing to photograph".to_owned();
+        return Asked::Refused("this piece has no mesh — nothing to photograph".to_owned());
     };
     let scale = d.align.scale.unwrap_or(1.0);
     let said = format!("photographing `{}` for labels...", name_of(&target));
@@ -355,7 +380,7 @@ pub(crate) fn request_photos(
         mesh,
         scale,
     });
-    said
+    Asked::Said(said)
 }
 
 /// **Everything the labeler holds, dropped at once** — pending suggestions, the batch queue, the
@@ -408,8 +433,10 @@ pub(crate) fn suggest_labels(
     }
     let Some(project) = project else { return };
     // The config check is the verb's gate: fail here, loudly, not after a photo shoot.
+    // **A refusal, so a problem** — the editor could not label anything, and the remedy has to
+    // outlive the next receipt.
     if let Err(remedy) = VlmConfig::load(&project.root) {
-        state.status.note(remedy);
+        state.status.problem(remedy);
         return;
     }
     let Some(target) = state.target() else {
@@ -422,7 +449,10 @@ pub(crate) fn suggest_labels(
         return;
     };
     let asked = request_photos(target, &d.clone(), &tasks, &mut rig);
-    state.status.note(asked);
+    match asked {
+        Asked::Said(said) => state.status.note(said),
+        Asked::Refused(why) => state.status.problem(why),
+    }
 }
 
 /// **Script driving, the devshot way**: `echo wall_light > labels.request` queues that library
@@ -461,7 +491,7 @@ pub(crate) fn watch_sentinel(
     }
     let Some(project) = project else { return };
     if let Err(remedy) = VlmConfig::load(&project.root) {
-        state.status.note(remedy);
+        state.status.problem(remedy);
         warn!("labels sentinel: {}", state.status.line());
         return;
     }
@@ -472,12 +502,10 @@ pub(crate) fn watch_sentinel(
         warn!("{}", state.status.line());
         return;
     };
-    state.status.note(request_photos(
-        EditTarget::Library(content),
-        &d,
-        &tasks,
-        &mut rig,
-    ));
+    match request_photos(EditTarget::Library(content), &d, &tasks, &mut rig) {
+        Asked::Said(said) => state.status.note(said),
+        Asked::Refused(why) => state.status.problem(why),
+    }
     info!("labels sentinel: {}", state.status.line());
 }
 
@@ -985,7 +1013,7 @@ pub(crate) fn suggest_all(
     let cfg = match VlmConfig::load(&project.root) {
         Ok(cfg) => cfg,
         Err(remedy) => {
-            state.status.note(remedy);
+            state.status.problem(remedy);
             return;
         }
     };

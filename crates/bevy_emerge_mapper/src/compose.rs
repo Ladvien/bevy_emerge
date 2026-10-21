@@ -980,10 +980,12 @@ fn rename(
                 // keeps the separators.
                 let id = bevy_emerge_core::naming::to_id(&rename.raw);
                 if id.is_empty() {
-                    // **The guidance goes with the field** — the same rule as the refusal below.
+                    // **A refusal, so a problem.** The editor could not do what was asked — the
+                    // name was empty — and the rule is that a refusal reaches the toast and the
+                    // journal, not the one dim receipt row a later action erases.
                     state
                         .status
-                        .note("a name cannot be empty; nothing was changed".to_owned());
+                        .problem("a name cannot be empty; nothing was changed".to_owned());
                     return;
                 }
                 // **The write goes through `project.rs`** — the one module allowed to name the
@@ -995,12 +997,12 @@ fn rename(
                     &id,
                     open.as_deref_mut(),
                 ) {
-                    // **The guidance goes with the field.** The note line still said *"type a new
-                    // name — Enter keeps it"* — advice for a field that is now closed, which is
-                    // worse than no advice: an author reading it would press `I` again. The crate's
-                    // own rule is that *"a problem outlives every note"*, so the refusal is safe;
-                    // it is the **note** that is wrong, and the note is the one to replace.
-                    state.status.note(format!("NOT RENAMED: {e}"));
+                    // **The refusal reaches the toast and the journal.** The note line still said
+                    // *"type a new name — Enter keeps it"* — advice for a field that is now closed,
+                    // which is worse than no advice: an author reading it would press `I` again.
+                    // The crate's own rule is that *"a problem outlives every note"*, so the
+                    // refusal is safe in the problem slot; filing it in the **note** as well meant
+                    // two rows said one thing, and the note was the one a later action erased.
                     state.status.problem(format!("NOT RENAMED: {e}"));
                 } else {
                     // **The receipt says how to get back.** The rename is symmetric by
