@@ -90,15 +90,14 @@ fn the_editor_draws_exactly_what_the_game_loads() {
                     |world, mut open: bevy::prelude::Mut<bevy_emerge_mapper::project::OpenMap>| {
                         let mut state =
                             world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                        let mut compose = bevy_emerge_mapper::compose::ComposeState {
-                            armed: Some("break_table".to_owned()),
-                            ..Default::default()
-                        };
+                        let mut armed = bevy_emerge_mapper::compose::Armed(Some(
+                            "break_table".to_owned(),
+                        ));
                         bevy_emerge_mapper::editor::stamp_here_for_test(
                             &mut project,
                             &mut open,
                             &mut state,
-                            &mut compose,
+                            &mut armed,
                             (2.0, 2.0),
                         );
                     },
@@ -157,15 +156,13 @@ fn the_saved_file_holds_a_reference_and_not_the_rows() {
                     |world, mut open: bevy::prelude::Mut<bevy_emerge_mapper::project::OpenMap>| {
                         let mut state =
                             world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                        let mut compose = bevy_emerge_mapper::compose::ComposeState {
-                            armed: Some("solo".to_owned()),
-                            ..Default::default()
-                        };
+                        let mut armed =
+                            bevy_emerge_mapper::compose::Armed(Some("solo".to_owned()));
                         bevy_emerge_mapper::editor::stamp_here_for_test(
                             &mut project,
                             &mut open,
                             &mut state,
-                            &mut compose,
+                            &mut armed,
                             (2.0, 2.0),
                         );
                     },
@@ -231,15 +228,14 @@ fn the_editor_counts_the_rows_the_game_will_have() {
                     |world, mut open: bevy::prelude::Mut<bevy_emerge_mapper::project::OpenMap>| {
                         let mut state =
                             world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                        let mut compose = bevy_emerge_mapper::compose::ComposeState {
-                            armed: Some("break_table".to_owned()),
-                            ..Default::default()
-                        };
+                        let mut armed = bevy_emerge_mapper::compose::Armed(Some(
+                            "break_table".to_owned(),
+                        ));
                         bevy_emerge_mapper::editor::stamp_here_for_test(
                             &mut project,
                             &mut open,
                             &mut state,
-                            &mut compose,
+                            &mut armed,
                             (2.0, 2.0),
                         );
                     },

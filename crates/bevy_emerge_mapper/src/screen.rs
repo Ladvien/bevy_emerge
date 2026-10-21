@@ -95,7 +95,15 @@ fn open_the_door(world: &mut World) {
 /// each marker is a list that goes stale the first time somebody adds a camera. The resources are
 /// named, because there is no such reachability rule for them and a stale `Project` is precisely the
 /// thing that must not survive into the next door.
-fn close_the_door(world: &mut World) {
+///
+/// **`pub` so a test can drive the teardown.** The headless harness does **not** register
+/// [`ScreenPlugin`] — it inserts the state directly, because a harness that stands up a door is not
+/// a harness that changes one — so `OnExit(Editor)` never runs in a test, and this teardown had
+/// **no test at all** until 2026-10-21. That is the crate's most delicate machinery: it is what
+/// keeps a stale value from surviving into the next door, and it was the one thing a test could not
+/// reach. `tests/the_arm_crosses_the_door.rs` calls it directly, which is the only way to ask *"what
+/// does a door change do to this resource?"* without standing up a second application.
+pub fn close_the_door(world: &mut World) {
     despawn_scene(world);
     crate::args::Opened::remove_from(world);
     reset_door_state(world);
@@ -312,7 +320,6 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     // tab's working state, capped and cleared by `Esc`; this one answers *"what has gone wrong since
     // the application started"*, which a value thrown away with the door cannot.
     ("bevy_emerge_mapper::chrome::Journal", Ownership::Session),
-
     // ── The door's own working state ────────────────────────────────────────────────────────────
     // The undo stack is the one this list was written for: `docs/2026-08-17-one-application.md` §1
     // names it as the value that survives into the next kit today.
@@ -408,6 +415,22 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::labels::LabelGeneration", Ownership::Session),
     // In-flight vision-model work. Dropping it mid-request would strand the task, not cancel it.
     ("bevy_emerge_mapper::labels::LabelTasks", Ownership::Session),
+    // **The armed composition, and the same answer.** It is the author's intent — *which
+    // composition the next click stamps* — and it is a name, not a cursor. Measured on 2026-10-21:
+    // the COMPOSE tab armed a house and said *"the map tab stamps it"*, and there was no map tab
+    // in that process, because the door is chosen at startup. The author's only route to a stamp
+    // was to leave, come back through the menu, re-open the map, and **re-arm the composition by
+    // hand** — the arm had been reset with the rest of the door's working state. Sixteen house
+    // compositions were defined in Sanctuary's project and not one was stamped on either map.
+    //
+    // `Door` here would be the class that matches what a full teardown does, and the teardown is
+    // right about everything *except* this: a door change is not a new author. See
+    // `compose::Armed`.
+    ("bevy_emerge_mapper::compose::Armed", Ownership::Session),
+    // **The composition picker's cursor, and the same answer.** It is the author's cursor in the
+    // author's list, and it is where the arm is going to be taken from — so it belongs with the arm
+    // rather than with the door's own working state.
+    ("bevy_emerge_mapper::compose::picker::Picker", Ownership::Session),
 ];
 
 /// What a door change does to this resource, or `None` if nobody has said.

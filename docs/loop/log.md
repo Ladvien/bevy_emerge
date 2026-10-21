@@ -387,3 +387,115 @@ Top 5 remaining:
    "NO READER YET", and `placement.rooms` / `placement.group` are unconsumed. A `vocab.ron` field
    that says which system reads a token, checked at load, would make the file's prose notes
    enforceable rather than advisory.
+
+## 2026-10-20-04: the arm crosses the door — the map can arm a composition
+
+- **Change:** the arm — *which composition the next click stamps* — is **its own resource**,
+  `compose::Armed`, classified `Ownership::Session` so it **survives a door change**. And the **Map
+  door grew a COMPOSITIONS picker**: `P` takes the arrows, the arrows walk the project's
+  compositions, and `Enter` arms one. **A house is on the map in four keystrokes and a click, on the
+  door where stamping happens.**
+
+- **Why it ranked first:** it was the only item on the list that was **structurally impossible**
+  rather than merely missing. Every other candidate is a thing an author may want; this was a
+  thing the editor could not do at all, and no content decision fixes it. Measured on 2026-10-21:
+  the COMPOSE tab armed a house and said *"the map tab stamps it"* — **and there was no map tab in
+  that process**, because the door is chosen at startup. The arm was a field of `ComposeState`,
+  which `Ownership::Door` resets, so the only route to a stamp was to leave, come back through the
+  menu, re-open the map, and **re-arm by hand**. It beat the runner-up (the 282 hand-placed
+  fences) because those are a **content** problem the game's own `rules.ron` already answers at
+  runtime, and the last iteration's log called it *"a content decision for the owner"*.
+
+- **Evidence:**
+  - **Sanctuary's own data**, parsed: `town.map.ron` holds **727 placements, 82 distinct
+    descriptors, 282 of them `prop_wooden_fence_single`, and 0 stamps**. `compositions.ron`
+    defines **16 house assemblies**, each with 18–38 members. **Not one was stamped on either
+    map.**
+  - **The cause, read from the source and measured.** `arm` is gated on `in_compose_mode`
+    (`compose.rs`), `Mode::Compose` is in `Door::Kit.tabs()` and **only** there (`tiles.rs:113`),
+    the door is a `Res<Door>` chosen at startup (`args.rs:104`), and `ComposeState` is
+    `Ownership::Door` — so the arm is reset by the teardown (`screen.rs`).
+  - **The fix:** the arm is its own resource, `Ownership::Session`; the Map door has a picker; the
+    picker has a **keyboard** route, because `bevy_picking` reads the mouse from the `WindowEvent`
+    stream (`bevy_picking-0.20.0/src/input.rs:153`) and BRP injects into
+    `ButtonInput<MouseButton>` — **so no `Button` in this editor receives a click over BRP**, the
+    palette's rows and the back button included. It was measured, not assumed, and the editor's
+    own brief says the work is to be done *"by the keyboard, as key strokes are faster"*.
+  - **The live result**, on Sanctuary's town map: `P` → the status reads *"the arrows walk the
+    compositions — Enter arms one"*; `down` `down` → the cursor is on
+    `town/house_cottage_wood`; `Enter` → *"`town/house_cottage_wood` armed — the next click stamps
+    it"*; a click on the map → **`745 placed (727 hand, 18 group(s)), unsaved`** and *"stamped
+    'town/house_cottage_wood' as house_cottage_wood@1"*. **The 18 group rows are that
+    composition's 18 members.**
+  - **The ratchet, on the broken code.** `tests/the_arm_survives_the_door_change.rs` is written so
+    it **compiles on both** the baseline and the fixed code, and it **fails on the baseline**:
+    *"the armed composition is a field of `ComposeState`, and `ComposeState` is `Ownership::Door` —
+    so a door change resets it."*
+
+- **Sources:** Shneiderman, *Direct manipulation for comprehensible, predictable and controllable
+  user interfaces* (CHI 1997, `10.1145/238218.238281`) — direct manipulation depends on *"rapid
+  incremental reversible operations whose effect on the object of interest is immediately
+  visible"*, and an arm that is thrown away by a door change is none of the three. Reason,
+  *Human Error: Models and Management* (1990) and *Experimental Slips and Human Error* (1992) — a
+  slip is a description error, and the editor's own words create one: *"the map tab stamps it"*
+  named a tab that did not exist in that process. Dwyer, Marriott & Wybrow, *Dunnart: A
+  Constraint-Based Network Diagram Authoring Tool* (2009, `10.1007/978-3-642-00219-9_41`) — an
+  instance must be creatable **from the thing it instances**, at the point of use. Sandhu, Chen &
+  McCoy, *Enhancing wave function collapse with design-level constraints* (2019,
+  `10.1145/3337722.3337752`) — the constraint is expressed in the author's terms, and Sanctuary's
+  `rules.ron` already does that for the blocks. Full notes and quotes in
+  `runs/2026-10-20-04/research.md`.
+
+- **Test / perf:**
+  - `cargo test --workspace --no-fail-fast` → **1,229 pass, 1 fail**. The one failure is
+    `no_two_leaders_cross`, **red since 2026-09-03 and untouched by this work** (the baseline
+    measured 1,221; this run adds 8).
+  - New: `tests/the_arm_crosses_the_door.rs` (6 tests) and
+    `tests/the_arm_survives_the_door_change.rs` (2 tests, the baseline proof).
+  - `cargo test -p bevy_emerge_mapper --lib keys::` → 32 pass, **including
+    `the_key_space_has_no_collisions`**: the four new census rows cost **no new key** except `P`.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: **no finding in any file this change
+    touches.** `cargo fmt --check`: `compose.rs` and `keys.rs` keep their **pre-existing** diff
+    counts (94 and 22); the new test files are clean. `cargo doc --no-deps`: **24 unresolved-link
+    warnings, the same 24 as the baseline** — this change adds none.
+  - Headless boot against Sanctuary's real project: `town` → 12 frames, 8,192 entities, no panic;
+    `town_block` → 4,096 entities, no panic.
+  - Sanctuary's own suite: 1,014 pass, 4 fail — **the same four that were already red**.
+  - Timings in `runs/2026-10-20-04/perf.md`.
+
+- **Verdicts:** **Function: GREAT** — the Map door grows a picker; `P`, the arrows and `Enter` arm a
+  composition; the click stamps it, and the map reads `745 placed (727 hand, 18 group(s))`.
+  **Zoom: GREAT** — the cursor and the arm are two marks in two inks, the type is crisp at 4×, and
+  nothing else in the panel moved. **Fresh eyes: GREAT** — hold `K` and the keys say what they do;
+  the arrows announce their new meaning the instant it changes; four keys and a click is the whole
+  task. All three in `runs/2026-10-20-04/review.md`, with the captures in
+  `runs/2026-10-20-04/evidence/`.
+
+- **Commit:** _(filled in below once pushed)_
+
+- **Run:** `docs/loop/runs/2026-10-20-04/` — `research.md`, `plan.md`, `perf.md`, `review.md`,
+  `evidence/`.
+
+Top 5 remaining:
+
+1. **A door switch.** The Kit and Map doors are **one application** — `screen.rs` says so, and the
+   reason there is no Kit↔Map key has expired: it was declined because the alternative was a
+   *relaunch*, and the relaunch is gone. The picker removes the *need* to cross, but an author who
+   makes a house and then wants to see it on the map still leaves through the menu. The machinery
+   exists (`args::open` is a pure function; `Opened::insert_into` puts the resources in); it wants a
+   key, a refusal, and the unsaved-edit question.
+2. **The 282 hand-placed fences.** Measured, and the largest single number in the map. But
+   `rules.ron` already says the *game* lays the blocks out, and the fences are the *border* of a
+   block — so this is content, and the last two iterations called it the owner's.
+3. **Editor operations that do not exist** — kit rename, project rename, project delete, adding a
+   policy exclusion or patch, creating a `bash`, composition delete/rename. A scout of
+   `bevy_emerge_core` found **no function for any of the six** — not even one without a UI caller.
+   Each needs a new on-disk writer with its own re-parse-before-save discipline, and the scout
+   noted that a `Patch` has a multi-line `because` and a nested `Descriptor`, so `LineDoc::append` is
+   not a direct fit.
+4. **`fill.rs` has no test at all** — 1,058 lines, the one untested module in the mapper, and the
+   module that lays the bulk of a level. A flood and a box fill are the two gestures that make a
+   level cheap, and nothing pins their lattice, their refusals, or their idempotence.
+5. **`vlm.rs:1436-1442`** — `probe` returns `Ready` for any non-loopback host **without
+   connecting**, so a LAN endpoint that is down is reported ready. Needs a test that calls `probe`,
+   not `is_near`.

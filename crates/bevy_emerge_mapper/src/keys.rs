@@ -182,17 +182,31 @@ pub enum Stance {
     /// `docs/tiles_tab_contract.md` recorded exactly why — *"There is one list on this tab, so there
     /// is nothing to switch between."* There are two pages now, so the reservation is spent.
     Browsing,
+    /// **The composition picker has the arrows** — they walk the compositions, not the palette.
+    ///
+    /// The fifth phase, and it exists because the Map door's picker would otherwise be **mouse
+    /// only**, which in this editor is not a route at all. The editor's own brief says it: *"this
+    /// should be done by the keyboard, as key strokes are faster"*, and the crate's own palette
+    /// test drives the palette from the keyboard for the same reason.
+    ///
+    /// It is a stance rather than a flag for the same reason `Proposed` and `Browsing` are: while it
+    /// is on, **the arrows mean something different**, and a key list that did not say so would be
+    /// lying. The `Map` context's arrows are `PalettePrev`/`PaletteNext` at
+    /// [`Stance::Idle`], so they can be re-bound to the picker at this stance without a second key
+    /// and without a collision.
+    Picking,
 }
 
 impl Stance {
     /// **Every stance a binding could be judged against**, in one place because two things read it:
     /// [`Stances::overlaps`] asks whether two requirements can ever hold together, and the badge
     /// tests sweep it. A fifth stance therefore costs one edit here rather than two that must agree.
-    pub const ALL: [Stance; 4] = [
+    pub const ALL: [Stance; 5] = [
         Stance::Idle,
         Stance::Holding,
         Stance::Proposed,
         Stance::Browsing,
+        Stance::Picking,
     ];
 
     /// Can these two be live at the same moment? A stance is exactly one thing at a time, so this is
@@ -494,6 +508,21 @@ pub enum Action {
     ComposeNext,
     /// Arm the selected composition on the map, so a click stamps it.
     ComposeArm,
+    /// **Take the arrows to the composition picker** — the Map door's list of compositions.
+    ///
+    /// A `Stance` and not a context, because the picker is a *list on the Map tab* rather than a tab
+    /// of its own, and the arrows are already bound on the Map tab — to the palette. See
+    /// [`Stance::Picking`].
+    PickComposition,
+    /// Walk the composition picker: the previous composition, or the next.
+    CompositionPrev,
+    CompositionNext,
+    /// **Arm the composition the picker is on** — the Map door's half of the arm.
+    ///
+    /// The same verb as [`Action::ComposeArm`] and a different action, because the census allows one
+    /// binding per action and the two doors' contexts never overlap. One writer underneath:
+    /// `Armed::toggle`.
+    ArmComposition,
     /// Walk the selected group's members. A second cursor, under the one that walks the groups.
     ComposeMemberPrev,
     ComposeMemberNext,
@@ -1209,6 +1238,48 @@ pub const BINDINGS: &[Binding] = &[
     )
     .also_filtered()
     .at(Home::Control(ControlId::Palette)),
+    // **The composition picker, and the arrows it takes.**
+    //
+    // `P` is free on the Map tab — it belongs to Meshes (`RotateMeshZ`) and Compose
+    // (`CarouselNext`), and neither of those contexts ever overlaps Map. The two arrow rows are the
+    // palette's own, re-bound at [`Stance::Picking`], so **the picker costs one new key and no new
+    // arrow**: the same two keys, meaning something different while the picker has them.
+    //
+    // **A keyboard route is not a convenience here — it is the route.** `bevy_picking` reads the
+    // mouse from the `WindowEvent` stream (`bevy_picking-0.20.0/src/input.rs:153`), and the editor's
+    // own brief says the work is to be done *"by the keyboard, as key strokes are faster"* — so a
+    // picker that could only be reached with the pointer would be a picker the editor's own
+    // doctrine rejects.
+    bp(
+        Action::PickComposition,
+        KeyCode::KeyP,
+        false,
+        Stance::Idle,
+        Context::Map,
+        "P",
+        "take the arrows to the compositions",
+    )
+    .at(Home::Control(ControlId::Detail)),
+    bp(
+        Action::CompositionPrev,
+        KeyCode::ArrowUp,
+        false,
+        Stance::Picking,
+        Context::Map,
+        "up",
+        "walk the compositions / Shift: x5",
+    )
+    .at(Home::Control(ControlId::Detail)),
+    bp(
+        Action::CompositionNext,
+        KeyCode::ArrowDown,
+        false,
+        Stance::Picking,
+        Context::Map,
+        "down",
+        "walk the compositions / Shift: x5",
+    )
+    .at(Home::Control(ControlId::Detail)),
     // **A separate cluster from the aim keys, on purpose.** `Z`/`C` turn the BRUSH and must keep
     // doing only that: binding them to the selection is what made rotation feel broken before,
     // because placing selects, so the next press turned the piece just put down while the ghost —
@@ -1472,6 +1543,26 @@ pub const BINDINGS: &[Binding] = &[
         "keep this layout / Esc throws it away",
     )
     .at(Home::Legend),
+    // **The Map door's own `Enter` — arm the composition the picker is on.**
+    //
+    // The COMPOSE tab's arm is `Action::ComposeArm` on `Enter` in `Context::Compose`. This is the
+    // **same verb on the Map door**, and it is a *different action* because the census allows one
+    // binding per action and the two contexts never overlap. Two actions, one meaning, one writer:
+    // both call `Armed::toggle`, so there is one answer to "what is armed".
+    //
+    // **`Enter` is free here**, and it is free *because of the stance*: `AcceptProposal` holds `Enter`
+    // at `Stance::Proposed` and the picker holds it at `Stance::Picking`, and those two stances
+    // never hold together. The collision test is what says so.
+    bp(
+        Action::ArmComposition,
+        KeyCode::Enter,
+        false,
+        Stance::Picking,
+        Context::Map,
+        "Enter",
+        "arm this composition for the map",
+    )
+    .at(Home::Control(ControlId::Detail)),
     // **The camera is Global — pan included.** This briefly moved to `Context::Map` to free
     // `W, A, S, D` for the Tiles lattice cursor, on the argument that panning off a staged tile has
     // no way back. That argument was wrong in practice: an author on any tab reaches for these keys
@@ -2451,13 +2542,26 @@ pub const BINDINGS: &[Binding] = &[
         "walk the focused list / Shift: x5",
     )
     .at(Home::Control(ControlId::Detail)),
+    // **The arm, and it stays in `Context::Compose` — the census says a `Global` row would
+    // collide seven ways.**
+    //
+    // The Map door's own picker arms a composition too, and the obvious answer was to make this row
+    // `Global` so one row served both. The census refused it: `Enter` is bound in *every* tab
+    // context (`Accept` on Meshes, `TileOpen` and `BuildDrop` on Tiles, `AdoptMeasured` on Anim,
+    // `AcceptProposal` on Map), and `Context::Global` overlaps all of them, so the row would have
+    // taken `Enter` away from six other verbs. **The census was right and the plan was wrong.**
+    //
+    // So the Map door's picker reads `Enter` off the **message stream** instead — the same shape
+    // `crate::tiles::take_the_one_match` uses for the tag block, and for the same reason: a
+    // *narrowed* list's `Enter` takes the one match rather than committing a walk, and the census
+    // has no way to say that. One writer, in `compose::Armed::toggle`.
     b(
         Action::ComposeArm,
         KeyCode::Enter,
         false,
         Context::Compose,
         "Enter",
-        "arm this composition for the Map",
+        "arm this composition for the map",
     )
     .at(Home::Control(ControlId::Detail)),
     // Symmetric with the pair above: `up`/`down` walk the groups, `left`/`right` walk the members of
@@ -3300,6 +3404,10 @@ mod tests {
             Action::ComposePrev,
             Action::ComposeNext,
             Action::ComposeArm,
+            Action::PickComposition,
+            Action::CompositionPrev,
+            Action::CompositionNext,
+            Action::ArmComposition,
             Action::ComposeMemberPrev,
             Action::ComposeMemberNext,
             Action::CarouselPrev,
@@ -3630,9 +3738,13 @@ mod tests {
     /// itself. What was actually wrong here is one unrelated key hiding in a family row.
     #[test]
     fn the_composition_verb_names_its_key_in_the_map_census() {
+        // **The row that keeps a selection as a composition** — named by its action, not by a word
+        // in its prose. The Map census has more than one row that mentions a composition now (the
+        // picker's own row says "take the arrows to the compositions"), and a search by prose finds
+        // whichever comes first in the table, which is not the row this test is about.
         let row = badges(Context::Map, Stance::Idle)
             .into_iter()
-            .find(|r| r.does.contains("composition"))
+            .find(|r| r.actions.contains(&Action::GroupFromSet))
             .unwrap_or_else(|| panic!("the Map census no longer offers a composition verb at all"));
         let chord = chord_text(binding(Action::GroupFromSet));
         assert!(
@@ -3770,7 +3882,7 @@ mod tests {
     /// [`Stance::ALL`] rather than a copy of it: `Stances::overlaps` decides key collisions by
     /// enumerating the same list, and two lists of the stances is exactly the drift that would let a
     /// fifth one be exclusive to the collision test and invisible to the badges.
-    const STANCES: [Stance; 4] = Stance::ALL;
+    const STANCES: [Stance; 5] = Stance::ALL;
 
     /// **Nothing falls off the badge overlay.**
     ///
@@ -3971,7 +4083,22 @@ mod tests {
             // It **costs no *row*** — it shares the `B` family's `does`, so the badge shows one
             // line — but the ratchet counts *bindings*, and a family of four is four keys. So the
             // count goes up by one, deliberately, with the reason here.
-            (Context::Map, 25),
+            // 25 -> 28: `PickComposition`, `CompositionPrev`/`CompositionNext` and
+            // `ArmComposition` — the composition picker's four rows. The Map door's picker is the
+            // only way to arm a composition *on the Map door*, and it was mouse-only, which in this
+            // editor is not a route: `bevy_picking` reads the mouse from the `WindowEvent` stream
+            // (`bevy_picking-0.20.0/src/input.rs:153`) and the editor's own brief says the work is to
+            // be done *"by the keyboard, as key strokes are faster"*. The crate's own palette test
+            // drives the palette from the keyboard for the same reason.
+            //
+            // **Three of the four cost no new key.** `P` is free on the Map tab (it belongs to
+            // Meshes and Compose, which never overlap Map), and the two arrow rows are the palette's
+            // own, re-bound at `Stance::Picking` — the same two keys, meaning something different
+            // while the picker has them. `Enter` is likewise free, because `AcceptProposal` holds it
+            // at `Stance::Proposed` and the two stances never hold together.
+            //
+            // **One new key, deliberately:** `P`.
+            (Context::Map, 29),
             // 31 -> 32: `ExcludePack`. The importer scans every `.glb` under `assets/`, which is
             // right for finding art and wrong for offering it — a labelling batch spent its tenth
             // call of 778 describing `characters/cipher_field`, a character rig that could not be

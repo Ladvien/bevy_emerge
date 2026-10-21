@@ -1983,7 +1983,9 @@ mod compose {
         }
 
         let before = app.world().resource::<OpenMap>().map.placements.len();
-        app.world_mut().resource_mut::<ComposeState>().armed = Some("break_table".to_owned());
+        app.world_mut()
+            .resource_mut::<bevy_emerge_mapper::compose::Armed>()
+            .0 = Some("break_table".to_owned());
 
         // Through the same call the click makes, so this cannot pass while the click path is broken.
         {
@@ -1991,15 +1993,13 @@ mod compose {
             world.resource_scope(|world, mut project: bevy::prelude::Mut<Project>| {
                 world.resource_scope(|world, mut open: bevy::prelude::Mut<OpenMap>| {
                 let mut state = world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                let mut compose = ComposeState {
-                    armed: Some("break_table".to_owned()),
-                    ..Default::default()
-                };
+                let mut armed =
+                    bevy_emerge_mapper::compose::Armed(Some("break_table".to_owned()));
                 bevy_emerge_mapper::editor::stamp_here_for_test(
                     &mut project,
                     &mut open,
                     &mut state,
-                    &mut compose,
+                    &mut armed,
                     (2.0, 2.0),
                 );
                 });
@@ -2062,15 +2062,12 @@ mod compose {
             world.resource_scope(|world, mut project: bevy::prelude::Mut<Project>| {
                 world.resource_scope(|world, mut open: bevy::prelude::Mut<OpenMap>| {
                     let mut state = world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                    let mut compose = ComposeState {
-                        armed: Some("room".to_owned()),
-                        ..Default::default()
-                    };
+                    let mut armed = bevy_emerge_mapper::compose::Armed(Some("room".to_owned()));
                     bevy_emerge_mapper::editor::stamp_here_for_test(
                         &mut project,
                         &mut open,
                         &mut state,
-                        &mut compose,
+                        &mut armed,
                         (2.0, 2.0),
                     );
                 });
@@ -2364,15 +2361,12 @@ mod compose {
             world.resource_scope(|world, mut project: bevy::prelude::Mut<Project>| {
                 world.resource_scope(|world, mut open: bevy::prelude::Mut<OpenMap>| {
                 let mut state = world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                let mut compose = ComposeState {
-                    armed: Some("break_table".to_owned()),
-                    ..Default::default()
-                };
+                let mut armed = bevy_emerge_mapper::compose::Armed(Some("break_table".to_owned()));
                 bevy_emerge_mapper::editor::stamp_here_for_test(
                     &mut project,
                     &mut open,
                     &mut state,
-                    &mut compose,
+                    &mut armed,
                     (2.0, 2.0),
                 );
                 });
@@ -2518,15 +2512,12 @@ mod compose {
             world.resource_scope(|world, mut project: bevy::prelude::Mut<Project>| {
                 world.resource_scope(|world, mut open: bevy::prelude::Mut<OpenMap>| {
                 let mut state = world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                let mut compose = ComposeState {
-                    armed: Some("break_table".to_owned()),
-                    ..Default::default()
-                };
+                let mut armed = bevy_emerge_mapper::compose::Armed(Some("break_table".to_owned()));
                 bevy_emerge_mapper::editor::stamp_here_for_test(
                     &mut project,
                     &mut open,
                     &mut state,
-                    &mut compose,
+                    &mut armed,
                     (2.0, 2.0),
                 );
                 });
@@ -2683,15 +2674,12 @@ mod compose {
                 project.compositions.compositions.push(comp.clone());
                 world.resource_scope(|world, mut open: bevy::prelude::Mut<OpenMap>| {
                 let mut state = world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                let mut compose = ComposeState {
-                    armed: Some("mess_corner".to_owned()),
-                    ..Default::default()
-                };
+                let mut armed = bevy_emerge_mapper::compose::Armed(Some("mess_corner".to_owned()));
                 bevy_emerge_mapper::editor::stamp_here_for_test(
                     &mut project,
                     &mut open,
                     &mut state,
-                    &mut compose,
+                    &mut armed,
                     (4.0, 4.0),
                 );
                 });

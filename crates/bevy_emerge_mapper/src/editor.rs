@@ -1537,6 +1537,41 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     });
                 }
             });
+
+            // **The composition picker** — the Map door's own way to arm a composition.
+            //
+            // It is here, in the INSPECTOR panel, because the INSPECTOR is the panel that says
+            // *what is in hand* — the brush, the yaw, the thing under the cursor — and the arm is
+            // exactly that: what the next click will put down. Before this, the arm was reachable
+            // only from the COMPOSE tab, which is on the Kit door, while the click that stamps is
+            // on the Map door; the two never met. See `compose::picker` for the measurement.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "COMPOSITIONS");
+                // **No scroll list of its own.** The panel's own body is already a scroll area, and
+                // a scroll inside a scroll is two wheels fighting over one gesture — the author
+                // scrolls the picker and the panel does not move, which reads as a stuck panel.
+                // The picker's rows are part of the panel's flow, and the panel scrolls them.
+                //
+                // **No `ControlId` of its own, and that is the ratchet's doing.** The panel's
+                // status block already claims `ControlId::Detail`, and
+                // `every_control_the_census_homes_a_verb_at_is_on_screen` fails on *two* visible
+                // nodes claiming one id — so a second `Detail` here would take the badge away from
+                // the block that has it. The picker's verbs are the panel's verbs; one control, one
+                // badge, one answer to "what can I do here".
+                s.spawn((
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                    crate::compose::picker::PickerBody,
+                ));
+            });
         });
     });
 }
@@ -2724,6 +2759,7 @@ pub fn sense_context(
     clone_drag: Res<CloneDrag>,
     proposal: Res<Proposal>,
     derived: Res<crate::tiles::DerivedEdges>,
+    picker: Res<crate::compose::picker::Picker>,
     mut live: ResMut<keys::Live>,
     // The panel, so the journal can be told it owns the keyboard. A `Query` rather than a resource
     // because `Display::None` on the node *is* the open/closed state — `notice::toggle_journal`
@@ -2781,6 +2817,10 @@ pub fn sense_context(
         keys::Context::Map if move_drag.held.is_some() || clone_drag.held.is_some() => {
             keys::Stance::Holding
         }
+        // **The composition picker has the arrows.** It is asked *after* the proposal, because a
+        // proposal is the door's own state and it owns `Enter`; the picker is the author's, and the
+        // author can always `Esc` out of a proposal first.
+        keys::Context::Map if picker.active => keys::Stance::Picking,
         _ => keys::Stance::Idle,
     };
     // **Journal over filter over tab**, because that is the drawing order. The tab is carried in
@@ -2813,7 +2853,7 @@ pub fn sense_context(
 /// panicked on the first `Update` after `Esc` took the author back to the menu, even though the
 /// `in_state(Editor)` condition beside it had already answered false. Same shape as
 /// `Door::map_door_is_open`, and for the same reason.
-fn in_map_mode(mode: Option<Res<crate::tiles::Mode>>) -> bool {
+pub(crate) fn in_map_mode(mode: Option<Res<crate::tiles::Mode>>) -> bool {
     mode.is_some_and(|m| *m == crate::tiles::Mode::Map)
 }
 
@@ -3049,11 +3089,11 @@ pub fn mount_class(d: &bevy_emerge_core::descriptor::Descriptor) -> Option<&str>
 /// no tile and is furniture by `from_compositions`'s own rule, so it rides the ladder like any prop.
 pub fn stamp_snap(
     project: &Project,
-    compose: &crate::compose::ComposeState,
+    armed: &crate::compose::Armed,
     keyboard: &ButtonInput<KeyCode>,
     rung: SnapLevel,
 ) -> (SnapLevel, (f32, f32)) {
-    let armed = compose.armed.as_ref().and_then(|id| {
+    let armed = armed.id().and_then(|id| {
         project
             .compositions
             .compositions
@@ -4540,7 +4580,12 @@ fn drive_place(
     anchor: Res<FineAnchor>,
     mut drag: ResMut<PlaceDrag>,
     mut gizmos: Gizmos,
-    mut compose: ResMut<crate::compose::ComposeState>,
+    // **The arm is its own resource** — see `compose::Armed`. It is the author's intent and it
+    // crosses a door change, which is why it is not on `ComposeState`.
+    //
+    // `ResMut` because a stamp that cannot be resolved **clears** the arm by name — see
+    // `stamp_here`. Reading it does not mark it changed, so the picker is not rebuilt every frame.
+    mut armed: ResMut<crate::compose::Armed>,
     placed: Query<(Entity, &Placement)>,
 ) {
     // Placing is one tool among three, and a click belongs to whichever is armed. While removal is
@@ -4595,7 +4640,7 @@ fn drive_place(
     // piece *and* a composition in one gesture. Arming a composition is the later, more deliberate act, so it
     // wins — and a composition stamps one at a time, never by the box, because a dragged rectangle of
     // nurse stations is not a gesture anybody makes by accident.
-    if compose.armed.is_some() {
+    if armed.0.is_some() {
         if drag.from.is_some() {
             drag.from = None;
         }
@@ -4606,7 +4651,7 @@ fn drive_place(
             // placing one off the cell lattice would author a state no solve could reproduce — and
             // `to_cell` would floor it into a cell it half covers. `Anchored` groups claim no tile
             // (`from_compositions` skips them by name as furniture), so they get the ladder.
-            let (level, span) = stamp_snap(&project, &compose, &keyboard, rung.0);
+            let (level, span) = stamp_snap(&project, &armed, &keyboard, rung.0);
             let at = map_at(&project, &open,
                 hit,
                 keys::alt_held(&keyboard),
@@ -4614,7 +4659,7 @@ fn drive_place(
                 level,
                 span,
             );
-            stamp_here(&mut project, &mut open, &mut state, &mut compose, at);
+            stamp_here(&mut project, &mut open, &mut state, &mut armed, at);
         }
         return;
     }
@@ -4908,10 +4953,10 @@ fn record_added(count: usize, removed: Vec<(usize, Box<Placed>)>) -> Undo {
 fn stamp_here(project: &mut Project,
     open: &mut OpenMap,
     state: &mut EditorState,
-    compose: &mut crate::compose::ComposeState,
+    armed: &mut crate::compose::Armed,
     at: (f32, f32),
 ) {
-    let Some(of) = compose.armed.clone() else {
+    let Some(of) = armed.id().map(str::to_owned) else {
         return;
     };
     let comps = project.compositions.compositions.clone();
@@ -4919,7 +4964,7 @@ fn stamp_here(project: &mut Project,
         state.status.problem(format!(
             "`{of}` is armed but the project no longer defines it"
         ));
-        compose.armed = None;
+        armed.0 = None;
         return;
     }
     state.next_id += 1;
@@ -5338,10 +5383,10 @@ pub fn stamp_here_for_test(
     project: &mut Project,
     open: &mut OpenMap,
     state: &mut EditorState,
-    compose: &mut crate::compose::ComposeState,
+    armed: &mut crate::compose::Armed,
     at: (f32, f32),
 ) {
-    stamp_here(project, &mut *open, state, compose, at);
+    stamp_here(project, &mut *open, state, armed, at);
 }
 
 /// FVS-R-14's Delete arm, reachable from `tests/headless.rs` — the same split, and for the same
@@ -5465,12 +5510,16 @@ fn keys(
     // `ComposeState` rides here too, and read-only: the rotate cluster asks whether a composition
     // is armed to decide whether `R`/`T`/`Y`/`U`/`V` address the ghost or the piece under the
     // cursor (`ghost_is_armed`). Sixteen parameters is the ceiling and a tuple counts as one.
+    //
+    // **The arm rides here as [`crate::compose::Armed`], not `ComposeState`** — it is the author's
+    // intent and it outlives a door change, which is why it is its own resource. The tuple's size
+    // is unchanged: one in, one out.
     mut tools: (
         ResMut<MoveDrag>,
         ResMut<CloneDrag>,
         ResMut<TargetLock>,
         ResMut<Proposal>,
-        Res<crate::compose::ComposeState>,
+        Res<crate::compose::Armed>,
     ),
     // **The Tiles tab's state, as one param.** `EditTile` sends a piece over to be defined. A Bevy
     // system takes at most sixteen parameters and this one is full, so they travel as a tuple, which
@@ -5783,7 +5832,7 @@ fn keys(
         // **Then the ghost, if one is armed** — the thing being steered, and the thing on screen
         // showing a facing. Not over-UI-gated: this is a keyboard verb about an armed brush, and a
         // mouse resting over a panel says nothing about it.
-        if ghost_is_armed(state.tool, state.brush, compose.armed.is_some()) {
+        if ghost_is_armed(state.tool, state.brush, compose.0.is_some()) {
             state.brush_yaw = (state.brush_yaw + step).rem_euclid(360.0);
             return;
         }
@@ -5818,7 +5867,7 @@ fn keys(
         }
         // The same subject rule the turn keys follow — the ghost carries a tip now, so `Y`/`U` can
         // answer about the thing being steered instead of only about a piece already down.
-        if ghost_is_armed(state.tool, state.brush, compose.armed.is_some()) {
+        if ghost_is_armed(state.tool, state.brush, compose.0.is_some()) {
             let tip = &mut state.brush_tip;
             if about_x {
                 tip.0 = (tip.0 + 1) % 4;
@@ -5913,7 +5962,7 @@ fn keys(
     // straight in one direction and three in the other, and nobody keeps count. The only absolute in
     // the cluster.
     if keys::just_pressed(&keyboard, *live, Action::Straighten) {
-        if ghost_is_armed(state.tool, state.brush, compose.armed.is_some()) {
+        if ghost_is_armed(state.tool, state.brush, compose.0.is_some()) {
             state.brush_yaw = 0.0;
             state.brush_tip = (0, 0);
             state.status.note("brush straight again".to_owned());
@@ -7739,7 +7788,7 @@ fn drive_move(
     mut drag: ResMut<MoveDrag>,
     anchor: Res<FineAnchor>,
     picture: Res<StampPicture>,
-    compose: Res<crate::compose::ComposeState>,
+    compose: Res<crate::compose::Armed>,
 ) {
     // **A clear cursor moves by clicking.** `Tool::Move` (`B`) stays the deliberate arm — it works
     // with a brush still armed, and `Shift+B`'s set-clone rides the same key — but when nothing is
@@ -7752,7 +7801,7 @@ fn drive_move(
     // drop, and the same `Esc` peel putting it back — a second entry to the verb, never a second
     // verb. Arming anything mid-carry (a palette row, a composition) makes the cursor un-clear and
     // the cancel arm below releases the piece, which never left the map in the first place.
-    let clear_cursor = cursor_is_clear(state.tool, state.brush, compose.armed.is_some());
+    let clear_cursor = cursor_is_clear(state.tool, state.brush, compose.0.is_some());
     // Read, never write, unless something happened: `state` is watched by `rebuild_palette`, and an
     // unconditional deref here rebuilds all forty-odd rows every frame. Same rule as `drive_removal`.
     if state.tool != Tool::Move && !clear_cursor {
@@ -8531,7 +8580,9 @@ fn group_name_keys(
     open: Res<OpenMap>,
     mut state: ResMut<EditorState>,
     mut clone_drag: ResMut<CloneDrag>,
-    mut compose: ResMut<crate::compose::ComposeState>,
+    // **The arm is its own resource** — see `compose::Armed`. Capturing a set arms it, and the arm
+    // outlives a door change.
+    mut armed: ResMut<crate::compose::Armed>,
 ) {
     if state.grouping.is_none() {
         // Drain before leaving, or the keystroke that OPENED this field is read as its first
@@ -8578,7 +8629,7 @@ fn group_name_keys(
                         };
                         // Armed, so the next click on the map stamps what was just made. The whole
                         // point of capturing is to place it again.
-                        compose.armed = Some(id.clone());
+                        armed.0 = Some(id.clone());
                         clone_drag.held = None;
                         state.grouping = None;
                         state.replacing = None;
@@ -9486,7 +9537,7 @@ fn drive_ghost(
     anchor: Res<FineAnchor>,
     // The arm `drive_place` honors: a composed set stamped on click outranks the brush, and the
     // ghost must answer the same question the click will.
-    compose: Res<crate::compose::ComposeState>,
+    compose: Res<crate::compose::Armed>,
 ) {
     let clear = |commands: &mut Commands| {
         for (e, _) in &ghosts {
@@ -9574,7 +9625,7 @@ fn drive_ghost(
         state.tool,
         carried,
         state.brush.map(|ix| (ix, state.brush_yaw, state.brush_tip)),
-        compose.armed.is_some(),
+        compose.0.is_some(),
     );
     let Some((brush_ix, want_yaw, want_tip)) = subject else {
         clear(&mut commands);
@@ -9745,7 +9796,7 @@ fn drive_stamp_ghost(
     project: Res<Project>,
     open: Res<OpenMap>,
     state: Res<EditorState>,
-    compose: Res<crate::compose::ComposeState>,
+    armed: Res<crate::compose::Armed>,
     anchor: Res<FineAnchor>,
     pointer: Res<crate::view::Pointer>,
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
@@ -9760,7 +9811,7 @@ fn drive_stamp_ghost(
 
     // Only the place tool stamps; anything else and the preview would be promising a click that does
     // something different.
-    let Some(armed) = compose.armed.clone().filter(|_| state.tool == Tool::Place) else {
+    let Some(armed_of) = armed.id().map(str::to_owned).filter(|_| state.tool == Tool::Place) else {
         clear(&mut commands);
         return;
     };
@@ -9780,7 +9831,7 @@ fn drive_stamp_ghost(
     // **Exactly the arithmetic the stamp uses**, through the same two calls — `stamp_snap` for the
     // rung and the span, `map_at` for the snap. Anything else here is a promise about a landing that
     // will not happen.
-    let (level, span) = stamp_snap(&project, &compose, &keyboard, rung.0);
+    let (level, span) = stamp_snap(&project, &armed, &keyboard, rung.0);
     let at = map_at(&project, &open,
         hit,
         keys::alt_held(&keyboard),
@@ -9792,7 +9843,7 @@ fn drive_stamp_ghost(
 
     // Already showing this composition, at this turn, in this cell — nothing to do.
     if let Ok((_, g)) = ghosts.single() {
-        if g.of == armed && (g.yaw - yaw).abs() < 1e-3 && g.at == at {
+        if g.of == armed_of && (g.yaw - yaw).abs() < 1e-3 && g.at == at {
             return;
         }
     }
@@ -9802,7 +9853,7 @@ fn drive_stamp_ghost(
     // produces them. Not written anywhere — `expand` takes the map by reference and answers.
     let scratch = bevy_emerge_core::composition::Stamped {
         id: "ghost".to_owned(),
-        of: armed.clone(),
+        of: armed_of.clone(),
         at,
         yaw,
         ..Default::default()
@@ -9830,7 +9881,7 @@ fn drive_stamp_ghost(
 
     let parent = commands
         .spawn((
-            StampGhost { of: armed, yaw, at },
+            StampGhost { of: armed_of, yaw, at },
             Transform::default(),
             Visibility::default(),
         ))
@@ -10894,16 +10945,13 @@ mod snap_tests {
             },
             ..Default::default()
         }];
-        let compose = crate::compose::ComposeState {
-            armed: Some("site/tile_wall_n".into()),
-            ..Default::default()
-        };
+        let armed = crate::compose::Armed(Some("site/tile_wall_n".into()));
         // Every rung held at once — a stamp must ignore all of them.
         let mut held = ButtonInput::<KeyCode>::default();
         held.press(keys::SHIFT_KEYS[0]);
         held.press(keys::MOD_KEYS[0]);
 
-        let (level, span) = stamp_snap(&p, &compose, &held, SnapLevel::Tile);
+        let (level, span) = stamp_snap(&p, &armed, &held, SnapLevel::Tile);
         let place = |aim: f32| {
             map_at(
                 &p,
@@ -10970,10 +11018,7 @@ mod snap_tests {
             "the modifiers really do ask for the finest rung"
         );
 
-        let armed = |id: &str| crate::compose::ComposeState {
-            armed: Some(id.to_owned()),
-            ..Default::default()
-        };
+        let armed = |id: &str| crate::compose::Armed(Some(id.to_owned()));
 
         let (level, span) = stamp_snap(&p, &armed("tile_a"), &shifted, SnapLevel::Tile);
         assert_eq!(
@@ -10997,7 +11042,7 @@ mod snap_tests {
         // Nothing armed, or an id the kit no longer has: the ladder, and no invented footprint.
         let (level, span) = stamp_snap(
             &p,
-            &crate::compose::ComposeState::default(),
+            &crate::compose::Armed::default(),
             &shifted,
             SnapLevel::Tile,
         );

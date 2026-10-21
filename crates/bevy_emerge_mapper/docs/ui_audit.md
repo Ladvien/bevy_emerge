@@ -406,6 +406,35 @@ editor's docks. `←`/`→` clamp at the ends instead of carousel-wrapping.
 - Every clickable must be one of the three builders; every overlay must declare a `GlobalZIndex`;
   every panel must come from `panel_root`.
 
+### F19 — The Map door could not arm a composition, and the arm died with the door *(new, 2026-10-21)*
+
+**This audit found every visual defect in the editor and missed this one**, which is worth saying
+plainly: the finding is not a picture, and a picture is what this audit is made of.
+
+The COMPOSE tab could arm a composition, and the Map tab was where a composition is stamped. The
+two were on **different doors** — the door is chosen at startup (`--door kit`, `--door map`) — and
+the arm was a field of `ComposeState`, which `Ownership::Door` resets. So the COMPOSE tab armed a
+house and said *"the map tab stamps it"*, and **there was no map tab in that process**.
+
+Measured on Sanctuary's project: **16 house compositions defined, 0 stamped, 727 hand-placed rows
+on the map.** The composer could read a group; nothing could *place* one.
+
+**Fixed 2026-10-21** — the arm is its own resource (`compose::Armed`, `Ownership::Session`), and the
+Map door grew a **COMPOSITIONS picker**: `P` takes the arrows, the arrows walk the compositions,
+`Enter` arms one. Four keystrokes and a click, on the door where stamping happens.
+
+**Two things the fix had to learn, and both are the editor's own rules:**
+
+- **A keyboard route is not a convenience — it is the route.** `bevy_picking` reads the mouse from
+  the `WindowEvent` stream (`bevy_picking-0.20.0/src/input.rs:153`) and BRP injects into
+  `ButtonInput<MouseButton>`, so **no `Button` in this editor receives a click over BRP** — the
+  palette's rows and the back button included. It was measured, and it is also the editor's own
+  brief: *"this should be done by the keyboard, as key strokes are faster."*
+- **A door change has no test, and that is why `close_the_door` is `pub`.** The headless harness does
+  not register `ScreenPlugin` — it inserts the state directly — so `OnExit(Editor)` never runs in a
+  test. The first attempt at the regression test went through the state machine and **passed on the
+  broken code**, because nothing was torn down. The teardown is now called directly.
+
 ---
 
 ## Part 5 — What changed
@@ -474,6 +503,7 @@ its own rule and nothing else.
 | F10 | Six row dialects | **Fixed.** Three shapes, ratcheted |
 | F11 | Dead and invisible clickables | **Fixed.** `KitRow` clicks, `ShelfChip` lights, `PaletteRow` joined the shared repainter and `editor::style_rows` is deleted |
 | F12 | Headings mean four things | **Fixed.** `INSPECTOR` / `PIECES` / `PLACE` / `RIGS`; no panel named for the application, no anagrams |
+| **F19** | **The Map door could not arm a composition, and the arm died with the door** | **Fixed 2026-10-21** — the arm is its own `Session` resource and the Map door grew a COMPOSITIONS picker |
 | F13 | Four dimmers, three opacities | **Fixed.** One `modal_card` |
 | F14 | Two modals, two contracts | **Fixed.** One shell, one z ladder |
 | F15 | Layout not uniform | **Fixed.** One `CONTROLS_W`, every left dock scrolls |

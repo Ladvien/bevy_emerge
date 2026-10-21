@@ -35,6 +35,64 @@ use crate::keys::{self, Action};
 use crate::project::Project;
 use crate::tiles::{ComposeRoot, Mode};
 
+/// **Which composition the next click stamps** — and the one thing in the editor that outlives a
+/// door change.
+///
+/// # Why it is not on [`ComposeState`]
+///
+/// It used to be, and that was a wall rather than a detail. `ComposeState` is
+/// `Ownership::Door` — a door change resets it, which is right for its *cursors* (a different
+/// kit's composition ids mean nothing here) and right for its *staged carousel* (the entities are
+/// despawned). But the arm is neither: it is **the author's intent**, it names a composition by
+/// id, and it is meaningless if a door change throws it away.
+///
+/// The cost of that wall was measured on 2026-10-21. The COMPOSE tab armed a house and said
+/// *"the map tab stamps it"* — and there was no map tab in that process, because the door is
+/// chosen at startup. The author's only route to a stamp was to leave, come back through the menu,
+/// re-open the map, and **re-arm the composition by hand**, because the arm had been reset.
+/// Sixteen house compositions were defined in Sanctuary's project and not one was stamped on
+/// either map; the maps held 727 hand-placed rows and zero stamps.
+///
+/// So the arm is its own resource, and it is [`crate::screen::Ownership::Session`] — *"true for as
+/// long as the application runs"*. It is in memory, it is named, and it crosses.
+///
+/// # Named, never indexed
+///
+/// A composition id, exactly as `ComposeState::armed` held it. An index would re-point the
+/// moment `compositions.ron` gained a row above it, which is the same argument
+/// [`bevy_emerge_core::composition::Override`] makes about naming a member. A *stale* arm is also
+/// safe for the same reason: it is a name, so it either resolves against the project or the stamp
+/// is refused by name.
+#[derive(Resource, Default, Clone, PartialEq, Eq, Debug)]
+pub struct Armed(pub Option<String>);
+
+impl Armed {
+    /// The armed composition's id, if there is one.
+    pub fn id(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
+
+    /// Whether this composition is the armed one — the question every row in the picker asks.
+    pub fn is(&self, id: &str) -> bool {
+        self.0.as_deref() == Some(id)
+    }
+
+    /// **Arm this composition, or disarm it if it was already armed.**
+    ///
+    /// One writer, because the two doors' pickers and the COMPOSE tab's own row must agree: a
+    /// second writer is a second answer to "what is armed", and the crate spends its refusals on
+    /// exactly that shape.
+    pub fn toggle(&mut self, id: &str) -> bool {
+        if self.is(id) {
+            self.0 = None;
+            false
+        } else {
+            self.0 = Some(id.to_owned());
+            true
+        }
+    }
+}
+
 /// **Where the Compose tab stands the group it is editing.**
 ///
 /// Far from the map, like [`crate::tiles::STAGE`] and for the same reason: a group drawn over the map
@@ -86,12 +144,10 @@ pub struct ComposeState {
     /// defect this tab was rebuilt for, so this is drawn — see `rebuild`, which tints the focused
     /// list's header — and the lists are all on screen at once rather than one at a time.
     pub focus: Pane,
-    /// **The armed group** — by id, never by index.
+    /// **The armed group** used to live here, and it is now [`Armed`] — its own resource, and the
+    /// one thing in the editor that outlives a door change. See that type for the measurement that
+    /// moved it.
     ///
-    /// An index would silently re-point the moment `compositions.ron` gained a row above it, which is
-    /// the same argument [`bevy_emerge_core::composition::Override`] makes about naming a member. The id
-    /// costs one lookup at stamp time and cannot go stale.
-    pub armed: Option<String>,
     /// **What was last stood up**, so nothing is respawned unless the picture actually changed.
     ///
     /// This exists for a defect rather than for speed. [`restage_group`] takes `ResMut<ComposeState>`
@@ -118,7 +174,6 @@ impl Default for ComposeState {
             selected: 0,
             member: 0,
             focus: Pane::default(),
-            armed: None,
             staged: None,
             status: crate::chrome::Status::default(),
         }
@@ -174,6 +229,12 @@ pub struct ComposePlugin;
 impl Plugin for ComposePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ComposeState>()
+            // **The arm is a `Session` resource, not a `Door` one** — see [`Armed`]. It is the
+            // author's intent, and it crosses a door change.
+            .init_resource::<Armed>()
+            // **The picker's cursor**, and whether it has the keyboard. `Session`, like the arm: the
+            // cursor is the author's, not the door's.
+            .init_resource::<picker::Picker>()
             .init_resource::<StagedCarousel>()
             .init_resource::<Budget>()
             .add_systems(Update,
@@ -236,8 +297,117 @@ impl Plugin for ComposePlugin {
             // Observers rather than screen-gated systems: they fire on rows that only the Kit
             // door ever spawns, so the screen is already implied by the entity.
             .add_observer(on_comp_row_click)
-            .add_observer(on_member_row_click);
+            .add_observer(on_member_row_click)
+            // **The Map door's picker**, and its observer. The observer is global for the same
+            // reason the two above are: a click on a `Button` anywhere must not panic the
+            // application, and a missing `Res<Project>` on the menu screen would.
+            .add_observer(picker::on_row_click)
+            .add_systems(
+                Update,
+                (rebuild_picker.after(keys::Phase::Act))
+                    .run_if(in_state(crate::screen::Screen::Editor)),
+            )
+            // **The picker's keyboard route**, on the Map door only — the picker is a block in the
+            // Map door's INSPECTOR panel and nothing else spawns it.
+            .add_systems(
+                Update,
+                (
+                    (picker::walk, picker::act)
+                        .in_set(keys::Phase::Act)
+                        .chain(),
+                )
+                    .run_if(in_state(crate::screen::Screen::Editor))
+                    .run_if(crate::editor::in_map_mode),
+            );
     }
+}
+
+/// **The Map door's picker, drawn.** The project's compositions, the armed one starred.
+///
+/// **Not gated on the door** — the Map door is the only one that spawns the block, so the query is
+/// empty elsewhere and the system does nothing. A system that stops running cannot despawn what it
+/// drew, and the block belongs to the Map door's panel, which the door's own teardown removes.
+fn rebuild_picker(
+    mut commands: Commands,
+    project: Res<Project>,
+    armed: Res<Armed>,
+    picker: Res<picker::Picker>,
+    body: Query<Entity, With<picker::PickerBody>>,
+    children: Query<&Children>,
+) {
+    if !(project.is_changed() || armed.is_changed() || picker.is_changed()) {
+        return;
+    }
+    let Ok(root) = body.single() else {
+        return;
+    };
+    // **The whole block is emptied, not just the rows.** A despawn is deferred, so for one frame
+    // the old rows are still in the world — and they are still on top, still holding the pointer's
+    // hover, and still carrying the `PickerRow` index the click will read. That is what a click on
+    // the *second* row did: it read the *first* row's index and toggled the first row off, because
+    // the old row was the one under the pointer.
+    //
+    // Emptying the block's **children** is the same shape the COMPOSE tab's `rebuild` uses, and it
+    // closes the window: the rows and their parent go together, and nothing is left to answer a
+    // click meant for a row that has moved. The block itself stays — it carries the marker the
+    // query finds.
+    if let Ok(kids) = children.get(root) {
+        for e in kids.iter() {
+            commands.entity(e).despawn();
+        }
+    }
+    commands.entity(root).with_children(|p| {
+        if project.compositions.compositions.is_empty() {
+            // **A project with no compositions says so, and says it in the panel.** A project with
+            // none stamps nothing, which is not a broken one — the same words the COMPOSE tab uses,
+            // so the author learns one sentence and meets it twice.
+            crate::chrome::row_value(
+                p,
+                "none — this project stamps nothing",
+                crate::chrome::DIM,
+                (),
+            );
+            return;
+        }
+        for (ix, c) in project.compositions.compositions.iter().enumerate() {
+            let is_armed = armed.is(&c.id);
+            // **The cursor's row is the selected one**, so the picker says where the arrows are
+            // even when the picker does not have the keyboard. The armed row is a *different* mark
+            // — the `*` — and the two are told apart by their ink, not by their background.
+            let is_cursor = picker.selected == ix;
+            crate::chrome::list_row(p, is_cursor, (picker::PickerRow(ix),))
+                .with_children(|row| {
+                    row.spawn((
+                        Text::new(c.id.clone()),
+                        TextColor(crate::chrome::TEXT),
+                        crate::chrome::font(crate::chrome::text::BODY),
+                    ));
+                    if is_armed {
+                        // **The armed mark in its own ink** — the same `*` the COMPOSE tab's rows
+                        // carry for "this is the one a stamp places", so the two lists say the same
+                        // thing the same way.
+                        row.spawn((
+                            Text::new("  *"),
+                            TextColor(crate::chrome::ACCENT),
+                            crate::chrome::font(crate::chrome::text::BODY),
+                        ));
+                    }
+                })
+                // **Pickable, and that is what makes the row a button.**
+                //
+                // The whole frame is `Pickable::IGNORE` — the editor's chrome answers no clicks, so
+                // a click meant for the map falls through to the map. `Pickable` is *inherited*, so
+                // a row inside the frame is unpickable too, and `bevy_ui_widgets::Button` never
+                // sees a `PointerPress` — so it never gets `Pressed`, and it never triggers
+                // `Activate`. The row looks like a row and does nothing.
+                //
+                // The back button in the chrome bar makes the same move, and says why: *"the bar
+                // is `Pickable::IGNORE` so the frame answers no clicks; this narrows that for the
+                // one node on it that is a button."* This is the Map door's one node that is a
+                // button.
+                .insert(bevy::picking::Pickable::default());
+        }
+    });
 }
 
 /// **Put the group cursor on `ix`, and the member cursor back at the top.**
@@ -676,6 +846,7 @@ fn walk(
 /// group. The library list went with authoring, so one key means one thing again.
 fn arm(
     mut state: ResMut<ComposeState>,
+    mut armed: ResMut<Armed>,
     project: Res<Project>,
     keys: Res<keys::Live>,
     input: Res<ButtonInput<KeyCode>>,
@@ -683,7 +854,7 @@ fn arm(
     if !keys::just_pressed(&input, *keys, Action::ComposeArm) {
         return;
     }
-    toggle_arm(&mut state, &project);
+    toggle_arm(&mut state, &mut armed, &project);
 }
 
 /// **Arm the selected group, or disarm it if it was already armed.**
@@ -692,17 +863,21 @@ fn arm(
 /// the two immediately disagreed — the keyboard toggled and the sentinel did not — so a captured
 /// frame was evidence about a path no author could take, which is the one thing that driver exists to
 /// avoid.
-pub fn toggle_arm(state: &mut ComposeState, project: &Project) {
+///
+/// **The arm itself is [`Armed`], not this state** — see that type for the measurement that moved
+/// it. What is left here is *which* composition the COMPOSE tab's own cursor is on, and the receipt
+/// the author reads.
+pub fn toggle_arm(state: &mut ComposeState, armed: &mut Armed, project: &Project) {
     let Some(c) = project.compositions.compositions.get(state.selected) else {
         state.status.note("no composition to arm");
         return;
     };
-    if state.armed.as_deref() == Some(c.id.as_str()) {
-        state.armed = None;
-        state.status.note(format!("`{}` disarmed", c.id));
+    if armed.toggle(&c.id) {
+        state
+            .status
+            .note(format!("`{}` armed — the map stamps it", c.id));
     } else {
-        state.armed = Some(c.id.clone());
-        state.status.note(format!("`{}` armed — the map tab stamps it", c.id));
+        state.status.note(format!("`{}` disarmed", c.id));
     }
 }
 
@@ -1538,10 +1713,12 @@ fn rebuild_labels(
     mut commands: Commands,
     carousel: Res<StagedCarousel>,
     state: Res<ComposeState>,
+    armed: Res<Armed>,
     project: Res<Project>,
     existing: Query<Entity, With<SlotLabel>>,
 ) {
-    if !(carousel.is_changed() || state.is_changed() || project.is_changed()) {
+    if !(carousel.is_changed() || state.is_changed() || armed.is_changed() || project.is_changed())
+    {
         return;
     }
     for e in &existing {
@@ -1551,7 +1728,7 @@ fn rebuild_labels(
         let Some(c) = project.compositions.compositions.get(slot.index) else {
             continue;
         };
-        let armed = state.armed.as_deref() == Some(c.id.as_str());
+        let armed = armed.is(&c.id);
         commands.spawn((
             SlotLabel(k),
             Text::new(if armed { format!("{} *", c.id) } else { c.id.clone() }),
@@ -1758,13 +1935,14 @@ pub fn pick_along(
 fn rebuild(
     mut commands: Commands,
     state: Res<ComposeState>,
+    armed: Res<Armed>,
     project: Res<Project>,
     budget: Res<Budget>,
     body: Query<Entity, With<ComposeBody>>,
     lines: Query<Entity, With<ComposeLine>>,
     mut receipt: Query<&mut Text, With<ComposeReceipt>>,
 ) {
-    if !(state.is_changed() || project.is_changed()) {
+    if !(state.is_changed() || armed.is_changed() || project.is_changed()) {
         return;
     }
     // **The receipt, into its fixed slot at the foot of the panel** — see [`ComposeReceipt`] for why
@@ -1833,7 +2011,7 @@ fn rebuild(
             ix: i,
             text: format!("{}  —  {} member(s), {envelope}", c.id, c.members.len()),
             selected: i == state.selected,
-            armed: state.armed.as_deref() == Some(c.id.as_str()),
+            armed: armed.is(&c.id),
         });
     }
 
@@ -2063,6 +2241,181 @@ mod line_tests {
         assert_eq!(split_indent("        eat: diner"), (8, "eat: diner"));
         // The face table: 4-space block indent plus `{:>5}` padding, one column either way.
         assert_eq!(split_indent("      eat: n 0.00..1.00"), (6, "eat: n 0.00..1.00"));
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// The picker — the Map door's way to arm a composition
+// ------------------------------------------------------------------------------------------------
+
+/// **The Map door's composition picker** — a list of the project's compositions, the armed one
+/// starred, and a click that arms it.
+///
+/// # Why it is not the COMPOSE tab
+///
+/// The COMPOSE tab is an *authoring* surface: the carousel, the members, the stages, the budget. The
+/// Map door wants a **picker**: which compositions exist, which one is armed, and the verb that
+/// arms it. Shipping the whole tab onto the map would put an authoring surface where an authoring
+/// action is not — and the tab's own docs say its members list is *"the second cursor, under the one
+/// above"*, which means nothing on a map.
+///
+/// # Why it exists at all
+///
+/// Because the arm used to be reachable **only** from the COMPOSE tab, and the COMPOSE tab is only
+/// on the Kit door — while stamping happens on the Map door. Measured on 2026-10-21: the COMPOSE tab
+/// armed a house and said *"the map tab stamps it"*, and there was no map tab in that process,
+/// because the door is chosen at startup. Sixteen house compositions were defined in Sanctuary's
+/// project and not one was stamped on either map; the maps held 727 hand-placed rows and zero
+/// stamps.
+///
+/// # Why `Enter` is read off the message stream and not off the census
+///
+/// The census gives one row per action, and `Context::Global` overlaps every tab — so making the
+/// arm's row `Global` would have taken `Enter` away from `Accept` on Meshes, `TileOpen` and
+/// `BuildDrop` on Tiles, `AdoptMeasured` on Anim and `AcceptProposal` on Map. The census refused
+/// the change, and it was right.
+///
+/// So this picker reads `Enter` from the **message stream**, the way `crate::tiles`'s
+/// `take_the_one_match` does for the tag block: a *narrowed* list's `Enter` takes the one match
+/// rather than committing a walk, and the census has no way to say that. The scope is the picker's
+/// own focus — a filter box over the picker, exactly as the tag block is a filter box over the
+/// tags.
+pub mod picker {
+    use bevy::prelude::*;
+
+    use crate::compose::Armed;
+    use crate::project::Project;
+
+    /// **The block the picker is written into** — the Map door's INSPECTOR panel, below the map
+    /// size fields.
+    #[derive(Component)]
+    pub struct PickerBody;
+
+    /// **One row**, carrying the composition's index. The list is rebuilt wholesale, so the index
+    /// is re-derived every rebuild and cannot go stale between clicks.
+    #[derive(Component, Clone, Copy)]
+    pub struct PickerRow(pub usize);
+
+    /// **The picker's own cursor**, and whether it has the keyboard.
+    ///
+    /// A `Stance` and not a context, because the picker is a *list on the Map tab* rather than a tab
+    /// of its own, and the Map tab's arrows are already bound — to the palette. See
+    /// [`crate::keys::Stance::Picking`].
+    ///
+    /// **The cursor is an index into the project's compositions**, the same order the rows are drawn
+    /// in, so the two cannot disagree. It is clamped rather than stored as an `Option`, for
+    /// [`ComposeState::selected`]'s reason: the list is never empty while a selection exists.
+    #[derive(Resource, Default, Clone, PartialEq, Eq, Debug)]
+    pub struct Picker {
+        /// Which composition the cursor is on.
+        pub selected: usize,
+        /// **Whether the picker has the keyboard** — the arrows walk it rather than the palette.
+        pub active: bool,
+    }
+
+    /// **Arm the composition this row names**, or disarm it if it was already armed.
+    ///
+    /// **One writer**, and it is [`Armed::toggle`] — the same call the COMPOSE tab's `Enter` makes
+    /// and the same call the devshot driver makes. Three ways to arm and one writer is the point:
+    /// two writers would be two answers to "what is armed", and the crate spends its refusals on
+    /// exactly that shape.
+    ///
+    /// The receipt goes to the **Map's own status line**, not to a panel of its own: the picker is
+    /// a block in the INSPECTOR panel, and the panel's status block is where the Map says anything.
+    pub fn arm_row(
+        ix: usize,
+        project: &Project,
+        armed: &mut Armed,
+        status: &mut crate::chrome::Status,
+    ) {
+        let Some(c) = project.compositions.compositions.get(ix) else {
+            status.note("no composition to arm");
+            return;
+        };
+        if armed.toggle(&c.id) {
+            status.note(format!("`{}` armed — the next click stamps it", c.id));
+        } else {
+            status.note(format!("`{}` disarmed", c.id));
+        }
+    }
+
+    /// **The picker's own keyboard route** — `P` takes the arrows, the arrows walk the list, and
+    /// `Enter` arms.
+    ///
+    /// **One writer** — [`arm_row`] — so the keyboard, the mouse and the devshot driver all land on
+    /// the same answer.
+    pub fn walk(
+        mut picker: ResMut<Picker>,
+        project: Res<Project>,
+        keys: Res<crate::keys::Live>,
+        input: Res<ButtonInput<KeyCode>>,
+    ) {
+        let by = if crate::keys::just_pressed(&input, *keys, crate::keys::Action::CompositionPrev) {
+            -1
+        } else if crate::keys::just_pressed(&input, *keys, crate::keys::Action::CompositionNext) {
+            1
+        } else {
+            return;
+        };
+        let n = project.compositions.compositions.len();
+        if n == 0 {
+            return;
+        }
+        // **It clamps at the ends, where it used to wrap.** The crate has already argued this twice,
+        // in the two places it made the choice: *"an author holding an arrow at the end of a list
+        // should stop there rather than wrap to the other end of it"*. One editor cannot answer one
+        // keystroke two ways.
+        picker.selected = (picker.selected as i64 + by).clamp(0, n as i64 - 1) as usize;
+    }
+
+    /// **`P` takes the arrows to the picker**, and `Enter` arms what the cursor is on.
+    pub fn act(
+        mut picker: ResMut<Picker>,
+        mut armed: ResMut<Armed>,
+        mut state: ResMut<crate::editor::EditorState>,
+        project: Res<Project>,
+        keys: Res<crate::keys::Live>,
+        input: Res<ButtonInput<KeyCode>>,
+    ) {
+        if crate::keys::just_pressed(&input, *keys, crate::keys::Action::PickComposition) {
+            picker.active = !picker.active;
+            let said = if picker.active {
+                "the arrows walk the compositions — Enter arms one"
+            } else {
+                "the arrows walk the palette"
+            };
+            state.status.note(said.to_owned());
+            return;
+        }
+        if !picker.active {
+            return;
+        }
+        if !crate::keys::just_pressed(&input, *keys, crate::keys::Action::ArmComposition) {
+            return;
+        }
+        arm_row(picker.selected, &project, &mut armed, &mut state.status);
+    }
+
+    /// A click on a row arms it.
+    ///
+    /// **`Option` on the resources, because this is a GLOBAL observer** — it fires for any
+    /// `Activate` anywhere in the application, and in Bevy 0.19 a missing `Res<T>` panics at param
+    /// validation rather than skipping. See `crate::compose::on_comp_row_click` for the whole
+    /// argument; the ratchet is `every_resource_says_what_a_door_does_to_it.rs`.
+    pub fn on_row_click(
+        activate: On<bevy::ui_widgets::Activate>,
+        rows: Query<&PickerRow>,
+        project: Option<Res<Project>>,
+        armed: Option<ResMut<Armed>>,
+        mut state: Option<ResMut<crate::editor::EditorState>>,
+    ) {
+        let (Some(project), Some(mut armed), Some(state)) = (project, armed, state.as_mut()) else {
+            return;
+        };
+        let Ok(row) = rows.get(activate.entity) else {
+            return;
+        };
+        arm_row(row.0, &project, &mut armed, &mut state.status);
     }
 }
 
