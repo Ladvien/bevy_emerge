@@ -1092,10 +1092,10 @@ impl Plugin for EditorPlugin {
                         arm_palette_rows,
                         redraw_edited,
                         // **In `Act`, and not in the default set.** The watcher's `adopt_changes`
-                        // raises the flag in `Phase::Sense`, and a system with no set of its own
-                        // runs in the default set — which Bevy runs **before** the configured
-                        // chain. So the redraw looked for the flag before the watcher had raised
-                        // it, and the flag was always false.
+                        // raises the flag in `Phase::Sense`, and a system in no set has **no
+                        // ordering** against that chain — Bevy may run it before or after. Here it
+                        // ran before, every frame of the test, so the flag was always false when it
+                        // looked. `Phase::Act` is chained after `Phase::Sense`, which is the order.
                         redraw_the_map.in_set(keys::Phase::Act),
                         cycle_grid.in_set(keys::Phase::Act),
                         walk_palette.in_set(keys::Phase::Act),
