@@ -307,6 +307,16 @@
       "evidence": "Fixed in 2bc8aef. Failing before: a_capture_label_that_leaves_the_project_is_refused_before_the_editor_is_asked panicked (label not refused). After: refused before the editor is asked; unit tests in capture_label_tests.",
       "last_failure": "",
       "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-022",
+      "kind": "enhancement",
+      "area": "view",
+      "status": "fixed",
+      "title": "The Map opens on a 18 m close-up of the origin, not framed on the map",
+      "evidence": "Fixed in b51da72 (feat(view): the Map opens framed on the whole map). Failing before: tests/the_map_opens_framed.rs::the_map_opens_framed_on_the_whole_map on HEAD 1a3f571 (a corner of the 1120 m map is outside the camera's view); passes after. The reopen test (the_map_opens_framed_after_the_door_state_resets) cannot compile on HEAD because it names MapFraming, so it is not failing-before evidence; its door-list coverage is the existing ratchet screen::the_door_resets_what_it_says_it_owns. Before/after stills: docs/loop/iterations/assets/2026-10-21-b51da72/launch-{before,after}.png",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
     }
   ]
 }

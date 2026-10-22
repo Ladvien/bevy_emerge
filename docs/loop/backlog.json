@@ -247,16 +247,6 @@
       "evidence": "Built in the 2026-10-21 frame iteration and taken out: a new keys::Action that is not a registry operation grows the unmigrated allowlist, which operations_have_two_front_ends pins at 128 and says must be paid for by migrating one in the same commit. Ship it together with one migration. The framing itself (view::frame_box, editor::resolve_frame/apply_frame) is ready; the person's wheel can now zoom out to the whole map."
     },
     {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
-      "id": "E-022",
-      "kind": "enhancement",
-      "area": "view",
-      "status": "open",
-      "title": "The Map opens on a 18 m close-up of the origin, not framed on the map",
-      "evidence": "Every launch of Sanctuary's 300 x 1120 m town opens on one road crossing (seq frame_before f000). Opening framed on the whole map (or the last view, saved per map as an editor preference) would remove the first thing a person and an agent each have to do. Risk: a saved view is a new editor-preference file."
-    },
-    {
       "id": "E-023",
       "kind": "enhancement",
       "area": "perf",
