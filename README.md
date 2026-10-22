@@ -13,7 +13,7 @@ The full recording is [`docs/media/demo.mp4`](docs/media/demo.mp4), 64 seconds l
 - **Show the agent a problem, not a description of it.** Snip a region and write a note. The agent reads both with `emerge_list_snips`.
 - **The agent sees what you see.** Stills, sequences and framing give it the same view you have.
 - **One undo history.** A change an agent makes is undone with the same Cmd+Z you use.
-- **Edit a map on disk, see it live.** Change a map file in a text editor and the running editor re-reads it within a quarter second, with no rebuild.
+- **Edit a map on disk, see it live.** Change a map file in a text editor, and the running editor shows the change in well under a second (measured 0.1–0.6 s on a 727-piece map), with no rebuild.
 - **Layouts follow your example.** The grammar comes from maps you built, so the output keeps their look and rules.
 
 ## Status
