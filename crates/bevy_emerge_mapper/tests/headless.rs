@@ -15708,6 +15708,34 @@ mod replace_and_dirty {
         );
         assert!(!dirty(&app));
     }
+
+    /// **A successful undo is an answer, not a refusal.** The restore receipt went to
+    /// `Status::problem`, so every Cmd+Z that put a piece back raised a red toast reading
+    /// "restored 1 placement(s)" (B-022). A problem is for a refusal or a partial act; this one
+    /// did all it was asked.
+    #[test]
+    fn a_successful_undo_is_reported_as_a_note_not_a_problem() {
+        let mut app = booted(
+            "undo_receipt",
+            Fixture::new("undo_receipt")
+                .descriptor("tile_a", "alpha")
+                .descriptor("tile_b", "alpha")
+                .place("tile_a", (0.5, 0.5)),
+        );
+        place_for_test(app.world_mut(), "tile_b", (0.5, 0.5));
+        undo_for_test(app.world_mut());
+        let status = &app.world().resource::<EditorState>().status;
+        assert!(
+            status.problems().is_empty(),
+            "a successful undo raised a problem: {:?}",
+            status.problems().iter().map(|p| p.text.as_str()).collect::<Vec<_>>()
+        );
+        assert!(
+            said(&app).contains("restored 1 placement(s)"),
+            "said: {}",
+            said(&app)
+        );
+    }
 }
 
 /// **A piece too big for a lattice no longer stops the project opening.** It used to fail the whole
