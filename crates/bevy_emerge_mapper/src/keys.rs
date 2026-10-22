@@ -883,6 +883,7 @@ impl Action {
             Action::OwnToggle => Some("placement_set_pin"),
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::RenameMap => Some("map_rename"),
+            Action::Remove => Some("placement_remove"),
             _ => None,
         }
     }

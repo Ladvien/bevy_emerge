@@ -2439,10 +2439,17 @@ mod compose {
         // marked the resource changed and let the redraw fire for a reason the app has not got.
         {
             let world = app.world_mut();
-            world.resource_scope(|world, mut open: bevy::prelude::Mut<OpenMap>| {
-                let mut state = world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
-                bevy_emerge_mapper::editor::delete_stamp_for_test(&stamp_id, &mut open, &mut state);
-            });
+            world.resource_scope(
+                |world, project: bevy::prelude::Mut<bevy_emerge_mapper::project::Project>| {
+                    world.resource_scope(|world, mut open: bevy::prelude::Mut<OpenMap>| {
+                        let mut state =
+                            world.resource_mut::<bevy_emerge_mapper::editor::EditorState>();
+                        bevy_emerge_mapper::editor::delete_stamp_for_test(
+                            &stamp_id, &project, &mut open, &mut state,
+                        );
+                    });
+                },
+            );
         }
         for _ in 0..3 {
             app.update();

@@ -77,6 +77,9 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The removal click**, which deletes one placement, and what stands on it, through
     // `remove_placement`, which dispatches `placement_remove`.
     ("placement_remove", "remove_placement("),
+    // **The stamp click**, which takes a whole stamp off the map through `delete_stamp`, which
+    // dispatches `stamp_remove`. A stamp is removed whole, never by a piece of it.
+    ("stamp_remove", "delete_stamp("),
     // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
     // own way of doing what `map_set_settings` does. It dispatches the operation.
     ("map_set_settings", "SizeField(Axis)"),
@@ -307,9 +310,6 @@ const UNMIGRATED: &[Action] = &[
     Action::Accept,
     Action::FoldPack,
     Action::Rescan,
-    // **Removal (X).** The removal click goes through `remove_placement`, but X's mode still deletes
-    // a stamp and box-removes rows outside the registry, so the action is not migrated.
-    Action::Remove,
     Action::RemoveTile,
     Action::CloneMode,
     Action::RunMode,
@@ -383,7 +383,8 @@ const UNMIGRATED: &[Action] = &[
 /// **its own length**, which is a tautology that can never fail — **and a ratchet that cannot fail
 /// is not a ratchet.** It is a number a human lowers, and the test says so when it is wrong.
 // 124 -> 125: `Snip`, paid by `RenameMap` -> `map_rename` (commit A).
-const UNMIGRATED_MAX: usize = 125;
+// 125 -> 124: `Remove` -> `placement_remove` (E-029): a stamp and a box dispatch `stamp_remove` and `placement_remove`.
+const UNMIGRATED_MAX: usize = 124;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

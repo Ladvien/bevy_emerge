@@ -5287,7 +5287,7 @@ fn drive_removal(
             // **The instance, whole.** A click landed on one member of it; removing that member is
             // reaching *through* the stamp, which is the thing `composition.rs`'s encapsulation rule
             // forbids and which the missing `Placement` used to prevent by making it unreachable.
-            Some(Subject::Stamp(id)) => delete_stamp(&id,  &mut open, &mut state),
+            Some(Subject::Stamp(id)) => delete_stamp(&id, &project, &mut open, &mut state),
             None => state.status.note("nothing here to remove"),
         }
         return;
@@ -5328,48 +5328,61 @@ fn drive_removal(
         return;
     }
 
-    // **Taken back to front.** Removing an earlier row shifts every later one down, so a forward
-    // pass would delete the wrong pieces the moment the box held more than one.
-    let mut items: Vec<(usize, Box<Placed>)> = Vec::with_capacity(doomed.len());
+    // **Each piece goes through the registry, back to front.** Removing an earlier row shifts every
+    // later one down, so a forward pass would delete the wrong pieces the moment the box held more
+    // than one. The stamps follow, back to front by index, for the same reason.
+    let mut logged: Vec<Undo> = Vec::with_capacity(doomed.len() + stamps.len());
+    let (mut n, mut m) = (0usize, 0usize);
     for i in doomed.iter().rev() {
-        let removed = open.map.placements.remove(*i);
+        let Some(piece) = open.map.placements.get(*i) else {
+            continue;
+        };
+        let id = piece.id.clone();
+        let Some((line, summary, ids)) = remove_placement(&project, &mut open, &mut state, &id) else {
+            continue;
+        };
         for (entity, mark) in &placed {
-            if mark.0 == removed.id {
+            if ids.contains(&mark.0) {
                 commands.entity(entity).despawn();
             }
         }
-        items.push((*i, Box::new(removed)));
+        logged.push(Undo::Logged {
+            line,
+            phrase: summary,
+        });
+        n += 1;
     }
-    // Ascending again, which is the order `Undo::RemovedMany` puts them back in.
-    items.reverse();
-
-    // Descending here too, and after the placements: taking a stamp off `map.stamps` does not shift
-    // `map.placements`, so the two lists are independent — but within the stamp list the same rule
-    // applies, and getting it wrong is silent.
-    let mut taken: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)> =
-        Vec::with_capacity(stamps.len());
     for i in stamps.iter().rev() {
-        taken.push((*i, Box::new(open.map.stamps.remove(*i))));
+        let Some(stamp) = open.map.stamps.get(*i) else {
+            continue;
+        };
+        let id = stamp.id.clone();
+        let Some((line, summary, _)) = remove_stamp(&project, &mut open, &mut state, &id) else {
+            continue;
+        };
+        logged.push(Undo::Logged {
+            line,
+            phrase: summary,
+        });
+        m += 1;
     }
-    taken.reverse();
-
-    let n = items.len();
-    let m = taken.len();
-    // **One keypress, one undo.** A box that caught both leaves two edits behind, and `Undo::Group`
-    // exists so they come back together — its own doc: "two separate entries would make one keypress
-    // two undos". Inverses run in reverse order, which is what keeps the enum closed under
-    // inversion, so the stamps go on last and come back first.
-    let op = match (items.is_empty(), taken.is_empty()) {
-        (false, true) => Undo::RemovedMany { items },
-        (true, false) => Undo::UnstampedMany { items: taken },
-        _ => Undo::Group {
-            ops: vec![
-                Undo::RemovedMany { items },
-                Undo::UnstampedMany { items: taken },
-            ],
-        },
-    };
-    state.record(op);
+    if logged.is_empty() {
+        return;
+    }
+    // **Undo applies its list in order**, and the removals ran back to front, so the list is reversed:
+    // each kind ends up lowest index first, which is the order a put-back needs to find every index
+    // still in range. Placements and stamps are separate lists, so how they interleave does not matter.
+    logged.reverse();
+    // **One keypress, one undo.** A box that caught several pieces leaves several entries behind, and
+    // `Undo::Group` exists so they come back together: "two separate entries would make one keypress
+    // two undos".
+    if logged.len() == 1 {
+        if let Some(only) = logged.pop() {
+            state.record(only);
+        }
+    } else {
+        state.record(Undo::Group { ops: logged });
+    }
     // The whole chord, rendered by the census — naming just the modifier told the author to press
     // `Cmd`, which is not a thing anyone can do.
     let what = match (n, m) {
@@ -5383,34 +5396,23 @@ fn drive_removal(
     ));
 }
 
-/// **Take a stamp off the map, whole.**
+/// **Take a stamp off the map, whole, through the operation registry** (`stamp_remove`), so it is
+/// saved, logged and taken back the way a placement is.
 ///
 /// FVS-R-14's Delete arm: *"Delete removes the **instance**."* Named by [`Stamped::id`] and never by
-/// an index, because the caller picked it a frame ago and the list can have moved since — the rule
-/// [`MoveDrag`] states for placements and which applies here for the same reason.
+/// an index, because the caller picked it a frame ago and the list can have moved since.
 ///
 /// The entities are not despawned here. `redraw_stamps` rebuilds the whole stamped set from
-/// `map.stamps`, so there is one place that turns a stamp list into pictures rather than two that
-/// could disagree about what is on screen — the same argument the undo arms make.
-fn delete_stamp(id: &str,
-    open: &mut OpenMap, state: &mut EditorState) {
-    let Some(index) = open.map.stamps.iter().position(|s| s.id == id) else {
-        // Not an error worth a banner: the author clicked something that has since gone, which undo
-        // and a second click can both produce.
-        state
-            .status
-            .note(format!("`{id}` is not on this map any more"));
+/// `map.stamps` on every change, so there is one place that turns a stamp list into pictures.
+fn delete_stamp(id: &str, project: &Project, open: &mut OpenMap, state: &mut EditorState) {
+    let Some((line, summary, _)) = remove_stamp(project, open, state, id) else {
         return;
     };
-    let removed = open.map.stamps.remove(index);
-    let of = removed.of.clone();
-    state.record(Undo::UnstampedMany {
-        items: vec![(index, Box::new(removed))],
-    });
     state.status.note(format!(
-        "removed `{id}` — the whole `{of}`, not a piece of it. {} puts it back",
+        "{summary} — the whole stamp, not a piece of it. {} puts it back",
         keys::chord_text(keys::binding(Action::Undo))
     ));
+    state.record_logged(line, summary);
 }
 
 /// Bring up whatever the map already holds.
@@ -6327,9 +6329,8 @@ pub fn stamp_here_for_test(
 /// FVS-R-14's Delete arm, reachable from `tests/headless.rs` — the same split, and for the same
 /// reason: the mouse path is not drivable headless, and a test that re-implemented the body would
 /// pass while the real one was broken.
-pub fn delete_stamp_for_test(id: &str,
-    open: &mut OpenMap, state: &mut EditorState) {
-    delete_stamp(id,  &mut *open, state);
+pub fn delete_stamp_for_test(id: &str, project: &Project, open: &mut OpenMap, state: &mut EditorState) {
+    delete_stamp(id, project, open, state);
 }
 
 /// **Turn the set in hand, if there is one** — and report the angle it came to rest at.
@@ -6919,14 +6920,15 @@ fn keys(
     }
 }
 
-/// **Remove one placement, and what stands on it, through the operation registry**, so the removal is
-/// saved and logged the way an agent's is. Returns the log line, the receipt and the ids taken; `None`
-/// when the registry refused, and the refusal is a problem where the author looks.
-fn remove_placement(
+/// **Remove through the operation registry**, so the removal is saved and logged the way an agent's
+/// is. Returns the log line, the receipt and the ids taken; `None` when the registry refused, and the
+/// refusal is a problem where the author looks.
+fn remove_through(
     project: &Project,
     open: &mut OpenMap,
     state: &mut EditorState,
-    id: &str,
+    operation: &str,
+    params: serde_json::Value,
 ) -> Option<(String, String, Vec<String>)> {
     let mut ctx = crate::ops::Ctx {
         project: Some(project.clone()),
@@ -6940,11 +6942,7 @@ fn remove_placement(
         source: crate::ops::Source::Human,
         session: crate::ops::session_id(),
     };
-    let outcome = crate::ops::dispatch(
-        &mut ctx,
-        "placement_remove",
-        &serde_json::json!({"id": id}),
-    );
+    let outcome = crate::ops::dispatch(&mut ctx, operation, &params);
     if let Some(fresh) = ctx.open.take() {
         *open = fresh;
     }
@@ -6954,7 +6952,7 @@ fn remove_placement(
             operation_id,
             ..
         }) => {
-            // **What was taken**, as the registry recorded it: the piece and what stood on it.
+            // **What was taken**, as the registry recorded it: the piece and what stood on it, or the stamp.
             let ids = outcome
                 .after
                 .as_ref()
@@ -6973,6 +6971,26 @@ fn remove_placement(
             None
         }
     }
+}
+
+/// **One placement, and what stands on it.** See [`remove_through`].
+fn remove_placement(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+) -> Option<(String, String, Vec<String>)> {
+    remove_through(project, open, state, "placement_remove", serde_json::json!({"id": id}))
+}
+
+/// **One stamp, whole.** See [`remove_through`].
+fn remove_stamp(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+) -> Option<(String, String, Vec<String>)> {
+    remove_through(project, open, state, "stamp_remove", serde_json::json!({"id": id}))
 }
 
 /// Remove the placement nearest the cursor, within a piece's own reach.
