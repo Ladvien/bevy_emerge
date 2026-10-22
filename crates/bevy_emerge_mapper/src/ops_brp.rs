@@ -374,6 +374,7 @@ fn operation_apply(
     In(p): In<ApplyParams>,
     project: Option<ResMut<crate::project::Project>>,
     mut open: Option<ResMut<crate::project::OpenMap>>,
+    mut due: Option<ResMut<crate::watch::Due>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -419,6 +420,12 @@ fn operation_apply(
     // **The map goes back either way** — changed, refused, or not — so the editor's own state is
     // never left holding a half-applied edit.
     put_back(&mut open, ctx);
+    // **The screen is redrawn when the write-back saved.** The watcher adopts a file whose
+    // contents already match the open map and does nothing, so nothing else would tell the
+    // screen; a piece the agent turned stayed where it was until the editor was reopened.
+    if let (Some(due), Ok(ops::Applied::Done { outcome, .. })) = (due.as_mut(), &applied) {
+        due.map_replaced |= outcome.saved;
+    }
     match applied {
         Ok(ops::Applied::Done {
             outcome,
@@ -460,6 +467,7 @@ fn operation_undo(
     In(p): In<UndoParams>,
     project: Option<ResMut<crate::project::Project>>,
     mut open: Option<ResMut<crate::project::OpenMap>>,
+    mut due: Option<ResMut<crate::watch::Due>>,
 ) -> Result<Value, String> {
     if p.dry_run {
         // **A preview reads the log and plans the inverse, and writes nothing.**
@@ -493,6 +501,10 @@ fn operation_undo(
     let undone = ops::undo(&mut ctx, p.operation_id.as_deref());
     // **The map goes back either way**, so a refused undo leaves the editor holding what it held.
     put_back(&mut open, ctx);
+    // **Redrawn for the same reason as `operation_apply`:** the watcher ignores the write-back.
+    if let (Some(due), Ok((_, ops::Applied::Done { outcome, .. }))) = (due.as_mut(), &undone) {
+        due.map_replaced |= outcome.saved;
+    }
     Ok(match undone {
         Ok((
             plan,
