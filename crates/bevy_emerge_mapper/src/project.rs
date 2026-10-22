@@ -951,12 +951,12 @@ impl OpenMap {
                 // **The map is now the new file, whatever the removal did.** The write landed, so the
                 // caller must not treat this as a save that never happened — it moves the map's
                 // name and path together, or it leaves a name that no file holds.
-                self.map_path = path.clone();
+                let old = std::mem::replace(&mut self.map_path, path.clone());
                 return Err(format!(
                     "saved as `{}`, but the old file {} could not be removed: {e}. Delete it by hand \
                      — until then the list shows this map twice.",
                     self.map.name,
-                    path.display()
+                    old.display()
                 ));
             }
         } else {
