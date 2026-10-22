@@ -7661,7 +7661,7 @@ fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorS
             });
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
-            state.status.problem(e.0);
+            state.status.problem(format!("cannot rename the map: {}", e.0));
         }
     }
 }

@@ -60,11 +60,12 @@ struct Site {
 /// empty, a placement that had nowhere legal to go, a token that had nowhere to land, an id that
 /// was already taken, an endpoint that was not configured, a piece with no width to align.
 const REFUSALS: &[Site] = &[
-    // **The rename's wording is minted in `ops::map_rename`, which has no slot of its own.** It
-    // becomes a problem at the registry arm in `rename_map`, so that is the site this row names.
+    // **The rename's wording is minted in `ops::map_rename`, and `rename_map` gives it its own**
+    // frame, "cannot rename the map". That frame is the marker, so this row fails if the refusal
+    // is routed anywhere but a problem, and cannot be satisfied by an unrelated `problem(e.0)`.
     Site {
         file: "editor.rs",
-        marker: "state.status.problem(e.0);",
+        marker: "cannot rename the map: {}",
     },
     Site {
         file: "editor.rs",
