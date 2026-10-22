@@ -110,7 +110,12 @@ const STACK: f32 = chrome::GAP_ROW;
 /// How wide a cluster of bare chords grows before it wraps. Badges within a cluster are ordinary
 /// flow children of a wrapping row, so this is the only number deciding a cluster's shape — and two
 /// badges at one anchor cannot overlap by construction.
-const CLUSTER_W: f32 = 132.0;
+///
+/// Sized for the widest row the platform draws. Off macOS a chord reads `Ctrl+` where macOS reads
+/// `Cmd+`, one glyph wider, and the MAP Title's three keycaps (`N`, `Ctrl+S`, `Ctrl+\`) overran the old
+/// 132 px cap by under 2 px. The cluster then wrapped to three rows, which a band cannot hang level,
+/// so the badge was clamped off its control (`a_badge_in_a_band_is_level_with_its_control`, B-035).
+const CLUSTER_W: f32 = 140.0;
 
 /// How wide a legend's descriptions may run before they wrap — a **cap**, not a width.
 ///
