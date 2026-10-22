@@ -221,3 +221,73 @@ fn a_person_removes_a_box_of_pieces_and_one_cmd_z_puts_them_all_back_in_order() 
         "the file agrees with the editor after the undo"
     );
 }
+
+#[test]
+fn a_box_over_a_stack_leaves_the_piece_between_its_rows() {
+    // **The rider sits at a lower row than its host.** Row 0 is the rider, row 1 a piece apart, and
+    // row 2 the host it stands on. The box covers the pair and not the piece at row 1. Removing by
+    // the rows the box found takes the host, which takes the rider with it, which shifts the piece
+    // at row 1 down to row 0 just before the next index is read. That index then removes the piece
+    // the box never covered. It must survive.
+    let root = fixtures::Fixture::new("person_box_stack_rows")
+        .descriptor("site/wall", "alpha")
+        .place_on("site/wall", "site/wall@2", (6.0, 0.0))
+        .place("site/wall", (3.0, 5.0))
+        .place("site/wall", (6.0, 0.0))
+        .build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    app.init_resource::<Script>();
+    app.world_mut().spawn((Window::default(), PrimaryWindow));
+    app.add_systems(PreUpdate, drive.after(InputSystems));
+    for _ in 0..8 {
+        app.update();
+    }
+    assert_eq!(
+        held(&app).placements[0].on.as_deref(),
+        Some("site/wall@2"),
+        "the fixture starts with the piece at row 0 standing on the host at row 2"
+    );
+
+    let from = pixel_over(&mut app, (4.5, -1.0));
+    let to = pixel_over(&mut app, (7.0, 1.0));
+    step(
+        &mut app,
+        Frame {
+            keys: vec![KeyCode::KeyX],
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(from),
+            mouse: Some(true),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(to),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(to),
+            mouse: Some(false),
+            ..default()
+        },
+    );
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@1"],
+        "the box took the stack, and the piece between its rows stayed"
+    );
+    assert_eq!(
+        ids(&on_disk(&app)),
+        ["site/wall@1"],
+        "the file agrees with the editor"
+    );
+}

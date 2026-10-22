@@ -5383,14 +5383,21 @@ fn drive_removal(
     // **Each piece goes through the registry, back to front.** Removing an earlier row shifts every
     // later one down, so a forward pass would delete the wrong pieces the moment the box held more
     // than one. The stamps follow, back to front by index, for the same reason.
-    let mut logged: Vec<Undo> = Vec::with_capacity(doomed.len() + stamps.len());
+    // **Each piece is taken by id, not by row.** A removal shifts every later row down, and a stack
+    // goes whole: taking a host takes the riders on it, which can sit at a lower row than the host.
+    // A row the box found a moment ago may therefore hold a different piece by its turn. The ids are
+    // collected from the rows the box found, before anything moves, and an id already gone is skipped.
+    let doomed_ids: Vec<String> = doomed
+        .iter()
+        .filter_map(|i| open.map.placements.get(*i).map(|p| p.id.clone()))
+        .collect();
+    let mut logged: Vec<Undo> = Vec::with_capacity(doomed_ids.len() + stamps.len());
     let (mut n, mut m) = (0usize, 0usize);
-    for i in doomed.iter().rev() {
-        let Some(piece) = open.map.placements.get(*i) else {
+    for id in doomed_ids.iter().rev() {
+        if !open.map.placements.iter().any(|p| &p.id == id) {
             continue;
-        };
-        let id = piece.id.clone();
-        let Some((line, summary, ids)) = remove_placement(&project, &mut open, &mut state, &id) else {
+        }
+        let Some((line, summary, ids)) = remove_placement(&project, &mut open, &mut state, id) else {
             continue;
         };
         for (entity, mark) in &placed {
