@@ -485,3 +485,56 @@ fn a_drag_released_outside_the_window_is_cleared() {
         "the refusal must say why nothing was snipped, got: {problem:?}"
     );
 }
+
+/// **The cursor the record reads is where the drag was released.** The person may move the pointer while
+/// the note is typed; the ground point the record keeps must not follow it to Enter.
+#[test]
+fn the_record_reads_the_cursor_where_the_drag_was_released() {
+    let mut app = editor("snip_release_cursor");
+    for _ in 0..3 {
+        app.update();
+    }
+    let release = Vec2::new(420.0, 260.0);
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::Backslash],
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(Vec2::new(200.0, 120.0)),
+            mouse: Some(true),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(release),
+            mouse: Some(false),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(Vec2::new(600.0, 400.0)),
+            ..default()
+        },
+    );
+    app.update();
+
+    let pending = app
+        .world()
+        .resource::<bevy_emerge_mapper::snip::SnipEdit>()
+        .pending
+        .clone()
+        .expect("the release leaves the rectangle waiting for its note");
+    assert_eq!(
+        pending.release, release,
+        "the cursor is read where the drag was released, not where the pointer is now"
+    );
+}

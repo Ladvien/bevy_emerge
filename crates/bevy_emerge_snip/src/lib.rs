@@ -91,7 +91,7 @@ pub struct SnipRecord {
     pub picture_file: String,
     /// Where the map camera was looking. None on a door with no map camera.
     pub camera: Option<CameraView>,
-    /// The cursor on the ground plane, in world metres. None when it was off the map.
+    /// The ground point under the pointer where the drag was released, in world metres. None when that point was off the map.
     pub cursor_world: Option<[f32; 3]>,
     /// The placements whose position is inside the dragged rectangle.
     pub placements: Vec<PlacedIn>,

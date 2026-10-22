@@ -46,6 +46,9 @@ const NOTE_CAP: usize = 200;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pending {
     pub rect: [f32; 4],
+    /// Where the button came up, in surface pixels. The record reads the cursor on the ground here, so
+    /// moving the pointer while the note is typed does not move the record.
+    pub release: Vec2,
     pub note: String,
 }
 
@@ -176,6 +179,7 @@ pub fn snip_pointer(
     snip.armed = false;
     snip.pending = Some(Pending {
         rect,
+        release: here,
         note: String::new(),
     });
 }
@@ -248,7 +252,6 @@ pub fn snip_commit(
     open: Option<Res<OpenMap>>,
     can_render: Option<Res<CanRender>>,
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
-    pointer: Res<Pointer>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     placed: Query<(&Placement, &GlobalTransform)>,
     mut commands: Commands,
@@ -298,7 +301,7 @@ pub fn snip_commit(
             translation: cam_tf.translation().to_array(),
             forward: cam_tf.forward().as_vec3().to_array(),
         });
-        cursor_world = cursor_ground(pointer.0, cam, cam_tf).map(|v| v.to_array());
+        cursor_world = cursor_ground(Some(pending.release), cam, cam_tf).map(|v| v.to_array());
         for (placement, tf) in &placed {
             let Ok(at) = cam.world_to_viewport(cam_tf, tf.translation()) else {
                 continue;
