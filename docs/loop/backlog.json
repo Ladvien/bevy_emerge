@@ -134,9 +134,9 @@
       "id": "E-013",
       "kind": "enhancement",
       "area": "editor",
-      "status": "open",
+      "status": "shipped",
       "title": "The person's Cmd+Z cannot reject an agent's change; only emerge_undo_operation can",
-      "evidence": "Agent applies go to the log but not to EditorState's stack. User problem: the developer sees an agent's change and wants it gone; frequency: every agent proposal they dislike; saving: one keystroke instead of asking the agent; risk: ordering the agent's lines against the person's stack, and a second front end for the same undo."
+      "evidence": "Agent applies go to the log but not to EditorState's stack. User problem: the developer sees an agent's change and wants it gone; frequency: every agent proposal they dislike; saving: one keystroke instead of asking the agent; risk: ordering the agent's lines against the person's stack, and a second front end for the same undo. Shipped in 4364dd4 (one undo history): Cmd+Z takes back an agent pin or turn. Report docs/loop/iterations/2026-10-22-undo-4364dd4.md."
     },
     {
       "last_failure": "",
@@ -284,22 +284,6 @@
       "shipped_in": "8389191"
     },
     {
-      "id": "B-019",
-      "kind": "bug",
-      "area": "mcp",
-      "title": "An agent's placement_set_pin is not on the Cmd+Z stack, so Cmd+Z says 'nothing to undo' for a change the agent made",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "Live 2026-10-22 (target/loop/2026-10-22-fcc4e02/live/agent-states.json, key 'cmdz'): after emerge_apply_operation placement_set_pin, Cmd+Z reports status 'nothing to undo' and the file keeps owned:true. The brief asks for both front ends to undo with Cmd+Z. emerge_undo_operation does undo it (oplog line 35 undoes line 34). Same shape for placement_set_yaw inside a capture sequence (yaw iteration 2026-10-22): three sequence applies were logged (seq 110-112), each turning wall_02_2 to 90 deg. A live undo of a sequence turn was not run; the undo path is shown only by tests/placement_set_yaw.rs. undo_depth stays 0 after the turn, so it is not on the Cmd+Z stack."
-      },
-      "status": "open",
-      "evidence": "target/loop/2026-10-22-fcc4e02/live/agent-states.json (cmdz); crates/bevy_emerge_mcp/src/docs.rs emerge_undo_operation",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
       "id": "B-020",
       "kind": "bug",
       "area": "mcp",
@@ -343,7 +327,7 @@
         "evidence": "Since 6aa6185, R and T dispatch placement_set_yaw, which appends an oplog line. The editor also keeps its Undo::Turned record so Cmd+Z still takes the turn back. One human turn is therefore two records that undo through two stacks. No defect was observed in a live run; the duplicate is inferred from reading the code and is a design question for one undo history (E-013, B-019)."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs Undo::Turned; crates/bevy_emerge_mapper/src/ops.rs placement_set_yaw; commit 6aa6185 message",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs Undo::Turned; crates/bevy_emerge_mapper/src/ops.rs placement_set_yaw; commit 6aa6185 message. Partly addressed by 4364dd4 (one history). Gap: no test shows a human turn writes one entry, not two.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
@@ -391,7 +375,23 @@
         "no_workaround": false,
         "evidence": "lat.py n=4 at 837bfc8 / 6aa6185 / a862342: 132 / 162 / 245 ms median, still well under the ~1 s target. Not interleaved, noisy machine; not reproduced. One yes: not must-fix."
       },
-      "evidence": "docs/loop/iterations/2026-10-22-yaw-6aa6185.md Performance. Next: interleaved A/B (both orders, /tmp/emerge_ab/ab.py pattern) of the file path on base vs HEAD; confirm or close.",
+      "evidence": "docs/loop/iterations/2026-10-22-yaw-6aa6185.md Performance. Next: interleaved A/B (both orders, /tmp/emerge_ab/ab.py pattern) of the file path on base vs HEAD; confirm or close. 2026-10-22 interleaved A/B (ab98e7d vs 4364dd4, BRP state-level): file->state 20.22 -> 19.01 ms (t=-0.20); file first still 308 -> 340 ms (t~-0.78, n=6). Not reproduced at this level; photon-to-present not measured, so still unconfirmed.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-026",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A refused undo of a stale entry drops that entry for good, so the next Cmd+Z reaches an older change",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "Judgment: 1 of 3 (no_workaround only), not must-fix. Reached when an agent changes a piece after the person, then the person undoes the older change; the entry is not in the editor stack afterwards (the oplog still has it for emerge_undo_operation)."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs undo() pops state.undo (line 6929) before apply; a refused apply returns None and nothing is pushed back (6933-6935). Found by code reading 2026-10-22; not reproduced live.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     }
