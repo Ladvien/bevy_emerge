@@ -157,3 +157,33 @@ fn an_unknown_field_is_refused() {
         "a refused turn changes nothing"
     );
 }
+
+#[test]
+fn an_unrelated_hand_edit_does_not_block_the_undo_of_a_turn() {
+    let mut app = editor("agent_turns_hand_edit");
+    let id = held(&app).placements[0].id.clone();
+    let answer = apply(&mut app, serde_json::json!({"id": id, "yaw": 90.0}));
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let operation_id = answer["operation_id"]
+        .as_str()
+        .expect("an apply returns its id")
+        .to_owned();
+
+    // **A piece added by hand, outside the log, after the turn.** It is not the turned piece, so
+    // it must not block the turn's undo.
+    let mut added = held(&app).placements[0].clone();
+    added.id = "hand-added".to_owned();
+    app.world_mut()
+        .resource_mut::<OpenMap>()
+        .map
+        .placements
+        .push(added);
+
+    let back = undo(&mut app, Some(&operation_id));
+    assert_eq!(back["outcome"], "applied", "{back}");
+    assert_eq!(
+        held(&app).placements[0].yaw,
+        0.0,
+        "undo turns the turned piece back"
+    );
+}

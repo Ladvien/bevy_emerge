@@ -12,7 +12,7 @@ The palette lists the pieces the kit provides. **Up** and **Down** walk it, and 
 
 - **Click** to put the armed piece down, on the grid.
 - **Hold Alt** and click to put down one piece exactly where the cursor is, not snapped to the grid.
-- **R** and **T** turn the piece left and right, in 15-degree steps. Each step is saved to the map file at once and logged as the operation `placement_set_yaw`. **Y** and **U** tip it along the two horizontal axes. **V** puts it back to the rotation and tip it was authored at.
+- **R** and **T** turn the facing in 15-degree steps. With a piece armed to place, they turn that piece before it is placed, and nothing is saved until you place it. With the cursor over a placed piece, each step is saved to the map file at once and logged as the operation `placement_set_yaw`. **Y** and **U** tip it along the two horizontal axes. **V** puts it back to the rotation and tip it was authored at.
 - **[** and **]** lift and lower the piece.
 - **J** moves the grid to the next rung: tile, fine, finer. The fine rungs are 0.333 m and 0.111 m on the default lattice; tile is 1.000 m.
 
@@ -44,7 +44,7 @@ Agents pin through the same operation, `placement_set_pin`, and must give a reas
 
 **Cmd+Z** takes back the last edit on the map. **Shift+Cmd+Z** puts it back.
 
-An agent's edits are logged too, and `emerge_undo_operation` takes one back. Cmd+Z does not see an agent's edit yet: after an agent applies `placement_set_pin` or `placement_set_yaw`, Cmd+Z reports "nothing to undo". This is open as B-019 in `docs/loop/backlog.json`. Until it is fixed, take an agent's edit back with `emerge_undo_operation`. A turn you make on the Map door is on both histories: Cmd+Z reverts it on the editor's stack, and the operation log keeps its own record of it.
+An agent's edits are logged too, and `emerge_undo_operation` takes one back. Cmd+Z does not see an agent's edit yet: after an agent applies `placement_set_pin` or `placement_set_yaw`, Cmd+Z takes back the last edit on the editor's own stack, which may be a different edit, and the agent's change stays on the map. This is open as B-019 in `docs/loop/backlog.json`. Until it is fixed, take an agent's edit back with `emerge_undo_operation`. A turn you make on the Map door is on both histories: Cmd+Z reverts it on the editor's stack, and the operation log keeps its own record of it.
 
 ## Stack
 

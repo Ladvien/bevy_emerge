@@ -11,7 +11,7 @@ The editor is how a level designer builds a map out of a kit: the meshes, the ti
 | [Framing and the camera](framing-and-camera.md) | Where the camera starts, panning, turning and zooming, and framing from an agent |
 | [Agents and the MCP server](agents-and-mcp.md) | Driving the editor from an agent, with the same undo history a person uses |
 | [Keys](keys.md) | Every key, when it applies, and what it does |
-| [Demo](demo.md) | The recording in the README, and how it was made |
+| [Demo](../../README.md#the-editor) | The recording in the README: an agent framing a region, then turning a placement |
 | [The iteration loop](loop.md) | How the editor's changes are proposed, proved and recorded |
 
 ## Watch it first

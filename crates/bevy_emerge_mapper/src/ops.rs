@@ -322,6 +322,13 @@ pub trait Operation: 'static {
     fn state(&self, _ctx: &Ctx) -> Option<serde_json::Value> {
         None
     }
+
+    /// **The same part, as the change recorded it in `after`**, for an operation whose change
+    /// touches one part of the map. An undo compares only that part, so an unrelated edit made
+    /// by hand does not block it. Defaults to the whole [`Operation::state`].
+    fn state_of(&self, ctx: &Ctx, _after: &serde_json::Value) -> Option<serde_json::Value> {
+        self.state(ctx)
+    }
 }
 
 /// **Every operation the editor knows, in one list.**
@@ -558,8 +565,10 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
         )));
     };
     // **Guard 2: the state is what the line left, or something changed it since.**
-    if let (Some(left), Some(now)) = (line.after.as_ref(), op.state(ctx))
-        && *left != now
+    if let (Some(left), Some(now)) = (
+        line.after.as_ref(),
+        line.after.as_ref().and_then(|a| op.state_of(ctx, a)),
+    ) && *left != now
     {
         // **A logged change is named first**: an undo or redo of another change to this map can
         // be what moved the state, and blaming an edit outside the log would be false.
@@ -1354,6 +1363,17 @@ pub mod placement_set_yaw {
             ctx.open.as_ref().map(yaws_of)
         }
 
+        /// **The turned piece's facing now**, against the one its change recorded. A log line
+        /// without a piece id (written before this was scoped) falls back to the whole map.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let Some(id) = after.get("id").and_then(serde_json::Value::as_str) else {
+                return self.state(ctx);
+            };
+            let open = ctx.open.as_ref()?;
+            let p = open.map.placements.iter().find(|q| q.id == id)?;
+            Some(json!({"id": p.id, "yaw": p.yaw}))
+        }
+
         fn plan(
             &self,
             ctx: &Ctx,
@@ -1405,13 +1425,15 @@ pub mod placement_set_yaw {
                     open.map.placements[index].yaw = old_yaw;
                     ctx.open = Some(open);
                     return Err(Refusal::new(format!(
-                        "the turn was made but the file refused it, so nothing was written: {e}"
+                        "the file refused the turn, so nothing was written and the facing is unchanged: {e}"
                     )));
                 }
             };
             let inverse = json!({"id": p.id, "yaw": old_yaw});
             ctx.open = Some(open);
-            let after = ctx.open.as_ref().map(yaws_of);
+            // **Only the turned piece is recorded**: an undo checks that piece, not the whole map,
+            // so an unrelated edit made by hand cannot block it.
+            let after = Some(json!({"id": p.id, "yaw": yaw}));
             Ok(Outcome {
                 summary,
                 affected: 1,

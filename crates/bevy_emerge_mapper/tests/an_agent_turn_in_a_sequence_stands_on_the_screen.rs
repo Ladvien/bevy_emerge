@@ -81,12 +81,17 @@ fn an_operation_inside_a_sequence_is_redrawn_on_the_screen() {
     }
     let _ = std::fs::remove_dir_all(&out);
 
-    // **The turn applied, so the piece is turned in the state.** A test that only checked the
-    // picture would pass on a refusal, so the sequence's own answer is read first.
+    // **The turn applied, so the piece is turned in the state.** A refused turn leaves the picture
+    // unchanged, so the picture alone cannot tell a refusal from a redraw: the sequence's own
+    // answer is read, and it must say the turn was applied.
     let finished = status.get("status").and_then(|s| s.as_str());
     assert!(
         matches!(finished, Some("done") | Some("failed")),
         "the sequence did not finish: {status}"
+    );
+    assert_eq!(
+        status["operation_result"]["outcome"], "applied",
+        "the sequence's turn was not applied: {status}"
     );
 
     for _ in 0..8 {
