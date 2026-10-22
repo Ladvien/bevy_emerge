@@ -277,12 +277,23 @@ impl Emerge {
     /// captures go under `target/loop/<date>-<sha>/`, and **the project directory is where the
     /// editor's own data lives** — so a capture is written beside the project, under `target`,
     /// and never into the project's own data.
-    fn capture_dir(&self, label: &str) -> std::path::PathBuf {
-        self.project
+    ///
+    /// **The label is checked first, because it is joined into the path.** A label with `..`, a
+    /// leading `/`, or an empty part would put the picture outside `captures`, or replace the
+    /// base path with an absolute one. A refused label is answered before the editor is asked.
+    fn capture_dir(&self, label: &str) -> Result<std::path::PathBuf, String> {
+        if !is_capture_label(label) {
+            return Err(format!(
+                "`{label}` is not a capture label. Use letters, digits, `_` and `-`, with `/` \
+                 between the parts; no empty part, `.` or `..`."
+            ));
+        }
+        Ok(self
+            .project
             .join("target")
             .join("loop")
             .join("captures")
-            .join(label)
+            .join(label))
     }
 
     /// **A name for a capture, unique enough that two do not collide.**
@@ -505,6 +516,11 @@ impl Emerge {
         &self,
         Parameters(p): Parameters<StillParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        // **The label first**: a refused label is answered before the editor is asked anything.
+        let dir = match self.capture_dir(&p.label) {
+            Ok(dir) => dir,
+            Err(e) => return Ok(refusal(&e)),
+        };
         // **The state first**, so the picture and the state are the same moment as near as the
         // editor can make them.
         let state = self
@@ -518,7 +534,6 @@ impl Emerge {
         };
         // **The file, written here.** A directory per label, and a name that says when it was
         // taken, so two captures never collide.
-        let dir = self.capture_dir(&p.label);
         if let Err(e) = std::fs::create_dir_all(&dir) {
             return Ok(refusal(&format!("{}: {e}", dir.display())));
         }
@@ -569,7 +584,10 @@ impl Emerge {
         &self,
         Parameters(p): Parameters<SequenceParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let dir = self.capture_dir(&p.label);
+        let dir = match self.capture_dir(&p.label) {
+            Ok(dir) => dir,
+            Err(e) => return Ok(refusal(&e)),
+        };
         if let Err(e) = std::fs::create_dir_all(&dir) {
             return Ok(refusal(&format!("{}: {e}", dir.display())));
         }
@@ -782,6 +800,20 @@ fn refusal(why: &str) -> CallToolResult {
     CallToolResult::structured_error(json!({"refused": why}))
 }
 
+/// **Is this a capture label that can be a path under `captures`?** Letters, digits, `_` and `-`
+/// in parts, with `/` between them. No part is empty, so there is no leading or trailing `/` and
+/// no `//`; no part is `.` or `..`, because `.` is not a character a label may use. A `\` or an
+/// absolute path fails for the same reason.
+fn is_capture_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.split('/').all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+}
+
 #[tool_handler]
 impl rmcp::ServerHandler for Emerge {
     /// **A tool that does not exist is refused with the list of the ones that do.**
@@ -885,4 +917,35 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
 fn base64_encode(bytes: &[u8]) -> String {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[cfg(test)]
+mod capture_label_tests {
+    use super::is_capture_label;
+
+    #[test]
+    fn a_label_under_the_captures_directory_is_accepted() {
+        for label in ["phase0-base", "town/house_cottage_plaster", "snip_check"] {
+            assert!(
+                is_capture_label(label),
+                "`{label}` should be a capture label"
+            );
+        }
+    }
+
+    #[test]
+    fn a_label_that_could_leave_the_directory_is_refused() {
+        for label in [
+            "",
+            "../escape",
+            "a/../b",
+            "/tmp/escape",
+            "a//b",
+            "a/",
+            "bad.label",
+            "a\\b",
+        ] {
+            assert!(!is_capture_label(label), "`{label}` should be refused");
+        }
+    }
 }

@@ -374,3 +374,31 @@ fn the_frame_tool_says_it_only_moves_the_camera() {
         "the refusal does not say the editor was not there: {text}"
     );
 }
+
+/// **A capture label is a path, so one that leaves the project is refused before the editor is
+/// asked.** `captures/../escape` and `/tmp/escape` must not reach the disk: with no editor
+/// running, the only answer that can be right is the label's refusal, not the editor's.
+#[test]
+fn a_capture_label_that_leaves_the_project_is_refused_before_the_editor_is_asked() {
+    let mut server = Server::start();
+    for label in ["../escape", "/tmp/escape"] {
+        let answer = server.call("emerge_capture_still", json!({"label": label}));
+        assert!(
+            answer.get("error").is_none(),
+            "refused at the protocol level: {answer}"
+        );
+        assert_eq!(
+            answer["result"]["isError"].as_bool(),
+            Some(true),
+            "{answer}"
+        );
+        let text = answer["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            text.contains("not a capture label"),
+            "a label of `{label}` was not refused as a label, so the tool may have written \
+             outside the project: {text}"
+        );
+    }
+}
