@@ -616,7 +616,7 @@ fn rows_refusal(
     match plan.line.op.as_str() {
         "placement_remove" if state.row_recorded_above(id) => Some(ops::Refusal::new(format!(
             "Undoing `{id}` would move every piece after its row, and the person has changed the map since \
-             with a change recorded by row number (a move, a turn, a lift, a tip, or a box removal). That \
+             with a change recorded by row number (a move, a turn, a lift, a tip, or a placement that replaced pieces). That \
              change would then point at the wrong piece. Have the person take their later changes back \
              (Cmd+Z) first, then undo `{id}`."
         ))),
