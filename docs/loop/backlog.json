@@ -276,11 +276,12 @@
       "id": "E-024",
       "kind": "enhancement",
       "area": "mcp",
-      "status": "open",
+      "status": "shipped",
       "title": "Migrate one unmigrated keys::Action into the operation registry, so an agent can do it and new human actions can be paid for",
       "evidence": "Unblocked by E-025's decision: Decided by the developer 2026-10-22: actions name their operation. A keys::Action counts as migrated when its binding dispatches a registered operation, checked mechanically (the action names its operation id; the parity test verifies the id against the registry and that the UI path dispatches it). The Typing guard stays, because the action stays in keys::Action. The parity test's definition of 'migrated' changes accordingly, and the allowlist keeps shrinking: lower UNMIGRATED_MAX by one per migrated action. First migration: placement_set_pin (O key, Action::OwnToggle); work in progress preserved at target/loop/wip/e024-pin-wip.patch and target/loop/wip/e024-an_agent_can_pin_a_placement.rs (3 agent tests that failed before and passed with the patch). operations_have_two_front_ends::the_allowlist_of_unmigrated_actions_only_shrinks pins UNMIGRATED_MAX = 128 and says a new non-operation action must be paid for by migrating one in the same commit. It is what blocked E-021 (Home frame key, 2026-10-21 frame iteration) and E-014's human half (2026-10-21 baseline iteration). User problem: an agent cannot perform the migrated verb today, and the person's next actions cannot land; frequency: every new human verb; saving: unblocks E-014 and E-021 and adds one agent verb; risk: the verb's undo must go through the registry like map_set_settings (see B-008's Undo::Settings). Pick a small map-changing verb with a clear inverse.",
       "last_failure": "2026-10-21 pin iteration (base 74f5085): chose placement_set_pin (O key, Action::OwnToggle). The pin verb itself passed its 3 agent tests and the editor's pin, unpin and reason paths dispatched it. Blocked by operations_have_two_front_ends: the_allowlist_of_unmigrated_actions_only_shrinks asserts UNMIGRATED == Action::ALL (every keys::Action variant is listed), so removing OwnToggle from UNMIGRATED fails unless the variant leaves the enum. Leaving the enum means rebinding O outside keys::Action, which drops the Typing-field guard (a name typed with O would pin); or redesigning the keymap so bindings name operations. Either is a design decision, not one verb. WIP patch kept outside the repo at /tmp/e024-pin-wip.patch.",
-      "first_seen": "2026-10-21"
+      "first_seen": "2026-10-21",
+      "shipped_in": "8389191"
     },
     {
       "id": "B-019",
@@ -343,6 +344,22 @@
       },
       "status": "open",
       "evidence": "target/loop/2026-10-22-fcc4e02/live (editor.log); /tmp/emerge_live/it9/probe_pin.py",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-022",
+      "kind": "bug",
+      "area": "editor",
+      "status": "open",
+      "title": "A successful undo's receipt ('restored 1 placement(s)') is shown in the red problem toast, in the refusal slot",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Phase 1 judgment 2026-10-22: blocks no (the undo happened; INSPECTOR reads 'undid 1 placement(s)'), common yes (every Cmd+Z), no_workaround no (the inspector shows the result). One yes: not must-fix."
+      },
+      "evidence": "target/loop/captures? live demo: /tmp/emerge_live/hotproj3/target/loop/captures/demo1/f006_t1.50s.png shows red toast '▲ restored 1 placement(s) (x3)' after Cmd+Z; Status::problem is for refusals only (brief, Phase 1).",
       "last_failure": "",
       "first_seen": "2026-10-22"
     }
