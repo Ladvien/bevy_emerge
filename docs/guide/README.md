@@ -16,7 +16,11 @@ The editor is how a level designer builds a map out of a kit: the meshes, the ti
 
 ## Watch it first
 
-The [README](../../README.md) embeds `docs/media/demo.mp4`, a 38-second recording of the running editor on the scratch town map. It shows the path this guide walks: open, frame, place, undo, an agent framing a region of the town, and an agent turning a placement with `placement_set_yaw`.
+The [README](../../README.md) embeds `docs/media/demo.mp4`, a 64-second recording of the running editor on the scratch town map. It shows the path this guide walks:
+- open, frame, place and undo;
+- an agent framing a region of the town;
+- an agent turning a placement with `placement_set_yaw` and removing one with `placement_remove`, each taken back with Cmd+Z;
+- the person snipping an area with Cmd+\ and a note, which an agent reads back with `emerge_list_snips`.
 
 ## Where things live
 
