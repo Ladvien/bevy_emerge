@@ -291,6 +291,22 @@
       "evidence": "d8b3d5e; tests/a_map_edited_on_disk_reaches_the_screen.rs::a_malformed_map_on_disk_is_refused_on_the_map_door; docs/loop/iterations/assets/2026-10-21-d8b3d5e/B-016-after.gif",
       "last_failure": "",
       "first_seen": "2026-10-21"
+    },
+    {
+      "id": "B-017",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "Capture labels could write outside the project, because the label was joined into the path unchecked",
+      "status": "fixed",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "../escape and /tmp/escape reached the write path; the still asked the editor before any check"
+      },
+      "evidence": "Fixed in 2bc8aef. Failing before: a_capture_label_that_leaves_the_project_is_refused_before_the_editor_is_asked panicked (label not refused). After: refused before the editor is asked; unit tests in capture_label_tests.",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
     }
   ]
 }
