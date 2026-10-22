@@ -20,6 +20,7 @@ concurrency:
   cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
+  CARGO_PROFILE_DEV_DEBUG: 0
 jobs:
   test:
     name: test (workspace)
@@ -34,7 +35,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - run: xvfb-run -a cargo test --workspace 2>&1 | tee test-output.txt
+      - shell: bash
+        run: xvfb-run -a cargo test --workspace 2>&1 | tee test-output.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
