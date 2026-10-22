@@ -429,6 +429,9 @@ pub struct UndoPlan {
     pub line: Entry,
     /// **The parameters dispatched.**
     pub inverse: serde_json::Value,
+    /// **Whether this puts the change back into effect** (a redo) rather than taking it back. The
+    /// editor's history records a put-back as its newest change, exactly as it records a new one.
+    pub restores: bool,
 }
 
 /// **Which change an undo takes back, and the parameters that do it.**
@@ -620,6 +623,7 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
         change: chain.to_owned(),
         line: line.clone(),
         inverse,
+        restores: !in_effect.contains(chain),
     })
 }
 

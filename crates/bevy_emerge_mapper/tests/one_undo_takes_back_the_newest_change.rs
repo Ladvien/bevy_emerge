@@ -10,6 +10,7 @@
 
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
+use bevy_emerge_mapper::editor::Placement;
 use bevy_emerge_mapper::project::OpenMap;
 
 mod fixtures;
@@ -203,4 +204,239 @@ fn cmd_z_does_not_undo_a_resize_the_agent_already_took_back() {
         problems.iter().any(|p| p.contains("took it back")),
         "the refusal did not reach the author's problem slot: {problems:?}"
     );
+}
+
+/// An editor with the agent's BRP methods registered, as the MCP server reaches them.
+fn agent_editor(tag: &str) -> App {
+    let mut app = editor(tag);
+    app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
+    app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
+    for _ in 0..8 {
+        app.update();
+    }
+    app
+}
+
+/// **Through the registered method**, as an agent's request goes.
+fn agent_call(app: &mut App, method: &str, params: serde_json::Value) -> serde_json::Value {
+    use bevy::remote::{RemoteMethodSystemId, RemoteMethods};
+    let Some(RemoteMethodSystemId::Instant(id)) =
+        app.world().resource::<RemoteMethods>().get(method).cloned()
+    else {
+        panic!("no method `{method}` is registered, so an agent cannot reach it");
+    };
+    app.world_mut()
+        .run_system_with(id, Some(params))
+        .unwrap_or_else(|e| panic!("{method}: {e:?}"))
+        .unwrap_or_else(|e| panic!("{method}: {e:?}"))
+}
+
+/// **B-019.** A person resizes the map, an agent turns a piece, and the person presses Cmd+Z.
+/// The newest change is the agent's turn, so Cmd+Z takes the turn back and the resize stays. It
+/// took the resize back and left the turn standing, because the agent's change never reached the
+/// editor's stack.
+#[test]
+fn cmd_z_after_an_agents_turn_takes_back_the_turn_and_not_the_resize() {
+    let mut app = agent_editor("undoagentturn");
+    bevy_emerge_mapper::editor::run_for_test(app.world_mut(), "fence", (0.0, 0.0), (8.0, 0.0));
+    app.update();
+    let start = map(&app);
+    let id = start.placements[0].id.clone();
+    let start_yaw = start.placements[0].yaw;
+    let agent_yaw = if start_yaw == 33.0 { 34.0 } else { 33.0 };
+
+    resize(&mut app, 'y', "44");
+    assert_eq!(
+        map(&app).bounds.1,
+        44.0,
+        "the size field did not resize the map"
+    );
+
+    let start_rot = screen_rotation(&mut app, &id);
+
+    let turned = agent_call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({
+            "operation": "placement_set_yaw",
+            "parameters": {"id": id, "yaw": agent_yaw},
+            "dry_run": false,
+        }),
+    );
+    assert_eq!(turned["outcome"], "applied", "the agent's turn: {turned}");
+    assert_eq!(map(&app).placements[0].yaw, agent_yaw);
+    app.update();
+    assert!(
+        screen_rotation(&mut app, &id).angle_between(start_rot) > 0.005,
+        "the agent's turn was saved, but the piece on screen did not turn"
+    );
+
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert_eq!(
+        map(&app).placements[0].yaw,
+        start_yaw,
+        "Cmd+Z after an agent's turn must take the turn back; it left the agent's change standing"
+    );
+    assert_eq!(
+        map(&app).bounds.1,
+        44.0,
+        "Cmd+Z after an agent's turn took back the person's resize, an older change"
+    );
+    assert_eq!(
+        on_disk(&app).placements[0].yaw,
+        start_yaw,
+        "the file still holds the agent's turn"
+    );
+    app.update();
+    let off_screen = screen_rotation(&mut app, &id).angle_between(start_rot);
+    assert!(
+        off_screen < 0.005,
+        "Cmd+Z took the turn back in the map and the file, but the piece on screen still shows \
+         the agent's angle ({:.1} degrees off), so the picture and the map disagree",
+        off_screen.to_degrees()
+    );
+}
+
+/// **An agent's own undo leaves the stack honest.** The agent takes its turn back, so Cmd+Z must
+/// not take it back a second time: it takes back the newest change still in effect, the resize.
+#[test]
+fn cmd_z_does_not_undo_an_agents_turn_the_agent_already_took_back() {
+    let mut app = agent_editor("undoagentturnback");
+    bevy_emerge_mapper::editor::run_for_test(app.world_mut(), "fence", (0.0, 0.0), (8.0, 0.0));
+    app.update();
+    let start = map(&app);
+    let id = start.placements[0].id.clone();
+    let start_yaw = start.placements[0].yaw;
+    let agent_yaw = if start_yaw == 33.0 { 34.0 } else { 33.0 };
+
+    resize(&mut app, 'y', "44");
+    let turned = agent_call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({
+            "operation": "placement_set_yaw",
+            "parameters": {"id": id, "yaw": agent_yaw},
+            "dry_run": false,
+        }),
+    );
+    let line = turned["operation_id"]
+        .as_str()
+        .expect("the turn's id")
+        .to_owned();
+
+    let took_back = agent_call(
+        &mut app,
+        "emerge/operation_undo",
+        serde_json::json!({"operation_id": line, "dry_run": false}),
+    );
+    assert_eq!(
+        took_back["outcome"], "applied",
+        "the agent's undo: {took_back}"
+    );
+    assert_eq!(map(&app).placements[0].yaw, start_yaw);
+
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert_eq!(
+        map(&app).placements[0].yaw,
+        start_yaw,
+        "Cmd+Z re-applied or double-undid the agent's turn"
+    );
+    assert_eq!(
+        map(&app).bounds.1,
+        start.bounds.1,
+        "Cmd+Z did not take back the newest change in effect, the resize"
+    );
+}
+
+/// **An agent puts back a turn the person took back, and Cmd+Z then takes that turn back, not the
+/// resize.** The put-back is the newest change in effect, so it is the one Cmd+Z must reach. A
+/// put-back was never logged to the person's history, so Cmd+Z reached the resize, which the guard
+/// refused, and the refusal popped the resize's entry: the resize could no longer be undone.
+#[test]
+fn cmd_z_after_an_agent_puts_back_a_turn_takes_that_turn_back_and_not_the_resize() {
+    let mut app = agent_editor("undoagentputback");
+    bevy_emerge_mapper::editor::run_for_test(app.world_mut(), "fence", (0.0, 0.0), (8.0, 0.0));
+    app.update();
+    let start = map(&app);
+    let id = start.placements[0].id.clone();
+    let start_yaw = start.placements[0].yaw;
+    let agent_yaw = if start_yaw == 33.0 { 34.0 } else { 33.0 };
+
+    resize(&mut app, 'y', "44");
+    let turned = agent_call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({
+            "operation": "placement_set_yaw",
+            "parameters": {"id": id, "yaw": agent_yaw},
+            "dry_run": false,
+        }),
+    );
+    assert_eq!(turned["outcome"], "applied", "the agent's turn: {turned}");
+
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert_eq!(
+        map(&app).placements[0].yaw,
+        start_yaw,
+        "Cmd+Z did not take the turn back"
+    );
+
+    // **The line Cmd+Z wrote is the newest in the log**, and the only one an agent may name to put
+    // the turn back.
+    let oplog = app
+        .world()
+        .resource::<bevy_emerge_mapper::project::Project>()
+        .project_dir
+        .join("oplog.jsonl");
+    let text =
+        std::fs::read_to_string(&oplog).unwrap_or_else(|e| panic!("{}: {e}", oplog.display()));
+    let undo_line = text
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("a log line"))
+        .expect("the log has lines")["operation_id"]
+        .as_str()
+        .expect("the id")
+        .to_owned();
+
+    let put_back = agent_call(
+        &mut app,
+        "emerge/operation_undo",
+        serde_json::json!({"operation_id": undo_line, "dry_run": false}),
+    );
+    assert_eq!(
+        put_back["outcome"], "applied",
+        "the agent's put-back: {put_back}"
+    );
+    assert_eq!(map(&app).placements[0].yaw, agent_yaw);
+
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert_eq!(
+        map(&app).placements[0].yaw,
+        start_yaw,
+        "Cmd+Z after an agent's put-back must take the put-back back; it took nothing, because the \
+         resize's entry was left where the guard refused it"
+    );
+    assert_eq!(
+        map(&app).bounds.1,
+        44.0,
+        "Cmd+Z after an agent's put-back took back the resize, an older change"
+    );
+
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert_eq!(
+        map(&app).bounds.1,
+        start.bounds.1,
+        "the second Cmd+Z did not reach the resize: the resize's entry was lost"
+    );
+}
+
+/// **A placed piece's rotation as the screen draws it**, by its id.
+fn screen_rotation(app: &mut App, id: &str) -> Quat {
+    let mut q = app.world_mut().query::<(&Placement, &Transform)>();
+    q.iter(app.world())
+        .find(|(placement, _)| placement.0 == id)
+        .map(|(_, transform)| transform.rotation)
+        .unwrap_or_else(|| panic!("the piece `{id}` is not on screen"))
 }

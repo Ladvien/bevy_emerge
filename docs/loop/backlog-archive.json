@@ -334,7 +334,12 @@
       "area": "mcp",
       "status": "fixed",
       "title": "An agent's saved change was never redrawn: the write-back did not tell the screen",
-      "must_fix": { "blocks": true, "common": true, "no_workaround": false, "evidence": "an_agent_turn_stands_on_the_screen failed before a862342: 'the piece on SCREEN turned 0.0 degrees' while the file and the map said 90; the workaround was reopening the editor" },
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "an_agent_turn_stands_on_the_screen failed before a862342: 'the piece on SCREEN turned 0.0 degrees' while the file and the map said 90; the workaround was reopening the editor"
+      },
       "evidence": "a862342; crates/bevy_emerge_mapper/tests/an_agent_can_drive_the_editor.rs::an_agent_turn_stands_on_the_screen. ops_brp.rs operation_apply and operation_undo now set watch::Due::map_replaced when the save lands. Pixels: 368,608 px changed on wall_02_2 after an agent turn (docs/loop/iterations/2026-10-22-yaw-6aa6185.md).",
       "last_failure": "",
       "first_seen": "2026-10-22"
@@ -345,7 +350,12 @@
       "area": "sequencer",
       "status": "fixed",
       "title": "An operation applied inside a capture sequence was never redrawn, so the sequence's frames hid it",
-      "must_fix": { "blocks": true, "common": true, "no_workaround": false, "evidence": "live: wall_02_2 yaw 0 to 90 inside emerge_capture_sequence, all 11 frames after the turn identical to f000 (0 changed px); an agent verifying its own work with a sequence saw no change" },
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "live: wall_02_2 yaw 0 to 90 inside emerge_capture_sequence, all 11 frames after the turn identical to f000 (0 changed px); an agent verifying its own work with a sequence saw no change"
+      },
       "evidence": "14fb80c; crates/bevy_emerge_mapper/tests/an_agent_turn_in_a_sequence_stands_on_the_screen.rs (failed before: the entity was never respawned, 763v0 on both sides). drive_sequencer now sets watch::Due::map_replaced. After: 368,607 px changed from f001 on.",
       "last_failure": "",
       "first_seen": "2026-10-22"
@@ -356,8 +366,29 @@
       "area": "editor",
       "status": "fixed",
       "title": "A successful undo's receipt ('restored 1 placement(s)') is shown in the red problem toast, in the refusal slot",
-      "must_fix": { "blocks": false, "common": true, "no_workaround": false, "evidence": "Phase 1 judgment 2026-10-22: blocks no (the undo happened), common yes (every Cmd+Z), no_workaround no. One yes: not must-fix; fixed as the developer's first priority because the demo showed it." },
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Phase 1 judgment 2026-10-22: blocks no (the undo happened), common yes (every Cmd+Z), no_workaround no. One yes: not must-fix; fixed as the developer's first priority because the demo showed it."
+      },
       "evidence": "Fixed in a74c897 (PR #16). Regression: replace_and_dirty::a_successful_undo_is_reported_as_a_note_not_a_problem failed before (problems == [\"restored 1 placement(s)\"]) and passes after.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-019",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "An agent's placement_set_pin is not on the Cmd+Z stack, so Cmd+Z says 'nothing to undo' for a change the agent made",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Live 2026-10-22 (target/loop/2026-10-22-fcc4e02/live/agent-states.json, key 'cmdz'): after emerge_apply_operation placement_set_pin, Cmd+Z reports status 'nothing to undo' and the file keeps owned:true. The brief asks for both front ends to undo with Cmd+Z. emerge_undo_operation does undo it (oplog line 35 undoes line 34). Same shape for placement_set_yaw inside a capture sequence (yaw iteration 2026-10-22): three sequence applies were logged (seq 110-112), each turning wall_02_2 to 90 deg. A live undo of a sequence turn was not run; the undo path is shown only by tests/placement_set_yaw.rs. undo_depth stays 0 after the turn, so it is not on the Cmd+Z stack. Judgment: author no_workaround yes (2 of 3, must-fix); fresh reviewer no (disputed, flagged). Fixed in 4364dd4, 3630155; report docs/loop/iterations/2026-10-22-undo-4364dd4.md."
+      },
+      "status": "fixed",
+      "evidence": "target/loop/2026-10-22-fcc4e02/live/agent-states.json (cmdz); crates/bevy_emerge_mcp/src/docs.rs emerge_undo_operation Regression: tests/one_undo_takes_back_the_newest_change.rs (5/5); review P1/P2 tests failed before, pass after (3630155). The B-019 test file was not run against the base commit, so failed-before is not established for it.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     }
