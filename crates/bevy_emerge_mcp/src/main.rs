@@ -671,8 +671,8 @@ impl Emerge {
                        position and the placements inside the rectangle. Each entry names its \
                        picture file, and the newest picture comes back as an image. It reads files \
                        the editor wrote, so it needs no editor running and changes nothing. Returns \
-                       how many snips there are, how many are shown, and any file in the snips \
-                       folder that is not a snip record.",
+                       how many snips there are, how many are shown, and each .json file in the \
+                       snips folder that is not a snip record or has no picture file, with the reason.",
         annotations(
             title = "List the snips the person took",
             read_only_hint = true,
@@ -695,7 +695,22 @@ impl Emerge {
             Ok(dir) => dir,
             Err(e) => return Ok(refusal(&e)),
         };
-        let (records, not_snips) = bevy_emerge_snip::read_snips(&dir);
+        let (records, mut not_snips) = bevy_emerge_snip::read_snips(&dir);
+        let mut content = Vec::new();
+        if let Some(newest) = records.first() {
+            let path = dir.join(format!("{}.png", newest.stem));
+            match std::fs::read(&path) {
+                Ok(bytes) => content.push(rmcp::model::ContentBlock::image(
+                    base64_encode(&bytes),
+                    "image/png",
+                )),
+                // **A picture that cannot be read is named, and the list still answers.**
+                Err(e) => not_snips.push(format!(
+                    "{}: the picture could not be read: {e}",
+                    path.display()
+                )),
+            }
+        }
         let shown: Vec<Value> = records
             .iter()
             .take(p.limit)
@@ -717,19 +732,9 @@ impl Emerge {
             "snips": shown,
             "not_snips": not_snips,
         });
-        let mut content = vec![rmcp::model::ContentBlock::text(
+        content.push(rmcp::model::ContentBlock::text(
             serde_json::to_string_pretty(&answer).unwrap_or_default(),
-        )];
-        if let Some(newest) = records.first() {
-            let path = dir.join(format!("{}.png", newest.stem));
-            match std::fs::read(&path) {
-                Ok(bytes) => content.insert(
-                    0,
-                    rmcp::model::ContentBlock::image(base64_encode(&bytes), "image/png"),
-                ),
-                Err(e) => return Ok(refusal(&format!("{}: {e}", path.display()))),
-            }
-        }
+        ));
         Ok(CallToolResult::success(content))
     }
 

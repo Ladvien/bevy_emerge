@@ -679,3 +679,97 @@ fn answer_text(content: &[Value]) -> Value {
         .expect("the answer has a text block");
     serde_json::from_str(text).expect("the text block is JSON")
 }
+
+/// **A folder with its own snips in it, and a fresh project path for each test.**
+fn snips_folder(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is after 1970")
+        .as_nanos();
+    let project = std::env::temp_dir().join(format!(
+        "emerge_list_snips_{name}_{}_{nanos}",
+        std::process::id()
+    ));
+    let dir = project.join("target/loop/captures/snips");
+    std::fs::create_dir_all(&dir).expect("the snips folder can be made");
+    (project, dir)
+}
+
+/// **A snip whose picture is missing is named, and the rest of the list still answers.** Before the
+/// fix the whole list was refused with "No such file or directory", so the snip that was kept came back
+/// as nothing at all.
+#[test]
+fn a_snip_whose_picture_is_missing_is_named_and_the_list_still_answers() {
+    let (project, dir) = snips_folder("missing_picture");
+    bevy_emerge_snip::write_snip(
+        &dir,
+        "snip-2000",
+        picture(),
+        [0, 0, 8, 8],
+        record("snip-2000", 2000, "kept"),
+    )
+    .expect("the kept snip is written");
+    bevy_emerge_snip::write_snip(
+        &dir,
+        "snip-1000",
+        picture(),
+        [0, 0, 8, 8],
+        record("snip-1000", 1000, "picture gone"),
+    )
+    .expect("the snip whose picture goes is written");
+    std::fs::remove_file(dir.join("snip-1000.png")).expect("the picture is removed");
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_snips", json!({}));
+    assert!(
+        answer["result"]["isError"].as_bool() != Some(true),
+        "a missing picture refused the whole list: {answer}"
+    );
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    assert_eq!(body["shown"], 1, "{body}");
+    assert_eq!(body["snips"][0]["stem"], "snip-2000", "{body}");
+    let not_snips = body["not_snips"].as_array().expect("not_snips is a list");
+    assert!(
+        not_snips
+            .iter()
+            .any(|p| p.as_str().unwrap_or_default().contains("snip-1000")),
+        "the snip whose picture is missing is not named: {body}"
+    );
+}
+
+/// **The picture is named by the record file's own name.** A record that names a stem with path
+/// separators must not send the picture outside the folder. Before the fix the stem inside the record
+/// was joined onto the folder, so the picture path pointed at `../../escape.png`.
+#[test]
+fn a_record_cannot_send_the_picture_out_of_the_snips_folder() {
+    let (project, dir) = snips_folder("escaping_stem");
+    bevy_emerge_snip::write_snip(
+        &dir,
+        "snip-4000",
+        picture(),
+        [0, 0, 8, 8],
+        record("snip-4000", 4000, "the real one"),
+    )
+    .expect("the snip is written");
+    std::fs::write(
+        dir.join("snip-4000.json"),
+        serde_json::to_string(&record("../../escape", 4000, "the stem lies"))
+            .expect("the record serialises"),
+    )
+    .expect("the record is rewritten with an escaping stem");
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_snips", json!({}));
+    assert!(
+        answer["result"]["isError"].as_bool() != Some(true),
+        "refused at the protocol level: {answer}"
+    );
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    let picture_path = body["snips"][0]["picture_path"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        picture_path.ends_with("/snip-4000.png") && !picture_path.contains(".."),
+        "the picture left the snips folder or was renamed by the record: {picture_path}"
+    );
+}

@@ -200,11 +200,31 @@ pub fn read_snips(dir: &Path) -> (Vec<SnipRecord>, Vec<String>) {
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
+        // **The file's own name names the picture.** A stem written inside the record is not
+        // trusted, because a stem with path separators would point the picture outside the folder.
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
         let read = std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|text| serde_json::from_str::<SnipRecord>(&text).map_err(|e| e.to_string()));
         match read {
-            Ok(record) => records.push(record),
+            Ok(mut record) => {
+                let png = dir.join(format!("{stem}.png"));
+                if !png.is_file() {
+                    problems.push(format!(
+                        "{} has no picture {}, so it is not listed",
+                        path.display(),
+                        png.display()
+                    ));
+                    continue;
+                }
+                record.picture_file = format!("{stem}.png");
+                record.stem = stem;
+                records.push(record);
+            }
             Err(e) => problems.push(format!("{} is not a snip record: {e}", path.display())),
         }
     }
