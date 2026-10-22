@@ -290,6 +290,18 @@ fn a_box_over_a_stack_leaves_the_piece_between_its_rows() {
         ["site/wall@1"],
         "the file agrees with the editor"
     );
+    // **The receipt counts the pieces, not the rows the box found.** The host and its rider went in
+    // one removal, so the note must say two placements. It said one until the count was fixed.
+    let said = app
+        .world()
+        .resource::<EditorState>()
+        .status
+        .note_text()
+        .to_owned();
+    assert!(
+        said.contains("removed 2 placement(s)"),
+        "the receipt counts the pieces the box took: {said}"
+    );
 }
 
 /// Three pieces, and the box takes the outer two. The piece between them stays on the map.

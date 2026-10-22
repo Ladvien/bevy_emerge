@@ -5485,7 +5485,7 @@ fn drive_removal(
             line,
             phrase: summary,
         });
-        n += 1;
+        n += ids.len();
     }
     for i in stamps.iter().rev() {
         let Some(stamp) = open.map.stamps.get(*i) else {
