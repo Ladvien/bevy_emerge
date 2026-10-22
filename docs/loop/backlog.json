@@ -193,22 +193,58 @@
     {
       "last_failure": "",
       "first_seen": "2026-10-21",
-      "id": "E-016",
-      "kind": "enhancement",
-      "area": "editor",
-      "status": "open",
-      "title": "A labelled undo history (renzora's history panel): the stack is a count only",
-      "evidence": "From the renzora/engine survey (crates/renzora_history/src/panel.rs). User problem: Cmd+Z is blind; the person cannot see what the next undo takes back; frequency: every undo; saving: no trial-and-error undos; risk: each entry needs a stored label, and a jump of N steps is N guarded undos."
-    },
-    {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
       "id": "E-017",
       "kind": "enhancement",
       "area": "mcp",
       "status": "open",
       "title": "The agent cannot frame or zoom the Map's camera; it had to inject wheel events through bevy_debugger/input",
       "evidence": "2026-10-21: to see the whole town the review injected Scroll events, a parity gap. User problem: the agent cannot look at the region it is presenting; frequency: every inspect/present step on a large map; saving: 'frame this region' as one call; risk: the camera is view state, not map data, so it is an editor command, not a logged operation."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "B-014",
+      "kind": "bug",
+      "area": "chrome",
+      "status": "open",
+      "title": "In a narrow window (about 900 logical px) the viewport is a sliver between the two fixed-width panels",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "docs/loop/iterations/assets/2026-10-21-63e6631/window-narrow.png: about 70 logical px of viewport at 1800 x 1406 physical"
+      },
+      "evidence": "Not must-fix: ordinary windows are wider, and widening the window is the workaround. Panels that shrink, or one that folds away, would fix it."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-018",
+      "kind": "enhancement",
+      "area": "editor",
+      "status": "open",
+      "title": "The full undo history as a list, with click-to-jump (the rest of renzora's history panel)",
+      "evidence": "E-016 shipped the next undo and redo, named. User problem: going back several steps is blind repetition; frequency: occasional; saving: one click instead of N Cmd+Z; risk: a jump of N steps is N guarded undos, each of which can refuse."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-019",
+      "kind": "enhancement",
+      "area": "sanctuary",
+      "status": "open",
+      "title": "Sanctuary lifts its roads in code (town.rs:60 ROAD_LIFT = 0.15), so the editor cannot know the game's draw order from data",
+      "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only)."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-020",
+      "kind": "enhancement",
+      "area": "editor",
+      "status": "open",
+      "title": "Ghosts and previews do not get draw levels, and relevel is O(n^2) per map change",
+      "evidence": "From the z-fight fix (bd5116a/63e6631): ghost/preview spawns in editor.rs and redraw_stamps get no paint or lift, so a ghost over a field can draw differently from the committed piece; relevel_placements compares every pair when the map changes (727 pieces: about 0.5 M pairs)."
     }
   ]
 }
