@@ -2,17 +2,34 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "**/*.gif"
+      - "**/*.png"
+      - "**/*.mp4"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "**/*.gif"
+      - "**/*.png"
+      - "**/*.mp4"
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
 jobs:
   test:
     name: test (workspace)
-    runs-on: [self-hosted, big]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Bevy Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libx11-dev mesa-vulkan-drivers xvfb pkg-config clang
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: xvfb-run -a cargo test --workspace
