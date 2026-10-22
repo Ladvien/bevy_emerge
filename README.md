@@ -19,6 +19,14 @@ The crates were extracted from [`foundation_vs_slop`](https://github.com/Ladvien
 
 Each crate has its own `README.md` and `CLAUDE.md`; the latter holds the crate's invariants.
 
+## The editor
+
+<video src="docs/media/demo.mp4" controls muted width="100%"></video>
+
+[![The editor placing a crate on a road tile, with the Cmd+Z undo receipt](docs/media/demo-poster.png)](docs/media/demo.mp4)
+
+[`docs/media/demo.mp4`](docs/media/demo.mp4): 26 seconds of the running editor on the scratch town map, captured at 4 frames a second. The camera is zoomed in and panned, the town houses are framed by a rectangle over MCP, a crate is placed on a road tile (which replaces the tile), Cmd+Z undoes it, and an agent frames one placement and then the whole map. The [guide](docs/guide/README.md) walks the same path with the keys and tools for each step.
+
 ## Licence
 
 MIT OR Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
