@@ -234,3 +234,140 @@ fn a_person_removes_a_piece_with_the_mouse_and_cmd_z_puts_it_back() {
         "Cmd+Shift+Z takes the piece out of the file again"
     );
 }
+
+/// Through the registered method, as an agent's request goes.
+fn call(app: &mut App, method: &str, parameters: serde_json::Value) -> serde_json::Value {
+    use bevy::remote::{RemoteMethodSystemId, RemoteMethods};
+    let Some(RemoteMethodSystemId::Instant(id)) =
+        app.world().resource::<RemoteMethods>().get(method).cloned()
+    else {
+        panic!("no method `{method}` is registered, so an agent cannot reach it");
+    };
+    app.world_mut()
+        .run_system_with(id, Some(parameters))
+        .unwrap_or_else(|e| panic!("{method}: {e:?}"))
+        .unwrap_or_else(|e| panic!("{method}: {e:?}"))
+}
+
+/// A press and a release over the same spot: one click.
+fn click(app: &mut App, at: Vec2) {
+    step(
+        app,
+        Frame {
+            pointer: Some(at),
+            mouse: Some(true),
+            ..default()
+        },
+    );
+    step(
+        app,
+        Frame {
+            pointer: Some(at),
+            mouse: Some(false),
+            ..default()
+        },
+    );
+}
+
+/// **An agent's undo of its own removal waits while the person has moved a piece since.**
+///
+/// The person's move is recorded by row number (`Undo::Moved` names each piece's index), and an
+/// undo of a removal puts a row back, so every later row moves along with it. The move is not in
+/// the operation log, so the log alone cannot see it: the undo is refused on the editor's own
+/// stack. Once the person takes the move back, the same undo is allowed again.
+#[test]
+fn an_agents_undo_of_a_removal_waits_while_the_person_has_moved_a_piece_since() {
+    let root = fixtures::Fixture::new("agent_undo_after_person_move")
+        .descriptor("site/wall", "alpha")
+        .place("site/wall", (0.0, 0.0))
+        .place("site/wall", (3.0, 0.0))
+        .place("site/wall", (6.0, 0.0))
+        .build("m");
+    let mut app = bevy_emerge_mapper::harness::build_headless(&root, "m", None)
+        .unwrap_or_else(|e| panic!("{e}"));
+    app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
+    app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
+    app.init_resource::<Script>();
+    app.world_mut().spawn((Window::default(), PrimaryWindow));
+    app.add_systems(PreUpdate, drive.after(InputSystems));
+    for _ in 0..8 {
+        app.update();
+    }
+
+    // **The agent removes the first piece.** Rows are now [@1, @2].
+    let removed = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({"operation": "placement_remove", "parameters": {"id": "site/wall@0"}, "dry_run": false}),
+    );
+    assert_eq!(removed["outcome"], "applied", "{removed}");
+    assert_eq!(ids(&held(&app)), ["site/wall@1", "site/wall@2"]);
+    let removal = log(&app)
+        .into_iter()
+        .find(|e| e.op == "placement_remove")
+        .expect("the agent's removal is in the log");
+
+    // **The person picks up the last piece and sets it down clear of the others.** B arms move mode.
+    step(
+        &mut app,
+        Frame {
+            keys: vec![KeyCode::KeyB],
+            ..default()
+        },
+    );
+    let on_last = pixel_over(&mut app, (6.0, 0.0));
+    let clear = pixel_over(&mut app, (9.0, 0.0));
+    click(&mut app, on_last);
+    click(&mut app, clear);
+    assert!(
+        held(&app)
+            .placements
+            .iter()
+            .any(|p| p.id == "site/wall@2" && p.at.0 > 7.0),
+        "the person moved @2 to the right"
+    );
+
+    // **The agent's undo would put @0 back at row 0 and push the person's moved piece along.** Refused.
+    let refused = call(
+        &mut app,
+        "emerge/operation_undo",
+        serde_json::json!({"operation_id": null, "dry_run": false}),
+    );
+    assert_eq!(refused["outcome"], "refused", "{refused}");
+    let why = refused["refusal"].as_str().unwrap_or_default();
+    assert!(
+        why.contains(&removal.operation_id),
+        "the refusal names the removal it would undo: {refused}"
+    );
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@1", "site/wall@2"],
+        "a refused undo changes nothing in the editor"
+    );
+    assert_eq!(
+        ids(&on_disk(&app)),
+        ["site/wall@1", "site/wall@2"],
+        "nor the file"
+    );
+
+    // **Once the person takes the move back, the newest thing on their stack is the removal again.**
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::KeyZ],
+            ..default()
+        },
+    );
+    step(&mut app, Frame::default());
+    let allowed = call(
+        &mut app,
+        "emerge/operation_undo",
+        serde_json::json!({"operation_id": null, "dry_run": false}),
+    );
+    assert_eq!(allowed["outcome"], "applied", "{allowed}");
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@0", "site/wall@1", "site/wall@2"],
+        "with nothing row-recorded above it, the removal's undo goes through"
+    );
+}

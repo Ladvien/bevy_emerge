@@ -282,6 +282,40 @@ impl EditorState {
         self.redo.retain(|op| !names_line(op));
     }
 
+    /// **Is a change recorded by row number sitting above a registry line's entry?** An undo of a
+    /// `placement_remove` puts a row back or takes one out, and every row-recorded change above it
+    /// names its piece by a number the undo has just moved. `Added` names its pieces from the tail,
+    /// which a row landing before them leaves alone, so it does not count. Stamps index `map.stamps`,
+    /// not placements. If the line has no entry on the stack, every entry counts: the conservative
+    /// answer when the stack cannot say where the line sits.
+    pub(crate) fn row_recorded_above(&self, line: &str) -> bool {
+        fn by_row(op: &Undo) -> bool {
+            match op {
+                Undo::RemovedMany { .. }
+                | Undo::Moved { .. }
+                | Undo::RemoveAt { .. }
+                | Undo::Turned { .. }
+                | Undo::Lifted { .. }
+                | Undo::Tipped { .. } => true,
+                Undo::Group { ops } => ops.iter().any(by_row),
+                Undo::Added { .. }
+                | Undo::Stamped { .. }
+                | Undo::UnstampedMany { .. }
+                | Undo::UnstampAt { .. }
+                | Undo::MovedStamp { .. }
+                | Undo::Pin { .. }
+                | Undo::Settings { .. }
+                | Undo::Logged { .. } => false,
+            }
+        }
+        let start = self
+            .undo
+            .iter()
+            .position(|op| matches!(op, Undo::Logged { line: l, .. } if l == line))
+            .map_or(0, |at| at + 1);
+        self.undo[start..].iter().any(by_row)
+    }
+
     /// Where the id mint stands — read-only, so the harness can check [`next_id_after`]'s seed
     /// really landed.
     pub fn minted(&self) -> u32 {

@@ -499,6 +499,10 @@ fn operation_undo(
             })?;
             op.plan(&ctx, &plan.inverse).map(|_| plan)
         });
+        let resolved = match rows_refusal(state.as_deref(), &ctx, p.operation_id.as_deref()) {
+            Some(refusal) => Err(refusal),
+            None => resolved,
+        };
         return Ok(match resolved {
             Ok(plan) => json!({
                 "operation": plan.line.op,
@@ -511,7 +515,10 @@ fn operation_undo(
         });
     }
     let mut ctx = take(&project, &open);
-    let undone = ops::undo(&mut ctx, p.operation_id.as_deref());
+    let undone = match rows_refusal(state.as_deref(), &ctx, p.operation_id.as_deref()) {
+        Some(refusal) => Err(refusal),
+        None => ops::undo(&mut ctx, p.operation_id.as_deref()),
+    };
     // **The map goes back either way**, so a refused undo leaves the editor holding what it held.
     put_back(&mut open, ctx);
     // **Redrawn for the same reason as `operation_apply`:** the watcher ignores the write-back.
@@ -556,6 +563,31 @@ fn operation_undo(
             json!({"operation": "undo", "outcome": "refused", "refusal": e.0})
         }
     })
+}
+
+/// **An undo of a placement removal waits while a row-recorded change sits above it (gap 1).** The
+/// removal's undo reinserts or drops a row, and every row-recorded change the person made after it
+/// (a move, a turn, a lift, a tip, a box removal) names its piece by row. Undoing it now would make
+/// that change move the wrong piece later. The person takes their later changes back first, and only
+/// then does the agent's undo go through. The editor's own stack holds those changes, which the
+/// operation log does not, so this checks that stack rather than the log.
+fn rows_refusal(
+    state: Option<&crate::editor::EditorState>,
+    ctx: &Ctx,
+    target: Option<&str>,
+) -> Option<ops::Refusal> {
+    let state = state?;
+    let plan = ops::undo_target(ctx, target).ok()?;
+    if plan.line.op != "placement_remove" || !state.row_recorded_above(&plan.line.operation_id) {
+        return None;
+    }
+    Some(ops::Refusal::new(format!(
+        "Undoing `{}` would move every piece after its row, and the person has changed the map since \
+         with a change recorded by row number (a move, a turn, a lift, a tip, or a box removal). That \
+         change would then point at the wrong piece. Have the person take their later changes back \
+         (Cmd+Z) first, then undo `{}`.",
+        plan.line.operation_id, plan.line.operation_id
+    )))
 }
 
 /// **`emerge/oplog_read` — the log, as lines.**
