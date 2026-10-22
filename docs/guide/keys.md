@@ -63,6 +63,8 @@ Every key the editor answers to, written from the `BINDINGS` table in `crates/be
 | `Enter` | while a proposal is waiting | keep this layout / Esc throws it away |
 | `Enter` | while picking a composition | arm this composition for the map |
 
+On a Mac laptop without a Home key, press `Fn+←` for `Home`.
+
 ## KIT · MESHES
 
 | Key | When | Does |

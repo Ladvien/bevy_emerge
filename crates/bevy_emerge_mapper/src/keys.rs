@@ -434,7 +434,9 @@ enumerated! {
         /// The Map's YAW row — the facing the turn cluster writes.
         Yaw,
         /// The Map's UNDER row — the piece under the cursor, which the piece-verbs act on and the row
-        /// exists to name.
+        /// exists to name. Home is bound here for where it sits on the Map, not for that piece:
+        /// `FrameView` frames the locked placement or the whole map and never reads the piece under
+        /// the cursor.
         Under,
         /// The TILE card in the Tiles pane — the tile being assembled, open or not: its heading is on
         /// screen in every branch, including the one that says "press N to start one".
@@ -4270,8 +4272,9 @@ mod tests {
             // while the picker has them. `Enter` is likewise free, because `AcceptProposal` holds it
             // at `Stance::Proposed` and the two stances never hold together.
             //
-            // 29 -> 30: `FrameView`, on Home. It is camera state with no document change, so it is
-            // the one Map key with no operation behind it (E-025 counts it unmigrated). It frames the
+            // 29 -> 30: `FrameView`, on Home. It is camera state with no document change, so it has
+            // no operation, and E-025 counts it unmigrated (with `LiftUp`, `Fill` and `MoveMode`, which
+            // are unmigrated for their own reasons). It frames the
             // locked placement, or the whole map, through the `resolve_frame` + `apply_frame` that
             // `emerge/frame_view` uses, and it writes no undo entry. Home is bound on the Control's
             // anchor, not the legend, which already carries eight badges.
