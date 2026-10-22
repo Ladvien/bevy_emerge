@@ -394,6 +394,42 @@
       "evidence": "crates/bevy_emerge_mapper/src/editor.rs undo() pops state.undo (line 6929) before apply; a refused apply returns None and nothing is pushed back (6933-6935). Found by code reading 2026-10-22; not reproduced live.",
       "last_failure": "",
       "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-027",
+      "kind": "bug",
+      "area": "editor",
+      "title": "An agent's forward placement_remove shifts rows under the person's row-recorded undo entries, so a later Cmd+Z may change the wrong piece",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Unreproduced. Reviewer gap 1 in the 2026-10-22 remove iteration covered the out-of-turn undo (fixed in e0c1b00); the forward direction was left open by the fixer. Judgment: LIFO order and the gap-1 refusal cover the common path; not must-fix until a repro exists."
+      },
+      "status": "open",
+      "evidence": "docs/loop/iterations/2026-10-22-remove-12b8c26.md (Deferred). Row-recorded entries: editor.rs ~7032 and ~7148; pin-reason stores a row at editor.rs ~7526 and looks it up at ~10116. Hypothesis needs a person Moved entry above an agent removal.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-029",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "Migrate X's stamp delete and box removal into the operation registry, so Action::Remove can be honestly migrated",
+      "evidence": "Blocked in 2026-10-22 remove iteration: X arms removal mode, but a stamp click still calls delete_stamp (editor.rs ~5252) and a box drag removes rows inside the editor (drive_removal). Action::Remove stays on UNMIGRATED (UNMIGRATED_MAX 125) until both go through the registry.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-030",
+      "kind": "enhancement",
+      "area": "mcp",
+      "status": "shipped",
+      "title": "An agent can remove one placement by id with placement_remove, undoable from the editor's stack",
+      "evidence": "Shipped in the 2026-10-22 remove iteration: docs/loop/iterations/2026-10-22-remove-12b8c26.md. Commits 12b8c26..57b48fe on loop/2026-10-22-remove (review gaps fixed in e0c1b00, 8f4737b, 844a0dc, 57b48fe). Gate: clippy -D warnings exit 0; workspace tests 1411 pass / 0 fail / 2 ignored.",
+      "last_failure": "",
+      "first_seen": "2026-10-22",
+      "shipped_in": "57b48fe"
     }
   ]
 }
