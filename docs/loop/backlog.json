@@ -178,7 +178,7 @@
       "area": "mcp",
       "status": "open",
       "title": "Snip: the developer drags a rectangle over the editor and the agent receives the crop plus where they were",
-      "evidence": "Asked for by the developer 2026-10-21. User problem: pointing at a visual problem means describing it in words; frequency: every visual review; saving: the agent gets the crop, map, camera, panel text and placements under the rectangle in one call; risk: a new gesture and a text field (register in editor::Fields), and snips are files in the project (confine and name them). Progress 2026-10-21 (556801e): the agent half shipped as emerge_snip { label, rect } (crop of a window-pixel rectangle, with path and state). Still open: the human drag gesture in the editor (UI state machine plus a registered operation that emits the snip). Iteration 2026-10-21-baseline-f7a8a9d did not take it: the human half needs (1) a note field registered in editor::Fields, (2) a windowed Screenshot crop inside bevy_emerge_mapper (the crop lives in bevy_emerge_mcp/src/snip.rs; move it to core rather than copy it), and (3) a decision whether a completed snip is a registry operation (it changes no map) or a documented gesture whose MCP front end is emerge_snip. Not a one-iteration slice without a reduction."
+      "evidence": "Asked for by the developer 2026-10-21. User problem: pointing at a visual problem means describing it in words; frequency: every visual review; saving: the agent gets the crop, map, camera, panel text and placements under the rectangle in one call; risk: a new gesture and a text field (register in editor::Fields), and snips are files in the project (confine and name them). Progress 2026-10-21 (556801e): the agent half shipped as emerge_snip { label, rect } (crop of a window-pixel rectangle, with path and state). Still open: the human drag gesture in the editor (UI state machine plus a registered operation that emits the snip). Iteration 2026-10-21-baseline-f7a8a9d did not take it: the human half needs (1) a note field registered in editor::Fields, (2) a windowed Screenshot crop inside bevy_emerge_mapper (the crop lives in bevy_emerge_mcp/src/snip.rs; move it to core rather than copy it), and (3) a decision whether a completed snip is a registry operation (it changes no map) or a documented gesture whose MCP front end is emerge_snip. Not a one-iteration slice without a reduction. Design settled 2026-10-21: a completed snip is a capture (like emerge_capture_still and emerge_snip), not a registry operation, since it changes no map state; the person's trigger is a new keys::Action plus a note field registered in editor::Fields, so it needs E-024 (one migration) first or in the same commit."
     },
     {
       "last_failure": "",
@@ -269,6 +269,16 @@
         "evidence": "reviewer P3 of the E-022 iteration (docs/loop/iterations/2026-10-21-view-b51da72.md): the open-framed path resolves the whole map through resolve_frame, which needs stack heights; when stacking fails it shows the stacking toast and leaves the old close-up"
       },
       "evidence": "Not must-fix: only maps with an unresolvable stack, and the toast already says why; emerge_frame_view {target: map} or the wheel still frames it. The whole-map box needs no stack heights (editor::map_bounds), so framing could fall back to it.",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-024",
+      "kind": "enhancement",
+      "area": "mcp",
+      "status": "open",
+      "title": "Migrate one unmigrated keys::Action into the operation registry, so an agent can do it and new human actions can be paid for",
+      "evidence": "operations_have_two_front_ends::the_allowlist_of_unmigrated_actions_only_shrinks pins UNMIGRATED_MAX = 128 and says a new non-operation action must be paid for by migrating one in the same commit. It is what blocked E-021 (Home frame key, 2026-10-21 frame iteration) and E-014's human half (2026-10-21 baseline iteration). User problem: an agent cannot perform the migrated verb today, and the person's next actions cannot land; frequency: every new human verb; saving: unblocks E-014 and E-021 and adds one agent verb; risk: the verb's undo must go through the registry like map_set_settings (see B-008's Undo::Settings). Pick a small map-changing verb with a clear inverse.",
       "last_failure": "",
       "first_seen": "2026-10-21"
     }
