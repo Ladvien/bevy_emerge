@@ -26,7 +26,7 @@ Every change an agent makes is an **operation**: a named, typed action the edito
 3. `emerge_apply_operation` applies it. The operation is written to the operation log.
 4. `emerge_undo_operation` takes it back.
 
-A refusal says why. For example, `placement_set_pin` refuses a pin with no reason.
+A refusal says why. For example, `placement_set_pin` refuses a pin with no reason. The person sees the refusal in the toast and the journal (Cmd+E). A change the agent applies replaces the person's receipt, the UNDER line in the inspector, so the person sees what changed.
 
 ## Tools
 

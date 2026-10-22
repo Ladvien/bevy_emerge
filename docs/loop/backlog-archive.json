@@ -423,6 +423,74 @@
       "evidence": "Seen on main: CI run 39811701910 (head e643327, 2026-10-22 16:10-16:33Z) failed with the_map_tabs_palette_filter_takes_the_keyboard panicking at crates/bevy_emerge_mapper/tests/a_run_lays_a_line_of_pieces.rs:257. Root cause: that test pressed KeyCode::SuperLeft. keys.rs MOD_KEYS is Super on macOS and Control elsewhere, so on Linux the press was a bare F and tiles.rs focus_filter never fired. Fix in 13c7a5f: press MOD_KEYS[0], as tests/headless.rs does. Failing before: target/loop/2026-10-22-ci-filter/flip-old.txt (the same test panics at ci_probe_old_filter.rs:257, left None, right Some(Palette)). Passing after: flip-new.txt (4 passed).",
       "last_failure": "",
       "first_seen": "2026-10-22"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-021",
+      "kind": "enhancement",
+      "area": "keys",
+      "status": "fixed",
+      "title": "A frame key for the person (Home: the locked placement, or the whole map)",
+      "evidence": "Fixed in 900a6e0: Home (keys::Action::FrameView, bound at Home, Control(Under)) frames the locked placement, or the whole map. Test home_frames_the_view (1). Failing before: 'Home must frame the whole map, but the map's corners are still outside the view'. The locked-placement branch has no automated test. Review note 7 (8bda0f3) fixed the Under doc and the Fn+← line in keys.md."
+    },
+    {
+      "id": "B-020",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "An agent's operation leaves the editor's status receipt and undo row stale",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Live 2026-10-22: after emerge_apply_operation the status still read 'unpinned block_5_3' (the previous human receipt) and undo_depth stayed 0. The author sees nothing where the editor looks, the same shape as the refusals that were in the wrong slot. The editor's in-memory map did change (O on the placement then unpinned it). Live 2026-10-22 (yaw iteration): placement_set_yaw inside a capture sequence turned wall_02_2 on screen (368,607 px changed between sequence frames f000 and f011; frames in target/loop/2026-10-22-a74c897/sequence/), yet the status receipt still read the framing receipt and the inspector's UNDER showed it too, so the turn was not announced."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in 04516e0. An agent's apply writes the receipt (EditorState::receipt_agent_change) and a refusal goes to the problem slot (problem_agent_refusal). Tests: tests/an_agent_change_is_on_the_receipt.rs (3). Failing before: apply receipt still read 'a person's receipt'. Reviewer check: PASS.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-026",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A refused undo of a stale entry drops that entry for good, so the next Cmd+Z reaches an older change",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "Judgment: 1 of 3 (no_workaround only), not must-fix. Reached when an agent changes a piece after the person, then the person undoes the older change; the entry is not in the editor stack afterwards (the oplog still has it for emerge_undo_operation)."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in 1087941: a refused undo keeps its entry; refused twice, it is dropped and says why. Test a_refused_undo_keeps_its_entry (left 0, right 1, via test-only plant_stale_move_for_test). Review gap 3 (8f6ec50) added a_stale_entry_that_refuses_twice_is_dropped_and_the_entry_beneath_is_reached (left 2, right 1). Redo path: 911c7b9, tests/a_refused_redo_keeps_its_entry.rs (left 0, right 1). Reviewer check: PARTIAL before gaps 2-3; fixed.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-029",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "Migrate X's stamp delete and box removal into the operation registry, so Action::Remove can be honestly migrated",
+      "status": "fixed",
+      "evidence": "Fixed in 323965a: X's box and stamp removal go through registered operations (placement_remove per piece; stamp_remove added). Tests: tests/stamp_remove.rs, tests/a_person_removes_a_box_and_undoes_it.rs. Failing before: left [wall@0, wall@1, wall@2], right [wall@1]. Review gaps 1 (1351288), 2 (ff10040), 4 (64c6585) fixed. Trade-off: N saves and N oplog lines per box.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-033",
+      "kind": "bug",
+      "area": "editor",
+      "title": "The snip overlay label overlaps the top edge of the box",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Judgment: 0 of 3. Cosmetic; found in Main's check of the mid-drag still."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in 85d86ce: TextLayout::default().with_no_wrap() on the snip label. Test the_snip_label_sits_above_the_box_and_never_over_it. Failing before: label bottom 307 px, box top 240 px. Captures /tmp/emerge_live/b033/narrow_held.png and narrow_held_crop.png.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
     }
   ]
 }
