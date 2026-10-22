@@ -191,6 +191,80 @@
         "evidence": "one_undo_takes_back_the_newest_change.rs failed with (bounds.y, placements) = (44, 0): fence run gone, resize kept; live reference: 'nothing to undo' with Y 44 on screen"
       },
       "evidence": "crates/bevy_emerge_mapper/tests/one_undo_takes_back_the_newest_change.rs (2 tests); docs/loop/iterations/assets/2026-10-21-5275c48/B-008-{before,after}.gif"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "B-009",
+      "kind": "bug",
+      "area": "chrome",
+      "status": "fixed",
+      "title": "The inspector's receipt row has no reserved height, so every receipt pushes MAP SIZE and the lists down two lines and back",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "B-008 sequences f002->f003 and f007->f008: MAP SIZE moves ~90 px when 'map is 300 x 44 x 1120 m, and the file was written' wraps to two lines under UNDER; docs/loop/iterations/assets/2026-10-21-5275c48/B-009-receipt-row-jump.png"
+      },
+      "evidence": "ef1dd7c; tests/a_receipt_does_not_move_the_panel.rs (32.0 px push before, 0 after); docs/loop/iterations/assets/2026-10-21-15be05c/B-009-before.gif, B-009-after.gif"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "B-010",
+      "kind": "bug",
+      "area": "view",
+      "status": "fixed",
+      "title": "The near part of a large map and every piece on it was not drawn: the Map camera kept Bevy's 0..1000 m depth range 20.8 m from its focus",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "full-window still of Sanctuary's 300 x 1120 m town: two ground corners 67 m and 240 m behind near = 0; the cut line projects to y = 758, where the slab ended (757)"
+      },
+      "evidence": "02cadc7; tests/the_whole_map_is_inside_the_cameras_depth.rs (corners at -625.8/-627.6 m before); docs/loop/iterations/assets/2026-10-21-15be05c/B-010-B-011-viewport.png"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "B-011",
+      "kind": "bug",
+      "area": "chrome",
+      "status": "fixed",
+      "title": "A rectangle the size of the map's front face sat at the window's centre: the interface camera drew the world's gizmos",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "300 x 38 px rectangle at window centre on every map; its height followed map_set_settings y 38 -> 80; zooming did not move it"
+      },
+      "evidence": "b097613; tests/world_gizmos_stay_in_the_world.rs (403v0 on RenderLayers([0]) before); docs/loop/iterations/assets/2026-10-21-15be05c/B-011-height-probe.png"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-016",
+      "kind": "enhancement",
+      "area": "editor",
+      "status": "fixed",
+      "title": "A labelled undo history (renzora's history panel): the stack is a count only",
+      "evidence": "bbca51b, c40d89f, 4a3ae38: the INSPECTOR's UNDO/REDO rows name what Cmd+Z and Cmd+Shift+Z will do, and emerge_state carries undo_next/undo_depth/redo_next/redo_depth; tests/the_next_undo_is_named.rs (5); docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif. The full list with click-to-jump is E-018."
+    },
+    {
+      "last_failure": "Attempt 1 (depth bias, PAINT_STEP 1.0) passed headless tests but still z-fought in the live still at the lower crossing; attempt 2 (world-height lift) fixed it.",
+      "first_seen": "2026-10-21",
+      "id": "B-015",
+      "kind": "bug",
+      "area": "view",
+      "status": "fixed",
+      "title": "Roads and fields z-fought where they overlap: coplanar flat markers, authored paint ignored, and one depth-bias step below a big quad's interpolation error",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "pointed out by the developer 2026-10-21; town.road/town.field are mesh-less 0.05 m markers OnFloor, so every top sits at y = 0.05; stair-step edges at every crossing (window-default still, c40d89f)"
+      },
+      "evidence": "bd5116a (paint applied, draw_order::draw_levels: smaller footprint on top, then later placement) + 63e6631 (render-only 1 cm lift per level; bias alone failed in the live still); tests/roads_and_fields_do_not_z_fight.rs (4); docs/loop/iterations/assets/2026-10-21-63e6631/B-015-before-after.png, B-015-pan-sheet.png"
     }
   ]
 }

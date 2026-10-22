@@ -194,7 +194,13 @@ impl Plugin for ViewPlugin {
     }
 }
 
-fn setup(mut commands: Commands, rig: Res<Rig>, surface: Res<crate::surface::Surface>) {
+fn setup(
+    mut commands: Commands,
+    rig: Res<Rig>,
+    surface: Res<crate::surface::Surface>,
+    open: Option<Res<crate::project::OpenMap>>,
+) {
+    let tf = Transform::from_translation(rig.focus + ISO_OFFSET).looking_at(rig.focus, Vec3::Y);
     commands.spawn((
         Name::new("editor camera"),
         MainCamera,
@@ -212,13 +218,8 @@ fn setup(mut commands: Commands, rig: Res<Rig>, surface: Res<crate::surface::Sur
             handle: surface.image.clone(),
             scale_factor: 1.0,
         }),
-        Projection::from(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
-                viewport_height: rig.height,
-            },
-            ..OrthographicProjection::default_3d()
-        }),
-        Transform::from_translation(rig.focus + ISO_OFFSET).looking_at(rig.focus, Vec3::Y),
+        map_projection(rig.height, &tf, open.as_deref()),
+        tf,
         // `AmbientLight` is a COMPONENT in Bevy 0.19 and applies per-camera; the resource form is
         // global. On the camera is both correct and the only form that compiles.
         AmbientLight {
@@ -245,6 +246,64 @@ fn setup(mut commands: Commands, rig: Res<Rig>, surface: Res<crate::surface::Sur
 pub(crate) fn max_zoom(open: Option<&crate::project::OpenMap>) -> f32 {
     open.map_or(MAX_ZOOM, |o| {
         MAX_ZOOM.max(1.25 * o.map.bounds.0.max(o.map.bounds.2))
+    })
+}
+
+/// **How much depth to allow beyond the map's bounds**, as a fraction of their diagonal: pieces can
+/// stand past the ceiling or outside the floor, and the ground slab sits below the datum. A quarter,
+/// the same spare [`max_zoom`] gives the width.
+const DEPTH_SLACK: f32 = 0.25;
+
+/// **The depth range the Map's camera draws**, `(near, far)` along its view axis, in metres from the
+/// camera.
+///
+/// The camera sits only [`ISO_DISTANCE`] from its focus, and Bevy's
+/// `OrthographicProjection::default_3d()` draws depths 0..1000. That is enough for a room and not
+/// for a town: on a 300 x 1120 m map, zooming out (which [`max_zoom`] allows) showed the whole width
+/// while everything nearer the camera than its focus distance was cut away at a straight edge, pieces
+/// and all (B-010). An orthographic image does not depend on distance, so the fix is the range, not
+/// the camera's position: every corner of the map's bounds, plus [`DEPTH_SLACK`], is inside it, and
+/// it is never narrower than the default.
+pub fn depth_range(camera: &Transform, open: Option<&crate::project::OpenMap>) -> (f32, f32) {
+    let default = OrthographicProjection::default_3d();
+    let Some(open) = open else {
+        return (default.near, default.far);
+    };
+    let (centre, size) = crate::editor::map_bounds(open);
+    let half = size * 0.5;
+    let forward = *camera.forward();
+    let (mut nearest, mut farthest) = (f32::INFINITY, f32::NEG_INFINITY);
+    for sx in [-1.0, 1.0] {
+        for sy in [-1.0, 1.0] {
+            for sz in [-1.0, 1.0] {
+                let corner = centre + half * Vec3::new(sx, sy, sz);
+                let depth = (corner - camera.translation).dot(forward);
+                nearest = nearest.min(depth);
+                farthest = farthest.max(depth);
+            }
+        }
+    }
+    let slack = size.length() * DEPTH_SLACK;
+    (
+        default.near.min(nearest - slack),
+        default.far.max(farthest + slack),
+    )
+}
+
+/// **The Map camera's projection**: the rig's zoom, and a depth range that holds the whole map.
+fn map_projection(
+    height: f32,
+    camera: &Transform,
+    open: Option<&crate::project::OpenMap>,
+) -> Projection {
+    let (near, far) = depth_range(camera, open);
+    Projection::from(OrthographicProjection {
+        scaling_mode: ScalingMode::FixedVertical {
+            viewport_height: height,
+        },
+        near,
+        far,
+        ..OrthographicProjection::default_3d()
     })
 }
 
@@ -319,12 +378,7 @@ fn drive(
 
     let (mut tf, mut proj) = camera.into_inner();
     *tf = Transform::from_translation(rig.focus + iso).looking_at(rig.focus, Vec3::Y);
-    *proj = Projection::from(OrthographicProjection {
-        scaling_mode: ScalingMode::FixedVertical {
-            viewport_height: rig.height,
-        },
-        ..OrthographicProjection::default_3d()
-    });
+    *proj = map_projection(rig.height, &tf, open.as_deref());
 }
 
 /// **Where the editor's pointer is**, in logical window pixels — the one answer every spatial system

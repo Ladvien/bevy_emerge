@@ -36,6 +36,7 @@ pub mod composition;
 pub mod constraints;
 pub mod convert;
 pub mod descriptor;
+pub mod draw_order;
 pub mod gait;
 pub mod geom;
 pub mod glb;

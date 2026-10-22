@@ -111,6 +111,10 @@ pub fn add_editor_plugins(app: &mut App) -> &mut App {
             crate::sequencer::SequencerPlugin,
         ),
     ));
+    // **The paint system belongs to the editor too.** `bevy_emerge::apply_paint` is what gives a
+    // painted piece its biased material, and it lives in `EmergePlugin`, which the game installs and
+    // the editor did not. Without this, a placement's paint was written and read and drawn nowhere.
+    app.add_plugins(bevy_emerge::EmergePlugin);
     // **The guide vocabulary belongs in the shared list; the transport does not.**
     //
     // `add_debugger_plugins` sits outside this function because it binds a port and a test process

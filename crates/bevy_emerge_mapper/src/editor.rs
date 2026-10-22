@@ -236,6 +236,21 @@ impl EditorState {
         self.undo.len()
     }
 
+    /// **The newest undo, named**, for the INSPECTOR's UNDO row and `emerge/state`.
+    pub fn undo_next(&self, map: &bevy_emerge_core::map::Map) -> Option<String> {
+        self.undo.last().map(|op| op.describe(map, false))
+    }
+
+    /// **The newest redo, named the same way**, for the REDO row and `emerge/state`.
+    pub fn redo_next(&self, map: &bevy_emerge_core::map::Map) -> Option<String> {
+        self.redo.last().map(|op| op.describe(map, true))
+    }
+
+    /// **How many redos are stacked**, for the REDO row's ` (+N)`.
+    pub fn redo_depth(&self) -> usize {
+        self.redo.len()
+    }
+
     /// **Record an edit**, and drop anything that was waiting to be redone.
     ///
     /// One place, so no edit site can forget the second half. A redo stack that survived a new edit
@@ -601,7 +616,187 @@ enum Undo {
     /// keeps the person's Cmd+Z and the agent's undo **one history**. Without this entry the stack
     /// never heard of a resize, and Cmd+Z after one took back an older placement instead. The inverse
     /// is another `Settings` naming the line the undo wrote, so redo is the same arm.
-    Settings { line: String },
+    Settings {
+        line: String,
+        /// **The size this entry puts back**, captured when the change was recorded, so describing
+        /// it never reads a file.
+        bounds: (f32, f32, f32),
+    },
+}
+
+impl Undo {
+    /// **What applying this entry does, named in the author's words.** The INSPECTOR's UNDO and REDO
+    /// rows and `emerge/state` both show this phrase, so the two cannot disagree. It reads the map as
+    /// it is now and no file, and names only pieces the map holds: an entry that can no longer act
+    /// says `cannot: …` rather than naming a piece it will not touch.
+    ///
+    /// `redo` says which stack the entry sits on. A redo-stack entry is the inverse an undo produced,
+    /// so the same change reads "turn X back" on the undo stack and "turn X again" on the redo stack.
+    fn describe(&self, map: &bevy_emerge_core::map::Map, redo: bool) -> String {
+        clamp_phrase(self.phrase(map, redo))
+    }
+
+    /// The phrase before it is clamped. A group joins its parts from here, so [`join_parts`] can
+    /// count what did not fit and keep every part's words whole.
+    fn phrase(&self, map: &bevy_emerge_core::map::Map, redo: bool) -> String {
+        let name_at = |i: usize| {
+            map.placements
+                .get(i)
+                .map_or("piece", |p| p.descriptor.as_str())
+        };
+        let gone = |i: usize| map.placements.get(i).is_none();
+        // `back` on the undo stack, `again` on the redo stack. A pin takes neither word on the undo
+        // stack: `pin crate` and `unpin crate` are what applying does, and `unpin crate back` is not
+        // English.
+        let back = if redo { " again" } else { " back" };
+        let pin_again = if redo { " again" } else { "" };
+        match self {
+            Undo::Added { count } => {
+                let names: Vec<&str> = map
+                    .placements
+                    .iter()
+                    .rev()
+                    .take(*count)
+                    .map(|p| p.descriptor.as_str())
+                    .collect();
+                format!("remove {}", piece_count(&names))
+            }
+            Undo::RemovedMany { items } => {
+                let names: Vec<&str> = items.iter().map(|(_, p)| p.descriptor.as_str()).collect();
+                format!("restore {}", piece_count(&names))
+            }
+            Undo::Moved { moved } => {
+                let names: Vec<&str> = moved.was.iter().map(|(i, _, _)| name_at(*i)).collect();
+                format!("move {}{back}", piece_count(&names))
+            }
+            Undo::RemoveAt { indices } => {
+                // Apply skips an index past the end, so the phrase names only what it will take out.
+                let present: Vec<&str> = indices
+                    .iter()
+                    .filter(|i| !gone(**i))
+                    .map(|i| name_at(*i))
+                    .collect();
+                match (present.is_empty(), indices.first()) {
+                    (true, Some(first)) => format!("cannot: piece {first} is gone"),
+                    (true, None) => "nothing".to_owned(),
+                    (false, _) => format!("remove {}", piece_count(&present)),
+                }
+            }
+            Undo::Turned { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
+            Undo::Turned { index, .. } => format!("turn {}{back}", name_at(*index)),
+            Undo::Lifted { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
+            Undo::Lifted { index, .. } => format!("lift {}{back}", name_at(*index)),
+            Undo::Tipped { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
+            Undo::Tipped { index, .. } => format!("tip {}{back}", name_at(*index)),
+            Undo::Pinned { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
+            Undo::Pinned { index, owned, .. } => {
+                let verb = if *owned { "pin" } else { "unpin" };
+                format!("{verb} {}{pin_again}", name_at(*index))
+            }
+            Undo::Group { ops } => {
+                let parts: Vec<String> = ops.iter().map(|op| op.phrase(map, redo)).collect();
+                if parts.is_empty() {
+                    "nothing".to_owned()
+                } else {
+                    join_parts(&parts)
+                }
+            }
+            Undo::Stamped { count } => format!("remove {}", stamps(*count)),
+            Undo::UnstampedMany { items } => format!("restore {}", stamps(items.len())),
+            Undo::UnstampAt { indices } => {
+                // Apply skips an index past the end and refuses when none are left, so count
+                // what it will take.
+                let present = indices
+                    .iter()
+                    .filter(|i| stamp_is_present(map, **i))
+                    .count();
+                match (present, indices.first()) {
+                    (0, Some(first)) => format!("cannot: stamp {first} is gone"),
+                    (0, None) => "nothing".to_owned(),
+                    (n, _) => format!("remove {}", stamps(n)),
+                }
+            }
+            Undo::MovedStamp { id, .. } if !map.stamps.iter().any(|s| s.id == *id) => {
+                format!("cannot: stamp {id} is gone")
+            }
+            Undo::MovedStamp { id, .. } => format!("move {id}{back}"),
+            Undo::Settings {
+                bounds: (x, y, z), ..
+            } => {
+                let to = if redo {
+                    "map size to"
+                } else {
+                    "map size back to"
+                };
+                format!("{to} {x} x {y} x {z}")
+            }
+        }
+    }
+}
+
+/// **The noun of a phrase**: `8 fence` for a run of one name, `3 pieces` for a mix.
+fn piece_count(names: &[&str]) -> String {
+    match names {
+        [] => "pieces".to_owned(),
+        [first, rest @ ..] if rest.iter().all(|n| n == first) => {
+            format!("{} {first}", names.len())
+        }
+        _ => format!("{} pieces", names.len()),
+    }
+}
+
+fn stamps(n: usize) -> String {
+    if n == 1 {
+        "1 stamp".to_owned()
+    } else {
+        format!("{n} stamps")
+    }
+}
+
+/// Whether a stamp index still names a stamp on the map. An undo entry can outlive the stamp it
+/// pointed at, so the phrase checks before it promises a removal. This is an index check against
+/// the map's own stamp list, not a count the census owns; the phrase only needs yes or no.
+fn stamp_is_present(map: &bevy_emerge_core::map::Map, index: usize) -> bool {
+    index < map.stamps.len()
+}
+
+/// **Joins a group's parts in the order they apply, within the phrase budget.** A part is never cut
+/// mid-phrase: the parts that fit are named, and the rest are counted as `, +N more`, so no part
+/// disappears without a trace. A first part too long on its own is clamped by [`clamp_phrase`] like
+/// any other phrase.
+fn join_parts(parts: &[String]) -> String {
+    let mut out = String::new();
+    for (i, part) in parts.iter().enumerate() {
+        let joined = if out.is_empty() {
+            part.clone()
+        } else {
+            format!("{out}, {part}")
+        };
+        let left = parts.len() - i - 1;
+        let tail = if left == 0 {
+            0
+        } else {
+            format!(", +{left} more").chars().count()
+        };
+        if out.is_empty() || joined.chars().count() + tail <= PHRASE_MAX {
+            out = joined;
+        } else {
+            return format!("{out}, +{} more", parts.len() - i);
+        }
+    }
+    out
+}
+
+/// **The longest phrase a row shows.** The value column holds about 42 characters on one line, and
+/// the ` (+N)` a stacked row adds fits in what is left.
+const PHRASE_MAX: usize = 36;
+
+fn clamp_phrase(phrase: String) -> String {
+    if phrase.chars().count() <= PHRASE_MAX {
+        return phrase;
+    }
+    let kept: String = phrase.chars().take(PHRASE_MAX - 1).collect();
+    format!("{kept}…")
 }
 
 impl Default for EditorState {
@@ -835,6 +1030,13 @@ enum Field {
     Brush,
     Yaw,
     Map,
+    /// **What Cmd+Z will take back**, named, so the author reads it before pressing the chord.
+    ///
+    /// The newest entry on the undo stack, read against the map as it is now. UNDO and REDO are two
+    /// rows, not one, because the author compares them.
+    Undo,
+    /// **What Cmd+Shift+Z will put back**, named the same way. An empty history reads `nothing`.
+    Redo,
     /// The last thing that happened — the only line that is prose.
     Last,
     /// **What the cursor is telling you right now**, as opposed to what just happened.
@@ -883,6 +1085,8 @@ impl Field {
             Field::Yaw => "YAW",
             Field::Map => "MAP",
             Field::Under => "UNDER",
+            Field::Undo => "UNDO",
+            Field::Redo => "REDO",
             Field::Last => "",
             Field::Hint => "",
         }
@@ -1162,6 +1366,15 @@ impl Plugin for EditorPlugin {
                     check_edges.run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
                     draw_edge_faults.run_if(in_map_mode),
                 ),)
+                    .run_if(in_state(crate::screen::Screen::Editor))
+                    .run_if(crate::tiles::Door::map_door_is_open),
+            )
+            // **Paint follows the map, not the edit.** A piece's drawn paint can change when a
+            // different piece is laid, so this runs on every map change and redraws only what went
+            // stale. Gated like the rest of the Map door, because it takes `Res<OpenMap>`.
+            .add_systems(
+                Update,
+                relevel_placements
                     .run_if(in_state(crate::screen::Screen::Editor))
                     .run_if(crate::tiles::Door::map_door_is_open),
             )
@@ -1674,6 +1887,15 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Map,
                     Field::Under,
                     Field::Last,
+                    // **After the receipt, not above it.** The receipt has no label of its own, so
+                    // whatever row sits above it lends it one: with UNDO/REDO above, "map is 300 x
+                    // 44 ..." read as REDO's value. Here the pair reads as what happened (the
+                    // receipt) and then what Cmd+Z / Cmd+Shift+Z would do about it.
+                    Field::Undo,
+                    Field::Redo,
+                    // **Below the pair, not above it.** A hint comes and goes with the cursor, and a
+                    // row spawned above UNDO moved UNDO whenever one appeared (UNDO's top was 289 with
+                    // a hint and 273 without). Below the pair, a hint cannot move what the author reads.
                     Field::Hint,
                     Field::Edges,
                 ] {
@@ -2363,6 +2585,9 @@ fn size_edit_keys(
                     ));
                     return;
                 }
+                // **The size before this change**, so the entry on the undo stack can name what Cmd+Z
+                // puts back.
+                let was_bounds = open.map.bounds;
                 // **Through the registry, and not around it.** The size field and an agent's
                 // `map_set_settings` call are **one operation**, so they cannot drift: the same
                 // validation, the same write to the file, the same line in the operation log, and
@@ -2404,7 +2629,10 @@ fn size_edit_keys(
                         state.status.note(outcome.summary);
                         // **On the undo stack, so Cmd+Z takes the resize back** and not an older
                         // edit underneath it.
-                        state.record(Undo::Settings { line: operation_id });
+                        state.record(Undo::Settings {
+                            line: operation_id,
+                            bounds: was_bounds,
+                        });
                     }
                     Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
                         state.status.problem(e.0);
@@ -2829,6 +3057,16 @@ fn arm_palette_rows(
     }
 }
 
+/// **One line of the UNDO or REDO row**: the newest entry's name, with ` (+N)` for the entries
+/// stacked behind it, or a dim `nothing` when the stack is empty.
+fn stack_row(next: Option<String>, depth: usize) -> (String, Color) {
+    match next {
+        Some(phrase) if depth > 1 => (format!("{phrase} (+{})", depth - 1), TEXT),
+        Some(phrase) => (phrase, TEXT),
+        None => ("nothing".to_owned(), DIM),
+    }
+}
+
 fn refresh_status(
     project: Res<Project>,
     open: Res<OpenMap>,
@@ -2846,6 +3084,15 @@ fn refresh_status(
         .unwrap_or("none");
 
     for (field, mut text, mut colour) in &mut fields {
+        // **The undo rows are only read when the history or the map changed**, and once when they
+        // spawn (their text starts empty). Recomputing two strings every frame is the cost this avoids.
+        if matches!(field, Field::Undo | Field::Redo)
+            && !text.0.is_empty()
+            && !state.is_changed()
+            && !open.is_changed()
+        {
+            continue;
+        }
         let (want, tint) = match field {
             // Silent when the map agrees with itself, which is the common case and the one a standing
             // line must not shout about. `docs/ui.md` §1.2: more information helps, noise does not.
@@ -2930,6 +3177,10 @@ fn refresh_status(
             // A refusal has to read differently from a success, or "NOT SAVED" scrolls past as if it
             // were a receipt.
             Field::Hint => (state.hint.clone(), ACCENT),
+            // **What the next Cmd+Z and Cmd+Shift+Z will do**, named from the two stacks. See
+            // [`stack_row`].
+            Field::Undo => stack_row(state.undo_next(&open.map), state.undo_depth()),
+            Field::Redo => stack_row(state.redo_next(&open.map), state.redo_depth()),
             // **The receipt only, and never coloured by guessing.** This read
             // `status.starts_with("NOT SAVED")`, which made exactly one refusal red and left every
             // other one — `stamp refused:`, `is not a number of metres`, every `cannot draw it:` —
@@ -4543,6 +4794,7 @@ fn spawn_range(
             return;
         }
     };
+    let paints = bevy_emerge::drawn_paints(&open.map, &project.library);
     for (i, p) in open.map.placements.iter().enumerate().skip(first) {
         let (Some(d), Some(&y)) = (descriptor_of(&project.library, p), ys.get(i)) else {
             continue;
@@ -4556,6 +4808,10 @@ fn spawn_range(
             y,
         ) {
             commands.entity(e).insert(Placement(p.id.clone()));
+            let paint = paints[i];
+            if paint != 0 {
+                commands.entity(e).insert(bevy_emerge::Paint(paint));
+            }
         }
     }
 }
@@ -4876,6 +5132,7 @@ fn spawn_existing(
             return;
         }
     };
+    let paints = bevy_emerge::drawn_paints(&open.map, &project.library);
     for (i, p) in open.map.placements.iter().enumerate() {
         let Some(d) = descriptor_of(&project.library, p) else {
             // Loud, not silent: a placement naming a descriptor the library does not have is a hole
@@ -4896,6 +5153,10 @@ fn spawn_existing(
             y,
         ) {
             commands.entity(e).insert(Placement(p.id.clone()));
+            let paint = paints[i];
+            if paint != 0 {
+                commands.entity(e).insert(bevy_emerge::Paint(paint));
+            }
         }
     }
 }
@@ -6786,7 +7047,10 @@ fn apply(
                 because: was_because,
             }
         }
-        Undo::Settings { line } => {
+        Undo::Settings { line, .. } => {
+            // **Where the size is now**, read before the undo runs. The entry it leaves on the other
+            // stack names the size that redo would put back.
+            let was_bounds = open.map.bounds;
             // **Through the registry**: the map is taken into the operation's context and comes back
             // either way, as the size field does it.
             let mut ctx = crate::ops::Ctx {
@@ -6815,7 +7079,10 @@ fn apply(
                     },
                 )) => {
                     state.status.note(format!("size back: {}", outcome.summary));
-                    Undo::Settings { line: operation_id }
+                    Undo::Settings {
+                        line: operation_id,
+                        bounds: was_bounds,
+                    }
                 }
                 // **A refusal is a refusal, where the author looks** — the agent may already have
                 // taken this change back, or the map may have changed outside the log. Nothing goes
@@ -7016,6 +7283,7 @@ fn redraw_placements(
         }
     }
     let ys = heights(project, open)?;
+    let paints = bevy_emerge::drawn_paints(&open.map, &project.library);
     for &i in indices {
         let Some(p) = open.map.placements.get(i) else {
             continue;
@@ -7032,9 +7300,53 @@ fn redraw_placements(
             y,
         ) {
             commands.entity(e).insert(Placement(p.id.clone()));
+            if let Some(&paint) = paints.get(i).filter(|paint| **paint != 0) {
+                commands.entity(e).insert(bevy_emerge::Paint(paint));
+            }
         }
     }
     Ok(())
+}
+
+/// **A map edit can change the drawn paint of a piece it did not touch.** A larger field laid under
+/// existing roads makes each road the smaller piece, so the road's level rises while the road itself
+/// is unedited, and its standing entity keeps the paint it was spawned with. This redraws exactly the
+/// standing pieces whose drawn paint no longer matches, by the same despawn and respawn
+/// [`redraw_placements`] does. It reads the map rather than the edit, so every change reaches it.
+fn relevel_placements(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    project: Res<Project>,
+    open: Res<OpenMap>,
+    placed: Query<(Entity, &Placement)>,
+    painted: Query<&bevy_emerge::Paint>,
+) {
+    if !open.is_changed() {
+        return;
+    }
+    let paints = bevy_emerge::drawn_paints(&open.map, &project.library);
+    let standing: std::collections::HashMap<&str, i8> = placed
+        .iter()
+        .map(|(e, m)| (m.0.as_str(), painted.get(e).map_or(0, |p| p.0)))
+        .collect();
+    let stale: Vec<usize> = open
+        .map
+        .placements
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            standing
+                .get(p.id.as_str())
+                .is_some_and(|now| *now != paints[*i])
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if stale.is_empty() {
+        return;
+    }
+    if let Err(e) = redraw_placements(&mut commands, &assets, &project, &open, &placed, &stale) {
+        error!("{e}");
+    }
 }
 
 /// **A map edited on disk reaches the pieces already standing on the map.**

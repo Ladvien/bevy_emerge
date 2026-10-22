@@ -291,6 +291,35 @@ impl Fixture {
         self
     }
 
+    /// **A flat piece with NO mesh**, drawn as a footprint marker — the shape of the shipped
+    /// `town/road` and `town/field`: `mesh: None`, a stated footprint, a 0.05 m height, and no
+    /// `y_offset`. Two of these placed over one another are the case where their top faces are
+    /// coplanar and the editor has to decide which one draws.
+    pub fn flat_descriptor(mut self, id: &str, w: f32, d: f32) -> Fixture {
+        self.descriptors.push(format!(
+            r#"        (
+            id: "{id}",
+            mesh: None,
+            align: ( scale: None, stretch_y: None, y_offset: None, pivot: None, front: None ),
+            extent: ( footprint: Some(({w}, {d})), height: Some(0.05) ),
+            mount: Some(OnFloor),
+            clearance: [],
+            offers: ( surfaces: [], sockets: [] ),
+            kind: ["prop"],
+            effects: ["inert"],
+            look: ["plain"],
+            subgrid: None,
+            note: Some("a flat fixture piece"),
+            placement: ( rooms: [], group: None ),
+        ),"#
+        ));
+        match self.ids.iter_mut().find(|(k, _)| k == DEFAULT_KIT) {
+            Some((_, v)) => v.push(id.to_owned()),
+            None => self.ids.push((DEFAULT_KIT.to_owned(), vec![id.to_owned()])),
+        }
+        self
+    }
+
     /// **A piece with a HAND-AUTHORED lattice**, one edge token per cell down its run face.
     ///
     /// Every other descriptor this fixture writes carries `subgrid: None`, which is right for the
@@ -594,6 +623,20 @@ impl Fixture {
             at.0, at.1
         ));
         self
+    }
+
+    /// [`Fixture::place`] with an authored `paint`: the order the author set on the placement, which
+    /// outranks the automatic draw order where two flat pieces overlap.
+    pub fn place_painted(self, id: &str, at: (f32, f32), paint: i8) -> Fixture {
+        let mut f = self.place(id, at);
+        if let Some(last) = f.placements.last_mut() {
+            *last = last.replacen(
+                "lift: 0.0,",
+                &format!("lift: 0.0,\n            paint: {paint},"),
+                1,
+            );
+        }
+        f
     }
 
     /// **A reusable group of two members**, both descriptors already added.

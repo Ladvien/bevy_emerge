@@ -116,6 +116,21 @@ fn the_size_receipt_does_not_push_map_size_down() {
         .iter()
         .find(|(t, _, _)| t.contains("and the file was written"))
         .unwrap_or_else(|| panic!("the resize's receipt is not drawn; drawn: {after:?}"));
+    // --- And it is the case under test: more than one line, the height the reserve has to hold.
+    // Measured against a one-line text of the same role in the same layout (the X size field reads
+    // the fixture's 16 m), so the comparison is in the layout's own pixels.
+    let one_line = after
+        .iter()
+        .find(|(t, _, _)| t == "16")
+        .map(|(_, _, h)| *h)
+        .unwrap_or_else(|| panic!("no size field reads 16; drawn: {after:?}"));
+    assert!(
+        receipt.2 > 1.5 * one_line,
+        "the receipt {:?} is {:.1} px tall against a {one_line:.1} px line, so it did not wrap and \
+         this test no longer covers a two-line receipt",
+        receipt.0,
+        receipt.2,
+    );
     let moved = top_of(&after, "MAP SIZE  (m)") - heading;
     assert!(
         moved.abs() < 0.5,

@@ -330,6 +330,12 @@ fn spawn_surface(world: &mut World) {
             ..default()
         },
         target(),
+        // **No layers: this camera draws the interface, and UI is not filtered by layers** (Bevy's
+        // UI renderer never reads `RenderLayers`). Without this it sat on layer 0, where gizmos
+        // draw by default, and drew the world's bounds box flat over the interface through its 2D
+        // projection: a 300 x 38 px rectangle at the window's centre on a 300 x 38 m map, wherever
+        // the Map's camera was looking (B-011).
+        RenderLayers::none(),
     ));
 
     world.spawn((
