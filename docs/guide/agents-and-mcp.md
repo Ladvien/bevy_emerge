@@ -51,5 +51,6 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 
 - **Cmd+Z and an agent's edits share one history.** Cmd+Z takes back the newest change still in effect, an agent's included. `emerge_undo_operation` takes back a logged change by its operation id, or puts it back, but only when no newer change to the same map is still in effect: otherwise it refuses and names the change to undo first. See [Placing and undo](placing-and-undo.md#undo-and-redo).
 - **`emerge_state` does not list each placement's pin.** Use `emerge_read_oplog` to see what was pinned, until E-026 is fixed.
+- **Box removal and stamp removal have no agent operation.** X's drag box and stamp delete still change the map outside the registry, so only a click removal goes through `placement_remove`.
 
 E-026 is open in `docs/loop/backlog.json`.

@@ -18,7 +18,7 @@ The palette lists the pieces the kit provides. **Up** and **Down** walk it, and 
 
 ## Remove
 
-**X** enters removal mode. A click removes the piece under the cursor, and whatever stands on it goes with it. An agent can do the same click with `placement_remove`, and Cmd+Z restores the piece. A drag draws a box and removes what is inside it; a box removal is not an agent operation and is taken back the same way. A click on bare ground with removal armed does nothing and says so.
+**X** enters removal mode. A click removes the piece under the cursor, and whatever stands on it goes with it. A click removal saves the file, so it is refused where the map cannot save. An agent can do a click on a placement with `placement_remove`, and Cmd+Z restores the piece. A drag draws a box and removes what is inside it; a box removal is not an agent operation and is taken back the same way. A click on bare ground with removal armed does nothing and says so.
 
 ## Move
 
