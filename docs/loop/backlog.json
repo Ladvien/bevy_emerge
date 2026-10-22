@@ -292,7 +292,7 @@
         "blocks": false,
         "common": true,
         "no_workaround": false,
-        "evidence": "Live 2026-10-22 (target/loop/2026-10-22-fcc4e02/live/agent-states.json, key 'cmdz'): after emerge_apply_operation placement_set_pin, Cmd+Z reports status 'nothing to undo' and the file keeps owned:true. The brief asks for both front ends to undo with Cmd+Z. emerge_undo_operation does undo it (oplog line 35 undoes line 34)."
+        "evidence": "Live 2026-10-22 (target/loop/2026-10-22-fcc4e02/live/agent-states.json, key 'cmdz'): after emerge_apply_operation placement_set_pin, Cmd+Z reports status 'nothing to undo' and the file keeps owned:true. The brief asks for both front ends to undo with Cmd+Z. emerge_undo_operation does undo it (oplog line 35 undoes line 34). Same shape for placement_set_yaw inside a capture sequence (yaw iteration 2026-10-22): three sequence applies were logged (seq 110-112), each turning wall_02_2 to 90 deg. A live undo of a sequence turn was not run; the undo path is shown only by tests/placement_set_yaw.rs. undo_depth stays 0 after the turn, so it is not on the Cmd+Z stack."
       },
       "status": "open",
       "evidence": "target/loop/2026-10-22-fcc4e02/live/agent-states.json (cmdz); crates/bevy_emerge_mcp/src/docs.rs emerge_undo_operation",
@@ -308,7 +308,7 @@
         "blocks": false,
         "common": true,
         "no_workaround": false,
-        "evidence": "Live 2026-10-22: after emerge_apply_operation the status still read 'unpinned block_5_3' (the previous human receipt) and undo_depth stayed 0. The author sees nothing where the editor looks, the same shape as the refusals that were in the wrong slot. The editor's in-memory map did change (O on the placement then unpinned it)."
+        "evidence": "Live 2026-10-22: after emerge_apply_operation the status still read 'unpinned block_5_3' (the previous human receipt) and undo_depth stayed 0. The author sees nothing where the editor looks, the same shape as the refusals that were in the wrong slot. The editor's in-memory map did change (O on the placement then unpinned it). Live 2026-10-22 (yaw iteration): placement_set_yaw inside a capture sequence turned wall_02_2 on screen (368,607 px changed between sequence frames f000 and f011; frames in target/loop/2026-10-22-a74c897/sequence/), yet the status receipt still read the framing receipt and the inspector's UNDER showed it too, so the turn was not announced."
       },
       "status": "open",
       "evidence": "target/loop/2026-10-22-fcc4e02/live/agent-states.json (pinned, undone); oplog.jsonl lines 34-36",
@@ -332,6 +332,38 @@
       "first_seen": "2026-10-22"
     },
     {
+      "id": "E-027",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "A human R or T turn writes two undo records: an oplog line and the editor's own stack entry",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "Since 6aa6185, R and T dispatch placement_set_yaw, which appends an oplog line. The editor also keeps its Undo::Turned record so Cmd+Z still takes the turn back. One human turn is therefore two records that undo through two stacks. No defect was observed in a live run; the duplicate is inferred from reading the code and is a design question for one undo history (E-013, B-019)."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs Undo::Turned; crates/bevy_emerge_mapper/src/ops.rs placement_set_yaw; commit 6aa6185 message",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-028",
+      "kind": "bug",
+      "area": "ops",
+      "title": "An agent turn that is saved but cannot be logged leaves the screen and the file disagreeing",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Found by code review of the yaw branch 2026-10-22, by reading, not reproduced. ops.rs dispatch_as commits the change (the file is saved) and then appends the oplog line; if the append fails it returns Err 'the operation was applied but the log could not be written', with the map and file already changed. placement_set_yaw's set_yaw then returns false with no Undo::Turned and no respawn, and ops_brp.rs operation_apply and sequencer.rs drive_sequencer set map_replaced only on Ok(Done), so the picture keeps the old facing while the file has the new one. Fixing it changes the commit-then-append order for every operation, so it is a design decision, not a one-line patch."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs dispatch_as (append after commit); crates/bevy_emerge_mapper/src/editor.rs set_yaw; crates/bevy_emerge_mapper/src/ops_brp.rs operation_apply; crates/bevy_emerge_mapper/src/sequencer.rs drive_sequencer",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
       "id": "B-021",
       "kind": "bug",
       "area": "editor",
@@ -348,18 +380,18 @@
       "first_seen": "2026-10-22"
     },
     {
-      "id": "B-022",
+      "id": "B-025",
       "kind": "bug",
-      "area": "editor",
-      "status": "fixed",
-      "title": "A successful undo's receipt ('restored 1 placement(s)') is shown in the red problem toast, in the refusal slot",
+      "area": "hot-reload",
+      "status": "unconfirmed",
+      "title": "File edit-to-visible median rose 132 -> 245 ms across the yaw branch, on a path the branch does not touch",
       "must_fix": {
         "blocks": false,
         "common": true,
         "no_workaround": false,
-        "evidence": "Phase 1 judgment 2026-10-22: blocks no (the undo happened; INSPECTOR reads 'undid 1 placement(s)'), common yes (every Cmd+Z), no_workaround no (the inspector shows the result). One yes: not must-fix."
+        "evidence": "lat.py n=4 at 837bfc8 / 6aa6185 / a862342: 132 / 162 / 245 ms median, still well under the ~1 s target. Not interleaved, noisy machine; not reproduced. One yes: not must-fix."
       },
-      "evidence": "Fixed in a74c897: a successful RemovedMany undo's receipt is a note (Status::note) and a refusal or partial restore stays a problem. Regression: replace_and_dirty::a_successful_undo_is_reported_as_a_note_not_a_problem failed before (problems == [\"restored 1 placement(s)\"]) and passes after. Before the fix the live demo (/tmp/emerge_live/hotproj3/target/loop/captures/demo1/f006_t1.50s.png) showed the red toast after Cmd+Z.",
+      "evidence": "docs/loop/iterations/2026-10-22-yaw-6aa6185.md Performance. Next: interleaved A/B (both orders, /tmp/emerge_ab/ab.py pattern) of the file path on base vs HEAD; confirm or close.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     }
