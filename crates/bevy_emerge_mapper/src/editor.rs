@@ -514,6 +514,14 @@ pub struct CloneDrag {
 #[derive(Resource, Default)]
 pub struct TargetLock(Option<(String, (f32, f32))>);
 
+impl TargetLock {
+    /// The id of the placement the lock holds, if it holds one. The agent's `"selection"` frame
+    /// target reads the lock through here, so "what is selected" has one answer.
+    pub fn placement_id(&self) -> Option<&str> {
+        self.0.as_ref().map(|(id, _)| id.as_str())
+    }
+}
+
 /// The locked target's highlight — a third marker quad beside removal's red and clone's blue,
 /// because three tools making three different promises must not share a colour.
 ///
@@ -2996,6 +3004,179 @@ pub fn map_bounds(open: &OpenMap) -> (Vec3, Vec3) {
         ),
         Vec3::new(w, h, d),
     )
+}
+
+/// **What a frame is asked to look at**: the whole map, the locked placement, placements by id, or a
+/// rectangle. Every target resolves through [`resolve_frame`], so a name means one thing.
+pub enum FrameTarget {
+    Map,
+    Selection,
+    Placements(Vec<String>),
+    /// A map-space rectangle `[x0, z0, x1, z1]`, in metres.
+    Rect([f32; 4]),
+}
+
+/// **What a frame resolved to**: the box to see, in world metres, and how many placements lie in it.
+pub struct Framing {
+    /// Named the way the receipt and the reply both say it.
+    pub what: String,
+    pub centre: Vec3,
+    pub size: Vec3,
+}
+
+/// **One placement's drawn box**: the axis-aligned box round its eight corners, carried through the same
+/// yaw, tip and seat the editor draws it with (`bevy_emerge::spawn_descriptor`). `None` for an unmeasured
+/// piece, which has no box to frame. `ys` is the resolved heights, indexed as the placements are.
+fn placed_box(project: &Project, open: &OpenMap, ys: &[f32], i: usize) -> Option<(Vec3, Vec3)> {
+    let p = open.map.placements.get(i)?;
+    let d = descriptor_of(&project.library, p)?;
+    let (w, h, depth) = bevy_emerge_core::descriptor::tipped_extents(&d, p.tip)?;
+    let base = bevy_emerge::origin_of(
+        p.at,
+        open.map.origin,
+        *ys.get(i)? + bevy_emerge::tip_seat(&d, p.tip),
+    );
+    let turn = Quat::from_rotation_y(bevy_emerge::draw_yaw(&d, p.yaw).to_radians())
+        * bevy_emerge::tip_quat(p.tip);
+    let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+    for sx in [-0.5, 0.5] {
+        for sz in [-0.5, 0.5] {
+            for sy in [0.0, 1.0] {
+                let corner = base + turn * Vec3::new(sx * w, sy * h, sz * depth);
+                lo = lo.min(corner);
+                hi = hi.max(corner);
+            }
+        }
+    }
+    Some(((lo + hi) * 0.5, hi - lo))
+}
+
+/// The one box round a set of boxes: their union, as a centre and a size. `None` for an empty set.
+fn enclose(boxes: impl IntoIterator<Item = (Vec3, Vec3)>) -> Option<(Vec3, Vec3)> {
+    let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+    let mut any = false;
+    for (c, s) in boxes {
+        any = true;
+        lo = lo.min(c - s * 0.5);
+        hi = hi.max(c + s * 0.5);
+    }
+    any.then(|| ((lo + hi) * 0.5, hi - lo))
+}
+
+/// **One placement's drawn box, by index.** Framing one piece and the resolver both read a box this way.
+pub fn placement_bounds(project: &Project, open: &OpenMap, index: usize) -> Option<(Vec3, Vec3)> {
+    let ys = heights(project, open).ok()?;
+    placed_box(project, open, &ys, index)
+}
+
+/// The box round the named placements, each by its id. A name the map does not hold is refused by name.
+fn named_box(
+    project: &Project,
+    open: &OpenMap,
+    ys: &[f32],
+    ids: &[String],
+) -> Result<(Vec3, Vec3), String> {
+    let mut boxes = Vec::with_capacity(ids.len());
+    for id in ids {
+        let i = open
+            .map
+            .placements
+            .iter()
+            .position(|p| &p.id == id)
+            .ok_or_else(|| format!("no placement `{id}` on this map"))?;
+        let b = placed_box(project, open, ys, i)
+            .ok_or_else(|| format!("`{id}` has no measured size, so there is no box to frame"))?;
+        boxes.push(b);
+    }
+    enclose(boxes).ok_or_else(|| "no placements to frame".to_string())
+}
+
+/// **Resolve a frame target to the box it means.** The one place a name is read, so no caller can read
+/// a target differently. `lock` is the placement the target lock holds: the Map has no
+/// multi-select, so "the selection" is that one piece. A refusal says what to change, and nothing is
+/// framed on one.
+pub fn resolve_frame(
+    target: &FrameTarget,
+    project: &Project,
+    open: &OpenMap,
+    lock: Option<&str>,
+) -> Result<Framing, String> {
+    let ys = heights(project, open)?;
+    let (what, centre, size) = match target {
+        FrameTarget::Map => {
+            let (c, s) = map_bounds(open);
+            ("the whole map".to_string(), c, s)
+        }
+        FrameTarget::Selection => {
+            let id = lock.ok_or(
+                "nothing is selected: click a placement on the Map to lock it, or name placements or a rectangle",
+            )?;
+            let (c, s) = named_box(project, open, &ys, &[id.to_string()])?;
+            (format!("the selected placement `{id}`"), c, s)
+        }
+        FrameTarget::Placements(ids) => {
+            if ids.is_empty() {
+                return Err("no placements named: give at least one placement id".to_string());
+            }
+            let (c, s) = named_box(project, open, &ys, ids)?;
+            let names = ids
+                .iter()
+                .map(|id| format!("`{id}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let noun = if ids.len() == 1 {
+                "placement"
+            } else {
+                "placements"
+            };
+            (format!("{noun} {names}"), c, s)
+        }
+        FrameTarget::Rect(rect) => {
+            let [x0, z0, x1, z1] = *rect;
+            if rect.iter().any(|v| !v.is_finite()) || x1 <= x0 || z1 <= z0 {
+                return Err(format!(
+                    "a rectangle needs finite numbers with x0 < x1 and z0 < z1, in map metres; got [{x0}, {z0}, {x1}, {z1}]"
+                ));
+            }
+            let (map_c, map_s) = map_bounds(open);
+            let o = open.map.origin;
+            let centre = Vec3::new(o.0 + (x0 + x1) * 0.5, map_c.y, o.2 + (z0 + z1) * 0.5);
+            let size = Vec3::new(x1 - x0, map_s.y, z1 - z0);
+            (
+                format!("the rectangle [{x0}, {z0}, {x1}, {z1}] m"),
+                centre,
+                size,
+            )
+        }
+    };
+    Ok(Framing { what, centre, size })
+}
+
+/// **The aspect of a camera's viewport**, width over height, or `None` before the viewport has a size.
+pub fn aspect_of(camera: &Camera) -> Option<f32> {
+    let size = camera.logical_viewport_size()?;
+    (size.y > 0.0).then(|| size.x / size.y)
+}
+
+/// **Frame the Map camera on a resolved box.** The one place a frame is written to the rig, so every caller
+/// frames the same way. Camera state only: the map does not change, so this is
+/// not an operation and nothing is logged or undone.
+pub fn apply_frame(
+    rig: &mut crate::view::Rig,
+    framing: &Framing,
+    aspect: f32,
+    open: &OpenMap,
+) -> (Vec3, f32) {
+    let (focus, height) = crate::view::frame_box(
+        rig,
+        framing.centre,
+        framing.size,
+        aspect,
+        crate::view::max_zoom(Some(open), aspect),
+    );
+    rig.focus = focus;
+    rig.height = height;
+    (focus, height)
 }
 
 fn draw_bounds(

@@ -315,3 +315,62 @@ fn an_unknown_tool_is_refused_with_the_list() {
         "the refusal does not name the tools that do exist, so an agent has to guess again: {text}"
     );
 }
+
+/// **The frame tool is listed, it only moves the camera, and a call with no editor is a refusal an
+/// agent can read.**
+///
+/// **Not destructive, because no map data changes** -- the view is the rig's focus and height, not a
+/// placement. **Not read-only**, because the view does change. **Idempotent**, because framing the same
+/// target twice lands on the same view. The description has to say it is not logged or undoable, so an
+/// agent does not look for an undo it cannot have, and it has to send the agent to the still.
+#[test]
+fn the_frame_tool_says_it_only_moves_the_camera() {
+    let mut server = Server::start();
+    let listed = server.request("tools/list", json!({}));
+    let tool = listed["result"]["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|t| t["name"] == "emerge_frame_view"))
+        .cloned()
+        .unwrap_or_else(|| panic!("emerge_frame_view is not listed: {listed}"));
+    let description = tool["description"].as_str().unwrap_or_default();
+    for promise in [
+        "only moves the camera",
+        "not logged or undoable",
+        "emerge_capture_still",
+        "Returns",
+    ] {
+        assert!(
+            description.contains(promise),
+            "the description does not say `{promise}`, so an agent cannot tell what the tool does \
+             or what to call next: {description}"
+        );
+    }
+    let hints = &tool["annotations"];
+    assert_eq!(hints["readOnlyHint"].as_bool(), Some(false), "{hints}");
+    assert_eq!(hints["destructiveHint"].as_bool(), Some(false), "{hints}");
+    assert_eq!(hints["idempotentHint"].as_bool(), Some(true), "{hints}");
+    assert!(
+        tool["inputSchema"]["properties"].get("target").is_some(),
+        "the tool's schema does not take a target: {}",
+        tool["inputSchema"]
+    );
+
+    // **No editor is running, so the answer is a refusal that says so** -- not a protocol error.
+    let answer = server.call("emerge_frame_view", json!({"target": "map"}));
+    assert!(
+        answer.get("error").is_none(),
+        "refused at the protocol level: {answer}"
+    );
+    assert_eq!(
+        answer["result"]["isError"].as_bool(),
+        Some(true),
+        "{answer}"
+    );
+    let text = answer["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("editor") || text.contains("BEVY_BRP_PORT"),
+        "the refusal does not say the editor was not there: {text}"
+    );
+}

@@ -121,6 +121,20 @@ pub const TOOLS: &[ToolDoc] = &[
         destructive: false,
         idempotent: true,
     },
+    ToolDoc {
+        name: "emerge_frame_view",
+        description: "Frame the editor's Map camera on a box. target: \"map\" (the whole map), \
+                      \"selection\" (the locked placement; refused when nothing is locked), \
+                      {\"placements\": [ids]} (their union), or {\"rect\": [x0, z0, x1, z1]} (map \
+                      metres). It only moves the camera: it never changes map data, is not logged \
+                      or undoable, and is not an operation. Refuses, and moves nothing, on an \
+                      unknown id, an empty selection or a flat rectangle. Returns what was framed, \
+                      the focus and the view height in metres. \
+                      Call emerge_capture_still afterwards to see the result.",
+        read_only: false,
+        destructive: false,
+        idempotent: true,
+    },
 ];
 
 /// **The document, as markdown.**
@@ -232,6 +246,30 @@ pub fn schemas() -> Value {
             "properties": {
                 "since_seq": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+            },
+        },
+        "emerge_frame_view": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target"],
+            "properties": {
+                "target": {
+                    "oneOf": [
+                        {"type": "string", "enum": ["map", "selection"]},
+                        {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["placements"],
+                            "properties": {"placements": {"type": "array", "items": {"type": "string"}, "minItems": 1}},
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["rect"],
+                            "properties": {"rect": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}},
+                        },
+                    ],
+                },
             },
         },
     })

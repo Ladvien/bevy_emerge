@@ -86,6 +86,16 @@ The editor's operation log, newest last. Every operation appends one line, wheth
 | `destructiveHint` | false |
 | `idempotentHint` | true |
 
+### `emerge_frame_view`
+
+Frame the editor's Map camera on a box. target: "map" (the whole map), "selection" (the locked placement; refused when nothing is locked), {"placements": [ids]} (their union), or {"rect": [x0, z0, x1, z1]} (map metres). It only moves the camera: it never changes map data, is not logged or undoable, and is not an operation. Refuses, and moves nothing, on an unknown id, an empty selection or a flat rectangle. Returns what was framed, the focus and the view height in metres. Call emerge_capture_still afterwards to see the result.
+
+| annotation | value |
+|---|---|
+| `readOnlyHint` | false |
+| `destructiveHint` | false |
+| `idempotentHint` | true |
+
 ## How the two paths converge
 
 Every operation writes the data file, and the editor watches that file. So:
