@@ -244,7 +244,7 @@
       "area": "keys",
       "status": "open",
       "title": "A frame key for the person (Home: the locked placement, or the whole map)",
-      "evidence": "Built in the 2026-10-21 frame iteration and taken out: a new keys::Action that is not a registry operation grows the unmigrated allowlist, which operations_have_two_front_ends pins at 128 and says must be paid for by migrating one in the same commit. Ship it together with one migration. The framing itself (view::frame_box, editor::resolve_frame/apply_frame) is ready; the person's wheel can now zoom out to the whole map."
+      "evidence": "Built in the 2026-10-21 frame iteration and taken out: a new keys::Action that is not a registry operation grows the unmigrated allowlist, which operations_have_two_front_ends pins (UNMIGRATED_MAX 127, E-025) and says must be paid for by migrating one in the same commit. Checked 2026-10-22 (iteration docs/loop/iterations/2026-10-22-undo-a74c897.md): the registry holds two operations, map_set_settings and placement_set_pin, and placement_set_pin is already bound to OwnToggle. No unmigrated action has an operation to name, so the migration needs a new registry operation first. A frame is camera state, not an operation (emerge/frame_view), so it cannot be the migration. Blocked until a verb that already has a registry operation is wired, or a new operation is designed for one of the 127. The framing itself (view::frame_box, editor::resolve_frame/apply_frame) is ready."
     },
     {
       "id": "E-023",
@@ -351,7 +351,7 @@
       "id": "B-022",
       "kind": "bug",
       "area": "editor",
-      "status": "open",
+      "status": "fixed",
       "title": "A successful undo's receipt ('restored 1 placement(s)') is shown in the red problem toast, in the refusal slot",
       "must_fix": {
         "blocks": false,
@@ -359,7 +359,7 @@
         "no_workaround": false,
         "evidence": "Phase 1 judgment 2026-10-22: blocks no (the undo happened; INSPECTOR reads 'undid 1 placement(s)'), common yes (every Cmd+Z), no_workaround no (the inspector shows the result). One yes: not must-fix."
       },
-      "evidence": "target/loop/captures? live demo: /tmp/emerge_live/hotproj3/target/loop/captures/demo1/f006_t1.50s.png shows red toast '▲ restored 1 placement(s) (x3)' after Cmd+Z; Status::problem is for refusals only (brief, Phase 1).",
+      "evidence": "Fixed in a74c897: a successful RemovedMany undo's receipt is a note (Status::note) and a refusal or partial restore stays a problem. Regression: replace_and_dirty::a_successful_undo_is_reported_as_a_note_not_a_problem failed before (problems == [\"restored 1 placement(s)\"]) and passes after. Before the fix the live demo (/tmp/emerge_live/hotproj3/target/loop/captures/demo1/f006_t1.50s.png) showed the red toast after Cmd+Z.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     }
