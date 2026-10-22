@@ -11,16 +11,16 @@ The editor is how a level designer builds a map out of a kit: the meshes, the ti
 | [Framing and the camera](framing-and-camera.md) | Where the camera starts, panning, turning and zooming, and framing from an agent |
 | [Agents and the MCP server](agents-and-mcp.md) | Driving the editor from an agent, with the same undo history a person uses |
 | [Keys](keys.md) | Every key, when it applies, and what it does |
-| [Demo](../../README.md#the-editor) | The recording in the README: an agent framing a region, then turning a placement |
+| [Demo](../media/demo.mp4) | The full 64-second walkthrough. The README shows the short GIFs |
 | [The iteration loop](loop.md) | How the editor's changes are proposed, proved and recorded |
 
 ## Watch it first
 
-The [README](../../README.md) embeds `docs/media/demo.mp4`, a 64-second recording of the running editor on the scratch town map. It shows the path this guide walks:
-- open, frame, place and undo;
-- an agent framing a region of the town;
-- an agent turning a placement with `placement_set_yaw` and removing one with `placement_remove`, each taken back with Cmd+Z;
-- the person snipping an area with Cmd+\ and a note, which an agent reads back with `emerge_list_snips`.
+Three recordings of the running editor on the scratch town map:
+- [Snip, agent turn and undo](../media/hero.gif), 14 seconds: the person snips a wall and writes a note, an agent reads it and turns the wall, and Cmd+Z takes the turn back.
+- [Moving the camera](../media/move-the-camera.gif), 6 seconds: holding A and D pans across the town.
+
+The [full walkthrough](../media/demo.mp4), 64 seconds, shows the rest of this guide's path: open, frame, place and undo; an agent framing a region; an agent turning and removing placements, each taken back with Cmd+Z; and a person's snip read back with `emerge_list_snips`.
 
 ## Where things live
 

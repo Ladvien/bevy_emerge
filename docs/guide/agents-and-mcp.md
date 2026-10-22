@@ -57,7 +57,7 @@ A person snips an area of the editor with `Cmd+\` and types a note (see [Keys](k
 ## Known gaps
 
 - **Cmd+Z and an agent's edits share one history.** Cmd+Z takes back the newest change still in effect, an agent's included. `emerge_undo_operation` takes back a logged change by its operation id, or puts it back, but only when no newer change to the same map is still in effect: otherwise it refuses and names the change to undo first. See [Placing and undo](placing-and-undo.md#undo-and-redo).
-- **`emerge_state` does not list each placement's pin.** Use `emerge_read_oplog` to see what was pinned, until E-026 is fixed.
+- **`emerge_state` does not list each placement's pin.** Use `emerge_read_oplog` to see what was pinned.
 - **Box removal and stamp removal have no agent operation.** X's drag box and stamp delete still change the map outside the registry, so only a click removal goes through `placement_remove`.
 - **Other references to a map by name are not rewritten.** `map_rename` moves the file and changes the name in the map, and nothing else. The game loads maps by name, so anything that names the old map (a game-side reference, a config entry) has to be changed by hand.
 - **A press that began before `Cmd+\` was pressed can still press a button under the drag.** While a snip is armed, picking is off, so a press that starts after arming cannot press a button. A press already in progress when the snip was armed is not covered.
