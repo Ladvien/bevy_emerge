@@ -227,6 +227,22 @@ fn editor_state(
     mode: Option<Res<crate::tiles::Mode>>,
 ) -> Result<Value, String> {
     let Loaded { project, open } = loaded;
+    // **The pins, named by id and reason.** A pin is the one thing an agent cannot see in the state
+    // today, and the list is capped so a state dump stays a summary. `pinned_total` is the true
+    // count, so a reader can tell a full list from a cut one.
+    const PINNED_CAP: usize = 50;
+    let pinned_total = open
+        .as_ref()
+        .map_or(0, |o| o.map.placements.iter().filter(|p| p.owned).count());
+    let pinned: Vec<Value> = open.as_ref().map_or_else(Vec::new, |o| {
+        o.map
+            .placements
+            .iter()
+            .filter(|p| p.owned)
+            .take(PINNED_CAP)
+            .map(|p| json!({"id": p.id, "because": p.owned_because}))
+            .collect()
+    });
     // **The map, and what is in it.**
     let map = open.as_ref().map(|o| {
         json!({
@@ -241,6 +257,8 @@ fn editor_state(
             "stamps": o.map.stamps.len(),
             "bash": o.map.bash,
             "note": o.map.note,
+            "pinned": pinned,
+            "pinned_total": pinned_total,
             // **Whether the file and the editor agree.** An agent that changed something needs to
             // know it reached the disk.
             "dirty": o.dirty(),
@@ -788,7 +806,7 @@ impl Plugin for OpsBridgePlugin {
                 "emerge/state",
                 "What the editor is holding right now: the open map and its bounds, how many \
                  pieces it has, what is armed, what is selected, which door and tab are open, and \
-                 what the editor last said. A read.",
+                 what the editor last said, and which placements are pinned and why. A read.",
             )
             .example(json!({})),
             editor_state,

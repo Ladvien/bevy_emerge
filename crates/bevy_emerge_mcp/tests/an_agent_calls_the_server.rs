@@ -309,6 +309,24 @@ fn the_undo_tool_says_what_it_does_and_refuses_without_an_editor() {
     );
 }
 
+/// **The state tool says it names each pin**, so an agent that reads only the description knows
+/// where a pin shows up and which field caps the list.
+#[test]
+fn the_state_tool_says_it_names_each_pin_and_the_full_count() {
+    let mut server = Server::start();
+    let listed = server.request("tools/list", json!({}));
+    let tool = listed["result"]["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|t| t["name"] == "emerge_state"))
+        .cloned()
+        .unwrap_or_else(|| panic!("emerge_state is not listed: {listed}"));
+    let description = tool["description"].as_str().unwrap_or_default();
+    assert!(
+        description.contains("pinned") && description.contains("pinned_total"),
+        "emerge_state must say where a pin shows and how to tell a cut list: {description}"
+    );
+}
+
 /// **An unknown tool is refused, and the answer says which tools there are.**
 #[test]
 fn an_unknown_tool_is_refused_with_the_list() {
