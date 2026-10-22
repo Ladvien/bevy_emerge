@@ -345,12 +345,33 @@ impl EditorState {
         forget_in(&mut self.redo, line);
     }
 
+    /// The entries above a registry line's entry, leaves only, in stack order. **Groups are walked
+    /// too.** A box's removals sit inside one group, so the line can be a leaf of it, and a group's
+    /// children are taken in the order they run. If the line has no entry on the stack, every entry
+    /// counts: the conservative answer when the stack cannot say where the line sits.
+    fn entries_above(&self, line: &str) -> Vec<&Undo> {
+        fn leaves<'a>(ops: &'a [Undo], out: &mut Vec<&'a Undo>) {
+            for op in ops {
+                match op {
+                    Undo::Group { ops } => leaves(ops, out),
+                    leaf => out.push(leaf),
+                }
+            }
+        }
+        let mut all: Vec<&Undo> = Vec::new();
+        leaves(&self.undo, &mut all);
+        let start = all
+            .iter()
+            .position(|op| matches!(op, Undo::Logged { line: l, .. } if l == line))
+            .map_or(0, |at| at + 1);
+        all.split_off(start)
+    }
+
     /// **Is a change recorded by row number sitting above a registry line's entry?** An undo of a
     /// `placement_remove` puts a row back or takes one out, and every row-recorded change above it
     /// names its piece by a number the undo has just moved. `Added` names its pieces from the tail,
     /// which a row landing before them leaves alone, so it does not count. Stamps index `map.stamps`,
-    /// not placements. If the line has no entry on the stack, every entry counts: the conservative
-    /// answer when the stack cannot say where the line sits.
+    /// not placements, so they are [`EditorState::stamp_recorded_above`]'s business.
     pub(crate) fn row_recorded_above(&self, line: &str) -> bool {
         fn by_row(op: &Undo) -> bool {
             match op {
@@ -371,23 +392,18 @@ impl EditorState {
                 | Undo::Logged { .. } => false,
             }
         }
-        // **Groups are walked too.** A box's removals sit inside one group, so the line can be a leaf of
-        // it. Leaves are taken in stack order, and a group's children in the order they run.
-        fn leaves<'a>(ops: &'a [Undo], out: &mut Vec<&'a Undo>) {
-            for op in ops {
-                match op {
-                    Undo::Group { ops } => leaves(ops, out),
-                    leaf => out.push(leaf),
-                }
-            }
-        }
-        let mut all: Vec<&Undo> = Vec::new();
-        leaves(&self.undo, &mut all);
-        let start = all
-            .iter()
-            .position(|op| matches!(op, Undo::Logged { line: l, .. } if l == line))
-            .map_or(0, |at| at + 1);
-        all[start..].iter().any(|op| by_row(op))
+        self.entries_above(line).into_iter().any(by_row)
+    }
+
+    /// **Is a stamp change recorded by place sitting above a registry line's entry?** `UnstampAt` and
+    /// `UnstampedMany` name stamps by their index in `map.stamps`, so an undo of a `stamp_remove` that
+    /// puts a stamp back in the middle moves them. `Stamped` drains from the tail, which such an undo
+    /// leaves alone, and `MovedStamp` names its stamp by id, so neither counts. The same fallback as
+    /// [`EditorState::row_recorded_above`] when the line has no entry.
+    pub(crate) fn stamp_recorded_above(&self, line: &str) -> bool {
+        self.entries_above(line)
+            .into_iter()
+            .any(|op| matches!(op, Undo::UnstampAt { .. } | Undo::UnstampedMany { .. }))
     }
 
     /// Where the id mint stands — read-only, so the harness can check [`next_id_after`]'s seed
@@ -6354,6 +6370,15 @@ pub fn plant_stale_move_for_test(world: &mut World, id: &str) {
             id: id.to_owned(),
             from: (0.0, 0.0),
         });
+}
+
+/// Plant a stamp-index entry — `UnstampAt` for the stamp at `index` — the way a person's stamp
+/// change leaves it on the stack, so a test can make an agent's stamp undo meet one above it (gap 4).
+/// Recorded the way an edit is recorded: pushed, and redo cleared.
+pub fn plant_unstamp_for_test(world: &mut World, index: usize) {
+    world.resource_mut::<EditorState>().record(Undo::UnstampAt {
+        indices: vec![index],
+    });
 }
 
 /// One click of the place tool with `descriptor` as the brush, reachable from `tests/headless.rs`.

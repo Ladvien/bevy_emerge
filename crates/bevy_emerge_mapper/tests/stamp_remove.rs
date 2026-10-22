@@ -7,6 +7,7 @@
 //! way the MCP server does, and assert on the map the editor holds, the file on disk, and the undo.
 
 use bevy::prelude::*;
+use bevy_emerge_mapper::editor::plant_unstamp_for_test;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 
@@ -201,4 +202,32 @@ fn a_put_back_with_no_logged_removal_behind_it_is_refused() {
         ["room@1"],
         "nothing was put back, and nothing was doubled"
     );
+}
+
+/// **An agent's stamp undo waits while a stamp change recorded by place sits above it.** The undo of a
+/// `stamp_remove` puts the stamp back at its index, which moves every stamp after it. A person's
+/// `UnstampAt` above the agent's entry names a stamp by that index, so it would take the wrong one.
+/// Gap 4 of the cycle-1 review: the refusal is the same rule the placement side already has.
+#[test]
+fn an_agent_stamp_undo_waits_while_a_stamp_change_by_place_sits_above_it() {
+    let mut app = editor("stamp_remove_waits");
+    let answer = remove(&mut app, serde_json::json!({"id": "room@1"}));
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let operation_id = answer["operation_id"]
+        .as_str()
+        .expect("an apply returns its id")
+        .to_owned();
+
+    plant_unstamp_for_test(app.world_mut(), 0);
+    let back = undo(&mut app, Some(&operation_id));
+    assert_eq!(back["outcome"], "refused", "{back}");
+    assert!(
+        back.to_string().contains("Cmd+Z"),
+        "the refusal names the way out: {back}"
+    );
+    assert!(
+        stamps(&held(&app)).is_empty(),
+        "a refused undo leaves the stamp off the map"
+    );
+    assert!(stamps(&on_disk(&app)).is_empty(), "and off the file too");
 }
