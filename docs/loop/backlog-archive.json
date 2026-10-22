@@ -275,6 +275,22 @@
       "status": "fixed",
       "title": "The agent cannot frame or zoom the Map's camera; it had to inject wheel events through bevy_debugger/input",
       "evidence": "8c97677: emerge_frame_view (map | selection | placements | rect), view::frame_box, and a zoom ceiling that can show the whole map (max_zoom = 1.25 x ground diagonal / aspect); tests/frame_the_view.rs (6); docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif"
+    },
+    {
+      "id": "B-016",
+      "kind": "bug",
+      "area": "watch",
+      "status": "fixed",
+      "title": "A map file saved with a typo was refused silently on the Map door: the watcher wrote the refusal into the kit door's status",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "live 2026-10-21: `bounds: ((` in town.map.ron; after 6 s status unchanged, problems [], journal 0 (seq b016_before)"
+      },
+      "evidence": "d8b3d5e; tests/a_map_edited_on_disk_reaches_the_screen.rs::a_malformed_map_on_disk_is_refused_on_the_map_door; docs/loop/iterations/assets/2026-10-21-d8b3d5e/B-016-after.gif",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
     }
   ]
 }
