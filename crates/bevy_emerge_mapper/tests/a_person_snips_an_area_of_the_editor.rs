@@ -436,6 +436,84 @@ fn the_drag_rectangle_is_drawn_where_it_was_dragged_at_scale_two() {
     );
 }
 
+/// **The snip's label sits above the box, never over it.** The label is a child of the overlay at
+/// `top: -22`, and it has no width of its own, so in a narrow box its text wraps onto more lines and
+/// the lines run down across the box's top edge. Measured in the real layout at the window's scale:
+/// the label's bottom edge must be at or above the box's top edge, for a wide drag and a narrow one.
+#[test]
+fn the_snip_label_sits_above_the_box_and_never_over_it() {
+    use bevy::ui::{ComputedNode, UiGlobalTransform};
+    use bevy_emerge_mapper::snip::SnipOverlay;
+
+    let drags = [
+        ("wide", Vec2::new(200.0, 120.0), Vec2::new(420.0, 260.0)),
+        ("narrow", Vec2::new(200.0, 120.0), Vec2::new(262.0, 170.0)),
+    ];
+    for (name, start, end) in drags {
+        let mut app = editor(&format!("snip_label_{name}"));
+        let world = app.world_mut();
+        world
+            .query_filtered::<&mut Window, With<PrimaryWindow>>()
+            .single_mut(world)
+            .expect("the editor has one primary window")
+            .resolution
+            .set_scale_factor_override(Some(2.0));
+        for _ in 0..3 {
+            app.update();
+        }
+        step(
+            &mut app,
+            Frame {
+                keys: vec![MOD_KEYS[0], KeyCode::Backslash],
+                ..default()
+            },
+        );
+        step(
+            &mut app,
+            Frame {
+                pointer: Some(start),
+                mouse: Some(true),
+                ..default()
+            },
+        );
+        step(
+            &mut app,
+            Frame {
+                pointer: Some(end),
+                ..default()
+            },
+        );
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(Entity, &ComputedNode, &UiGlobalTransform), With<SnipOverlay>>();
+        let (overlay, node, at) = q
+            .single(app.world())
+            .expect("the drag draws exactly one overlay");
+        let box_top = at.translation.y - node.size().y / 2.0;
+        let label = app
+            .world()
+            .get::<Children>(overlay)
+            .expect("the overlay carries its label")
+            .to_vec()[0];
+        let label_node = app
+            .world()
+            .get::<ComputedNode>(label)
+            .expect("the label is laid out");
+        let label_at = app
+            .world()
+            .get::<UiGlobalTransform>(label)
+            .expect("the label has a place");
+        let label_bottom = label_at.translation.y + label_node.size().y / 2.0;
+        assert!(
+            label_bottom <= box_top + 0.5,
+            "the {name} drag's label reaches down over the box: its bottom edge is at {label_bottom} px, but the box's top edge is at {box_top} px (label size {:?})",
+            label_node.size()
+        );
+    }
+}
+
 /// **A drag released outside the window is over.** Its start is cleared, so the next press begins a
 /// new rectangle, and the person is told why nothing was snipped.
 #[test]
