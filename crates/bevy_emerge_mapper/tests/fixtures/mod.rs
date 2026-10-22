@@ -639,6 +639,16 @@ impl Fixture {
         f
     }
 
+    /// [`Fixture::place`] standing on `host`, a placement already added: the rider a stack is made of.
+    /// A removal of the host has to take it too, or the map is left with a rider on nothing.
+    pub fn place_on(self, id: &str, host: &str, at: (f32, f32)) -> Fixture {
+        let mut f = self.place(id, at);
+        if let Some(last) = f.placements.last_mut() {
+            *last = last.replacen("on: None,", &format!("on: Some(\"{host}\"),"), 1);
+        }
+        f
+    }
+
     /// **A reusable group of two members**, both descriptors already added.
     ///
     /// `Anchored` — it claims no tile, so it has no boundary for anything to abut and needs no

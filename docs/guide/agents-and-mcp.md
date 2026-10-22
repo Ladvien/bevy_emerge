@@ -43,9 +43,9 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 | `emerge_read_oplog` | Reads the operation log. |
 | `emerge_frame_view` | Frames the Map camera on the map, the selection, a set of placements, or a rectangle. |
 
-## Pinning from an agent
+## Pinning, turning and removing from an agent
 
-`placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. `placement_set_yaw` turns a placed piece to a facing in degrees (wrapped into one full turn), which is what **R** and **T** do to a placed piece under the cursor. See [Placing and undo](placing-and-undo.md).
+`placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. `placement_set_yaw` turns a placed piece to a facing in degrees (wrapped into one full turn), which is what **R** and **T** do to a placed piece under the cursor. `placement_remove` removes a placement by id, and whatever stands on it goes too; `emerge_undo_operation` puts the removed pieces back at the rows they held. See [Placing and undo](placing-and-undo.md).
 
 ## Known gaps
 

@@ -18,7 +18,7 @@ The palette lists the pieces the kit provides. **Up** and **Down** walk it, and 
 
 ## Remove
 
-**X** enters removal mode. A click removes the piece under the cursor. A drag draws a box and removes what is inside it. A click on bare ground with removal armed does nothing and says so.
+**X** enters removal mode. A click removes the piece under the cursor, and whatever stands on it goes with it. An agent can do the same click with `placement_remove`, and Cmd+Z restores the piece. A drag draws a box and removes what is inside it; a box removal is not an agent operation and is taken back the same way. A click on bare ground with removal armed does nothing and says so.
 
 ## Move
 
@@ -44,7 +44,7 @@ Agents pin through the same operation, `placement_set_pin`, and must give a reas
 
 **Cmd+Z** takes back the last edit on the map. **Shift+Cmd+Z** puts it back.
 
-An agent's edits are logged too, and they share Cmd+Z's history. After an agent applies `placement_set_pin` or `placement_set_yaw`, Cmd+Z takes back that change, the newest one still in effect, whoever made it, and the agent's other changes stay where they are. A change the agent already took back with `emerge_undo_operation` is dropped from the history, so Cmd+Z skips it. `emerge_undo_operation` still takes back any logged change by its operation id. A turn you make on the Map door is on the same history.
+An agent's edits are logged too, and they share Cmd+Z's history. After an agent applies `placement_set_pin`, `placement_set_yaw` or `placement_remove`, Cmd+Z takes back that change, the newest one still in effect, whoever made it, and the agent's other changes stay where they are. A change the agent already took back with `emerge_undo_operation` is dropped from the history, so Cmd+Z skips it. `emerge_undo_operation` still takes back any logged change by its operation id. A turn you make on the Map door is on the same history.
 
 ## Stack
 
