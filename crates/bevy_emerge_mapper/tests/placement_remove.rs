@@ -1,9 +1,9 @@
 //! **An agent can remove a placement, and take the removal back, through the same log the author's undo uses.**
 //!
-//! The regression tests for the operation behind `Action::Remove`: removing a piece was a human-only
-//! edit on the unmigrated list. It is now the registered operation `placement_remove`. These go
-//! through the registered BRP methods, the way the MCP server does, and assert on the map the editor
-//! holds, the file on disk, and the log.
+//! The regression tests for the operation behind the removal click: a single placement, through
+//! `placement_remove`. X's stamp and box removal are not migrated and stay on the unmigrated list.
+//! These go through the registered BRP methods, the way the MCP server does, and assert on the map
+//! the editor holds, the file on disk, and the log.
 
 use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
