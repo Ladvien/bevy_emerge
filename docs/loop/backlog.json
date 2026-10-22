@@ -193,16 +193,6 @@
     {
       "last_failure": "",
       "first_seen": "2026-10-21",
-      "id": "E-017",
-      "kind": "enhancement",
-      "area": "mcp",
-      "status": "open",
-      "title": "The agent cannot frame or zoom the Map's camera; it had to inject wheel events through bevy_debugger/input",
-      "evidence": "2026-10-21: to see the whole town the review injected Scroll events, a parity gap. User problem: the agent cannot look at the region it is presenting; frequency: every inspect/present step on a large map; saving: 'frame this region' as one call; risk: the camera is view state, not map data, so it is an editor command, not a logged operation."
-    },
-    {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
       "id": "B-014",
       "kind": "bug",
       "area": "chrome",
@@ -245,6 +235,36 @@
       "status": "open",
       "title": "Ghosts and previews do not get draw levels, and relevel is O(n^2) per map change",
       "evidence": "From the z-fight fix (bd5116a/63e6631): ghost/preview spawns in editor.rs and redraw_stamps get no paint or lift, so a ghost over a field can draw differently from the committed piece; relevel_placements compares every pair when the map changes (727 pieces: about 0.5 M pairs)."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-021",
+      "kind": "enhancement",
+      "area": "keys",
+      "status": "open",
+      "title": "A frame key for the person (Home: the locked placement, or the whole map)",
+      "evidence": "Built in the 2026-10-21 frame iteration and taken out: a new keys::Action that is not a registry operation grows the unmigrated allowlist, which operations_have_two_front_ends pins at 128 and says must be paid for by migrating one in the same commit. Ship it together with one migration. The framing itself (view::frame_box, editor::resolve_frame/apply_frame) is ready; the person's wheel can now zoom out to the whole map."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-022",
+      "kind": "enhancement",
+      "area": "view",
+      "status": "open",
+      "title": "The Map opens on a 18 m close-up of the origin, not framed on the map",
+      "evidence": "Every launch of Sanctuary's 300 x 1120 m town opens on one road crossing (seq frame_before f000). Opening framed on the whole map (or the last view, saved per map as an editor preference) would remove the first thing a person and an agent each have to do. Risk: a saved view is a new editor-preference file."
+    },
+    {
+      "id": "E-023",
+      "kind": "enhancement",
+      "area": "perf",
+      "status": "open",
+      "title": "Possible +1.5 ms frame time between b6ee5af and 8c97677 (not significant: paired t = 1.79, n = 9)",
+      "evidence": "target/loop/2026-10-21-b6ee5af/ab*.txt; the commit adds no per-frame work beyond view::drive reading the viewport aspect. Check with a profiler (Tracy or bevy_debugger frame timings) before claiming either way.",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
     }
   ]
 }
