@@ -23,9 +23,9 @@ Each crate has its own `README.md` and `CLAUDE.md`; the latter holds the crate's
 
 <video src="docs/media/demo.mp4" controls muted width="100%"></video>
 
-[![The editor framing a wall that an agent has just turned 90 degrees, with the inspector's receipt](docs/media/demo-poster.png)](docs/media/demo.mp4)
+[![The editor after an agent removes one wall piece with placement_remove: the inspector's undo row reads "removed wall_02_3" and the map is one piece short](docs/media/demo-poster.png)](docs/media/demo.mp4)
 
-[`docs/media/demo.mp4`](docs/media/demo.mp4): 37 seconds of the running editor on the scratch town map, captured at 4 frames a second. The camera is zoomed in and panned, an agent frames the town houses over MCP, a barrel is placed on a road tile (which replaces the tile), Cmd+Z undoes it, an agent frames one wall and turns it 90 degrees with `placement_set_yaw`, Cmd+Z then takes that turn back (the wall returns to its first angle), and the agent frames the whole map. The [guide](docs/guide/README.md) walks the same path with the keys and tools for each step.
+[`docs/media/demo.mp4`](docs/media/demo.mp4): 50 seconds of the running editor on the scratch town map, captured at 4 frames a second. The camera is zoomed in and panned, an agent frames the town houses over MCP, a barrel is placed on a road tile (which replaces the tile), Cmd+Z undoes it, an agent frames one wall and turns it 90 degrees with `placement_set_yaw`, and Cmd+Z takes that turn back (the wall returns to its first angle). The agent then frames that wall and its neighbour and removes the neighbour with `placement_remove` (frames 161 to 176: the gap), and Cmd+Z puts it back (frame 177). The [guide](docs/guide/README.md) walks the same path with the keys and tools for each step.
 
 ## Licence
 

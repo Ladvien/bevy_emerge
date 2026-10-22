@@ -282,6 +282,40 @@ impl EditorState {
         self.redo.retain(|op| !names_line(op));
     }
 
+    /// **Is a change recorded by row number sitting above a registry line's entry?** An undo of a
+    /// `placement_remove` puts a row back or takes one out, and every row-recorded change above it
+    /// names its piece by a number the undo has just moved. `Added` names its pieces from the tail,
+    /// which a row landing before them leaves alone, so it does not count. Stamps index `map.stamps`,
+    /// not placements. If the line has no entry on the stack, every entry counts: the conservative
+    /// answer when the stack cannot say where the line sits.
+    pub(crate) fn row_recorded_above(&self, line: &str) -> bool {
+        fn by_row(op: &Undo) -> bool {
+            match op {
+                Undo::RemovedMany { .. }
+                | Undo::Moved { .. }
+                | Undo::RemoveAt { .. }
+                | Undo::Turned { .. }
+                | Undo::Lifted { .. }
+                | Undo::Tipped { .. } => true,
+                Undo::Group { ops } => ops.iter().any(by_row),
+                Undo::Added { .. }
+                | Undo::Stamped { .. }
+                | Undo::UnstampedMany { .. }
+                | Undo::UnstampAt { .. }
+                | Undo::MovedStamp { .. }
+                | Undo::Pin { .. }
+                | Undo::Settings { .. }
+                | Undo::Logged { .. } => false,
+            }
+        }
+        let start = self
+            .undo
+            .iter()
+            .position(|op| matches!(op, Undo::Logged { line: l, .. } if l == line))
+            .map_or(0, |at| at + 1);
+        self.undo[start..].iter().any(by_row)
+    }
+
     /// Where the id mint stands — read-only, so the harness can check [`next_id_after`]'s seed
     /// really landed.
     pub fn minted(&self) -> u32 {
@@ -5244,7 +5278,7 @@ fn drive_removal(
     if (from.0 - at.0).abs() <= CLICK_EPS && (from.1 - at.1).abs() <= CLICK_EPS {
         match pick_subject(&project, &open, &picture, at) {
             Some(Subject::Placement(i)) => {
-                delete_index(&mut commands, i,  &mut open, &mut state, &placed)
+                delete_index(&mut commands, &project, i, &mut open, &mut state, &placed)
             }
             // **The instance, whole.** A click landed on one member of it; removing that member is
             // reaching *through* the stamp, which is the thing `composition.rs`'s encapsulation rule
@@ -6864,6 +6898,62 @@ fn keys(
     }
 }
 
+/// **Remove one placement, and what stands on it, through the operation registry**, so the removal is
+/// saved and logged the way an agent's is. Returns the log line, the receipt and the ids taken; `None`
+/// when the registry refused, and the refusal is a problem where the author looks.
+fn remove_placement(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+) -> Option<(String, String, Vec<String>)> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(
+            &mut *open,
+            OpenMap::new(
+                bevy_emerge_core::map::Map::default(),
+                std::path::PathBuf::new(),
+            ),
+        )),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let outcome = crate::ops::dispatch(
+        &mut ctx,
+        "placement_remove",
+        &serde_json::json!({"id": id}),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            // **What was taken**, as the registry recorded it: the piece and what stood on it.
+            let ids = outcome
+                .after
+                .as_ref()
+                .and_then(|a| a.get("ids"))
+                .and_then(serde_json::Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some((operation_id, outcome.summary, ids))
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+            None
+        }
+    }
+}
+
 /// Remove the placement nearest the cursor, within a piece's own reach.
 ///
 /// Nearest-within-a-radius rather than a picking ray: the pieces are GLB scenes with no colliders, and
@@ -6872,8 +6962,8 @@ fn keys(
 /// at" means the same distance as "place one here".
 fn delete_index(
     commands: &mut Commands,
+    project: &Project,
     index: usize,
-
     open: &mut OpenMap,
     state: &mut EditorState,
     placed: &Query<(Entity, &Placement)>,
@@ -6882,39 +6972,20 @@ fn delete_index(
         state.status.note("nothing here to remove".to_owned());
         return;
     }
-    // **A stack goes whole.** `Placed::on` is a hard reference, so removing a host on its own left
-    // its riders pointing at a placement that no longer existed — and `resolve_y` then refused the
-    // whole map with *"rests on `table@3`, which does not exist"*. The editor could not draw it, the
-    // file could not be reloaded, and the only thing an author had done was delete a table.
-    //
-    // The same set the move tool carries, from the same function, so "this piece and what it holds up"
-    // means one thing in both verbs.
-    let group = bevy_emerge_core::stack::group_of(&open.map, index);
-    let head = open.map.placements[index].id.clone();
-
-    // **Back to front.** Removing an earlier row shifts every later one down, so a forward pass would
-    // take the wrong pieces the moment the composition held more than one — the rule the box removal below
-    // already follows, and now the single delete needs it too.
-    let mut ordered = group.clone();
-    ordered.sort_unstable();
-    let mut items: Vec<(usize, Box<Placed>)> = Vec::with_capacity(ordered.len());
-    for i in ordered.iter().rev() {
-        let removed = open.map.placements.remove(*i);
-        for (entity, marker) in placed {
-            if marker.0 == removed.id {
-                commands.entity(entity).despawn();
-            }
+    let id = open.map.placements[index].id.clone();
+    // **Through the registry**, so the removal is saved and logged the way an agent's is, and an
+    // agent's removal can be taken back with the same Cmd+Z this key feeds. A stack goes whole: the
+    // registry takes what stands on the piece with it, and reports every id it took.
+    let Some((line, summary, ids)) = remove_placement(project, open, state, &id) else {
+        return;
+    };
+    for (entity, marker) in placed {
+        if ids.contains(&marker.0) {
+            commands.entity(entity).despawn();
         }
-        items.push((*i, Box::new(removed)));
     }
-    // Ascending, which is the order `Undo::RemovedMany` puts them back in — an earlier row returning
-    // first shifts the later ones into place.
-    items.reverse();
-    state.status.note(match items.len() {
-        1 => format!("removed {head}"),
-        n => format!("removed {head} and {} on it", n - 1),
-    });
-    state.record(Undo::RemovedMany { items });
+    state.status.note(summary.clone());
+    state.record_logged(line, summary);
 }
 
 /// Take back the last edit.

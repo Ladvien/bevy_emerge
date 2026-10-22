@@ -329,6 +329,12 @@ pub trait Operation: 'static {
     fn state_of(&self, ctx: &Ctx, _after: &serde_json::Value) -> Option<serde_json::Value> {
         self.state(ctx)
     }
+
+    /// **Whether these parameters are a change only an undo may make**, so a dispatch that is not an
+    /// undo refuses them. `false` for every operation but a removal's put-back (gap 2).
+    fn only_as_undo(&self, _params: &serde_json::Value) -> bool {
+        false
+    }
 }
 
 /// **Every operation the editor knows, in one list.**
@@ -340,6 +346,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(map_set_settings::MapSetSettings),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
+        Box::new(placement_remove::PlacementRemove),
     ]
 }
 
@@ -357,6 +364,28 @@ pub fn find(name: &str) -> Option<Box<dyn Operation>> {
 /// recorded — which is what makes the log a source of truth rather than a report.
 pub fn dispatch(ctx: &mut Ctx, name: &str, params: &serde_json::Value) -> Result<Applied, Refusal> {
     dispatch_as(ctx, name, params, None)
+}
+
+/// **The refusal for a change only an undo may make**, the same wherever it is found: [`dispatch`]
+/// and [`preview`] both give it.
+fn undo_only_refusal(name: &str) -> Refusal {
+    Refusal::new(format!(
+        "`{name}` with `put_back` is the undo of a logged removal, not a change. Take that removal \
+         back with `emerge/operation_undo`, or Cmd+Z in the editor. Nothing was put back."
+    ))
+}
+
+/// **What [`dispatch`] would do, without doing it.** A preview goes through this, so it refuses
+/// what dispatch refuses: a preview never says "would change" for a change dispatch would not make.
+pub fn preview(
+    ctx: &Ctx,
+    op: &dyn Operation,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, Refusal> {
+    if op.only_as_undo(params) {
+        return Err(undo_only_refusal(op.name()));
+    }
+    op.plan(ctx, params)
 }
 
 /// **[`dispatch`], with the line it undoes named** — the one path for a change and for its undo,
@@ -377,6 +406,12 @@ fn dispatch_as(
                 .join(", ")
         )));
     };
+    // **A change only an undo may make is refused from anywhere else** (gap 2). Only [`undo`] passes
+    // `undoes`, and it dispatches the line's own recorded inverse, so this is the one door a put-back
+    // comes through. Applied on its own, it would bring back a piece the person may have removed again.
+    if undoes.is_none() && op.only_as_undo(params) {
+        return Err(undo_only_refusal(name));
+    }
     // **The plan runs first, always.** A refusal found by the plan is found before anything is
     // written, so a refused operation changes nothing — not the map, not the file, not the log
     // (beyond the record that it was refused, which is itself worth having).
@@ -1445,6 +1480,345 @@ pub mod placement_set_yaw {
                 inverse: Some(inverse),
                 after,
             })
+        }
+    }
+}
+
+/// **Remove one placement, or put back what a logged removal took.**
+///
+/// **A removal takes the piece and what stands on it**, because a stack goes whole
+/// (`stack::group_of`): removing a host alone would leave its riders pointing at a placement that
+/// no longer exists, and the map would refuse to load. So the undo is the group, put back at the
+/// rows it held.
+///
+/// **A put-back is accepted only against the log.** The registry has no other way to add a
+/// placement, so a put-back the log did not record would be one.
+pub mod placement_remove {
+    use super::*;
+    use bevy_emerge_core::map::Placed;
+    use serde_json::json;
+
+    /// **One row a removal took**: the index it held and the placement as the file wrote it.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Row {
+        pub index: usize,
+        pub placed: serde_json::Value,
+    }
+
+    /// **What an undo puts back**: the piece the removal was asked for, and the rows it took.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct PutBack {
+        pub head: String,
+        pub rows: Vec<Row>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The placement to remove. What stands on it goes too.
+        #[serde(default)]
+        pub id: Option<String>,
+        /// **Only an undo sends this**: puts back the rows a logged removal took.
+        #[serde(default)]
+        pub put_back: Option<PutBack>,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The placement to remove. A piece standing on it goes too."
+                    },
+                    "put_back": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["head", "rows"],
+                        "description": "Only an undo sends this: it restores the pieces a logged removal took. It is not a way to add a piece.",
+                        "properties": {
+                            "head": {"type": "string"},
+                            "rows": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["index", "placed"],
+                                    "properties": {
+                                        "index": {"type": "integer", "minimum": 0},
+                                        "placed": {"type": "object"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal; and exactly one
+        /// of `id` and `put_back`, so a request cannot say both.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not a removal: {e}. The fields are `id`, or `put_back` for an undo, and \
+                     nothing else."
+                ))
+            })?;
+            match (&p.id, &p.put_back) {
+                (Some(_), None) | (None, Some(_)) => Ok(p),
+                _ => Err(Refusal::new(
+                    "a removal names one placement by `id`, or puts back what a removal took with \
+                     `put_back`, and not both. Nothing was removed.",
+                )),
+            }
+        }
+    }
+
+    /// **The position of a placement by id**, or `None` when this map does not hold it.
+    fn index_of(open: &OpenMap, id: &str) -> Option<usize> {
+        open.map.placements.iter().position(|q| q.id == id)
+    }
+
+    /// **Whether the log holds a removal that took exactly these rows.** A put-back's parameters are
+    /// the removal's recorded inverse, so equality with that inverse is the proof.
+    fn logged_removal(project: &Project, pb: &PutBack) -> bool {
+        let Ok(want) = serde_json::to_value(pb) else {
+            return false;
+        };
+        let text = std::fs::read_to_string(oplog_path(project)).unwrap_or_default();
+        text.lines()
+            .filter_map(|l| serde_json::from_str::<Entry>(l).ok())
+            .any(|e| {
+                e.op == "placement_remove"
+                    && e.outcome == "applied"
+                    && e.inverse.as_ref().and_then(|i| i.get("put_back")) == Some(&want)
+            })
+    }
+
+    /// **The rows a put-back restores, checked before anything is written.** Each must be a piece
+    /// this map does not hold, the rows must be what a logged removal took, and each must land at an
+    /// index the map can take once the earlier rows are in.
+    fn restorable(
+        project: &Project,
+        open: &OpenMap,
+        pb: &PutBack,
+    ) -> Result<Vec<(usize, Placed)>, Refusal> {
+        if pb.rows.is_empty() {
+            return Err(Refusal::new("a put-back has no rows, so nothing was put back."));
+        }
+        if !logged_removal(project, pb) {
+            return Err(Refusal::new(
+                "no logged removal took these pieces, so they cannot be put back. An undo restores \
+                 only what a removal in the log took. Nothing was changed.",
+            ));
+        }
+        let mut rows: Vec<(usize, Placed)> = Vec::with_capacity(pb.rows.len());
+        for row in &pb.rows {
+            let placed: Placed = serde_json::from_value(row.placed.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "a restored row is not a placement: {e}. Nothing was put back."
+                ))
+            })?;
+            if index_of(open, &placed.id).is_some()
+                || rows.iter().any(|(_, q)| q.id == placed.id)
+            {
+                return Err(Refusal::new(format!(
+                    "`{}` is already on this map, so putting it back would make two. Nothing was put \
+                     back.",
+                    placed.id
+                )));
+            }
+            rows.push((row.index, placed));
+        }
+        rows.sort_by_key(|(i, _)| *i);
+        for (n, (i, _)) in rows.iter().enumerate() {
+            if *i > open.map.placements.len() + n {
+                return Err(Refusal::new(format!(
+                    "row {i} is past the end of the map, so it cannot go back there. Nothing was put \
+                     back."
+                )));
+            }
+        }
+        Ok(rows)
+    }
+
+    /// **Take a removal out**, and the group it took with it, then save. A refused save puts every
+    /// row back, so the editor and the file agree.
+    fn remove(project: &Project, open: &mut OpenMap, id: &str) -> Result<Outcome, Refusal> {
+        let Some(index) = index_of(open, id) else {
+            return Err(Refusal::new(format!(
+                "no placement is called `{id}` on this map, so nothing was removed."
+            )));
+        };
+        // **A stack goes whole**, by the same function the editor's delete has always used.
+        let mut group = bevy_emerge_core::stack::group_of(&open.map, index);
+        group.sort_unstable();
+        let mut rows: Vec<Row> = Vec::with_capacity(group.len());
+        for &i in &group {
+            let placed = serde_json::to_value(&open.map.placements[i]).map_err(|e| {
+                Refusal::new(format!(
+                    "cannot record `{}` for the undo: {e}. Nothing was removed.",
+                    open.map.placements[i].id
+                ))
+            })?;
+            rows.push(Row { index: i, placed });
+        }
+        let ids: Vec<String> = group
+            .iter()
+            .map(|&i| open.map.placements[i].id.clone())
+            .collect();
+        // **Back to front**: removing an earlier row shifts every later one down.
+        let mut taken: Vec<(usize, Placed)> = Vec::with_capacity(group.len());
+        for &i in group.iter().rev() {
+            taken.push((i, open.map.placements.remove(i)));
+        }
+        if let Err(e) = open.save(project) {
+            // **Ascending again**, the order the rows went back in.
+            for (i, placed) in taken.into_iter().rev() {
+                open.map.placements.insert(i, placed);
+            }
+            return Err(Refusal::new(format!(
+                "the file refused the removal, so nothing was written and the piece is still there: {e}"
+            )));
+        }
+        let summary = match ids.len() {
+            1 => format!("removed {id}"),
+            n => format!("removed {id} and {} on it", n - 1),
+        };
+        let inverse = json!({"put_back": PutBack { head: id.to_owned(), rows }});
+        Ok(Outcome {
+            summary,
+            affected: ids.len(),
+            saved: true,
+            inverse: Some(inverse),
+            // **How many of the pieces are still on the map**: none, after a removal. An undo checks
+            // that count, so a piece put back or taken away by hand blocks it.
+            after: Some(json!({"map": open.map.name, "ids": ids, "on_map": 0})),
+        })
+    }
+
+    /// **Put a logged removal's pieces back**, at the rows they held, then save.
+    fn put_back(project: &Project, open: &mut OpenMap, pb: &PutBack) -> Result<Outcome, Refusal> {
+        let rows = restorable(project, open, pb)?;
+        let ids: Vec<String> = rows.iter().map(|(_, p)| p.id.clone()).collect();
+        // **Ascending**: each row lands at its own index once the earlier rows are back.
+        for (i, placed) in rows {
+            open.map.placements.insert(i, placed);
+        }
+        if let Err(e) = open.save(project) {
+            for id in &ids {
+                if let Some(i) = index_of(open, id) {
+                    open.map.placements.remove(i);
+                }
+            }
+            return Err(Refusal::new(format!(
+                "the file refused the put-back, so nothing was written and the pieces are not back: {e}"
+            )));
+        }
+        let summary = match ids.len() {
+            1 => format!("put back {}", ids[0]),
+            n => format!("put back {} and {} on it", pb.head, n - 1),
+        };
+        Ok(Outcome {
+            summary,
+            affected: ids.len(),
+            saved: true,
+            // **Its inverse removes the piece it was put back for**: the same group, now the map's again.
+            inverse: Some(json!({"id": pb.head})),
+            after: Some(json!({"map": open.map.name, "ids": ids, "on_map": ids.len()})),
+        })
+    }
+
+    /// **Remove one placement, and what stands on it.**
+    pub struct PlacementRemove;
+
+    impl Operation for PlacementRemove {
+        fn name(&self) -> &'static str {
+            "placement_remove"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        /// **A put-back is the undo of a logged removal and nothing else** (gap 2), so only [`undo`]
+        /// may send one. `parse` refuses a request that names both `id` and `put_back`.
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).is_ok_and(|p| p.put_back.is_some())
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        /// **The pieces a change names, and how many the map still holds** — the part an undo checks.
+        /// A removal's undo is safe only while none of them is back on the map; a put-back's only while
+        /// all of them are.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            let ids: Vec<String> = after
+                .get("ids")?
+                .as_array()?
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect();
+            let on_map = ids.iter().filter(|id| index_of(open, id).is_some()).count();
+            Some(json!({"map": open.map.name, "ids": ids, "on_map": on_map}))
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new(
+                    "no map is open, so there is no placement to remove.",
+                ));
+            };
+            if let Some(pb) = &p.put_back {
+                let Some(project) = ctx.project.as_ref() else {
+                    return Err(Refusal::new("no project is open."));
+                };
+                restorable(project, open, pb)?;
+                return Ok(json!({"put_back": pb.head, "rows": pb.rows.len()}));
+            }
+            let Some(id) = p.id.as_deref() else {
+                return Err(Refusal::new("a removal names one placement by `id`."));
+            };
+            let Some(index) = index_of(open, id) else {
+                return Err(Refusal::new(format!(
+                    "no placement is called `{id}` on this map, so nothing was removed."
+                )));
+            };
+            let group = bevy_emerge_core::stack::group_of(&open.map, index);
+            Ok(json!({"id": id, "removes": group.len()}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            let Some(mut open) = ctx.open.take() else {
+                return Err(Refusal::new(
+                    "no map is open, so there is no placement to remove.",
+                ));
+            };
+            let done = match (&p.put_back, p.id.as_deref()) {
+                (Some(pb), _) => put_back(project, &mut open, pb),
+                (None, Some(id)) => remove(project, &mut open, id),
+                (None, None) => Err(Refusal::new("a removal names one placement by `id`.")),
+            };
+            ctx.open = Some(open);
+            done
         }
     }
 }

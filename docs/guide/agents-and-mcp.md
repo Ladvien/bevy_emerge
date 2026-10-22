@@ -43,13 +43,14 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 | `emerge_read_oplog` | Reads the operation log. |
 | `emerge_frame_view` | Frames the Map camera on the map, the selection, a set of placements, or a rectangle. |
 
-## Pinning from an agent
+## Pinning, turning and removing from an agent
 
-`placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. `placement_set_yaw` turns a placed piece to a facing in degrees (wrapped into one full turn), which is what **R** and **T** do to a placed piece under the cursor. See [Placing and undo](placing-and-undo.md).
+`placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. `placement_set_yaw` turns a placed piece to a facing in degrees (wrapped into one full turn), which is what **R** and **T** do to a placed piece under the cursor. `placement_remove` removes a placement by id, and whatever stands on it goes too; `emerge_undo_operation` puts the removed pieces back at the rows they held. See [Placing and undo](placing-and-undo.md).
 
 ## Known gaps
 
 - **Cmd+Z and an agent's edits share one history.** Cmd+Z takes back the newest change still in effect, an agent's included. `emerge_undo_operation` takes back a logged change by its operation id, or puts it back, but only when no newer change to the same map is still in effect: otherwise it refuses and names the change to undo first. See [Placing and undo](placing-and-undo.md#undo-and-redo).
 - **`emerge_state` does not list each placement's pin.** Use `emerge_read_oplog` to see what was pinned, until E-026 is fixed.
+- **Box removal and stamp removal have no agent operation.** X's drag box and stamp delete still change the map outside the registry, so only a click removal goes through `placement_remove`.
 
 E-026 is open in `docs/loop/backlog.json`.

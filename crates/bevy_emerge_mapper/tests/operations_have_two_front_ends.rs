@@ -71,6 +71,9 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("placement_set_pin", "set_pin("),
     // **The turn keys**, R and T, which dispatch `placement_set_yaw` through `set_yaw`.
     ("placement_set_yaw", "set_yaw("),
+    // **The removal click**, which deletes one placement, and what stands on it, through
+    // `remove_placement`, which dispatches `placement_remove`.
+    ("placement_remove", "remove_placement("),
     // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
     // own way of doing what `map_set_settings` does. It dispatches the operation.
     ("map_set_settings", "SizeField(Axis)"),
@@ -269,7 +272,6 @@ const UNMIGRATED: &[Action] = &[
     Action::LiftUp,
     Action::LiftDown,
     Action::Fill,
-    Action::Remove,
     Action::MoveMode,
     Action::RenameMap,
     Action::Straighten,
@@ -303,6 +305,9 @@ const UNMIGRATED: &[Action] = &[
     Action::Accept,
     Action::FoldPack,
     Action::Rescan,
+    // **Removal (X).** The removal click goes through `remove_placement`, but X's mode still deletes
+    // a stamp and box-removes rows outside the registry, so the action is not migrated.
+    Action::Remove,
     Action::RemoveTile,
     Action::CloneMode,
     Action::RunMode,
