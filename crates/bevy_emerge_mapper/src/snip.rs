@@ -80,6 +80,22 @@ fn rect_between(a: Vec2, b: Vec2) -> [f32; 4] {
     [a.x.min(b.x), a.y.min(b.y), a.x.max(b.x), a.y.max(b.y)]
 }
 
+/// The picture's pixel rectangle. `rect` is the drag in surface pixels, which the pointer reports and which is already physical, so it is rounded once and never scaled again.
+fn picture_px(rect: [f32; 4]) -> [i64; 4] {
+    rect.map(|v| v.round() as i64)
+}
+
+/// Is a point inside a rectangle, edges included? Both are in surface pixels.
+fn under(rect: [f32; 4], at: Vec2) -> bool {
+    at.x >= rect[0] && at.x <= rect[2] && at.y >= rect[1] && at.y <= rect[3]
+}
+
+/// A surface-pixel coordinate as the overlay's `Val::Px`. The layout multiplies `Val::Px` by `UiScale`, so the overlay divides by it, as `compose.rs` places its own rectangles.
+fn overlay_px(surface: f32, ui_scale: f32) -> f32 {
+    let s = if ui_scale > 0.0 { ui_scale } else { 1.0 };
+    surface / s
+}
+
 /// `Cmd+\` arms the snip, and pressed again it disarms. Escape disarms while no note is open.
 pub fn snip_key(
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -121,6 +137,15 @@ pub fn snip_pointer(
         return;
     }
     let Some(here) = pointer.0 else {
+        // The pointer has left the window. A button that comes up out there ends the drag, with no
+        // picture, and the snip stays armed so the person can drag again inside the window.
+        if snip.from.is_some() && mouse.just_released(MouseButton::Left) {
+            snip.from = None;
+            state.status.problem(
+                "the drag ended outside the window, so nothing was snipped. Drag again inside the window."
+                    .to_owned(),
+            );
+        }
         return;
     };
     if snip.from.is_none() {
@@ -247,12 +272,7 @@ pub fn snip_commit(
     };
     let scale = window.resolution.scale_factor();
     let r = pending.rect;
-    let physical = [
-        (r[0] * scale).round() as i64,
-        (r[1] * scale).round() as i64,
-        (r[2] * scale).round() as i64,
-        (r[3] * scale).round() as i64,
-    ];
+    let physical = picture_px(r);
 
     let taken_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -278,7 +298,7 @@ pub fn snip_commit(
             let Ok(at) = cam.world_to_viewport(cam_tf, tf.translation()) else {
                 continue;
             };
-            if at.x >= r[0] && at.x <= r[2] && at.y >= r[1] && at.y <= r[3] {
+            if under(r, at) {
                 placements.push(PlacedIn {
                     id: placement.0.clone(),
                     world: tf.translation().to_array(),
@@ -351,6 +371,7 @@ pub fn snip_overlay(
     mut commands: Commands,
     snip: Res<SnipEdit>,
     pointer: Res<Pointer>,
+    ui_scale: Res<UiScale>,
     old: Query<Entity, With<SnipOverlay>>,
 ) {
     for entity in &old {
@@ -373,10 +394,10 @@ pub fn snip_overlay(
             Node {
                 // PLACES-ITSELF-OK: the drag rectangle is placed at the pointer over the whole window, so it is not a panel and has no layout to join.
                 position_type: PositionType::Absolute,
-                left: Val::Px(rect[0]),
-                top: Val::Px(rect[1]),
-                width: Val::Px(rect[2] - rect[0]),
-                height: Val::Px(rect[3] - rect[1]),
+                left: Val::Px(overlay_px(rect[0], ui_scale.0)),
+                top: Val::Px(overlay_px(rect[1], ui_scale.0)),
+                width: Val::Px(overlay_px(rect[2] - rect[0], ui_scale.0)),
+                height: Val::Px(overlay_px(rect[3] - rect[1], ui_scale.0)),
                 border: UiRect::all(Val::Px(chrome::SNIP_EDGE_W)),
                 ..default()
             },
@@ -419,5 +440,46 @@ impl Plugin for SnipPlugin {
                     .after(snip_commit)
                     .after(snip_note_keys),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **At scale 2 the crop is the drag, in surface pixels.** The drag is `(200,120)`→`(420,260)` in
+    /// logical pixels, so the surface rectangle is `[400,240,840,520]`. The crop must be that rectangle,
+    /// not twice it: the surface is already physical.
+    #[test]
+    fn the_crop_is_the_drag_in_surface_pixels_at_scale_two() {
+        let surface = rect_between(Vec2::new(400.0, 240.0), Vec2::new(840.0, 520.0));
+        assert_eq!(picture_px(surface), [400, 240, 840, 520]);
+    }
+
+    /// A fractional drag rounds once, to the nearest surface pixel.
+    #[test]
+    fn a_fractional_drag_rounds_once() {
+        assert_eq!(
+            picture_px([400.4, 240.6, 840.0, 520.0]),
+            [400, 241, 840, 520]
+        );
+    }
+
+    /// **A placement under the drag is listed.** Its viewport point is in surface pixels, as the drag is,
+    /// and the edges of the rectangle count as under it.
+    #[test]
+    fn a_placement_under_the_drag_is_listed() {
+        let rect = [400.0, 240.0, 840.0, 520.0];
+        assert!(under(rect, Vec2::new(500.0, 300.0)));
+        assert!(under(rect, Vec2::new(840.0, 520.0)));
+        assert!(!under(rect, Vec2::new(100.0, 100.0)));
+    }
+
+    /// **The overlay is drawn over the drag under UiScale.** The layout multiplies `Val::Px` by UiScale, so a
+    /// surface pixel is `1/UiScale` of `Val::Px`, as compose.rs places its rectangles.
+    #[test]
+    fn the_overlay_is_divided_by_ui_scale() {
+        assert!((overlay_px(440.0, 2.4) - 440.0 / 2.4).abs() < 1e-4);
+        assert_eq!(overlay_px(440.0, 0.0), 440.0);
     }
 }

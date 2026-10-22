@@ -363,3 +363,125 @@ fn a_snip_drag_in_remove_mode_removes_nothing() {
         "a snip drag in Remove mode removed a piece"
     );
 }
+
+/// **The drag's rectangle is drawn where it was dragged, at the window's real scale.**
+///
+/// The window is at scale 2, so the pointer is in surface pixels (physical), and the layout multiplies
+/// `Val::Px` by `UiScale`. The overlay must divide by `UiScale` or it is drawn larger than the drag.
+/// Measured in the real layout: `ComputedNode` is physical, so its size is the drag's size in surface
+/// pixels and its centre is the drag's centre.
+#[test]
+fn the_drag_rectangle_is_drawn_where_it_was_dragged_at_scale_two() {
+    use bevy::ui::{ComputedNode, UiGlobalTransform, UiScale};
+    use bevy_emerge_mapper::snip::SnipOverlay;
+
+    let mut app = editor("snip_overlay_layout");
+    let world = app.world_mut();
+    world
+        .query_filtered::<&mut Window, With<PrimaryWindow>>()
+        .single_mut(world)
+        .expect("the editor has one primary window")
+        .resolution
+        .set_scale_factor_override(Some(2.0));
+    for _ in 0..3 {
+        app.update();
+    }
+
+    // Logical window pixels in, so the surface rectangle is twice these.
+    let start = Vec2::new(200.0, 120.0);
+    let end = Vec2::new(420.0, 260.0);
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::Backslash],
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(start),
+            mouse: Some(true),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(end),
+            ..default()
+        },
+    );
+    app.update();
+
+    let ui_scale = app.world().resource::<UiScale>().0;
+    let surface_start = start * 2.0;
+    let surface_end = end * 2.0;
+    let want_size = surface_end - surface_start;
+    let want_centre = (surface_start + surface_end) / 2.0;
+    let mut q = app
+        .world_mut()
+        .query_filtered::<(&ComputedNode, &UiGlobalTransform), With<SnipOverlay>>();
+    let (node, at) = q
+        .single(app.world())
+        .expect("the drag draws exactly one overlay");
+    let (size, centre) = (node.size(), at.translation);
+    assert!(
+        (size - want_size).abs().max_element() < 1.0,
+        "the overlay must be the drag's size in surface pixels: {size:?} vs {want_size:?} at UiScale {ui_scale}"
+    );
+    assert!(
+        (centre - want_centre).abs().max_element() < 1.0,
+        "the overlay must sit over the drag: centre {centre:?} vs {want_centre:?} at UiScale {ui_scale}"
+    );
+}
+
+/// **A drag released outside the window is over.** Its start is cleared, so the next press begins a
+/// new rectangle, and the person is told why nothing was snipped.
+#[test]
+fn a_drag_released_outside_the_window_is_cleared() {
+    let mut app = editor("snip_release_outside");
+    let start = Vec2::new(300.0, 200.0);
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::Backslash],
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(start),
+            mouse: Some(true),
+            ..default()
+        },
+    );
+    assert!(
+        app.world().resource::<SnipEdit>().from.is_some(),
+        "the press must begin the drag"
+    );
+    // The pointer has left the window, and the button comes up there.
+    step(
+        &mut app,
+        Frame {
+            mouse: Some(false),
+            ..default()
+        },
+    );
+    let snip = app.world().resource::<SnipEdit>();
+    assert!(
+        snip.from.is_none(),
+        "a release outside the window must clear the drag, got {:?}",
+        snip.from
+    );
+    assert!(
+        snip.armed,
+        "the snip stays armed so the person can drag again"
+    );
+    let problem = app.world().resource::<EditorState>().status.problem_text();
+    assert!(
+        problem.contains("outside"),
+        "the refusal must say why nothing was snipped, got: {problem:?}"
+    );
+}
