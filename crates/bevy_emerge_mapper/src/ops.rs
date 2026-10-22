@@ -347,6 +347,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
+        Box::new(stamp_remove::StampRemove),
         Box::new(map_rename::MapRename),
     ]
 }
@@ -1611,7 +1612,9 @@ pub mod placement_remove {
         pb: &PutBack,
     ) -> Result<Vec<(usize, Placed)>, Refusal> {
         if pb.rows.is_empty() {
-            return Err(Refusal::new("a put-back has no rows, so nothing was put back."));
+            return Err(Refusal::new(
+                "a put-back has no rows, so nothing was put back.",
+            ));
         }
         if !logged_removal(project, pb) {
             return Err(Refusal::new(
@@ -1626,9 +1629,7 @@ pub mod placement_remove {
                     "a restored row is not a placement: {e}. Nothing was put back."
                 ))
             })?;
-            if index_of(open, &placed.id).is_some()
-                || rows.iter().any(|(_, q)| q.id == placed.id)
-            {
+            if index_of(open, &placed.id).is_some() || rows.iter().any(|(_, q)| q.id == placed.id) {
                 return Err(Refusal::new(format!(
                     "`{}` is already on this map, so putting it back would make two. Nothing was put \
                      back.",
@@ -1817,6 +1818,270 @@ pub mod placement_remove {
                 (Some(pb), _) => put_back(project, &mut open, pb),
                 (None, Some(id)) => remove(project, &mut open, id),
                 (None, None) => Err(Refusal::new("a removal names one placement by `id`.")),
+            };
+            ctx.open = Some(open);
+            done
+        }
+    }
+}
+
+/// **Remove one stamp**: a composition placed on the map, taken off `map.stamps` by its id.
+///
+/// The shape of [`placement_remove`], one row wide: a stamp is one entry in the file, and what it
+/// expands to is not written, so a removal takes exactly the one entry and its undo puts that entry
+/// back at the index it held.
+pub mod stamp_remove {
+    use super::*;
+    use bevy_emerge_core::composition::Stamped;
+    use serde_json::json;
+
+    /// **What an undo puts back**: the stamp the removal took, and the index it held.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct PutBack {
+        pub index: usize,
+        pub stamp: serde_json::Value,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The stamp to remove, by its id.
+        #[serde(default)]
+        pub id: Option<String>,
+        /// **Only an undo sends this**: puts back the stamp a logged removal took.
+        #[serde(default)]
+        pub put_back: Option<PutBack>,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The stamp to remove, by its id, as the map's stamps list names it."
+                    },
+                    "put_back": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["index", "stamp"],
+                        "description": "Only an undo sends this: it restores the stamp a logged removal took. It is not a way to add a stamp.",
+                        "properties": {
+                            "index": {"type": "integer", "minimum": 0},
+                            "stamp": {"type": "object"}
+                        }
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal; and exactly one
+        /// of `id` and `put_back`, so a request cannot say both.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not a stamp removal: {e}. The fields are `id`, or `put_back` for an undo, \
+                     and nothing else."
+                ))
+            })?;
+            match (&p.id, &p.put_back) {
+                (Some(_), None) | (None, Some(_)) => Ok(p),
+                _ => Err(Refusal::new(
+                    "a stamp removal names one stamp by `id`, or puts back what a removal took with \
+                     `put_back`, and not both. Nothing was removed.",
+                )),
+            }
+        }
+    }
+
+    /// **The position of a stamp by id**, or `None` when this map does not hold it.
+    fn index_of(open: &OpenMap, id: &str) -> Option<usize> {
+        open.map.stamps.iter().position(|s| s.id == id)
+    }
+
+    /// **Whether the log holds a removal that took exactly this stamp at this index.** A put-back's
+    /// parameters are the removal's recorded inverse, so equality with that inverse is the proof.
+    fn logged_removal(project: &Project, pb: &PutBack) -> bool {
+        let Ok(want) = serde_json::to_value(pb) else {
+            return false;
+        };
+        let text = std::fs::read_to_string(oplog_path(project)).unwrap_or_default();
+        text.lines()
+            .filter_map(|l| serde_json::from_str::<Entry>(l).ok())
+            .any(|e| {
+                e.op == "stamp_remove"
+                    && e.outcome == "applied"
+                    && e.inverse.as_ref().and_then(|i| i.get("put_back")) == Some(&want)
+            })
+    }
+
+    /// **The stamp a put-back restores, checked before anything is written.** The log must hold the
+    /// removal, the stamp must not already be on the map, and its index must be one the map can take.
+    fn restorable(project: &Project, open: &OpenMap, pb: &PutBack) -> Result<Stamped, Refusal> {
+        if !logged_removal(project, pb) {
+            return Err(Refusal::new(
+                "no logged removal took this stamp, so it cannot be put back. An undo restores only \
+                 what a removal in the log took. Nothing was changed.",
+            ));
+        }
+        let stamp: Stamped = serde_json::from_value(pb.stamp.clone()).map_err(|e| {
+            Refusal::new(format!(
+                "the restored stamp is not a stamp: {e}. Nothing was put back."
+            ))
+        })?;
+        if index_of(open, &stamp.id).is_some() {
+            return Err(Refusal::new(format!(
+                "`{}` is already on this map, so putting it back would make two. Nothing was put back.",
+                stamp.id
+            )));
+        }
+        if pb.index > open.map.stamps.len() {
+            return Err(Refusal::new(format!(
+                "index {} is past the end of the map's stamps, so it cannot go back there. Nothing was \
+                 put back.",
+                pb.index
+            )));
+        }
+        Ok(stamp)
+    }
+
+    /// **Take a stamp out**, then save. A refused save puts it back where it was, so the editor and
+    /// the file agree.
+    fn remove(project: &Project, open: &mut OpenMap, id: &str) -> Result<Outcome, Refusal> {
+        let Some(index) = index_of(open, id) else {
+            return Err(Refusal::new(format!(
+                "no stamp is called `{id}` on this map, so nothing was removed."
+            )));
+        };
+        let taken = open.map.stamps.remove(index);
+        let stamp = match serde_json::to_value(&taken) {
+            Ok(v) => v,
+            Err(e) => {
+                open.map.stamps.insert(index, taken);
+                return Err(Refusal::new(format!(
+                    "cannot record `{id}` for the undo: {e}. Nothing was removed."
+                )));
+            }
+        };
+        if let Err(e) = open.save(project) {
+            open.map.stamps.insert(index, taken);
+            return Err(Refusal::new(format!(
+                "the file refused the removal, so nothing was written and the stamp is still there: {e}"
+            )));
+        }
+        Ok(Outcome {
+            summary: format!("removed stamp {id}"),
+            affected: 1,
+            saved: true,
+            inverse: Some(json!({"put_back": PutBack { index, stamp }})),
+            // **How many of the stamps are still on the map**: none, after a removal.
+            after: Some(json!({"map": open.map.name, "ids": [id], "on_map": 0})),
+        })
+    }
+
+    /// **Put a logged removal's stamp back**, at the index it held, then save.
+    fn put_back(project: &Project, open: &mut OpenMap, pb: &PutBack) -> Result<Outcome, Refusal> {
+        let stamp = restorable(project, open, pb)?;
+        let id = stamp.id.clone();
+        open.map.stamps.insert(pb.index, stamp);
+        if let Err(e) = open.save(project) {
+            open.map.stamps.remove(pb.index);
+            return Err(Refusal::new(format!(
+                "the file refused the put-back, so nothing was written and the stamp is not back: {e}"
+            )));
+        }
+        Ok(Outcome {
+            summary: format!("put back stamp {id}"),
+            affected: 1,
+            saved: true,
+            // **Its inverse removes the stamp it was put back for**, as a fresh logged removal.
+            inverse: Some(json!({"id": id})),
+            after: Some(json!({"map": open.map.name, "ids": [id], "on_map": 1})),
+        })
+    }
+
+    /// **Remove one stamp.**
+    pub struct StampRemove;
+
+    impl Operation for StampRemove {
+        fn name(&self) -> &'static str {
+            "stamp_remove"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        /// **A put-back is the undo of a logged removal and nothing else**, so only [`undo`] may send
+        /// one. `parse` refuses a request that names both `id` and `put_back`.
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).is_ok_and(|p| p.put_back.is_some())
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        /// **The stamps a change names, and how many the map still holds**: the part an undo checks.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            let ids: Vec<String> = after
+                .get("ids")?
+                .as_array()?
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect();
+            let on_map = ids.iter().filter(|id| index_of(open, id).is_some()).count();
+            Some(json!({"map": open.map.name, "ids": ids, "on_map": on_map}))
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new(
+                    "no map is open, so there is no stamp to remove.",
+                ));
+            };
+            if let Some(pb) = &p.put_back {
+                let Some(project) = ctx.project.as_ref() else {
+                    return Err(Refusal::new("no project is open."));
+                };
+                restorable(project, open, pb)?;
+                return Ok(json!({"put_back": pb.stamp.get("id"), "index": pb.index}));
+            }
+            let Some(id) = p.id.as_deref() else {
+                return Err(Refusal::new("a stamp removal names one stamp by `id`."));
+            };
+            if index_of(open, id).is_none() {
+                return Err(Refusal::new(format!(
+                    "no stamp is called `{id}` on this map, so nothing was removed."
+                )));
+            }
+            Ok(json!({"id": id, "removes": 1}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            let Some(mut open) = ctx.open.take() else {
+                return Err(Refusal::new(
+                    "no map is open, so there is no stamp to remove.",
+                ));
+            };
+            let done = match (&p.put_back, p.id.as_deref()) {
+                (Some(pb), _) => put_back(project, &mut open, pb),
+                (None, Some(id)) => remove(project, &mut open, id),
+                (None, None) => Err(Refusal::new("a stamp removal names one stamp by `id`.")),
             };
             ctx.open = Some(open);
             done

@@ -206,6 +206,12 @@ pub struct EditorState {
     /// and neither can reach the other's, so leaving a tab is not a reason to forget what you did on
     /// it.
     redo: Vec<Undo>,
+    /// Refusals of the top undo entry in a row. The first keeps the entry (B-026); the second drops
+    /// it, because an entry that refuses twice will not apply and would sit above every older change.
+    /// Any applied change and any new edit reset it. See [`EditorState::refused_entry`].
+    refused_undo: u8,
+    /// The same count for the redo stack.
+    refused_redo: u8,
     /// Which tool the next click belongs to. See [`Tool`].
     ///
     /// **The tool here and the drag in [`RemovalDrag`] / [`MoveDrag`]**, not one struct:
@@ -260,6 +266,39 @@ impl EditorState {
     fn record(&mut self, op: Undo) {
         self.undo.push(op);
         self.redo.clear();
+        self.settle();
+    }
+
+    /// **No entry is being refused any more**: an applied change, or a new edit, moved the stacks on.
+    fn settle(&mut self) {
+        self.refused_undo = 0;
+        self.refused_redo = 0;
+    }
+
+    /// **A refused entry goes back, and a second refusal in a row drops it (gap 3).** The first keeps
+    /// the entry, so the author sees why and can try again (B-026). An entry that refuses twice will
+    /// not apply, and left on the stack it would sit above every older change for good, so the second
+    /// refusal drops it and says so.
+    fn refused_entry(&mut self, op: Undo, redo_side: bool) {
+        let count = if redo_side {
+            &mut self.refused_redo
+        } else {
+            &mut self.refused_undo
+        };
+        *count += 1;
+        if *count < 2 {
+            let stack = if redo_side {
+                &mut self.redo
+            } else {
+                &mut self.undo
+            };
+            stack.push(op);
+        } else {
+            *count = 0;
+            self.status.problem(
+                "that entry refused twice, so it is dropped and cannot be taken back",
+            );
+        }
     }
 
     /// **Record a change another front end made through the registry**, by its operation-log line, so
@@ -268,26 +307,71 @@ impl EditorState {
         self.record(Undo::Logged { line, phrase });
     }
 
+    /// **An agent's change, on the person's receipt (B-020).**
+    ///
+    /// **One line naming the operation and what it did.** The receipt row is where a person looks
+    /// after an edit. A receipt left from their own last edit says nothing happened while the map
+    /// says it did, so the agent's change replaces it.
+    pub(crate) fn receipt_agent_change(&mut self, operation: &str, summary: &str) {
+        self.status.note(format!("agent: {operation}: {summary}"));
+    }
+
+    /// **An agent's refusal, in the journal (B-020).** A refusal is an alarm, so it is a problem and
+    /// not a note: it reaches the toast and the journal, and it does not overwrite the person's
+    /// receipt.
+    pub(crate) fn problem_agent_refusal(&mut self, operation: &str, refusal: &str) {
+        self.status.problem(format!("agent: {operation}: {refusal}"));
+    }
+
     /// **Forget the entries for a change an agent's undo took back.** Once the log no longer has that
     /// line in effect, a Cmd+Z that reached it would only refuse; dropping it means Cmd+Z takes back the
     /// newest change still in effect.
     pub(crate) fn forget_line(&mut self, line: &str) {
-        let names_line = |op: &Undo| match op {
-            Undo::Logged { line: l, .. }
-            | Undo::Pin { line: l, .. }
-            | Undo::Settings { line: l, .. } => l == line,
-            _ => false,
-        };
-        self.undo.retain(|op| !names_line(op));
-        self.redo.retain(|op| !names_line(op));
+        /// **Groups too.** A box's removals are children of one group, so the entry for one of them sits
+        /// inside it. A group left with no children goes with its last child.
+        fn forget_in(history: &mut Vec<Undo>, line: &str) {
+            history.retain_mut(|op| match op {
+                Undo::Logged { line: l, .. }
+                | Undo::Pin { line: l, .. }
+                | Undo::Settings { line: l, .. } => l.as_str() != line,
+                Undo::Group { ops } => {
+                    forget_in(ops, line);
+                    !ops.is_empty()
+                }
+                _ => true,
+            });
+        }
+        forget_in(&mut self.undo, line);
+        forget_in(&mut self.redo, line);
+    }
+
+    /// The entries above a registry line's entry, leaves only, in stack order. **Groups are walked
+    /// too.** A box's removals sit inside one group, so the line can be a leaf of it, and a group's
+    /// children are taken in the order they run. If the line has no entry on the stack, every entry
+    /// counts: the conservative answer when the stack cannot say where the line sits.
+    fn entries_above(&self, line: &str) -> Vec<&Undo> {
+        fn leaves<'a>(ops: &'a [Undo], out: &mut Vec<&'a Undo>) {
+            for op in ops {
+                match op {
+                    Undo::Group { ops } => leaves(ops, out),
+                    leaf => out.push(leaf),
+                }
+            }
+        }
+        let mut all: Vec<&Undo> = Vec::new();
+        leaves(&self.undo, &mut all);
+        let start = all
+            .iter()
+            .position(|op| matches!(op, Undo::Logged { line: l, .. } if l == line))
+            .map_or(0, |at| at + 1);
+        all.split_off(start)
     }
 
     /// **Is a change recorded by row number sitting above a registry line's entry?** An undo of a
     /// `placement_remove` puts a row back or takes one out, and every row-recorded change above it
     /// names its piece by a number the undo has just moved. `Added` names its pieces from the tail,
     /// which a row landing before them leaves alone, so it does not count. Stamps index `map.stamps`,
-    /// not placements. If the line has no entry on the stack, every entry counts: the conservative
-    /// answer when the stack cannot say where the line sits.
+    /// not placements, so they are [`EditorState::stamp_recorded_above`]'s business.
     pub(crate) fn row_recorded_above(&self, line: &str) -> bool {
         fn by_row(op: &Undo) -> bool {
             match op {
@@ -308,12 +392,18 @@ impl EditorState {
                 | Undo::Logged { .. } => false,
             }
         }
-        let start = self
-            .undo
-            .iter()
-            .position(|op| matches!(op, Undo::Logged { line: l, .. } if l == line))
-            .map_or(0, |at| at + 1);
-        self.undo[start..].iter().any(by_row)
+        self.entries_above(line).into_iter().any(by_row)
+    }
+
+    /// **Is a stamp change recorded by place sitting above a registry line's entry?** `UnstampAt` and
+    /// `UnstampedMany` name stamps by their index in `map.stamps`, so an undo of a `stamp_remove` that
+    /// puts a stamp back in the middle moves them. `Stamped` drains from the tail, which such an undo
+    /// leaves alone, and `MovedStamp` names its stamp by id, so neither counts. The same fallback as
+    /// [`EditorState::row_recorded_above`] when the line has no entry.
+    pub(crate) fn stamp_recorded_above(&self, line: &str) -> bool {
+        self.entries_above(line)
+            .into_iter()
+            .any(|op| matches!(op, Undo::UnstampAt { .. } | Undo::UnstampedMany { .. }))
     }
 
     /// Where the id mint stands — read-only, so the harness can check [`next_id_after`]'s seed
@@ -605,6 +695,7 @@ impl CloneDrag {
 /// `Turned` and `Pinned` each invert to themselves carrying the other value. So [`apply`] does the
 /// work and *returns the inverse*, and undo and redo are the same function reading opposite stacks —
 /// rather than a second body that has to be kept in step with the first.
+#[derive(Clone)]
 enum Undo {
     /// Remove the last `count` placements — the inverse of a place or a fill.
     Added { count: usize },
@@ -900,6 +991,8 @@ impl Default for EditorState {
             renaming: None,
             undo: Vec::new(),
             redo: Vec::new(),
+            refused_undo: 0,
+            refused_redo: 0,
             tool: Tool::default(),
             leaving: false,
         }
@@ -1255,6 +1348,10 @@ impl Plugin for EditorPlugin {
         app.add_systems(
             Update,
             frame_map_on_open.run_if(in_state(crate::screen::Screen::Editor)),
+        );
+        app.add_systems(
+            Update,
+            frame_on_home.run_if(in_state(crate::screen::Screen::Editor)),
         );
 
         // **Resources always; systems only on the door that has a map** — as a run condition, not
@@ -3312,6 +3409,54 @@ fn frame_map_on_open(
     }
 }
 
+/// **Home frames the view: the locked placement if there is one, otherwise the whole map.** The same
+/// `resolve_frame` + `apply_frame` as `emerge/frame_view`, so the key and the agent's method cannot
+/// disagree about what the map or the selection is. A refusal goes in a problem.
+#[allow(clippy::too_many_arguments)]
+fn frame_on_home(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    live: Res<keys::Live>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    lock: Option<Res<TargetLock>>,
+    mut rig: ResMut<crate::view::Rig>,
+    cameras: Query<&Camera, With<MainCamera>>,
+    mut state: ResMut<EditorState>,
+) {
+    if !keys::just_pressed(&keyboard, *live, keys::Action::FrameView) {
+        return;
+    }
+    let (Some(project), Some(open)) = (project, open) else {
+        return;
+    };
+    let locked = lock
+        .as_deref()
+        .and_then(|l| l.placement_id().map(str::to_owned));
+    let target = if locked.is_some() {
+        FrameTarget::Selection
+    } else {
+        FrameTarget::Map
+    };
+    let frame = match resolve_frame(&target, &project, &open, locked.as_deref()) {
+        Ok(frame) => frame,
+        Err(why) => {
+            state.status.problem(why);
+            return;
+        }
+    };
+    let Some(aspect) = cameras.single().ok().and_then(aspect_of) else {
+        state.status.problem(
+            "the Map camera has no viewport yet, so there is nothing to frame against".to_owned(),
+        );
+        return;
+    };
+    apply_frame(&mut rig, &frame, aspect, &open);
+    state.status.note(format!(
+        "framed {} ({:.0} x {:.0} m)",
+        frame.what, frame.size.x, frame.size.z,
+    ));
+}
+
 fn draw_bounds(
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<crate::keys::Live>,
@@ -5270,7 +5415,7 @@ fn drive_removal(
             // **The instance, whole.** A click landed on one member of it; removing that member is
             // reaching *through* the stamp, which is the thing `composition.rs`'s encapsulation rule
             // forbids and which the missing `Placement` used to prevent by making it unreachable.
-            Some(Subject::Stamp(id)) => delete_stamp(&id,  &mut open, &mut state),
+            Some(Subject::Stamp(id)) => delete_stamp(&id, &project, &mut open, &mut state),
             None => state.status.note("nothing here to remove"),
         }
         return;
@@ -5311,48 +5456,68 @@ fn drive_removal(
         return;
     }
 
-    // **Taken back to front.** Removing an earlier row shifts every later one down, so a forward
-    // pass would delete the wrong pieces the moment the box held more than one.
-    let mut items: Vec<(usize, Box<Placed>)> = Vec::with_capacity(doomed.len());
-    for i in doomed.iter().rev() {
-        let removed = open.map.placements.remove(*i);
+    // **Each piece goes through the registry, back to front.** Removing an earlier row shifts every
+    // later one down, so a forward pass would delete the wrong pieces the moment the box held more
+    // than one. The stamps follow, back to front by index, for the same reason.
+    // **Each piece is taken by id, not by row.** A removal shifts every later row down, and a stack
+    // goes whole: taking a host takes the riders on it, which can sit at a lower row than the host.
+    // A row the box found a moment ago may therefore hold a different piece by its turn. The ids are
+    // collected from the rows the box found, before anything moves, and an id already gone is skipped.
+    let doomed_ids: Vec<String> = doomed
+        .iter()
+        .filter_map(|i| open.map.placements.get(*i).map(|p| p.id.clone()))
+        .collect();
+    let mut logged: Vec<Undo> = Vec::with_capacity(doomed_ids.len() + stamps.len());
+    let (mut n, mut m) = (0usize, 0usize);
+    for id in doomed_ids.iter().rev() {
+        if !open.map.placements.iter().any(|p| &p.id == id) {
+            continue;
+        }
+        let Some((line, summary, ids)) = remove_placement(&project, &mut open, &mut state, id) else {
+            continue;
+        };
         for (entity, mark) in &placed {
-            if mark.0 == removed.id {
+            if ids.contains(&mark.0) {
                 commands.entity(entity).despawn();
             }
         }
-        items.push((*i, Box::new(removed)));
+        logged.push(Undo::Logged {
+            line,
+            phrase: summary,
+        });
+        n += ids.len();
     }
-    // Ascending again, which is the order `Undo::RemovedMany` puts them back in.
-    items.reverse();
-
-    // Descending here too, and after the placements: taking a stamp off `map.stamps` does not shift
-    // `map.placements`, so the two lists are independent — but within the stamp list the same rule
-    // applies, and getting it wrong is silent.
-    let mut taken: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)> =
-        Vec::with_capacity(stamps.len());
     for i in stamps.iter().rev() {
-        taken.push((*i, Box::new(open.map.stamps.remove(*i))));
+        let Some(stamp) = open.map.stamps.get(*i) else {
+            continue;
+        };
+        let id = stamp.id.clone();
+        let Some((line, summary, _)) = remove_stamp(&project, &mut open, &mut state, &id) else {
+            continue;
+        };
+        logged.push(Undo::Logged {
+            line,
+            phrase: summary,
+        });
+        m += 1;
     }
-    taken.reverse();
-
-    let n = items.len();
-    let m = taken.len();
-    // **One keypress, one undo.** A box that caught both leaves two edits behind, and `Undo::Group`
-    // exists so they come back together — its own doc: "two separate entries would make one keypress
-    // two undos". Inverses run in reverse order, which is what keeps the enum closed under
-    // inversion, so the stamps go on last and come back first.
-    let op = match (items.is_empty(), taken.is_empty()) {
-        (false, true) => Undo::RemovedMany { items },
-        (true, false) => Undo::UnstampedMany { items: taken },
-        _ => Undo::Group {
-            ops: vec![
-                Undo::RemovedMany { items },
-                Undo::UnstampedMany { items: taken },
-            ],
-        },
-    };
-    state.record(op);
+    if logged.is_empty() {
+        return;
+    }
+    // **Undo applies its list in order**, and the removals ran back to front, so the list is reversed:
+    // each kind ends up lowest index first, which is the order a put-back needs to find every index
+    // still in range. Placements and stamps are separate lists, so how they interleave does not matter.
+    logged.reverse();
+    // **One keypress, one undo.** A box that caught several pieces leaves several entries behind, and
+    // `Undo::Group` exists so they come back together: "two separate entries would make one keypress
+    // two undos".
+    if logged.len() == 1 {
+        if let Some(only) = logged.pop() {
+            state.record(only);
+        }
+    } else {
+        state.record(Undo::Group { ops: logged });
+    }
     // The whole chord, rendered by the census — naming just the modifier told the author to press
     // `Cmd`, which is not a thing anyone can do.
     let what = match (n, m) {
@@ -5366,34 +5531,23 @@ fn drive_removal(
     ));
 }
 
-/// **Take a stamp off the map, whole.**
+/// **Take a stamp off the map, whole, through the operation registry** (`stamp_remove`), so it is
+/// saved, logged and taken back the way a placement is.
 ///
 /// FVS-R-14's Delete arm: *"Delete removes the **instance**."* Named by [`Stamped::id`] and never by
-/// an index, because the caller picked it a frame ago and the list can have moved since — the rule
-/// [`MoveDrag`] states for placements and which applies here for the same reason.
+/// an index, because the caller picked it a frame ago and the list can have moved since.
 ///
 /// The entities are not despawned here. `redraw_stamps` rebuilds the whole stamped set from
-/// `map.stamps`, so there is one place that turns a stamp list into pictures rather than two that
-/// could disagree about what is on screen — the same argument the undo arms make.
-fn delete_stamp(id: &str,
-    open: &mut OpenMap, state: &mut EditorState) {
-    let Some(index) = open.map.stamps.iter().position(|s| s.id == id) else {
-        // Not an error worth a banner: the author clicked something that has since gone, which undo
-        // and a second click can both produce.
-        state
-            .status
-            .note(format!("`{id}` is not on this map any more"));
+/// `map.stamps` on every change, so there is one place that turns a stamp list into pictures.
+fn delete_stamp(id: &str, project: &Project, open: &mut OpenMap, state: &mut EditorState) {
+    let Some((line, summary, _)) = remove_stamp(project, open, state, id) else {
         return;
     };
-    let removed = open.map.stamps.remove(index);
-    let of = removed.of.clone();
-    state.record(Undo::UnstampedMany {
-        items: vec![(index, Box::new(removed))],
-    });
     state.status.note(format!(
-        "removed `{id}` — the whole `{of}`, not a piece of it. {} puts it back",
+        "{summary} — the whole stamp, not a piece of it. {} puts it back",
         keys::chord_text(keys::binding(Action::Undo))
     ));
+    state.record_logged(line, summary);
 }
 
 /// Bring up whatever the map already holds.
@@ -6207,6 +6361,36 @@ pub fn redo_for_test(world: &mut World) {
         .unwrap_or_else(|e| panic!("redo_for_test: {e}"));
 }
 
+/// Plant an undo entry whose stamp is no longer on the map, so a test can drive a **stale** entry
+/// through the real `undo` (B-026). Recorded the way an edit is recorded: pushed, and redo cleared.
+pub fn plant_stale_move_for_test(world: &mut World, id: &str) {
+    world
+        .resource_mut::<EditorState>()
+        .record(Undo::MovedStamp {
+            id: id.to_owned(),
+            from: (0.0, 0.0),
+        });
+}
+
+/// Plant a stamp-index entry — `UnstampAt` for the stamp at `index` — the way a person's stamp
+/// change leaves it on the stack, so a test can make an agent's stamp undo meet one above it (gap 4).
+/// Recorded the way an edit is recorded: pushed, and redo cleared.
+pub fn plant_unstamp_for_test(world: &mut World, index: usize) {
+    world.resource_mut::<EditorState>().record(Undo::UnstampAt {
+        indices: vec![index],
+    });
+}
+
+/// Plant a redo entry whose stamp is no longer on the map, so a test can drive a **stale** entry
+/// through the real `redo` (the refused-redo path). Pushed straight onto the redo stack, which is the
+/// one place a redo entry is ever written: an undo's inverse.
+pub fn plant_stale_redo_for_test(world: &mut World, id: &str) {
+    world.resource_mut::<EditorState>().redo.push(Undo::MovedStamp {
+        id: id.to_owned(),
+        from: (0.0, 0.0),
+    });
+}
+
 /// One click of the place tool with `descriptor` as the brush, reachable from `tests/headless.rs`.
 ///
 /// The click's commit — host, replacement, undo entry, drawing — and not the cursor that aims it:
@@ -6299,9 +6483,8 @@ pub fn stamp_here_for_test(
 /// FVS-R-14's Delete arm, reachable from `tests/headless.rs` — the same split, and for the same
 /// reason: the mouse path is not drivable headless, and a test that re-implemented the body would
 /// pass while the real one was broken.
-pub fn delete_stamp_for_test(id: &str,
-    open: &mut OpenMap, state: &mut EditorState) {
-    delete_stamp(id,  &mut *open, state);
+pub fn delete_stamp_for_test(id: &str, project: &Project, open: &mut OpenMap, state: &mut EditorState) {
+    delete_stamp(id, project, open, state);
 }
 
 /// **Turn the set in hand, if there is one** — and report the angle it came to rest at.
@@ -6891,14 +7074,15 @@ fn keys(
     }
 }
 
-/// **Remove one placement, and what stands on it, through the operation registry**, so the removal is
-/// saved and logged the way an agent's is. Returns the log line, the receipt and the ids taken; `None`
-/// when the registry refused, and the refusal is a problem where the author looks.
-fn remove_placement(
+/// **Remove through the operation registry**, so the removal is saved and logged the way an agent's
+/// is. Returns the log line, the receipt and the ids taken; `None` when the registry refused, and the
+/// refusal is a problem where the author looks.
+fn remove_through(
     project: &Project,
     open: &mut OpenMap,
     state: &mut EditorState,
-    id: &str,
+    operation: &str,
+    params: serde_json::Value,
 ) -> Option<(String, String, Vec<String>)> {
     let mut ctx = crate::ops::Ctx {
         project: Some(project.clone()),
@@ -6912,11 +7096,7 @@ fn remove_placement(
         source: crate::ops::Source::Human,
         session: crate::ops::session_id(),
     };
-    let outcome = crate::ops::dispatch(
-        &mut ctx,
-        "placement_remove",
-        &serde_json::json!({"id": id}),
-    );
+    let outcome = crate::ops::dispatch(&mut ctx, operation, &params);
     if let Some(fresh) = ctx.open.take() {
         *open = fresh;
     }
@@ -6926,7 +7106,7 @@ fn remove_placement(
             operation_id,
             ..
         }) => {
-            // **What was taken**, as the registry recorded it: the piece and what stood on it.
+            // **What was taken**, as the registry recorded it: the piece and what stood on it, or the stamp.
             let ids = outcome
                 .after
                 .as_ref()
@@ -6945,6 +7125,26 @@ fn remove_placement(
             None
         }
     }
+}
+
+/// **One placement, and what stands on it.** See [`remove_through`].
+fn remove_placement(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+) -> Option<(String, String, Vec<String>)> {
+    remove_through(project, open, state, "placement_remove", serde_json::json!({"id": id}))
+}
+
+/// **One stamp, whole.** See [`remove_through`].
+fn remove_stamp(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+) -> Option<(String, String, Vec<String>)> {
+    remove_through(project, open, state, "stamp_remove", serde_json::json!({"id": id}))
 }
 
 /// Remove the placement nearest the cursor, within a piece's own reach.
@@ -6994,8 +7194,17 @@ fn undo(
         state.status.note("nothing to undo".to_owned());
         return;
     };
-    if let Some(inverse) = apply(commands, assets, project, &mut *open, state, placed, op) {
-        state.redo.push(inverse);
+    // **Kept until it is known to have applied.** A refusal puts the entry back where it was: a
+    // refused undo is a refusal, not a spent one, so the author sees why and the stack is as it was
+    // (B-026). Only a stranded entry is dropped, because the map moved and there is nothing to put back.
+    let kept = op.clone();
+    match apply(commands, assets, project, &mut *open, state, placed, op) {
+        Reversal::Done(inverse) => {
+            state.settle();
+            state.redo.push(inverse);
+        }
+        Reversal::Refused => state.refused_entry(kept, false),
+        Reversal::Stranded => state.settle(),
     }
 }
 
@@ -7016,16 +7225,33 @@ fn redo(
     // and exactly wrong here: redoing the first of five undone steps would throw away the other four,
     // so a redo could never be repeated. Redo moves an entry between the stacks; it does not author
     // anything.
-    if let Some(inverse) = apply(commands, assets, project, &mut *open, state, placed, op) {
-        state.undo.push(inverse);
+    let kept = op.clone();
+    match apply(commands, assets, project, &mut *open, state, placed, op) {
+        Reversal::Done(inverse) => {
+            state.settle();
+            state.undo.push(inverse);
+        }
+        Reversal::Refused => state.refused_entry(kept, true),
+        Reversal::Stranded => state.settle(),
     }
 }
 
-/// **Perform one reversal, and hand back the reversal of it.**
+/// What [`apply`] did with one reversal. Undo and redo both read it, so the rule is written once.
+enum Reversal {
+    /// Applied. The inverse goes on the other stack.
+    Done(Undo),
+    /// Refused with the map untouched. The entry goes back on the stack it came from.
+    Refused,
+    /// The map moved but could not be drawn. Nothing goes on either stack: offering to undo or redo a
+    /// state the author cannot see would compound it.
+    Stranded,
+}
+
+/// **Perform one reversal, and say what became of it.**
 ///
-/// The single body behind both stacks — see [`Undo`] on why the enum is closed under inversion. A
-/// `None` return means the operation could not be applied and nothing should be pushed anywhere,
-/// which is how a half-applied edit is kept out of the other stack.
+/// The single body behind both stacks — see [`Undo`] on why the enum is closed under inversion. The
+/// [`Reversal`] says whether the map changed and where the inverse goes. A refusal keeps the entry on
+/// the stack it came from, so refusing is never the same as spending the undo (B-026).
 fn apply(
     commands: &mut Commands,
     assets: &AssetServer,
@@ -7034,7 +7260,7 @@ fn apply(
     state: &mut EditorState,
     placed: &Query<(Entity, &Placement)>,
     op: Undo,
-) -> Option<Undo> {
+) -> Reversal {
     let inverse = match op {
         Undo::Added { count } => {
             let keep = open.map.placements.len().saturating_sub(count);
@@ -7116,7 +7342,7 @@ fn apply(
                     // happened to the drawing.
                     // Nothing goes on the other stack: the map moved but could not be drawn, and
                     // offering to redo a state the author cannot see would compound it.
-                    return None;
+                    return Reversal::Stranded;
                 }
             }
             state
@@ -7197,7 +7423,12 @@ fn apply(
             Undo::RemovedMany { items }
         }
         Undo::Turned { index, yaw } => {
-            let p = open.map.placements.get_mut(index)?;
+            let Some(p) = open.map.placements.get_mut(index) else {
+                state.status.problem(
+                    "cannot take back that turn: the piece it turned is no longer on the map",
+                );
+                return Reversal::Refused;
+            };
             let was = std::mem::replace(&mut p.yaw, yaw);
             let (id, at, tip, descriptor, patch) =
                 (p.id.clone(), p.at, p.tip, p.descriptor.clone(), p.patch.clone());
@@ -7231,7 +7462,12 @@ fn apply(
             Undo::Turned { index, yaw: was }
         }
         Undo::Lifted { index, lift } => {
-            let p = open.map.placements.get_mut(index)?;
+            let Some(p) = open.map.placements.get_mut(index) else {
+                state.status.problem(
+                    "cannot take back that lift: the piece it lifted is no longer on the map",
+                );
+                return Reversal::Refused;
+            };
             let was = std::mem::replace(&mut p.lift, lift);
             let id = p.id.clone();
             // The whole ride: everything resting on this piece moved with the lift, so it all
@@ -7255,7 +7491,12 @@ fn apply(
             Undo::Lifted { index, lift: was }
         }
         Undo::Tipped { index, tip } => {
-            let p = open.map.placements.get_mut(index)?;
+            let Some(p) = open.map.placements.get_mut(index) else {
+                state.status.problem(
+                    "cannot take back that tilt: the piece it tipped is no longer on the map",
+                );
+                return Reversal::Refused;
+            };
             let was = std::mem::replace(&mut p.tip, tip);
             let id = p.id.clone();
             match redraw_placements(commands, assets, project, &*open, placed, &[index]) {
@@ -7281,13 +7522,21 @@ fn apply(
             // could not apply contributes nothing; if none could, there is nothing to put on the
             // other stack.
             let mut inverses = Vec::with_capacity(ops.len());
+            let mut stranded = false;
             for op in ops {
-                if let Some(inv) = apply(commands, assets, project, &mut *open, state, placed, op) {
-                    inverses.push(inv);
+                match apply(commands, assets, project, &mut *open, state, placed, op) {
+                    Reversal::Done(inv) => inverses.push(inv),
+                    Reversal::Refused => {}
+                    // A sub-op that moved the map and could not draw it still moved it.
+                    Reversal::Stranded => stranded = true,
                 }
             }
             if inverses.is_empty() {
-                return None;
+                return if stranded {
+                    Reversal::Stranded
+                } else {
+                    Reversal::Refused
+                };
             }
             inverses.reverse();
             Undo::Group { ops: inverses }
@@ -7307,7 +7556,10 @@ fn apply(
                 .map(|(k, st)| (from + k, Box::new(st)))
                 .collect();
             if items.is_empty() {
-                return None;
+                state
+                    .status
+                    .problem("cannot take back those stamps: none are on the map");
+                return Reversal::Refused;
             }
             state
                 .status
@@ -7346,7 +7598,10 @@ fn apply(
                 items.push((*i, Box::new(open.map.stamps.remove(*i))));
             }
             if items.is_empty() {
-                return None;
+                state
+                    .status
+                    .problem("those stamps are not on this map any more");
+                return Reversal::Refused;
             }
             items.reverse();
             state
@@ -7359,7 +7614,7 @@ fn apply(
                 state
                     .status
                     .problem(format!("`{id}` is not on this map any more"));
-                return None;
+                return Reversal::Refused;
             };
             let now = st.at;
             st.at = from;
@@ -7420,7 +7675,7 @@ fn apply(
                     state
                         .status
                         .problem(format!("cannot undo the pin: {}", e.0));
-                    return None;
+                    return Reversal::Refused;
                 }
             }
         }
@@ -7468,7 +7723,7 @@ fn apply(
                     state
                         .status
                         .problem(format!("cannot undo the size change: {}", e.0));
-                    return None;
+                    return Reversal::Refused;
                 }
             }
         }
@@ -7520,12 +7775,12 @@ fn apply(
                     state
                         .status
                         .problem(format!("cannot undo {phrase}: {}", e.0));
-                    return None;
+                    return Reversal::Refused;
                 }
             }
         }
     };
-    Some(inverse)
+    Reversal::Done(inverse)
 }
 
 /// Pin or unpin the placement nearest the cursor.

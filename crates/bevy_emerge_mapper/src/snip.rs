@@ -417,6 +417,8 @@ pub fn snip_overlay(
                 Text::new(label),
                 chrome::font(chrome::text::LABEL),
                 TextColor(chrome::TEXT),
+                // One line, so a narrow drag cannot wrap the label down across the box's top edge.
+                TextLayout::default().with_no_wrap(),
                 Node {
                     // PLACES-ITSELF-OK: a label riding the drag rectangle's top edge, not a panel; it is positioned against the rectangle it names.
                     position_type: PositionType::Absolute,

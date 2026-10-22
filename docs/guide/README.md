@@ -17,7 +17,7 @@ The editor is how a level designer builds a map out of a kit: the meshes, the ti
 ## Watch it first
 
 Three recordings of the running editor on the scratch town map:
-- [Snip, agent turn and undo](../media/hero.gif), 14 seconds: the person snips a wall and writes a note, and an agent reads it and turns the wall. The recording ends before the undo.
+- [Snip, agent turn and undo](../media/hero.gif), 14 seconds: the person snips a wall and writes a note, an agent reads it and turns the wall, and Cmd+Z takes the turn back.
 - [Moving the camera](../media/move-the-camera.gif), 6 seconds: holding A and D pans across the town.
 
 The [full walkthrough](../media/demo.mp4), 64 seconds, shows the rest of this guide's path: open, frame, place and undo; an agent framing a region; an agent turning and removing placements, each taken back with Cmd+Z; and a person's snip read back with `emerge_list_snips`.

@@ -321,6 +321,17 @@ fn drive_sequencer(
             {
                 state.record_logged(operation_id.clone(), outcome.summary.clone());
             }
+            // **The person's receipt says what the sequence applied (B-020)**, as the apply does.
+            if let Some(state) = operated.state.as_mut() {
+                match &outcome {
+                    Ok(crate::ops::Applied::Done { outcome, .. }) => {
+                        state.receipt_agent_change(&op.name, &outcome.summary);
+                    }
+                    Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+                        state.problem_agent_refusal(&op.name, &e.0);
+                    }
+                }
+            }
             run.applied_at = Some(now);
             run.operation_result = Some(match outcome {
                 Ok(crate::ops::Applied::Done { outcome, .. }) => {

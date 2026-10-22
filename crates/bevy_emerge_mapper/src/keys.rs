@@ -434,7 +434,9 @@ enumerated! {
         /// The Map's YAW row — the facing the turn cluster writes.
         Yaw,
         /// The Map's UNDER row — the piece under the cursor, which the piece-verbs act on and the row
-        /// exists to name.
+        /// exists to name. Home is bound here for where it sits on the Map, not for that piece:
+        /// `FrameView` frames the locked placement or the whole map and never reads the piece under
+        /// the cursor.
         Under,
         /// The TILE card in the Tiles pane — the tile being assembled, open or not: its heading is on
         /// screen in every branch, including the one that says "press N to start one".
@@ -625,6 +627,9 @@ enumerated! {
     LiftDown,
     Fill,
     Remove,
+    /// Frame the view: the locked placement when there is one, otherwise the whole map. Camera
+    /// state, not a document change, so it has no operation.
+    FrameView,
     /// Arm the move tool: click a piece to pick it up, click again to put it down.
     MoveMode,
     RenameMap,
@@ -883,6 +888,7 @@ impl Action {
             Action::OwnToggle => Some("placement_set_pin"),
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::RenameMap => Some("map_rename"),
+            Action::Remove => Some("placement_remove"),
             _ => None,
         }
     }
@@ -1487,6 +1493,18 @@ pub const BINDINGS: &[Binding] = &[
         Context::Map,
         "X",
         "removal mode",
+    )
+    .at(Home::Control(ControlId::Under)),
+    // **Home frames the view.** The locked placement when there is one, otherwise the whole map —
+    // the same framing `emerge_frame_view` uses. It is camera state, not a document change: it has
+    // no operation, so it is one of the unmigrated actions (E-025), and it writes no undo entry.
+    b(
+        Action::FrameView,
+        KeyCode::Home,
+        false,
+        Context::Map,
+        "Home",
+        "frame the view",
     )
     .at(Home::Control(ControlId::Under)),
     // **`B` is the last free key under the left hand.** The cluster an author's hand already rests on
@@ -3652,6 +3670,7 @@ mod tests {
             Action::FocusTagFilter,
             Action::ShowErrors,
             Action::Snip,
+            Action::FrameView,
         ];
         assert_eq!(
             actions.len(),
@@ -4253,8 +4272,14 @@ mod tests {
             // while the picker has them. `Enter` is likewise free, because `AcceptProposal` holds it
             // at `Stance::Proposed` and the two stances never hold together.
             //
+            // 29 -> 30: `FrameView`, on Home. It is camera state with no document change, so it has
+            // no operation, and E-025 counts it unmigrated (with `LiftUp`, `Fill` and `MoveMode`, which
+            // are unmigrated for their own reasons). It frames the
+            // locked placement, or the whole map, through the `resolve_frame` + `apply_frame` that
+            // `emerge/frame_view` uses, and it writes no undo entry. Home is bound on the Control's
+            // anchor, not the legend, which already carries eight badges.
             // **One new key, deliberately:** `P`.
-            (Context::Map, 29),
+            (Context::Map, 30),
             // 31 -> 32: `ExcludePack`. The importer scans every `.glb` under `assets/`, which is
             // right for finding art and wrong for offering it — a labelling batch spent its tenth
             // call of 778 describing `characters/cipher_field`, a character rig that could not be

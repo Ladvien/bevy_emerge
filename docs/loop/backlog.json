@@ -238,16 +238,6 @@
       "evidence": "From the z-fight fix (bd5116a/63e6631): ghost/preview spawns in editor.rs and redraw_stamps get no paint or lift, so a ghost over a field can draw differently from the committed piece; relevel_placements compares every pair when the map changes (727 pieces: about 0.5 M pairs)."
     },
     {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
-      "id": "E-021",
-      "kind": "enhancement",
-      "area": "keys",
-      "status": "open",
-      "title": "A frame key for the person (Home: the locked placement, or the whole map)",
-      "evidence": "Built in the 2026-10-21 frame iteration and taken out: a new keys::Action that is not a registry operation grows the unmigrated allowlist, which operations_have_two_front_ends pins (UNMIGRATED_MAX 127, E-025) and says must be paid for by migrating one in the same commit. Checked 2026-10-22 (iteration docs/loop/iterations/2026-10-22-undo-a74c897.md): the registry holds two operations, map_set_settings and placement_set_pin, and placement_set_pin is already bound to OwnToggle. No unmigrated action has an operation to name, so the migration needs a new registry operation first. A frame is camera state, not an operation (emerge/frame_view), so it cannot be the migration. Blocked until a verb that already has a registry operation is wired, or a new operation is designed for one of the 127. The framing itself (view::frame_box, editor::resolve_frame/apply_frame) is ready."
-    },
-    {
       "id": "E-023",
       "kind": "enhancement",
       "area": "perf",
@@ -283,22 +273,6 @@
       "last_failure": "2026-10-21 pin iteration (base 74f5085): chose placement_set_pin (O key, Action::OwnToggle). The pin verb itself passed its 3 agent tests and the editor's pin, unpin and reason paths dispatched it. Blocked by operations_have_two_front_ends: the_allowlist_of_unmigrated_actions_only_shrinks asserts UNMIGRATED == Action::ALL (every keys::Action variant is listed), so removing OwnToggle from UNMIGRATED fails unless the variant leaves the enum. Leaving the enum means rebinding O outside keys::Action, which drops the Typing-field guard (a name typed with O would pin); or redesigning the keymap so bindings name operations. Either is a design decision, not one verb. WIP patch kept outside the repo at /tmp/e024-pin-wip.patch.",
       "first_seen": "2026-10-21",
       "shipped_in": "8389191"
-    },
-    {
-      "id": "B-020",
-      "kind": "bug",
-      "area": "mcp",
-      "title": "An agent's operation leaves the editor's status receipt and undo row stale",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "Live 2026-10-22: after emerge_apply_operation the status still read 'unpinned block_5_3' (the previous human receipt) and undo_depth stayed 0. The author sees nothing where the editor looks, the same shape as the refusals that were in the wrong slot. The editor's in-memory map did change (O on the placement then unpinned it). Live 2026-10-22 (yaw iteration): placement_set_yaw inside a capture sequence turned wall_02_2 on screen (368,607 px changed between sequence frames f000 and f011; frames in target/loop/2026-10-22-a74c897/sequence/), yet the status receipt still read the framing receipt and the inspector's UNDER showed it too, so the turn was not announced."
-      },
-      "status": "open",
-      "evidence": "target/loop/2026-10-22-fcc4e02/live/agent-states.json (pinned, undone); oplog.jsonl lines 34-36",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
     },
     {
       "id": "E-026",
@@ -381,22 +355,6 @@
       "first_seen": "2026-10-22"
     },
     {
-      "id": "B-026",
-      "kind": "bug",
-      "area": "editor",
-      "title": "A refused undo of a stale entry drops that entry for good, so the next Cmd+Z reaches an older change",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "Judgment: 1 of 3 (no_workaround only), not must-fix. Reached when an agent changes a piece after the person, then the person undoes the older change; the entry is not in the editor stack afterwards (the oplog still has it for emerge_undo_operation)."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs undo() pops state.undo (line 6929) before apply; a refused apply returns None and nothing is pushed back (6933-6935). Found by code reading 2026-10-22; not reproduced live.",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
       "id": "B-027",
       "kind": "bug",
       "area": "editor",
@@ -409,16 +367,6 @@
       },
       "status": "open",
       "evidence": "Reviewer note in docs/loop/iterations/2026-10-22-remove-12b8c26.md: the pin-reason field stores a row at editor.rs ~7526 and looks the id up only at Enter (~10116). An agent removal of a lower row while the person types shifts that row. Selection and hover may hold rows too (unchecked). The undo-stack variant (row-recorded entries at editor.rs ~7032/~7148) is covered by the stack's LIFO order plus the e0c1b00 refusal: an entry above the agent's removal was recorded after the shift, and one below it is reached only after the removal is undone. Fix direction: hold placement ids, not rows, in live references.",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
-      "id": "E-029",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "Migrate X's stamp delete and box removal into the operation registry, so Action::Remove can be honestly migrated",
-      "status": "open",
-      "evidence": "Open from the 2026-10-22 remove iteration: X arms removal mode, but a stamp click still calls delete_stamp (editor.rs ~5252) and a box drag removes rows inside the editor (drive_removal). Action::Remove stays on UNMIGRATED (UNMIGRATED_MAX 125) until both go through the registry.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
@@ -508,18 +456,28 @@
       "first_seen": "2026-10-22"
     },
     {
-      "id": "B-033",
+      "id": "B-035",
       "kind": "bug",
-      "area": "editor",
-      "title": "The snip overlay label overlaps the top edge of the box",
+      "area": "ci",
+      "title": "A badge in a band sits 12 px off its control on the hosted CI runner, so a_badge_in_a_band_is_level_with_its_control fails on Linux",
       "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "Judgment: 0 of 3. Cosmetic; found in Main's check of the mid-drag still."
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Hosted CI run 39857129899 (PR #26, merge 3ab4fca) fails this test on main. Judgment: blocks yes, because a red main CI fails every PR's gate. Local gate is green."
       },
       "status": "open",
-      "evidence": "/tmp/emerge_live/smoke2_held_0.png: the label sits on the box's top border.",
+      "evidence": "tests/headless.rs:12593. Badge centred at y 27, control at y 15 (12 px drift). Not diagnosed in cycle 1; likely a font or layout difference on the hosted runner.",
+      "last_failure": "39857129899",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-032",
+      "kind": "enhancement",
+      "area": "tests",
+      "title": "Two review coverage gaps remain: a box's stamp half is not exercised live, and stamp_remove's undo-only rule has no dedicated test",
+      "status": "open",
+      "evidence": "From cycle 1 review note 8. Partly closed by 911c7b9 (redo-path test) and c5edd65 (sequencer receipt test). Open: crates/bevy_emerge_mapper/src/stamp_remove.rs:189 (undo-only rule) has no direct test; the stamp half of a box has no live capture.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     }
