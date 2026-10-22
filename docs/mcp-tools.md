@@ -66,6 +66,16 @@ A picture of the editor as it is now -- the world and the interface, because the
 | `destructiveHint` | false |
 | `idempotentHint` | false |
 
+### `emerge_snip`
+
+A rectangle of the editor's picture, cut out and returned as an image. rect is [x0, y0, x1, y1] in window pixels, origin at the top left, x1 and y1 exclusive, so the same pixels a still is in. The crop is written to a file whose path is in the answer, with the state of the same moment. It writes one crop file under target/loop and changes no map data: it is not an operation, not logged and not undoable. Refuses, and writes nothing, on a rectangle that is empty, reversed, negative or outside the picture, and says the picture's size. Use it to look closer at one part of a still from emerge_capture_still.
+
+| annotation | value |
+|---|---|
+| `readOnlyHint` | false |
+| `destructiveHint` | false |
+| `idempotentHint` | false |
+
 ### `emerge_capture_sequence`
 
 A sequence of frames of the editor, with an optional operation applied once the first frame is in -- so frame 0 is the state before the action and the later frames are what it did. The frames are written to a directory and their paths are in the answer. The editor takes the frames, so the timing does not depend on this server's round trips.

@@ -955,6 +955,7 @@ name = "bevy_emerge_mcp"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "image",
  "rmcp",
  "schemars",
  "serde",

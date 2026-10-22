@@ -49,7 +49,7 @@ use rmcp::{ErrorData, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use bevy_emerge_mcp::{brp, docs};
+use bevy_emerge_mcp::{brp, docs, snip};
 
 use brp::Brp;
 
@@ -141,6 +141,17 @@ pub struct RectArg {
 pub struct StillParams {
     /// **A name for the capture**, in snake_case. It names the file it is written under.
     pub label: String,
+}
+
+/// **The parameters of `emerge_snip`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SnipParams {
+    /// **A name for the snip**, in snake_case. It names the directory the crop is written under.
+    pub label: String,
+    /// **The rectangle, in window pixels: `[x0, y0, x1, y1]`**, origin at the top left, `x1` and
+    /// `y1` exclusive.
+    pub rect: [i64; 4],
 }
 
 /// **The parameters of `emerge_capture_sequence`.**
@@ -277,12 +288,23 @@ impl Emerge {
     /// captures go under `target/loop/<date>-<sha>/`, and **the project directory is where the
     /// editor's own data lives** — so a capture is written beside the project, under `target`,
     /// and never into the project's own data.
-    fn capture_dir(&self, label: &str) -> std::path::PathBuf {
-        self.project
+    ///
+    /// **The label is checked first, because it is joined into the path.** A label with `..`, a
+    /// leading `/`, or an empty part would put the picture outside `captures`, or replace the
+    /// base path with an absolute one. A refused label is answered before the editor is asked.
+    fn capture_dir(&self, label: &str) -> Result<std::path::PathBuf, String> {
+        if !is_capture_label(label) {
+            return Err(format!(
+                "`{label}` is not a capture label. Use letters, digits, `_` and `-`, with `/` \
+                 between the parts; no empty part, `.` or `..`."
+            ));
+        }
+        Ok(self
+            .project
             .join("target")
             .join("loop")
             .join("captures")
-            .join(label)
+            .join(label))
     }
 
     /// **A name for a capture, unique enough that two do not collide.**
@@ -505,6 +527,11 @@ impl Emerge {
         &self,
         Parameters(p): Parameters<StillParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        // **The label first**: a refused label is answered before the editor is asked anything.
+        let dir = match self.capture_dir(&p.label) {
+            Ok(dir) => dir,
+            Err(e) => return Ok(refusal(&e)),
+        };
         // **The state first**, so the picture and the state are the same moment as near as the
         // editor can make them.
         let state = self
@@ -518,7 +545,6 @@ impl Emerge {
         };
         // **The file, written here.** A directory per label, and a name that says when it was
         // taken, so two captures never collide.
-        let dir = self.capture_dir(&p.label);
         if let Err(e) = std::fs::create_dir_all(&dir) {
             return Ok(refusal(&format!("{}: {e}", dir.display())));
         }
@@ -537,6 +563,80 @@ impl Emerge {
         });
         Ok(CallToolResult::success(vec![
             rmcp::model::ContentBlock::image(png, "image/png"),
+            rmcp::model::ContentBlock::text(
+                serde_json::to_string_pretty(&answer).unwrap_or_default(),
+            ),
+        ]))
+    }
+
+    /// **`emerge_snip` -- one rectangle of the picture, and nothing else.**
+    ///
+    /// **The same grab as a still**, so a crop and a still taken at the same moment are the same
+    /// pixels. **The rectangle is checked before anything is written**, so a refusal leaves no file
+    /// behind.
+    #[tool(
+        name = "emerge_snip",
+        description = "A rectangle of the editor's picture, cut out and returned as an image. rect \
+                       is [x0, y0, x1, y1] in window pixels, origin at the top left, x1 and y1 \
+                       exclusive, so the same pixels a still is in. The crop is written to a file \
+                       whose path is in the answer, with the state of the same moment. It writes \
+                       one crop file under target/loop and changes no map data: it is not an \
+                       operation, not logged and not undoable. Refuses, and writes nothing, on a \
+                       rectangle that is empty, reversed, negative or outside the picture, and says \
+                       the picture's size. Use it to look closer at one part of a still from \
+                       emerge_capture_still.",
+        annotations(
+            title = "Snip one rectangle of the editor",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn snip(
+        &self,
+        Parameters(p): Parameters<SnipParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // **The label first**: a refused label is answered before the editor is asked anything.
+        let dir = match self.capture_dir(&p.label) {
+            Ok(dir) => dir,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        let state = self
+            .editor
+            .call("emerge/state", json!({}))
+            .await
+            .unwrap_or(Value::Null);
+        let png = match self.grab().await {
+            Ok(png) => png,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        let bytes = match base64_decode(&png) {
+            Some(b) => b,
+            None => return Ok(refusal("the editor's picture was not base64.")),
+        };
+        let crop = match snip::crop_png(&bytes, p.rect) {
+            Ok(crop) => crop,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return Ok(refusal(&format!("{}: {e}", dir.display())));
+        }
+        let path = dir.join(format!("snip-{}.png", self.stamp()));
+        if let Err(e) = std::fs::write(&path, &crop.png) {
+            return Ok(refusal(&format!("{}: {e}", path.display())));
+        }
+        let answer = json!({
+            "path": path.to_string_lossy(),
+            "bytes": crop.png.len(),
+            "rect": p.rect,
+            "size": crop.size,
+            "picture": crop.picture,
+            "state": state,
+        });
+        let encoded = base64_encode(&crop.png);
+        Ok(CallToolResult::success(vec![
+            rmcp::model::ContentBlock::image(encoded, "image/png"),
             rmcp::model::ContentBlock::text(
                 serde_json::to_string_pretty(&answer).unwrap_or_default(),
             ),
@@ -569,7 +669,10 @@ impl Emerge {
         &self,
         Parameters(p): Parameters<SequenceParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        let dir = self.capture_dir(&p.label);
+        let dir = match self.capture_dir(&p.label) {
+            Ok(dir) => dir,
+            Err(e) => return Ok(refusal(&e)),
+        };
         if let Err(e) = std::fs::create_dir_all(&dir) {
             return Ok(refusal(&format!("{}: {e}", dir.display())));
         }
@@ -782,6 +885,20 @@ fn refusal(why: &str) -> CallToolResult {
     CallToolResult::structured_error(json!({"refused": why}))
 }
 
+/// **Is this a capture label that can be a path under `captures`?** Letters, digits, `_` and `-`
+/// in parts, with `/` between them. No part is empty, so there is no leading or trailing `/` and
+/// no `//`; no part is `.` or `..`, because `.` is not a character a label may use. A `\` or an
+/// absolute path fails for the same reason.
+fn is_capture_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.split('/').all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+}
+
 #[tool_handler]
 impl rmcp::ServerHandler for Emerge {
     /// **A tool that does not exist is refused with the list of the ones that do.**
@@ -885,4 +1002,35 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
 fn base64_encode(bytes: &[u8]) -> String {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[cfg(test)]
+mod capture_label_tests {
+    use super::is_capture_label;
+
+    #[test]
+    fn a_label_under_the_captures_directory_is_accepted() {
+        for label in ["phase0-base", "town/house_cottage_plaster", "snip_check"] {
+            assert!(
+                is_capture_label(label),
+                "`{label}` should be a capture label"
+            );
+        }
+    }
+
+    #[test]
+    fn a_label_that_could_leave_the_directory_is_refused() {
+        for label in [
+            "",
+            "../escape",
+            "a/../b",
+            "/tmp/escape",
+            "a//b",
+            "a/",
+            "bad.label",
+            "a\\b",
+        ] {
+            assert!(!is_capture_label(label), "`{label}` should be refused");
+        }
+    }
 }

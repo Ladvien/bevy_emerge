@@ -178,7 +178,7 @@
       "area": "mcp",
       "status": "open",
       "title": "Snip: the developer drags a rectangle over the editor and the agent receives the crop plus where they were",
-      "evidence": "Asked for by the developer 2026-10-21. User problem: pointing at a visual problem means describing it in words; frequency: every visual review; saving: the agent gets the crop, map, camera, panel text and placements under the rectangle in one call; risk: a new gesture and a text field (register in editor::Fields), and snips are files in the project (confine and name them)."
+      "evidence": "Asked for by the developer 2026-10-21. User problem: pointing at a visual problem means describing it in words; frequency: every visual review; saving: the agent gets the crop, map, camera, panel text and placements under the rectangle in one call; risk: a new gesture and a text field (register in editor::Fields), and snips are files in the project (confine and name them). Progress 2026-10-21 (556801e): the agent half shipped as emerge_snip { label, rect } (crop of a window-pixel rectangle, with path and state). Still open: the human drag gesture in the editor (UI state machine plus a registered operation that emits the snip)."
     },
     {
       "last_failure": "",
