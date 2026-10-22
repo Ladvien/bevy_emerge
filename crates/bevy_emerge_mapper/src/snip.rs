@@ -428,6 +428,22 @@ pub fn snip_overlay(
         });
 }
 
+/// **While the snip is armed, no button sees the pointer.** Bevy fires a button's `Activate` on a click,
+/// so a drag that starts and ends on a button would press it. Picking is off while the snip is armed and
+/// back on once it is done. The check is on the armed flag only, so the note field stays clickable.
+fn snip_gates_picking(
+    snip: Res<SnipEdit>,
+    settings: Option<ResMut<bevy::picking::PickingSettings>>,
+) {
+    let Some(mut settings) = settings else {
+        return;
+    };
+    let wanted = !snip.armed;
+    if settings.is_enabled != wanted {
+        settings.is_enabled = wanted;
+    }
+}
+
 /// Registers the snip. Its own plugin so the editor's `Update` tuple stays under Bevy's cap.
 pub struct SnipPlugin;
 
@@ -447,7 +463,8 @@ impl Plugin for SnipPlugin {
                     .after(snip_pointer)
                     .after(snip_commit)
                     .after(snip_note_keys),
-            );
+            )
+            .add_systems(Update, snip_gates_picking);
     }
 }
 

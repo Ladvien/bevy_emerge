@@ -538,3 +538,48 @@ fn the_record_reads_the_cursor_where_the_drag_was_released() {
         "the cursor is read where the drag was released, not where the pointer is now"
     );
 }
+
+/// **While the snip is armed, no button sees the pointer.** A button fires its `Activate` on a click, so
+/// a drag that starts and ends on it would press it. The snip turns picking off while it is armed and
+/// back on when it is done, and this proves the switch; the activation itself needs a real pointer.
+#[test]
+fn a_snip_armed_over_a_button_does_not_press_it() {
+    use bevy::picking::PickingSettings;
+
+    let mut app = editor("snip_gates_picking");
+    for _ in 0..3 {
+        app.update();
+    }
+    assert!(
+        app.world().resource::<PickingSettings>().is_enabled,
+        "picking is on before the snip is armed"
+    );
+
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::Backslash],
+            ..default()
+        },
+    );
+    app.update();
+    assert!(
+        !app.world().resource::<PickingSettings>().is_enabled,
+        "armed: the snip owns the pointer, so picking is off and a press cannot reach a button"
+    );
+
+    step(&mut app, Frame::default());
+    app.update();
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::Backslash],
+            ..default()
+        },
+    );
+    app.update();
+    assert!(
+        app.world().resource::<PickingSettings>().is_enabled,
+        "disarmed: picking is back on"
+    );
+}
