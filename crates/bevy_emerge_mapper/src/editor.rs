@@ -268,6 +268,22 @@ impl EditorState {
         self.record(Undo::Logged { line, phrase });
     }
 
+    /// **An agent's change, on the person's receipt (B-020).**
+    ///
+    /// **One line naming the operation and what it did.** The receipt row is where a person looks
+    /// after an edit. A receipt left from their own last edit says nothing happened while the map
+    /// says it did, so the agent's change replaces it.
+    pub(crate) fn receipt_agent_change(&mut self, operation: &str, summary: &str) {
+        self.status.note(format!("agent: {operation}: {summary}"));
+    }
+
+    /// **An agent's refusal, in the journal (B-020).** A refusal is an alarm, so it is a problem and
+    /// not a note: it reaches the toast and the journal, and it does not overwrite the person's
+    /// receipt.
+    pub(crate) fn problem_agent_refusal(&mut self, operation: &str, refusal: &str) {
+        self.status.problem(format!("agent: {operation}: {refusal}"));
+    }
+
     /// **Forget the entries for a change an agent's undo took back.** Once the log no longer has that
     /// line in effect, a Cmd+Z that reached it would only refuse; dropping it means Cmd+Z takes back the
     /// newest change still in effect.

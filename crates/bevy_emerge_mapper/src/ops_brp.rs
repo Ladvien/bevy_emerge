@@ -445,6 +445,19 @@ fn operation_apply(
     {
         state.record_logged(operation_id.clone(), outcome.summary.clone());
     }
+
+    // **The person's receipt says what the agent did (B-020).** A refusal goes to the journal as a
+    // problem: it is an alarm, and it must not overwrite the receipt.
+    if let Some(state) = state.as_mut() {
+        match &applied {
+            Ok(ops::Applied::Done { outcome, .. }) => {
+                state.receipt_agent_change(&p.operation, &outcome.summary);
+            }
+            Ok(ops::Applied::Refused(e)) | Err(e) => {
+                state.problem_agent_refusal(&p.operation, &e.0);
+            }
+        }
+    }
     match applied {
         Ok(ops::Applied::Done {
             outcome,
@@ -542,6 +555,18 @@ fn operation_undo(
             state.record_logged(operation_id.clone(), outcome.summary.clone());
         } else {
             state.forget_line(&plan.line.operation_id);
+        }
+    }
+
+    // **The person's receipt says what the agent undid (B-020)**, named `undo`.
+    if let Some(state) = state.as_mut() {
+        match &undone {
+            Ok((_, ops::Applied::Done { outcome, .. })) => {
+                state.receipt_agent_change("undo", &outcome.summary);
+            }
+            Ok((_, ops::Applied::Refused(e))) | Err(e) => {
+                state.problem_agent_refusal("undo", &e.0);
+            }
         }
     }
     Ok(match undone {
