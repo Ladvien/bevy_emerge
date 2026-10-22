@@ -141,3 +141,57 @@ fn a_piece_moved_on_disk_stands_in_its_new_place() {
          about what they are looking at."
     );
 }
+
+/// **A map file saved with a typo is refused where the Map door shows it, and the last good map
+/// stays.**
+///
+/// B-016. The watcher kept the last good map (right) but wrote its refusal into the kit door's
+/// status (`tiles::ImportState`), so on the Map door, the only door with a map open, nothing said
+/// the edit had been refused: no problem, no toast, no journal line, and `emerge_state` reported
+/// `problems: []`. The author saw the old map and no reason. Measured live on 2026-10-21 with
+/// `bounds: ((` written into Sanctuary's town map (scratch copy).
+#[test]
+fn a_malformed_map_on_disk_is_refused_on_the_map_door() {
+    let root = project("hot-reload-bad-map");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..8 {
+        app.update();
+    }
+    let path = root
+        .join("assets")
+        .join("emerge")
+        .join("maps")
+        .join("m.map.ron");
+    let text = std::fs::read_to_string(&path).expect("the map file is there");
+    let broken = text.replacen("bounds: (", "bounds: ((", 1);
+    assert_ne!(broken, text, "the map file has no bounds to break: {text}");
+    std::fs::write(&path, broken).expect("the map file is written");
+
+    // **The watcher is allowed its poll**, as above.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
+    let mut said = String::new();
+    while std::time::Instant::now() < deadline {
+        app.update();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        said = app
+            .world()
+            .resource::<bevy_emerge_mapper::editor::EditorState>()
+            .status
+            .problem_text()
+            .to_owned();
+        if !said.is_empty() {
+            break;
+        }
+    }
+    assert!(
+        said.contains("m.map.ron"),
+        "the malformed map file was refused nowhere the Map door shows, so the author sees the old \
+         map and no reason; the Map's problem slot reads {said:?}"
+    );
+    // **And the last good map is still the one loaded.**
+    let map = app.world().resource::<OpenMap>().map.clone();
+    assert!(
+        map.placements.iter().any(|p| p.descriptor == "site/wall"),
+        "the refusal dropped the last good map"
+    );
+}

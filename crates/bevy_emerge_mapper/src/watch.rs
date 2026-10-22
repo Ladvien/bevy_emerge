@@ -230,6 +230,10 @@ pub fn adopt_changes(
     project: Option<ResMut<Project>>,
     mut open: Option<ResMut<OpenMap>>,
     mut status: Option<ResMut<crate::tiles::ImportState>>,
+    // **The Map door's own status**, because a refusal goes where the author is looking (B-016).
+    // It went to `ImportState` only, the kit door's status, so on the Map door a map file saved
+    // with a typo was refused silently: the old map stayed, which is right, and nothing said why.
+    mut map_status: Option<ResMut<crate::editor::EditorState>>,
 ) {
     if due.changed.is_empty() {
         return;
@@ -266,7 +270,8 @@ pub fn adopt_changes(
                     map_replaced |= changed;
                 }
                 Err(e) => {
-                    if let Some(state) = status.as_deref_mut() {
+                    // The open map is the Map door's, so its refusal is the Map door's.
+                    if let Some(state) = map_status.as_deref_mut() {
                         state
                             .status
                             .problem(format!("{e} — the editor kept what it had."));
@@ -291,11 +296,17 @@ pub fn adopt_changes(
         }
         if let Err(e) = adopt(path, project) {
             // **The refusal names the file, and the editor keeps what it had.** The last good
-            // state stays loaded, which is the whole point of adopting only on success.
-            if let Some(state) = status.as_deref_mut() {
-                state
-                    .status
-                    .problem(format!("{e} — the editor kept what it had."));
+            // state stays loaded, which is the whole point of adopting only on success. It goes
+            // to the door that is showing: the Map door when a map is open, else the kit door.
+            let why = format!("{e} — the editor kept what it had.");
+            match (
+                open.is_some(),
+                map_status.as_deref_mut(),
+                status.as_deref_mut(),
+            ) {
+                (true, Some(map), _) => map.status.problem(why),
+                (_, _, Some(kit)) => kit.status.problem(why),
+                _ => {}
             }
         }
     }
