@@ -10,8 +10,8 @@
 
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
-use bevy_emerge_mapper::project::OpenMap;
 use bevy_emerge_mapper::editor::Placement;
+use bevy_emerge_mapper::project::OpenMap;
 
 mod fixtures;
 
@@ -375,7 +375,11 @@ fn cmd_z_after_an_agent_puts_back_a_turn_takes_that_turn_back_and_not_the_resize
     assert_eq!(turned["outcome"], "applied", "the agent's turn: {turned}");
 
     chord(&mut app, KeyCode::KeyZ, false);
-    assert_eq!(map(&app).placements[0].yaw, start_yaw, "Cmd+Z did not take the turn back");
+    assert_eq!(
+        map(&app).placements[0].yaw,
+        start_yaw,
+        "Cmd+Z did not take the turn back"
+    );
 
     // **The line Cmd+Z wrote is the newest in the log**, and the only one an agent may name to put
     // the turn back.
@@ -384,7 +388,8 @@ fn cmd_z_after_an_agent_puts_back_a_turn_takes_that_turn_back_and_not_the_resize
         .resource::<bevy_emerge_mapper::project::Project>()
         .project_dir
         .join("oplog.jsonl");
-    let text = std::fs::read_to_string(&oplog).unwrap_or_else(|e| panic!("{}: {e}", oplog.display()));
+    let text =
+        std::fs::read_to_string(&oplog).unwrap_or_else(|e| panic!("{}: {e}", oplog.display()));
     let undo_line = text
         .lines()
         .rev()
@@ -400,7 +405,10 @@ fn cmd_z_after_an_agent_puts_back_a_turn_takes_that_turn_back_and_not_the_resize
         "emerge/operation_undo",
         serde_json::json!({"operation_id": undo_line, "dry_run": false}),
     );
-    assert_eq!(put_back["outcome"], "applied", "the agent's put-back: {put_back}");
+    assert_eq!(
+        put_back["outcome"], "applied",
+        "the agent's put-back: {put_back}"
+    );
     assert_eq!(map(&app).placements[0].yaw, agent_yaw);
 
     chord(&mut app, KeyCode::KeyZ, false);
