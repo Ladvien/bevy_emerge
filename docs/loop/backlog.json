@@ -399,7 +399,7 @@
       "id": "B-027",
       "kind": "bug",
       "area": "editor",
-      "title": "An agent's forward placement_remove shifts rows under the person's row-recorded undo entries, so a later Cmd+Z may change the wrong piece",
+      "title": "An agent's placement_remove shifts rows under the person's live row references (the pin-reason field stores a row while the person types), so Enter can pin the wrong piece",
       "must_fix": {
         "blocks": false,
         "common": false,
@@ -407,7 +407,7 @@
         "evidence": "Unreproduced. Reviewer gap 1 in the 2026-10-22 remove iteration covered the out-of-turn undo (fixed in e0c1b00); the forward direction was left open by the fixer. Judgment: LIFO order and the gap-1 refusal cover the common path; not must-fix until a repro exists."
       },
       "status": "open",
-      "evidence": "docs/loop/iterations/2026-10-22-remove-12b8c26.md (Deferred). Row-recorded entries: editor.rs ~7032 and ~7148; pin-reason stores a row at editor.rs ~7526 and looks it up at ~10116. Hypothesis needs a person Moved entry above an agent removal.",
+      "evidence": "Reviewer note in docs/loop/iterations/2026-10-22-remove-12b8c26.md: the pin-reason field stores a row at editor.rs ~7526 and looks the id up only at Enter (~10116). An agent removal of a lower row while the person types shifts that row. Selection and hover may hold rows too (unchecked). The undo-stack variant (row-recorded entries at editor.rs ~7032/~7148) is covered by the stack's LIFO order plus the e0c1b00 refusal: an entry above the agent's removal was recorded after the shift, and one below it is reached only after the removal is undone. Fix direction: hold placement ids, not rows, in live references.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
@@ -416,7 +416,8 @@
       "kind": "enhancement",
       "area": "editor",
       "title": "Migrate X's stamp delete and box removal into the operation registry, so Action::Remove can be honestly migrated",
-      "evidence": "Blocked in 2026-10-22 remove iteration: X arms removal mode, but a stamp click still calls delete_stamp (editor.rs ~5252) and a box drag removes rows inside the editor (drive_removal). Action::Remove stays on UNMIGRATED (UNMIGRATED_MAX 125) until both go through the registry.",
+      "status": "open",
+      "evidence": "Open from the 2026-10-22 remove iteration: X arms removal mode, but a stamp click still calls delete_stamp (editor.rs ~5252) and a box drag removes rows inside the editor (drive_removal). Action::Remove stays on UNMIGRATED (UNMIGRATED_MAX 125) until both go through the registry.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
