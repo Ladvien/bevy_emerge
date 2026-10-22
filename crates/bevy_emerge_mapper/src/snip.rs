@@ -371,16 +371,17 @@ pub fn snip_overlay(
         .spawn((
             SnipOverlay,
             Node {
+                // PLACES-ITSELF-OK: the drag rectangle is placed at the pointer over the whole window, so it is not a panel and has no layout to join.
                 position_type: PositionType::Absolute,
                 left: Val::Px(rect[0]),
                 top: Val::Px(rect[1]),
                 width: Val::Px(rect[2] - rect[0]),
                 height: Val::Px(rect[3] - rect[1]),
-                border: UiRect::all(Val::Px(2.0)),
+                border: UiRect::all(Val::Px(chrome::SNIP_EDGE_W)),
                 ..default()
             },
             BorderColor::all(chrome::ACCENT),
-            BackgroundColor(Color::srgba(0.950, 0.710, 0.300, 0.08)),
+            BackgroundColor(chrome::SNIP_WASH),
         ))
         .with_children(|p| {
             p.spawn((
@@ -388,6 +389,7 @@ pub fn snip_overlay(
                 chrome::font(chrome::text::LABEL),
                 TextColor(chrome::TEXT),
                 Node {
+                    // PLACES-ITSELF-OK: a label riding the drag rectangle's top edge, not a panel; it is positioned against the rectangle it names.
                     position_type: PositionType::Absolute,
                     top: Val::Px(-22.0),
                     left: Val::Px(0.0),

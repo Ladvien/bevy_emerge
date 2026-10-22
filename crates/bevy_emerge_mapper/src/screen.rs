@@ -341,6 +341,7 @@ door_state![
     crate::editor::FineAnchor,
     crate::editor::Proposal,
     crate::editor::Rung,
+    crate::snip::SnipEdit,
     crate::editor::SizeEdit,
     crate::editor::Folded,
     crate::editor::StampPicture,
@@ -583,6 +584,7 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ),
     ("bevy_emerge_mapper::labels::LabelQueue", Ownership::Door),
     ("bevy_emerge_mapper::filter::Filters", Ownership::Door),
+    ("bevy_emerge_mapper::snip::SnipEdit", Ownership::Door),
     ("bevy_emerge_mapper::notice::Showing", Ownership::Door),
     // **`Door`, because it is what is on screen right now.** A toast is an event's tail — carrying
     // one into the next kit would announce a refusal about a door the author has already left.

@@ -60,9 +60,11 @@ struct Site {
 /// empty, a placement that had nowhere legal to go, a token that had nowhere to land, an id that
 /// was already taken, an endpoint that was not configured, a piece with no width to align.
 const REFUSALS: &[Site] = &[
+    // **The rename's wording is minted in `ops::map_rename`, which has no slot of its own.** It
+    // becomes a problem at the registry arm in `rename_map`, so that is the site this row names.
     Site {
         file: "editor.rs",
-        marker: "a map needs a name; nothing was changed",
+        marker: "state.status.problem(e.0);",
     },
     Site {
         file: "editor.rs",
