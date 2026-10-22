@@ -278,6 +278,43 @@ fn apply_paint(
     }
 }
 
+/// Where a footprint marker's visual part rests before the draw-level lift is added. See
+/// [`lift_flat_markers`].
+#[derive(Component, Clone, Copy, Debug)]
+struct FootprintPart {
+    rest_y: f32,
+}
+
+/// Any change to a marker's draw level or to its children, the two things the lift depends on.
+type RootChanged = Or<(Changed<Paint>, Changed<Children>)>;
+
+/// **Lift a flat marker by its draw level, in world height, so overlapping markers never share a
+/// top.**
+///
+/// The level arrives as [`Paint`]: authored paint plus the draw level from
+/// `bevy_emerge_core::draw_order`. Each step is `bevy_emerge_core::draw_order::LEVEL_LIFT` of world
+/// height, not a depth bias. A bias step is smaller than a field-sized quad's interpolation error at
+/// the Map camera's depth range, which is why the B-015 crossing
+/// (`target/loop/2026-10-21-98be109/look/B-015-pair.png`) stayed striped.
+///
+/// Only the marker's visual parts move, the children that carry a [`FootprintPart`]. The placement's
+/// own transform and the data `stack::resolve_y` reads are untouched, so picking and stacking do not
+/// see the lift. Runs on `Changed<Paint>` and `Changed<Children>`, so it covers the spawn and the
+/// editor's relevel; a painted root with no footprint children matches the query and is a no-op.
+fn lift_flat_markers(
+    roots: Query<(&Paint, &Children), RootChanged>,
+    mut parts: Query<(&FootprintPart, &mut Transform)>,
+) {
+    for (paint, children) in &roots {
+        let lift = paint.0 as f32 * bevy_emerge_core::draw_order::LEVEL_LIFT;
+        for child in children.iter() {
+            if let Ok((part, mut transform)) = parts.get_mut(child) {
+                transform.translation.y = part.rest_y + lift;
+            }
+        }
+    }
+}
+
 pub struct EmergePlugin;
 
 impl Plugin for EmergePlugin {
@@ -290,7 +327,7 @@ impl Plugin for EmergePlugin {
             )
             // Not gated on the world resource: a scene's materials land frames after the spawn, and
             // the editor spawns pieces without an `EmergeWorld` at all.
-            .add_systems(Update, apply_paint);
+            .add_systems(Update, (apply_paint, lift_flat_markers));
     }
 }
 
@@ -514,6 +551,9 @@ fn spawn_footprint_marker(
             ..default()
         })),
         Transform::from_xyz(0.0, MARKER_SLAB * 0.5, 0.0),
+        FootprintPart {
+            rest_y: MARKER_SLAB * 0.5,
+        },
     );
     let notch = (
         Mesh3d(assets.add(Mesh::from(Cuboid::new(
@@ -527,6 +567,9 @@ fn spawn_footprint_marker(
             ..default()
         })),
         Transform::from_xyz(0.0, MARKER_NOTCH.y * 0.5, depth * 0.5 - 0.2),
+        FootprintPart {
+            rest_y: MARKER_NOTCH.y * 0.5,
+        },
     );
     commands.spawn(parent).with_child(slab).with_child(notch).id()
 }

@@ -22,6 +22,17 @@
 //! Overlap is an open-interval test: pieces that only share an edge do not overlap, so two roads
 //! meeting end to end are not ordered against each other.
 
+/// How far, in metres, one draw level lifts a flat piece's top face above the floor.
+///
+/// Levels must reach the screen as **world height**, not as a depth bias. A bias step is a comparison
+/// nudge, and at the Map camera's ~2,000 m depth range a field-sized quad's interpolation error is
+/// larger than one or two steps, so two coplanar quads trade pixels in stair steps (the B-015
+/// crossing, `target/loop/2026-10-21-98be109/look/B-015-pair.png`). One centimetre is about forty
+/// depth steps at that range and is invisible to an author; the game itself lifts roads by 0.15 m
+/// (Sanctuary `src/prototype/town.rs:60`). The lift is render-only: it never reaches placement data
+/// or `stack::resolve_y`.
+pub const LEVEL_LIFT: f32 = 0.01;
+
 /// One flat piece's footprint on the floor, as the draw order sees it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ground {
