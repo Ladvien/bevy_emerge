@@ -224,7 +224,13 @@ pub fn cross(world: &mut World, to: crate::tiles::Door) -> Result<(), String> {
                 }
             }
         }
-        other => (None, other.opens_on()),
+        other => {
+            // **The project keeps the name when no map is open.** A rename changes the open map's
+            // name and not the project's, so without this a Kit → Map crossing asks for the old
+            // name — and `OpenMap::open` makes a new, empty map under a name it cannot find.
+            project.open_map_name = carried;
+            (None, other.opens_on())
+        }
     };
     // **And it goes straight back in.** The world holds a project at every instant of the
     // crossing: the editor's systems run in the same frame as the keypress, and **twenty** of

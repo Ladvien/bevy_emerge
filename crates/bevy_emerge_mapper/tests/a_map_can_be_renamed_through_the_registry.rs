@@ -238,3 +238,20 @@ fn n_then_escape_renames_nothing() {
         "Escape must write nothing"
     );
 }
+
+/// **`emerge/project_root` names the map the author renamed, while it is open.** The rename changes
+/// the open map and the file, and the project's own name is only brought up to date on a crossing,
+/// so an agent asking which map is open was told the old name.
+#[test]
+fn project_root_names_the_renamed_map_while_it_is_open() {
+    let mut app = editor("project_root_renamed");
+    let answer = apply(&mut app, serde_json::json!({"name": "Town Two"}));
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+
+    let root = call(&mut app, "emerge/project_root", serde_json::json!({}));
+    assert_eq!(
+        root["map"], "town_two",
+        "project_root says the map is `{}`, but the author renamed it to `town_two`",
+        root["map"]
+    );
+}
