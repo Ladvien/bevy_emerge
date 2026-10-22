@@ -66,6 +66,9 @@ const BRP_COMMANDS: &[&str] = &[
 /// mapper's twenty thousand lines for "which key writes a map's origin" is a heuristic and a
 /// heuristic that finds nothing is not a proof.
 const UI_ENTRY_POINTS: &[(&str, &str)] = &[
+    // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
+    // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
+    ("placement_set_pin", "set_pin("),
     // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
     // own way of doing what `map_set_settings` does. It dispatches the operation.
     ("map_set_settings", "SizeField(Axis)"),
@@ -271,7 +274,6 @@ const UNMIGRATED: &[Action] = &[
     Action::RenameMap,
     Action::Straighten,
     Action::Cancel,
-    Action::OwnToggle,
     Action::Generate,
     Action::GenerateDeclared,
     Action::GenerateComposed,
@@ -369,7 +371,7 @@ const UNMIGRATED: &[Action] = &[
 /// **A literal, and not `UNMIGRATED.len()`.** The first version compared the list's length with
 /// **its own length**, which is a tautology that can never fail — **and a ratchet that cannot fail
 /// is not a ratchet.** It is a number a human lowers, and the test says so when it is wrong.
-const UNMIGRATED_MAX: usize = 128;
+const UNMIGRATED_MAX: usize = 127;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///
@@ -386,37 +388,84 @@ fn the_allowlist_of_unmigrated_actions_only_shrinks() {
         UNMIGRATED.len(),
         UNMIGRATED_MAX
     );
-    // **Every entry is a real action, and every action is either migrated or on the list.**
-    // The second half is what makes the list a *complete* claim rather than a list of examples.
-    // **A `Vec`, not a `HashSet`** — `Action` derives `PartialEq` and `Eq` but not `Hash`, and
-    // adding a derive to a hundred-variant enum for one test's convenience is the wrong trade.
-    // **Every action is on the list, and the list is the whole of the actions.**
+    // **E-025 (decided 2026-10-22): an action is migrated when it names the operation it
+    // dispatches.** `Action::operation` is the mapping. The list holds exactly the actions that
+    // name no operation, so the two claims cannot disagree: a migrated action on the list is a
+    // stale entry, and an unmigrated action off the list is one nobody accounts for.
     //
-    // **The completeness half, and it is what stops the list from being a list of examples.** A
-    // verb that is neither listed nor migrated would be invisible to this test, and the list
-    // would quietly become a lie.
-    assert_eq!(
-        UNMIGRATED.len(),
-        Action::ALL.len(),
-        "the unmigrated list holds {} actions and there are {} in total, so {} are neither \
-         migrated nor listed — and an action nobody accounts for is an action nobody checks. \
-         A new action must be added to the list in the same commit that adds it.",
-        UNMIGRATED.len(),
-        Action::ALL.len(),
-        Action::ALL.len() - UNMIGRATED.len()
-    );
-    // **And every action in the enum is on the list, by name.**
-    //
-    // **The count is not enough.** A list of the right length with the wrong members is a list
-    // that lies, and the count is the only thing a count can check. **So the members are
-    // checked by name**, against the enum the crate generates.
+    // **The list is checked against the mapping, in both directions.** A listed action that names
+    // an operation fails here, which is what forces the list to be edited in the migrating commit.
+    for action in UNMIGRATED {
+        if let Some(name) = action.operation() {
+            panic!(
+                "{action:?} is on the unmigrated list but names the operation `{name}`. A migrated \
+                 action comes off the list in the same commit that names its operation."
+            );
+        }
+    }
+    // **And every action in the enum is either migrated (names an operation) or listed, by name.**
+    // The count is not enough: **a list of the right length with the wrong members is a list that
+    // lies.** So each action is checked on its own, against the enum the crate generates.
+    let registry = bevy_emerge_mapper::ops::registry();
     for action in Action::ALL {
+        match action.operation() {
+            Some(name) => {
+                assert!(
+                    registry.iter().any(|op| op.name() == name),
+                    "{action:?} names the operation `{name}`, which the registry does not have"
+                );
+                assert!(
+                    !UNMIGRATED.contains(&action),
+                    "{action:?} names the operation `{name}` and is also on the unmigrated list"
+                );
+            }
+            None => assert!(
+                UNMIGRATED.contains(&action),
+                "{action:?} names no operation and is on neither list: it is neither migrated nor \
+                 accounted for, so nothing checks it."
+            ),
+        }
+    }
+}
+
+/// **Every migrated action names a registered operation, and its UI path dispatches that operation.**
+///
+/// **E-025's mechanical check.** An action counts as migrated because `Action::operation` names an
+/// operation. That name must be in the registry, the UI entry point for it must be in the source,
+/// and the source must dispatch it by name — so a binding cannot claim a migration it does not
+/// make.
+#[test]
+fn every_migrated_action_has_a_ui_path_that_dispatches_its_operation() {
+    let editor = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
+    let registry = bevy_emerge_mapper::ops::registry();
+    let mut checked = 0;
+    for action in Action::ALL {
+        let Some(name) = action.operation() else {
+            continue;
+        };
+        checked += 1;
         assert!(
-            UNMIGRATED.contains(&action),
-            "{action:?} is in the editor's vocabulary and on neither list: it is neither \
-             migrated nor accounted for, so nothing checks it."
+            registry.iter().any(|op| op.name() == name),
+            "{action:?} names `{name}`, which the registry does not have"
+        );
+        let Some((_, place)) = UI_ENTRY_POINTS.iter().find(|(op, _)| *op == name) else {
+            panic!("{action:?} names `{name}`, but UI_ENTRY_POINTS has no UI path for it");
+        };
+        assert!(
+            editor.contains(place),
+            "{action:?}'s UI path `{place}` is not in editor.rs"
+        );
+        assert!(
+            editor.contains(&format!("\"{name}\"")),
+            "editor.rs never names `{name}`, so the UI path for {action:?} does not dispatch the \
+             operation it claims"
         );
     }
+    // **Anti-vacuity:** this test is meaningless if no action is migrated, so the floor is one.
+    assert!(
+        checked >= 1,
+        "no action names an operation, so the migration check is enforcing nothing"
+    );
 }
 
 /// **Every operation in the registry has a UI entry point, and every UI entry point names an

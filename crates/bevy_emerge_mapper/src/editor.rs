@@ -611,11 +611,17 @@ enum Undo {
     /// By id rather than index, because [`Undo::UnstampAt`] can reorder the list between the move
     /// and the undo, and an index would then move somebody else.
     MovedStamp { id: String, from: (f32, f32) },
-    /// Put a placement's pin back, reason included. Its own inverse.
-    Pinned {
-        index: usize,
+    /// **Take back, or put back, a pin**, by its operation-log line. Like [`Undo::Settings`], a pin
+    /// goes through the registry, so its undo does too and Cmd+Z and the agent's undo share one
+    /// history.
+    ///
+    /// `owned` is the pin this entry puts back, so the phrase reads `pin` or `unpin` the way the
+    /// author will say it. `id` is the placement's id, not its row, for the reason on
+    /// [`Undo::MovedStamp`]: the list can change between the pin and the undo.
+    Pin {
+        line: String,
+        id: String,
         owned: bool,
-        because: Option<String>,
     },
     /// **Take back, or put back, a settings change the size field made**, by its operation-log line.
     ///
@@ -696,10 +702,12 @@ impl Undo {
             Undo::Lifted { index, .. } => format!("lift {}{back}", name_at(*index)),
             Undo::Tipped { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
             Undo::Tipped { index, .. } => format!("tip {}{back}", name_at(*index)),
-            Undo::Pinned { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
-            Undo::Pinned { index, owned, .. } => {
+            Undo::Pin { id, .. } if !map.placements.iter().any(|p| p.id == *id) => {
+                format!("cannot: {id} is gone")
+            }
+            Undo::Pin { id, owned, .. } => {
                 let verb = if *owned { "pin" } else { "unpin" };
-                format!("{verb} {}{pin_again}", name_at(*index))
+                format!("{verb} {id}{pin_again}")
             }
             Undo::Group { ops } => {
                 let parts: Vec<String> = ops.iter().map(|op| op.phrase(map, redo)).collect();
@@ -7266,23 +7274,57 @@ fn apply(
             // other stamp arm here makes.
             Undo::MovedStamp { id, from: now }
         }
-        Undo::Pinned {
-            index,
-            owned,
-            because,
-        } => {
-            let p = open.map.placements.get_mut(index)?;
-            let was_owned = std::mem::replace(&mut p.owned, owned);
-            let was_because = std::mem::replace(&mut p.owned_because, because);
-            state.status.note(format!(
-                "{} {}",
-                p.id,
-                if owned { "pinned again" } else { "unpinned" }
-            ));
-            Undo::Pinned {
-                index,
-                owned: was_owned,
-                because: was_because,
+        Undo::Pin { line, id, .. } => {
+            // **Whether the piece is pinned now**, read before the undo runs. The entry it leaves on
+            // the other stack names the pin that redo would put back.
+            let was_owned = open
+                .map
+                .placements
+                .iter()
+                .find(|p| p.id == id)
+                .is_some_and(|p| p.owned);
+            // **Through the registry**, as the settings arm does: the map is taken into the
+            // operation's context and comes back either way.
+            let mut ctx = crate::ops::Ctx {
+                project: Some(project.clone()),
+                open: Some(std::mem::replace(
+                    &mut *open,
+                    OpenMap::new(
+                        bevy_emerge_core::map::Map::default(),
+                        std::path::PathBuf::new(),
+                    ),
+                )),
+                source: crate::ops::Source::Human,
+                session: crate::ops::session_id(),
+            };
+            let undone = crate::ops::undo(&mut ctx, Some(&line));
+            if let Some(fresh) = ctx.open.take() {
+                *open = fresh;
+            }
+            match undone {
+                Ok((
+                    _,
+                    crate::ops::Applied::Done {
+                        outcome,
+                        operation_id,
+                        ..
+                    },
+                )) => {
+                    state.status.note(outcome.summary);
+                    Undo::Pin {
+                        line: operation_id,
+                        id,
+                        owned: was_owned,
+                    }
+                }
+                // **A refusal is a refusal, where the author looks** — the agent may already have
+                // taken this pin back, or the piece may be gone. Nothing goes on the other stack.
+                Ok((_, crate::ops::Applied::Refused(e))) | Err(e) => {
+                    state
+                        .status
+                        .problem(format!("cannot undo the pin: {}", e.0));
+                    return None;
+                }
             }
         }
         Undo::Settings { line, .. } => {
@@ -7352,25 +7394,77 @@ fn toggle_pin(
         state.status.note("nothing here to pin".to_owned());
         return;
     };
-    let Some(p) = open.map.placements.get_mut(index) else {
+    let Some(p) = open.map.placements.get(index) else {
         return;
     };
+    let id = p.id.clone();
     if p.owned {
-        let because = p.owned_because.clone();
-        p.owned = false;
-        p.owned_because = None;
-        state.record(Undo::Pinned {
-            index,
-            owned: true,
-            because,
-        });
-        state.status.note(format!("unpinned {}", p.id));
+        set_pin(project, open, state, &id, false, None);
     } else {
-        let id = p.id.clone();
         state.pinning = Some((index, String::new()));
         state.status.note(format!(
             "why is {id} pinned? Enter to keep it, Esc to cancel"
         ));
+    }
+}
+
+/// **Set or clear one placement's pin through the registry**, the way the size field resizes the
+/// map. The O key and the pin-reason field both come here, so the rule (a pin has a reason) and
+/// the refusal live in one place: `placement_set_pin`.
+///
+/// **The undo entry names the pin the placement had before**, so Cmd+Z puts that back and the
+/// phrase reads `pin` or `unpin` the way the author will say it.
+fn set_pin(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+    pinned: bool,
+    because: Option<String>,
+) {
+    let was_owned = open
+        .map
+        .placements
+        .iter()
+        .find(|p| p.id == id)
+        .is_some_and(|p| p.owned);
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(
+            &mut *open,
+            OpenMap::new(
+                bevy_emerge_core::map::Map::default(),
+                std::path::PathBuf::new(),
+            ),
+        )),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let outcome = crate::ops::dispatch(
+        &mut ctx,
+        "placement_set_pin",
+        &serde_json::json!({"id": id, "pinned": pinned, "because": because}),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            state.status.note(outcome.summary);
+            state.record(Undo::Pin {
+                line: operation_id,
+                id: id.to_owned(),
+                owned: was_owned,
+            });
+        }
+        // **A refusal is a refusal, where the author looks** — a pin with no reason is the common one.
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+        }
     }
 }
 
@@ -9816,6 +9910,7 @@ fn pin_reason_keys(
 
     mut open: ResMut<OpenMap>,
     mut state: ResMut<EditorState>,
+    project: Option<Res<Project>>,
 ) {
     if state.pinning.is_none() {
         // **Drain before leaving.** The reader's cursor only advances when `read()` is called, so
@@ -9834,27 +9929,19 @@ fn pin_reason_keys(
                 let Some((index, reason)) = state.pinning.take() else {
                     return;
                 };
-                let reason = reason.trim().to_owned();
-                if reason.is_empty() {
+                // **Named by its id, not its row**: the list can change while the field is open.
+                let Some(id) = open.map.placements.get(index).map(|p| p.id.clone()) else {
+                    return;
+                };
+                let Some(project) = project.as_deref() else {
                     state
                         .status
-                        .note("a pin needs a reason; nothing was pinned".to_owned());
+                        .problem("no project is open, so nothing was pinned.".to_owned());
                     return;
-                }
-                // Unpinned is what it was — this field only opens for a piece being pinned.
-                state.record(Undo::Pinned {
-                    index,
-                    owned: false,
-                    because: None,
-                });
-                let pinned_id = open.map.placements.get_mut(index).map(|p| {
-                    p.owned = true;
-                    p.owned_because = Some(reason.clone());
-                    p.id.clone()
-                });
-                if let Some(id) = pinned_id {
-                    state.status.note(format!("pinned {id}: {reason}"));
-                }
+                };
+                // **The reason is the registry's to refuse** — an empty one is a refusal there, and
+                // it reaches the toast, where the author looks, not a dim note.
+                set_pin(project, &mut open, &mut state, &id, true, Some(reason));
             }
             Key::Escape => {
                 state.pinning = None;

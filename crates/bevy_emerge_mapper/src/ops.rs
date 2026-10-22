@@ -329,7 +329,10 @@ pub trait Operation: 'static {
 /// **The one list.** The MCP tool surface, the parity test and the log's vocabulary are all read
 /// from it, so they cannot disagree about what exists.
 pub fn registry() -> Vec<Box<dyn Operation>> {
-    vec![Box::new(map_set_settings::MapSetSettings)]
+    vec![
+        Box::new(map_set_settings::MapSetSettings),
+        Box::new(placement_set_pin::PlacementSetPin),
+    ]
 }
 
 /// **The operation with this name.**
@@ -1083,5 +1086,182 @@ pub mod map_set_settings {
         pub bounds: (f32, f32, f32),
         pub bash: Option<String>,
         pub note: Option<String>,
+    }
+}
+
+/// **One placement's pin, set or cleared** — the operation behind the O key and the pin-reason field.
+///
+/// **Addressed by the placement's id, not its row.** A row is where the piece sits in the list
+/// this minute; the id is what the piece is called, and it does not change when another piece is
+/// removed. The undo names the id for the same reason.
+pub mod placement_set_pin {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The placement's id, as the map file and `emerge/state` name it.
+        pub id: String,
+        /// `true` pins the piece; `false` unpins it.
+        pub pinned: bool,
+        /// **Why the piece is held.** Required when `pinned` is true, and refused when it is not:
+        /// an unpin takes no reason, and sending one is two answers to one question.
+        #[serde(default)]
+        pub because: Option<String>,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "pinned"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The placement's id, as the map file names it."
+                    },
+                    "pinned": {
+                        "type": "boolean",
+                        "description": "true pins the piece so the solver routes around it; false unpins it."
+                    },
+                    "because": {
+                        "type": ["string", "null"],
+                        "description": "Why the piece is held. Required when pinned is true; refused otherwise."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not a placement's pin: {e}. The fields are `id`, `pinned` and \
+                     `because`, and nothing else."
+                ))
+            })
+        }
+    }
+
+    /// **The one rule for a pin's reason**, in one place: a pin has a reason, an unpin has none.
+    /// Returns the reason as it will be stored, trimmed.
+    fn reason_of(p: &Params) -> Result<Option<String>, Refusal> {
+        match (p.pinned, p.because.as_deref().map(str::trim)) {
+            (true, Some(r)) if !r.is_empty() => Ok(Some(r.to_owned())),
+            (true, _) => Err(Refusal::new(
+                "a pin needs a reason, and it is what the author will read when they ask why the \
+                 piece is held. Nothing was pinned.",
+            )),
+            (false, None) => Ok(None),
+            (false, Some(_)) => Err(Refusal::new(
+                "an unpin takes no reason, so `because` has to be left out. Nothing was unpinned.",
+            )),
+        }
+    }
+
+    /// **The pins a map holds, as its id and reason**, which is the state an undo checks.
+    fn pins_of(open: &OpenMap) -> serde_json::Value {
+        let pins: Vec<serde_json::Value> = open
+            .map
+            .placements
+            .iter()
+            .filter(|p| p.owned)
+            .map(|p| json!([p.id, p.owned_because]))
+            .collect();
+        json!({"map": open.map.name, "pins": pins})
+    }
+
+    /// **Set or clear one placement's pin.**
+    pub struct PlacementSetPin;
+
+    impl Operation for PlacementSetPin {
+        fn name(&self) -> &'static str {
+            "placement_set_pin"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            ctx.open.as_ref().map(pins_of)
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to pin.",
+                ));
+            };
+            if !open.map.placements.iter().any(|q| q.id == p.id) {
+                return Err(Refusal::new(format!(
+                    "no placement is called `{}` on this map, so nothing was pinned.",
+                    p.id
+                )));
+            }
+            let because = reason_of(&p)?;
+            Ok(json!({"id": p.id, "pinned": p.pinned, "because": because}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let because = reason_of(&p)?;
+            let Some(mut open) = ctx.open.take() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to pin.",
+                ));
+            };
+            let Some(index) = open.map.placements.iter().position(|q| q.id == p.id) else {
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "no placement is called `{}` on this map, so nothing was pinned.",
+                    p.id
+                )));
+            };
+            // **The old pin, for the undo.** Its inverse is the same operation with these values.
+            let old_owned = open.map.placements[index].owned;
+            let old_because = open.map.placements[index].owned_because.clone();
+            open.map.placements[index].owned = p.pinned;
+            open.map.placements[index].owned_because = because.clone();
+            let summary = match &because {
+                Some(reason) => format!("pinned {}: {reason}", p.id),
+                None => format!("unpinned {}", p.id),
+            };
+            // **And the file, so the pin is not only in memory.** The save is the map's own gate;
+            // a refusal to save puts the old pin back, so the editor and the file agree.
+            let Some(project) = ctx.project.as_ref() else {
+                ctx.open = Some(open);
+                return Err(Refusal::new("no project is open."));
+            };
+            let saved = match open.save(project) {
+                Ok(()) => true,
+                Err(e) => {
+                    open.map.placements[index].owned = old_owned;
+                    open.map.placements[index].owned_because = old_because;
+                    ctx.open = Some(open);
+                    return Err(Refusal::new(format!(
+                        "the pin was changed but the file refused it, so nothing was written: {e}"
+                    )));
+                }
+            };
+            let inverse = json!({"id": p.id, "pinned": old_owned, "because": old_because});
+            ctx.open = Some(open);
+            let after = ctx.open.as_ref().map(pins_of);
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved,
+                inverse: Some(inverse),
+                after,
+            })
+        }
     }
 }

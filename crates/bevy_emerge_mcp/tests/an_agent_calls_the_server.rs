@@ -473,3 +473,47 @@ fn the_snip_tool_says_what_it_crops_and_refuses_without_an_editor() {
         "a label of `../escape` was not refused as a label: {escaped}"
     );
 }
+
+/// **An outside agent reaches the pin operation through the server, with no editor running.**
+///
+/// E-024: `placement_set_pin` is the operation an agent calls to pin or unpin a placement. The
+/// test lists the tools, reads the apply tool's description to learn it takes an `operation` name,
+/// and calls it with that name. With no editor the answer must be a refusal that says the editor
+/// is not there — not "unknown operation", which would mean the server's own surface does not
+/// carry the operation and an agent could never learn its name.
+#[test]
+fn an_agent_can_name_the_pin_operation_and_is_told_the_editor_is_not_there() {
+    let mut server = Server::start();
+    let listed = server.request("tools/list", json!({}));
+    let tools = listed["result"]["tools"]
+        .as_array()
+        .unwrap_or_else(|| panic!("tools/list gives no tools: {listed}"));
+    let apply = tools
+        .iter()
+        .find(|t| t["name"] == "emerge_apply_operation")
+        .unwrap_or_else(|| panic!("emerge_apply_operation is not listed: {listed}"));
+    let description = apply["description"].as_str().unwrap_or_default();
+    assert!(
+        description.contains("operation"),
+        "the apply tool's description does not say it takes an operation name: {description}"
+    );
+
+    let answer = server.call(
+        "emerge_apply_operation",
+        json!({
+            "operation": "placement_set_pin",
+            "parameters": {"id": "m1", "pinned": true, "because": "held for the roof"},
+        }),
+    );
+    let text = answer["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("editor") || text.contains("BEVY_BRP_PORT"),
+        "the pin operation was not taken as a name the server knows: {answer}"
+    );
+    assert!(
+        !text.contains("unknown operation"),
+        "the server does not carry placement_set_pin, so an agent cannot learn it: {text}"
+    );
+}

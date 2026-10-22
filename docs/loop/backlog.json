@@ -281,6 +281,70 @@
       "evidence": "Unblocked by E-025's decision: Decided by the developer 2026-10-22: actions name their operation. A keys::Action counts as migrated when its binding dispatches a registered operation, checked mechanically (the action names its operation id; the parity test verifies the id against the registry and that the UI path dispatches it). The Typing guard stays, because the action stays in keys::Action. The parity test's definition of 'migrated' changes accordingly, and the allowlist keeps shrinking: lower UNMIGRATED_MAX by one per migrated action. First migration: placement_set_pin (O key, Action::OwnToggle); work in progress preserved at target/loop/wip/e024-pin-wip.patch and target/loop/wip/e024-an_agent_can_pin_a_placement.rs (3 agent tests that failed before and passed with the patch). operations_have_two_front_ends::the_allowlist_of_unmigrated_actions_only_shrinks pins UNMIGRATED_MAX = 128 and says a new non-operation action must be paid for by migrating one in the same commit. It is what blocked E-021 (Home frame key, 2026-10-21 frame iteration) and E-014's human half (2026-10-21 baseline iteration). User problem: an agent cannot perform the migrated verb today, and the person's next actions cannot land; frequency: every new human verb; saving: unblocks E-014 and E-021 and adds one agent verb; risk: the verb's undo must go through the registry like map_set_settings (see B-008's Undo::Settings). Pick a small map-changing verb with a clear inverse.",
       "last_failure": "2026-10-21 pin iteration (base 74f5085): chose placement_set_pin (O key, Action::OwnToggle). The pin verb itself passed its 3 agent tests and the editor's pin, unpin and reason paths dispatched it. Blocked by operations_have_two_front_ends: the_allowlist_of_unmigrated_actions_only_shrinks asserts UNMIGRATED == Action::ALL (every keys::Action variant is listed), so removing OwnToggle from UNMIGRATED fails unless the variant leaves the enum. Leaving the enum means rebinding O outside keys::Action, which drops the Typing-field guard (a name typed with O would pin); or redesigning the keymap so bindings name operations. Either is a design decision, not one verb. WIP patch kept outside the repo at /tmp/e024-pin-wip.patch.",
       "first_seen": "2026-10-21"
+    },
+    {
+      "id": "B-019",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "An agent's placement_set_pin is not on the Cmd+Z stack, so Cmd+Z says 'nothing to undo' for a change the agent made",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Live 2026-10-22 (target/loop/2026-10-22-fcc4e02/live/agent-states.json, key 'cmdz'): after emerge_apply_operation placement_set_pin, Cmd+Z reports status 'nothing to undo' and the file keeps owned:true. The brief asks for both front ends to undo with Cmd+Z. emerge_undo_operation does undo it (oplog line 35 undoes line 34)."
+      },
+      "status": "open",
+      "evidence": "target/loop/2026-10-22-fcc4e02/live/agent-states.json (cmdz); crates/bevy_emerge_mcp/src/docs.rs emerge_undo_operation",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-020",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "An agent's operation leaves the editor's status receipt and undo row stale",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Live 2026-10-22: after emerge_apply_operation the status still read 'unpinned block_5_3' (the previous human receipt) and undo_depth stayed 0. The author sees nothing where the editor looks, the same shape as the refusals that were in the wrong slot. The editor's in-memory map did change (O on the placement then unpinned it)."
+      },
+      "status": "open",
+      "evidence": "target/loop/2026-10-22-fcc4e02/live/agent-states.json (pinned, undone); oplog.jsonl lines 34-36",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-026",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "emerge_state reports each placement's pin, so a pin change is visible in a state dump",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "emerge_state reports placements as a count only (ops_brp.rs editor_state). The pins are reported only by the operation's own result and oplog. The E-024 brief asked for a dump showing the pin indicator changing; it could not be shown from emerge_state."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs editor_state; ops.rs pins_of",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-021",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A placement appeared in the map during a probe with the cursor and O, not reproduced",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "On the first probe run a barrel was placed (status 'placed barrel@1 at (-1965.65, -98.65)', undo_depth 1, map dirty). It was not reproduced in two replays of the same cursor and O inputs on a fresh editor, and the scratch session was discarded unsaved. Cause unknown."
+      },
+      "status": "open",
+      "evidence": "target/loop/2026-10-22-fcc4e02/live (editor.log); /tmp/emerge_live/it9/probe_pin.py",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
     }
   ]
 }

@@ -865,6 +865,19 @@ impl Action {
             _ => true,
         }
     }
+
+    /// **The registered operation this action dispatches, or `None` if it has not been migrated.**
+    ///
+    /// **An action that names an operation is migrated** (E-025, decided 2026-10-22): its key
+    /// dispatches a registered operation, so an agent can do the same thing. The parity test checks
+    /// each name against the registry and checks that the UI path dispatches it. The action stays
+    /// in this enum, so the Typing guard still applies to it.
+    pub fn operation(self) -> Option<&'static str> {
+        match self {
+            Action::OwnToggle => Some("placement_set_pin"),
+            _ => None,
+        }
+    }
 }
 
 /// One binding: the key, when it is live, and how to say it.
