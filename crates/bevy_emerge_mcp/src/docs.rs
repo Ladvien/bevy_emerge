@@ -123,8 +123,9 @@ pub const TOOLS: &[ToolDoc] = &[
                       position and the placements inside the rectangle. Each entry names its \
                       picture file, and the newest picture comes back as an image. It reads files \
                       the editor wrote, so it needs no editor running and changes nothing. Returns \
-                      how many snips there are, how many are shown, and any file in the snips \
-                      folder that is not a snip record.",
+                      how many snips there are, how many are shown, and each .json file in the \
+                      snips folder that is not a snip record or has no picture file, with the \
+                      reason.",
         read_only: true,
         destructive: false,
         idempotent: true,

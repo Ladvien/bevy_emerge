@@ -78,7 +78,7 @@ A rectangle of the editor's picture, cut out and returned as an image. rect is [
 
 ### `emerge_list_snips`
 
-The snips the person took in the editor, newest first: each one's name, when it was taken, the map and the active tool, the note the person typed, the rectangle in window and picture pixels, the camera view, the cursor's world position and the placements inside the rectangle. Each entry names its picture file, and the newest picture comes back as an image. It reads files the editor wrote, so it needs no editor running and changes nothing. Returns how many snips there are, how many are shown, and any file in the snips folder that is not a snip record.
+The snips the person took in the editor, newest first: each one's name, when it was taken, the map and the active tool, the note the person typed, the rectangle in window and picture pixels, the camera view, the cursor's world position and the placements inside the rectangle. Each entry names its picture file, and the newest picture comes back as an image. It reads files the editor wrote, so it needs no editor running and changes nothing. Returns how many snips there are, how many are shown, and each .json file in the snips folder that is not a snip record or has no picture file, with the reason.
 
 | annotation | value |
 |---|---|
