@@ -7062,7 +7062,7 @@ fn apply(
                             commands.entity(e).insert(Placement(id));
                         }
                     }
-                    state.status.problem(format!("restored {n} placement(s)"));
+                    state.status.note(format!("restored {n} placement(s)"));
                 }
                 Err(e) => {
                     state
