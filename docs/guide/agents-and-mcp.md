@@ -49,7 +49,7 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 
 ## Known gaps
 
-- **Cmd+Z does not see an agent's edit.** Take it back with `emerge_undo_operation` until B-019 is fixed. This covers `placement_set_pin` and `placement_set_yaw`. See [Placing and undo](placing-and-undo.md#undo-and-redo).
+- **Cmd+Z and an agent's edits share one history.** Cmd+Z takes back the newest change still in effect, an agent's included. `emerge_undo_operation` takes back any logged change by its operation id. See [Placing and undo](placing-and-undo.md#undo-and-redo).
 - **`emerge_state` does not list each placement's pin.** Use `emerge_read_oplog` to see what was pinned, until E-026 is fixed.
 
-Both are open in `docs/loop/backlog.json`.
+E-026 is open in `docs/loop/backlog.json`.

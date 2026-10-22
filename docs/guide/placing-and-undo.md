@@ -44,7 +44,7 @@ Agents pin through the same operation, `placement_set_pin`, and must give a reas
 
 **Cmd+Z** takes back the last edit on the map. **Shift+Cmd+Z** puts it back.
 
-An agent's edits are logged too, and `emerge_undo_operation` takes one back. Cmd+Z does not see an agent's edit yet: after an agent applies `placement_set_pin` or `placement_set_yaw`, Cmd+Z takes back the last edit on the editor's own stack, which may be a different edit, and the agent's change stays on the map. This is open as B-019 in `docs/loop/backlog.json`. Until it is fixed, take an agent's edit back with `emerge_undo_operation`. A turn you make on the Map door is on both histories: Cmd+Z reverts it on the editor's stack, and the operation log keeps its own record of it.
+An agent's edits are logged too, and they share Cmd+Z's history. After an agent applies `placement_set_pin` or `placement_set_yaw`, Cmd+Z takes back that change, the newest one still in effect, whoever made it, and the agent's other changes stay where they are. A change the agent already took back with `emerge_undo_operation` is dropped from the history, so Cmd+Z skips it. `emerge_undo_operation` still takes back any logged change by its operation id. A turn you make on the Map door is on the same history.
 
 ## Stack
 

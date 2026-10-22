@@ -262,6 +262,26 @@ impl EditorState {
         self.redo.clear();
     }
 
+    /// **Record a change another front end made through the registry**, by its operation-log line, so
+    /// it sits in the one history Cmd+Z walks (B-019). Clears redo like any edit.
+    pub(crate) fn record_logged(&mut self, line: String, phrase: String) {
+        self.record(Undo::Logged { line, phrase });
+    }
+
+    /// **Forget the entries for a change an agent's undo took back.** Once the log no longer has that
+    /// line in effect, a Cmd+Z that reached it would only refuse; dropping it means Cmd+Z takes back the
+    /// newest change still in effect.
+    pub(crate) fn forget_line(&mut self, line: &str) {
+        let names_line = |op: &Undo| match op {
+            Undo::Logged { line: l, .. }
+            | Undo::Pin { line: l, .. }
+            | Undo::Settings { line: l, .. } => l == line,
+            _ => false,
+        };
+        self.undo.retain(|op| !names_line(op));
+        self.redo.retain(|op| !names_line(op));
+    }
+
     /// Where the id mint stands — read-only, so the harness can check [`next_id_after`]'s seed
     /// really landed.
     pub fn minted(&self) -> u32 {
@@ -636,6 +656,16 @@ enum Undo {
         /// it never reads a file.
         bounds: (f32, f32, f32),
     },
+    /// **Take back, or put back, a change another front end made through the registry**, by its
+    /// operation-log line: an agent's turn, pin or size, or a turn the person made by key.
+    ///
+    /// **Why this entry exists (B-019).** An agent's change went to the log and never reached this
+    /// stack, so Cmd+Z after an agent's turn took back the person's older change and left the agent's
+    /// standing. Recording it here puts the agent's change in the same history. Its undo is
+    /// [`crate::ops::undo`], the function `emerge_undo_operation` reaches, so the two cannot disagree.
+    /// `phrase` is the outcome's summary, captured when the change was made, so the INSPECTOR names it
+    /// without reading the log.
+    Logged { line: String, phrase: String },
 }
 
 impl Undo {
@@ -746,6 +776,9 @@ impl Undo {
                 };
                 format!("{to} {x} x {y} x {z}")
             }
+            // **The summary the change was made under**, so an agent's turn reads in the INSPECTOR the
+            // way the person's own does.
+            Undo::Logged { phrase, .. } => phrase.clone(),
         }
     }
 }
@@ -7375,6 +7408,51 @@ fn apply(
                 }
             }
         }
+
+        // **A change made through the registry, by its operation-log line** — an agent's turn, or a
+        // turn the person made by key (B-019). The same registry undo as `Pin` and `Settings`, so
+        // Cmd+Z and the agent's undo share one history. A refusal is a refusal, where the author looks:
+        // the agent may have taken the change back, or the map may have moved outside the log.
+        Undo::Logged { line, phrase } => {
+            let mut ctx = crate::ops::Ctx {
+                project: Some(project.clone()),
+                open: Some(std::mem::replace(
+                    &mut *open,
+                    OpenMap::new(
+                        bevy_emerge_core::map::Map::default(),
+                        std::path::PathBuf::new(),
+                    ),
+                )),
+                source: crate::ops::Source::Human,
+                session: crate::ops::session_id(),
+            };
+            let undone = crate::ops::undo(&mut ctx, Some(&line));
+            if let Some(fresh) = ctx.open.take() {
+                *open = fresh;
+            }
+            match undone {
+                Ok((
+                    _,
+                    crate::ops::Applied::Done {
+                        outcome,
+                        operation_id,
+                        ..
+                    },
+                )) => {
+                    state.status.note(outcome.summary);
+                    Undo::Logged {
+                        line: operation_id,
+                        phrase,
+                    }
+                }
+                Ok((_, crate::ops::Applied::Refused(e))) | Err(e) => {
+                    state
+                        .status
+                        .problem(format!("cannot undo {phrase}: {}", e.0));
+                    return None;
+                }
+            }
+        }
     };
     Some(inverse)
 }
@@ -7477,7 +7555,7 @@ fn set_yaw(
     state: &mut EditorState,
     id: &str,
     yaw: f32,
-) -> bool {
+) -> Option<(String, String)> {
     let mut ctx = crate::ops::Ctx {
         project: Some(project.clone()),
         open: Some(std::mem::replace(
@@ -7499,10 +7577,14 @@ fn set_yaw(
         *open = fresh;
     }
     match outcome {
-        Ok(crate::ops::Applied::Done { .. }) => true,
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => Some((operation_id, outcome.summary)),
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
             state.status.problem(e.0);
-            false
+            None
         }
     }
 }
@@ -7600,18 +7682,21 @@ fn turn_under_cursor(
     // Recorded before it moves — the entry carries the angle to go back to.
     let (id, was_yaw) = (p.id.clone(), p.yaw);
     // **Through the registry**, so the turn is saved and logged the way an agent's is.
-    if !set_yaw(project, open, state, &id, (was_yaw + step).rem_euclid(360.0)) {
+    let Some((line, summary)) = set_yaw(
+        project,
+        open,
+        state,
+        &id,
+        (was_yaw + step).rem_euclid(360.0),
+    ) else {
         return;
-    }
+    };
     let Some(p) = open.map.placements.get(index) else {
         return;
     };
     let (at, yaw, tip, descriptor, patch) =
         (p.at, p.yaw, p.tip, p.descriptor.clone(), p.patch.clone());
-    state.record(Undo::Turned {
-        index,
-        yaw: was_yaw,
-    });
+    state.record_logged(line, summary);
 
     for (entity, marker) in placed {
         if marker.0 == id {

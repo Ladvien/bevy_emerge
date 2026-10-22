@@ -375,6 +375,7 @@ fn operation_apply(
     project: Option<ResMut<crate::project::Project>>,
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
+    mut state: Option<ResMut<crate::editor::EditorState>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -426,6 +427,13 @@ fn operation_apply(
     if let (Some(due), Ok(ops::Applied::Done { outcome, .. })) = (due.as_mut(), &applied) {
         due.map_replaced |= outcome.saved;
     }
+    // **The agent's change joins the person's one undo history (B-019).** Logged here, so Cmd+Z
+    // takes back the newest change whoever made it, not the newest the person made by hand.
+    if let Ok(ops::Applied::Done { outcome, operation_id, .. }) = &applied
+        && let Some(state) = state.as_mut()
+    {
+        state.record_logged(operation_id.clone(), outcome.summary.clone());
+    }
     match applied {
         Ok(ops::Applied::Done {
             outcome,
@@ -468,6 +476,7 @@ fn operation_undo(
     project: Option<ResMut<crate::project::Project>>,
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
+    mut state: Option<ResMut<crate::editor::EditorState>>,
 ) -> Result<Value, String> {
     if p.dry_run {
         // **A preview reads the log and plans the inverse, and writes nothing.**
@@ -504,6 +513,13 @@ fn operation_undo(
     // **Redrawn for the same reason as `operation_apply`:** the watcher ignores the write-back.
     if let (Some(due), Ok((_, ops::Applied::Done { outcome, .. }))) = (due.as_mut(), &undone) {
         due.map_replaced |= outcome.saved;
+    }
+    // **The change this undo took back leaves the person's history too (B-019)**, so the next Cmd+Z
+    // reaches the newest change still in effect instead of one the log no longer holds.
+    if let Ok((plan, ops::Applied::Done { .. })) = &undone
+        && let Some(state) = state.as_mut()
+    {
+        state.forget_line(&plan.line.operation_id);
     }
     Ok(match undone {
         Ok((
