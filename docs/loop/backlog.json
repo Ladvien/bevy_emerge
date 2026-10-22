@@ -285,8 +285,8 @@
         "no_workaround": true,
         "evidence": "emerge_state reports placements as a count only (ops_brp.rs editor_state). The pins are reported only by the operation's own result and oplog. The E-024 brief asked for a dump showing the pin indicator changing; it could not be shown from emerge_state."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs editor_state; ops.rs pins_of",
+      "status": "shipped",
+      "evidence": "Shipped in 9407d42 (cycle 2, branch loop/2026-10-22-cycle2): emerge/state's map block carries pinned (id and because, at most 50 in map order) and pinned_total. Mapper tests e026_emerge_state_reports_each_pin 3 passed (failing before: pinned null). MCP description and docs/mcp-tools.md updated; an_agent_calls_the_server the_state_tool_says_it_names_each_pin_and_the_full_count passes.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
