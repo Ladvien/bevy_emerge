@@ -76,6 +76,16 @@ A rectangle of the editor's picture, cut out and returned as an image. rect is [
 | `destructiveHint` | false |
 | `idempotentHint` | false |
 
+### `emerge_list_snips`
+
+The snips the person took in the editor, newest first: each one's name, when it was taken, the map and the active tool, the note the person typed, the rectangle in window and picture pixels, the camera view, the cursor's world position and the placements inside the rectangle. Each entry names its picture file, and the newest picture comes back as an image. It reads files the editor wrote, so it needs no editor running and changes nothing. Returns how many snips there are, how many are shown, and any file in the snips folder that is not a snip record.
+
+| annotation | value |
+|---|---|
+| `readOnlyHint` | true |
+| `destructiveHint` | false |
+| `idempotentHint` | true |
+
 ### `emerge_capture_sequence`
 
 A sequence of frames of the editor, with an optional operation applied once the first frame is in -- so frame 0 is the state before the action and the later frames are what it did. The frames are written to a directory and their paths are in the answer. The editor takes the frames, so the timing does not depend on this server's round trips.

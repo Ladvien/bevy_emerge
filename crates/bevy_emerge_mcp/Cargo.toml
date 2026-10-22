@@ -21,6 +21,8 @@ name = "bevy_emerge_mcp"
 path = "src/main.rs"
 
 [dependencies]
+# The crop the editor and this server share, so a snip and an `emerge_snip` cut the same way.
+bevy_emerge_snip = { path = "../bevy_emerge_snip" }
 # **The official Rust SDK for the Model Context Protocol.**
 #
 # **Pinned exactly, and the newest version in the local registry.** Its API differs from 1.x, so a

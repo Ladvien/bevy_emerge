@@ -370,6 +370,10 @@ const UNMIGRATED: &[Action] = &[
     Action::CheckAllRigs,
     Action::ToggleGhost,
     Action::CycleCamPreset,
+    // **Snip is a capture, not a registry operation** (`keys::Action::Snip`): it writes a crop and
+    // a file of what was under it, and changes no map. It has no operation name to dispatch, so it
+    // is accounted for here rather than migrated.
+    Action::Snip,
 ];
 
 /// **The ratchet.** It is lowered in the same commit that migrates an action, and it is the only
@@ -378,7 +382,8 @@ const UNMIGRATED: &[Action] = &[
 /// **A literal, and not `UNMIGRATED.len()`.** The first version compared the list's length with
 /// **its own length**, which is a tautology that can never fail — **and a ratchet that cannot fail
 /// is not a ratchet.** It is a number a human lowers, and the test says so when it is wrong.
-const UNMIGRATED_MAX: usize = 124;
+// 124 -> 125: `Snip`, paid by `RenameMap` -> `map_rename` (commit A).
+const UNMIGRATED_MAX: usize = 125;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

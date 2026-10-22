@@ -23,8 +23,10 @@
 //! | `emerge_state` | what the editor is holding now, as JSON |
 //! | `emerge_capture_still` | one picture of the editor, plus the state |
 //! | `emerge_capture_sequence` | frames at 4 fps, with an optional operation after frame 0 |
+//! | `emerge_snip` | one rectangle of the picture, cut out and written as a crop with its metadata |
+//! | `emerge_list_snips` | the snips the person took, newest first, with the newest picture |
 //!
-//! **Nine tools, and the set is small on purpose.** An agent's context is spent on the tools it
+//! **Eleven tools, and the set is small on purpose.** An agent's context is spent on the tools it
 //! is offered, and a catalogue of ninety-six verbs is a catalogue of ninety-six things to choose
 //! badly from. **The operation tools are a discovery surface**: the first names what exists, and
 //! the others preview, run and take back what it names. Later iterations add one tool per
@@ -49,7 +51,7 @@ use rmcp::{ErrorData, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use bevy_emerge_mcp::{brp, docs, snip};
+use bevy_emerge_mcp::{brp, docs};
 
 use brp::Brp;
 
@@ -152,6 +154,20 @@ pub struct SnipParams {
     /// **The rectangle, in window pixels: `[x0, y0, x1, y1]`**, origin at the top left, `x1` and
     /// `y1` exclusive.
     pub rect: [i64; 4],
+}
+
+/// **The parameters of `emerge_list_snips`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListSnipsParams {
+    /// **How many snips to list, newest first**, from 1 to 20. The default is 5, a screenful.
+    #[serde(default = "five")]
+    pub limit: usize,
+}
+
+/// **Five snips, a screenful of metadata.**
+fn five() -> usize {
+    5
 }
 
 /// **The parameters of `emerge_capture_sequence`.**
@@ -615,7 +631,7 @@ impl Emerge {
             Some(b) => b,
             None => return Ok(refusal("the editor's picture was not base64.")),
         };
-        let crop = match snip::crop_png(&bytes, p.rect) {
+        let crop = match bevy_emerge_snip::crop_png(&bytes, p.rect) {
             Ok(crop) => crop,
             Err(e) => return Ok(refusal(&e)),
         };
@@ -641,6 +657,80 @@ impl Emerge {
                 serde_json::to_string_pretty(&answer).unwrap_or_default(),
             ),
         ]))
+    }
+
+    /// **`emerge_list_snips` -- the snips the person took, newest first.**
+    ///
+    /// **A read of files the editor wrote.** It needs no editor running and changes nothing: the
+    /// records are the editor's own, read back in the shape the editor wrote them.
+    #[tool(
+        name = "emerge_list_snips",
+        description = "The snips the person took in the editor, newest first: each one's name, when \
+                       it was taken, the map and the active tool, the note the person typed, the \
+                       rectangle in window and picture pixels, the camera view, the cursor's world \
+                       position and the placements inside the rectangle. Each entry names its \
+                       picture file, and the newest picture comes back as an image. It reads files \
+                       the editor wrote, so it needs no editor running and changes nothing. Returns \
+                       how many snips there are, how many are shown, and any file in the snips \
+                       folder that is not a snip record.",
+        annotations(
+            title = "List the snips the person took",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn list_snips(
+        &self,
+        Parameters(p): Parameters<ListSnipsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if !(1..=20).contains(&p.limit) {
+            return Ok(refusal(&format!(
+                "limit is {}, and it must be from 1 to 20.",
+                p.limit
+            )));
+        }
+        let dir = match self.capture_dir("snips") {
+            Ok(dir) => dir,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        let (records, not_snips) = bevy_emerge_snip::read_snips(&dir);
+        let shown: Vec<Value> = records
+            .iter()
+            .take(p.limit)
+            .map(|r| {
+                let mut entry = serde_json::to_value(r).unwrap_or(Value::Null);
+                if let Value::Object(map) = &mut entry {
+                    map.insert(
+                        "picture_path".to_string(),
+                        json!(dir.join(format!("{}.png", r.stem)).to_string_lossy()),
+                    );
+                }
+                entry
+            })
+            .collect();
+        let answer = json!({
+            "dir": dir.to_string_lossy(),
+            "total": records.len(),
+            "shown": shown.len(),
+            "snips": shown,
+            "not_snips": not_snips,
+        });
+        let mut content = vec![rmcp::model::ContentBlock::text(
+            serde_json::to_string_pretty(&answer).unwrap_or_default(),
+        )];
+        if let Some(newest) = records.first() {
+            let path = dir.join(format!("{}.png", newest.stem));
+            match std::fs::read(&path) {
+                Ok(bytes) => content.insert(
+                    0,
+                    rmcp::model::ContentBlock::image(base64_encode(&bytes), "image/png"),
+                ),
+                Err(e) => return Ok(refusal(&format!("{}: {e}", path.display()))),
+            }
+        }
+        Ok(CallToolResult::success(content))
     }
 
     /// **`emerge_capture_sequence` — a sequence of frames, with an action in the middle.**

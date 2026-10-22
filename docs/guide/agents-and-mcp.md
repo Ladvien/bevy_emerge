@@ -42,12 +42,17 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 | `emerge_capture_sequence` | Captures frames over time (`label`, `seconds`, `fps`). |
 | `emerge_read_oplog` | Reads the operation log. |
 | `emerge_frame_view` | Frames the Map camera on the map, the selection, a set of placements, or a rectangle. |
+| `emerge_list_snips` | Lists the snips the person took, newest first, with the newest picture as an image. Reads the snips folder, so it works without an editor running. Read-only. |
 
 ## Pinning, turning and removing from an agent
 
 `placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. `placement_set_yaw` turns a placed piece to a facing in degrees (wrapped into one full turn), which is what **R** and **T** do to a placed piece under the cursor. `placement_remove` removes a placement by id, and whatever stands on it goes too; `emerge_undo_operation` puts the removed pieces back at the rows they held. See [Placing and undo](placing-and-undo.md).
 
 `map_rename` renames the open map. The file moves with the name at once, and a name another map in the project already has is refused before anything is written. **N** on the Map door dispatches the same operation, so a rename by an agent and a rename by a person are one kind of change, and Cmd+Z takes either back. An agent undoes a rename with `emerge_undo_operation`, which puts the old name back.
+
+## Snips the person took
+
+A person snips an area of the editor with `Cmd+\` and types a note (see [Keys](keys.md)). The editor writes two files for each snip into `target/loop/captures/snips/`: a PNG of the cut-out rectangle, and a JSON record that names it. The record holds the note, the map, the active tool, the rectangle in window and picture pixels, the camera's view, the cursor's world position, and the placements inside the rectangle. `emerge_list_snips` reads that folder, newest first, and returns the newest picture as an image. A snip changes no map data: it is not an operation, and it is not logged or undoable.
 
 ## Known gaps
 

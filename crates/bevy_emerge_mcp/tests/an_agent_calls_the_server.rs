@@ -33,7 +33,13 @@ struct Server {
 impl Server {
     /// **Start the server and shake hands.**
     fn start() -> Server {
+        Server::start_with(&[])
+    }
+
+    /// **Start the server with arguments, as an agent's client does, such as `--project`.**
+    fn start_with(args: &[&str]) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_bevy_emerge_mcp"))
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -206,6 +212,7 @@ fn the_capture_and_state_tools_say_what_they_do() {
         ("emerge_state", true, false, true),
         ("emerge_capture_still", false, false, false),
         ("emerge_capture_sequence", false, true, false),
+        ("emerge_list_snips", true, false, true),
     ];
     let mut missing = Vec::new();
     for (name, read_only, destructive, idempotent) in expected {
@@ -516,4 +523,159 @@ fn an_agent_can_name_the_pin_operation_and_is_told_the_editor_is_not_there() {
         !text.contains("unknown operation"),
         "the server does not carry placement_set_pin, so an agent cannot learn it: {text}"
     );
+}
+
+/// **The snips the person took, listed through the server as an agent would list them.**
+///
+/// **The brief's test, with no editor running:** the test lists the tools and reads the
+/// description of `emerge_list_snips`, writes two snips the way the editor writes them (through
+/// the shared crate), and calls the tool. The folder is the only thing the tool reads, so the
+/// answer must come back without an editor, newest first, with the newest picture, and a file
+/// that is not a snip must be named rather than hidden.
+#[test]
+fn an_agent_lists_the_snips_newest_first_with_the_newest_picture() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is after 1970")
+        .as_nanos();
+    let project =
+        std::env::temp_dir().join(format!("emerge_list_snips_{}_{nanos}", std::process::id()));
+    let dir = project.join("target/loop/captures/snips");
+    std::fs::create_dir_all(&dir).expect("the snips folder can be made");
+
+    // **The older snip is written second**, so the order comes from the time and not from the
+    // order the files were made.
+    bevy_emerge_snip::write_snip(
+        &dir,
+        "snip-2000",
+        picture(),
+        [0, 0, 8, 8],
+        record("snip-2000", 2000, "the gate is too narrow"),
+    )
+    .expect("the newer snip is written");
+    bevy_emerge_snip::write_snip(
+        &dir,
+        "snip-1000",
+        picture(),
+        [0, 0, 8, 8],
+        record("snip-1000", 1000, "the wall is in the wrong place"),
+    )
+    .expect("the older snip is written");
+    std::fs::write(dir.join("stray.json"), "{\"not\": \"a snip\"}")
+        .expect("the stray file is written");
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let listed = server.request("tools/list", json!({}));
+    let tool = listed["result"]["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|t| t["name"] == "emerge_list_snips"))
+        .cloned()
+        .unwrap_or_else(|| panic!("emerge_list_snips is not listed: {listed}"));
+    let description = tool["description"].as_str().unwrap_or_default();
+    for promise in ["newest first", "no editor running", "Returns"] {
+        assert!(
+            description.contains(promise),
+            "the description does not say `{promise}`: {description}"
+        );
+    }
+
+    let answer = server.call("emerge_list_snips", json!({}));
+    assert!(
+        answer.get("error").is_none(),
+        "refused at the protocol level: {answer}"
+    );
+    assert_ne!(answer["result"]["isError"], json!(true), "{answer}");
+    let content = answer["result"]["content"]
+        .as_array()
+        .expect("the answer has content");
+    // **The newest picture comes back as an image**, a PNG.
+    let image = content
+        .iter()
+        .find(|b| b["type"] == "image")
+        .expect("the newest picture comes back as an image");
+    assert_eq!(image["mimeType"], "image/png", "{image}");
+    assert!(
+        image["data"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("iVBORw0KGgo"),
+        "the picture is not a PNG"
+    );
+    let body = answer_text(content);
+    assert_eq!(body["total"], 2, "{body}");
+    assert_eq!(body["shown"], 2, "{body}");
+    let snips = body["snips"].as_array().expect("the snips are a list");
+    assert_eq!(snips[0]["stem"], "snip-2000", "newest first: {body}");
+    assert_eq!(snips[0]["note"], "the gate is too narrow", "{body}");
+    assert_eq!(snips[1]["stem"], "snip-1000", "{body}");
+    let picture_path = snips[0]["picture_path"].as_str().unwrap_or_default();
+    assert!(
+        picture_path.ends_with("snip-2000.png") && std::path::Path::new(picture_path).exists(),
+        "the newest snip's picture path does not name a file: {picture_path}"
+    );
+    let not_snips = body["not_snips"].as_array().expect("not_snips is a list");
+    assert!(
+        not_snips
+            .iter()
+            .any(|p| p.as_str().unwrap_or_default().contains("stray.json")),
+        "the file that is not a snip is hidden: {body}"
+    );
+
+    // **A limit of one shows one and still says there are two.**
+    let one = server.call("emerge_list_snips", json!({"limit": 1}));
+    let body = answer_text(one["result"]["content"].as_array().expect("content"));
+    assert_eq!(
+        (body["total"].as_u64(), body["shown"].as_u64()),
+        (Some(2), Some(1)),
+        "{body}"
+    );
+
+    // **A limit outside 1 to 20 is a refusal with the range**, not a silent clamp.
+    let zero = server.call("emerge_list_snips", json!({"limit": 0}));
+    assert_eq!(zero["result"]["isError"].as_bool(), Some(true), "{zero}");
+    let text = zero["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("1 to 20"),
+        "the refusal does not give the range: {text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// **A 16 by 16 picture of one colour**, as the editor would hand over its window's pixels.
+fn picture() -> (u32, u32, Vec<u8>) {
+    (16, 16, vec![200; 16 * 16 * 4])
+}
+
+/// **A snip record with the fields the editor fills in**, for the folder the server reads.
+fn record(stem: &str, taken_at_ms: u64, note: &str) -> bevy_emerge_snip::SnipRecord {
+    bevy_emerge_snip::SnipRecord {
+        stem: stem.into(),
+        taken_at_ms,
+        map: "town".into(),
+        active_tool: "Place".into(),
+        note: note.into(),
+        rect_window_px: [0.0, 0.0, 8.0, 8.0],
+        scale_factor: 1.0,
+        rect_picture_px: [0, 0, 8, 8],
+        size: [8, 8],
+        picture: [16, 16],
+        picture_file: String::new(),
+        camera: None,
+        cursor_world: None,
+        placements: Vec::new(),
+    }
+}
+
+/// **The text block of an answer, parsed as JSON.** The tool answers with the picture first and
+/// the JSON second, so an agent reads the text block, and this does the same.
+fn answer_text(content: &[Value]) -> Value {
+    let text = content
+        .iter()
+        .find(|b| b["type"] == "text")
+        .and_then(|b| b["text"].as_str())
+        .expect("the answer has a text block");
+    serde_json::from_str(text).expect("the text block is JSON")
 }

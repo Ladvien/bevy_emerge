@@ -116,6 +116,20 @@ pub const TOOLS: &[ToolDoc] = &[
         idempotent: false,
     },
     ToolDoc {
+        name: "emerge_list_snips",
+        description: "The snips the person took in the editor, newest first: each one's name, when \
+                      it was taken, the map and the active tool, the note the person typed, the \
+                      rectangle in window and picture pixels, the camera view, the cursor's world \
+                      position and the placements inside the rectangle. Each entry names its \
+                      picture file, and the newest picture comes back as an image. It reads files \
+                      the editor wrote, so it needs no editor running and changes nothing. Returns \
+                      how many snips there are, how many are shown, and any file in the snips \
+                      folder that is not a snip record.",
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+    },
+    ToolDoc {
         name: "emerge_capture_sequence",
         description: "A sequence of frames of the editor, with an optional operation applied \
                        once the first frame is in -- so frame 0 is the state before the action and \
@@ -270,6 +284,13 @@ pub fn schemas() -> Value {
             "properties": {
                 "label": {"type": "string", "description": "Where the crop is written, under the project's target/loop/captures: letters, digits, _ and - in parts, with / between the parts."},
                 "rect": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 4, "maxItems": 4, "description": "[x0, y0, x1, y1] in window pixels; x1 and y1 exclusive."}
+            }
+        },
+        "emerge_list_snips": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "How many snips to list, newest first. The default is 5."}
             }
         },
         "emerge_frame_view": {

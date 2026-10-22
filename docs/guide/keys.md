@@ -26,6 +26,7 @@ Every key the editor answers to, written from the `BINDINGS` table in `crates/be
 | `Q` | — | turn view |
 | `E` | — | turn view |
 | `Cmd+F` | — | filter the list |
+| `Cmd+\` | — | snip: press to arm (press again to disarm), drag a rectangle over the editor, type a note. Enter saves a picture and its record; Esc cancels and writes nothing |
 
 ## MAP
 
