@@ -49,6 +49,7 @@ Every key the editor answers to, written from the `BINDINGS` table in `crates/be
 | `[` | — | lift / lower this |
 | `]` | — | lift / lower this |
 | `X` | — | removal mode |
+| `Home` | — | frame the view: the locked placement, or the whole map |
 | `B` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
 | `Shift+B` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
 | `Cmd+B` | — | move / Shift: clone / Cmd: run / M: keep as a composition |

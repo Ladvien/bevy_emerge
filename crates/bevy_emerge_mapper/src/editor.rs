@@ -1273,6 +1273,10 @@ impl Plugin for EditorPlugin {
             Update,
             frame_map_on_open.run_if(in_state(crate::screen::Screen::Editor)),
         );
+        app.add_systems(
+            Update,
+            frame_on_home.run_if(in_state(crate::screen::Screen::Editor)),
+        );
 
         // **Resources always; systems only on the door that has a map** — as a run condition, not
         // a check here. See `Door::map_door_is_open` for what reading the door at build time cost.
@@ -3327,6 +3331,54 @@ fn frame_map_on_open(
         }
         Err(e) => state.status.problem(e),
     }
+}
+
+/// **Home frames the view: the locked placement if there is one, otherwise the whole map.** The same
+/// `resolve_frame` + `apply_frame` as `emerge/frame_view`, so the key and the agent's method cannot
+/// disagree about what the map or the selection is. A refusal goes in a problem.
+#[allow(clippy::too_many_arguments)]
+fn frame_on_home(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    live: Res<keys::Live>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    lock: Option<Res<TargetLock>>,
+    mut rig: ResMut<crate::view::Rig>,
+    cameras: Query<&Camera, With<MainCamera>>,
+    mut state: ResMut<EditorState>,
+) {
+    if !keys::just_pressed(&keyboard, *live, keys::Action::FrameView) {
+        return;
+    }
+    let (Some(project), Some(open)) = (project, open) else {
+        return;
+    };
+    let locked = lock
+        .as_deref()
+        .and_then(|l| l.placement_id().map(str::to_owned));
+    let target = if locked.is_some() {
+        FrameTarget::Selection
+    } else {
+        FrameTarget::Map
+    };
+    let frame = match resolve_frame(&target, &project, &open, locked.as_deref()) {
+        Ok(frame) => frame,
+        Err(why) => {
+            state.status.problem(why);
+            return;
+        }
+    };
+    let Some(aspect) = cameras.single().ok().and_then(aspect_of) else {
+        state.status.problem(
+            "the Map camera has no viewport yet, so there is nothing to frame against".to_owned(),
+        );
+        return;
+    };
+    apply_frame(&mut rig, &frame, aspect, &open);
+    state.status.note(format!(
+        "framed {} ({:.0} x {:.0} m)",
+        frame.what, frame.size.x, frame.size.z,
+    ));
 }
 
 fn draw_bounds(

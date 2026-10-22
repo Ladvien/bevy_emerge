@@ -279,6 +279,7 @@ const UNMIGRATED: &[Action] = &[
     Action::LiftDown,
     Action::Fill,
     Action::MoveMode,
+    Action::FrameView,
     Action::Straighten,
     Action::Cancel,
     Action::Generate,
@@ -384,7 +385,8 @@ const UNMIGRATED: &[Action] = &[
 /// is not a ratchet.** It is a number a human lowers, and the test says so when it is wrong.
 // 124 -> 125: `Snip`, paid by `RenameMap` -> `map_rename` (commit A).
 // 125 -> 124: `Remove` -> `placement_remove` (E-029): a stamp and a box dispatch `stamp_remove` and `placement_remove`.
-const UNMIGRATED_MAX: usize = 124;
+// 124 -> 125: `FrameView` (E-021), camera state with no document change, so no operation names it.
+const UNMIGRATED_MAX: usize = 125;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

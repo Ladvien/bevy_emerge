@@ -11,6 +11,7 @@ If the map cannot be framed, the editor says so in a problem, rather than retryi
 - **W**, **A**, **S**, **D** pan along the screen axes.
 - **Q** and **E** turn the view.
 - The **scroll wheel** zooms. One wheel detent changes the viewport height by a fixed ratio, so a zoomed-in view stops at a floor rather than springing back.
+- **Home** frames the view: the locked placement when there is one, otherwise the whole map.
 
 These keys are the same on every tab of the Map door. The complete list is in [Keys](keys.md).
 
@@ -23,7 +24,7 @@ The MCP tool `emerge_frame_view` frames the Map camera on a box. Its `target` is
 - `{"placements": [ids]}`: the union of the named placements.
 - `{"rect": [x0, z0, x1, z1]}`: a rectangle on the floor.
 
-A person has no key to frame the selection or a set of placements. Framing a placement is something the agent does with this tool.
+A person's keys frame the locked placement or the whole map with Home. Framing a set of placements is something the agent does with this tool.
 
 See [Agents and the MCP server](agents-and-mcp.md).
 
