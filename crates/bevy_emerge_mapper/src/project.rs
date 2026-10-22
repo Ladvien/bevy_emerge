@@ -940,24 +940,33 @@ impl OpenMap {
                 ));
             }
             bevy_emerge_core::ron_surgery::save_atomic_no_replace(&path, &text)?;
-            // **And now the old file goes.** The new one is on disk and correct, so the rename has
-            // happened; leaving the old name behind would be the duplicate.
-            //
-            // **A failure to remove is reported, not discarded.** A removal that fails leaves two
-            // files answering to one map, and the stale one then refuses to open — so the author
-            // has to be told which file is stale and where it is, because the alternative is a
-            // message about a schema mismatch for a rename that half-happened.
+            // **And now the old file goes — or the rename is taken back.** A rename is all or nothing:
+            // a refused call changes nothing, so a rename whose old file cannot be removed has not
+            // happened. The new file is ours (save_atomic_no_replace just created it), so removing it
+            // touches nothing the author had.
             if let Err(e) = std::fs::remove_file(&self.map_path) {
-                // **The map is now the new file, whatever the removal did.** The write landed, so the
-                // caller must not treat this as a save that never happened — it moves the map's
-                // name and path together, or it leaves a name that no file holds.
-                let old = std::mem::replace(&mut self.map_path, path.clone());
-                return Err(format!(
-                    "saved as `{}`, but the old file {} could not be removed: {e}. Delete it by hand \
-                     — until then the list shows this map twice.",
-                    self.map.name,
-                    old.display()
-                ));
+                let old = self.map_path.clone();
+                return match std::fs::remove_file(&path) {
+                    Ok(()) => Err(format!(
+                        "the old file {} could not be removed, so the map keeps its name: {e}. \
+                         Nothing was changed.",
+                        old.display()
+                    )),
+                    // **The take-back failed too, so the map is in two files and must say so.** The
+                    // map follows the new file, because that is where the write landed, and the
+                    // refusal tells the author which file to delete by hand.
+                    Err(back) => {
+                        self.map_path = path.clone();
+                        Err(format!(
+                            "saved as `{}`, but the old file {} could not be removed: {e}, and the new \
+                             file {} could not be taken back: {back}. Delete the old file by hand — \
+                             until then the list shows this map twice.",
+                            self.map.name,
+                            old.display(),
+                            path.display()
+                        ))
+                    }
+                };
             }
         } else {
             bevy_emerge_core::ron_surgery::save_atomic(&path, &text)?;

@@ -4,6 +4,8 @@ bevy_emerge is built one iteration at a time. An iteration fixes a bounded set o
 
 The brief an iteration follows is `.omp/commands/emerge-feature-loop.md`.
 
+The rationale for the README's structure, with the research behind it, is in [`docs/loop/readme-guidance.md`](../loop/readme-guidance.md).
+
 ## One iteration
 
 Each iteration runs these phases in order:

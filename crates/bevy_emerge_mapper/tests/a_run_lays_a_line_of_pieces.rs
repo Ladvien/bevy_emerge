@@ -214,6 +214,7 @@ fn the_runs_rows_are_ordinary_rows_the_consumer_gets() {
 fn the_map_tabs_palette_filter_takes_the_keyboard() {
     use bevy::input::keyboard::{Key, KeyCode};
     use bevy_emerge_mapper::filter::{Filters, Pane};
+    use bevy_emerge_mapper::keys::MOD_KEYS;
 
     let root = fence_project("filter");
     let mut app = bevy_emerge_mapper::harness::build_headless(&root, "m", None)
@@ -222,15 +223,17 @@ fn the_map_tabs_palette_filter_takes_the_keyboard() {
         app.update();
     }
 
-    // **Press `Cmd+F`**, the way a field really receives it — a press and a release written to the
+    // **Press the filter chord** (`Cmd+F` on macOS, `Ctrl+F` elsewhere), the way a field really receives it — a press and a release written to the
     // `KeyboardInput` message stream, then a frame. `ButtonInput` would not do: every text handler
     // in this crate reads the stream and matches `logical_key`.
     //
-    // The command modifier is held in `ButtonInput<KeyCode>`, which the key census reads — so it
-    // is set there, and the key itself arrives through the message stream.
+    // The command modifier is `MOD_KEYS[0]`: Cmd on a Mac, Ctrl everywhere else. It has to be the chord
+    // this platform's editor reads, or the press is a bare key and the test proves nothing about the
+    // filter. It is held in `ButtonInput<KeyCode>`, which the key census reads; the key itself arrives
+    // through the message stream.
     app.world_mut()
         .resource_mut::<bevy::input::ButtonInput<KeyCode>>()
-        .press(bevy::input::keyboard::KeyCode::SuperLeft);
+        .press(MOD_KEYS[0]);
     for state in [
         bevy::input::ButtonState::Pressed,
         bevy::input::ButtonState::Released,
@@ -248,7 +251,7 @@ fn the_map_tabs_palette_filter_takes_the_keyboard() {
     app.update();
     app.world_mut()
         .resource_mut::<bevy::input::ButtonInput<KeyCode>>()
-        .release(bevy::input::keyboard::KeyCode::SuperLeft);
+        .release(MOD_KEYS[0]);
     app.update();
 
     // **The Map tab's filter is the palette's box.** `FocusFilter` has to focus *this* pane, or the

@@ -138,8 +138,8 @@ fn a_rename_leaves_one_file_and_the_new_name() {
 /// **A rename whose old file cannot be removed names the OLD file, not the new one.**
 ///
 /// The old file is made impossible to remove by putting a directory where it was. The new file
-/// is written first, so the rename has happened; the error must tell the author which file to
-/// delete by hand. Before the fix it named the new file, which is the one that is correct.
+/// is written first and taken back when the removal fails, so the rename does not happen; the error
+/// must name the old file, the one that is stuck.
 #[test]
 fn a_rename_that_cannot_remove_the_old_file_names_the_old_file() {
     let root = project("rename-stuck");
