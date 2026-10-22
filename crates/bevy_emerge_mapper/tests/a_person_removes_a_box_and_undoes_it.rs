@@ -467,3 +467,141 @@ fn an_agent_that_undoes_every_line_of_a_box_leaves_no_stale_group_for_cmd_z() {
         status.problem_text()
     );
 }
+
+/// A map with one stamp, `room@1`, of `site/room` at the origin, and one free piece, `site/wall@0`, at
+/// (3, 0). The fixture's map carries no stamps, so the stamp is written into its text the way
+/// `stamp_remove.rs` does it.
+fn stamp_and_piece_in_one_box(name: &str) -> App {
+    let root = fixtures::Fixture::new(name)
+        .descriptor("site/wall", "alpha")
+        .composition("site/room", &[("site/wall", "site/wall", (0.0, 0.0))])
+        .place("site/wall", (3.0, 0.0))
+        .build("m");
+    let map = root.join("assets/emerge/maps/m.map.ron");
+    let text = std::fs::read_to_string(&map).expect("the map is there");
+    let stamped = text.replace(
+        "stamps: [],",
+        r#"stamps: [
+        (
+            id: "room@1",
+            of: "site/room",
+            at: (0.0, 0.0),
+            yaw: 0.0,
+            overrides: [],
+            of_fingerprint: None,
+            owned: false,
+            owned_because: None,
+            note: None,
+        ),
+    ],"#,
+    );
+    assert_ne!(
+        stamped, text,
+        "the fixture's map has no `stamps: [],` to fill; this test would stamp nothing"
+    );
+    std::fs::write(&map, stamped).expect("the map is writable");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    app.init_resource::<Script>();
+    app.world_mut().spawn((Window::default(), PrimaryWindow));
+    app.add_systems(PreUpdate, drive.after(InputSystems));
+    for _ in 0..8 {
+        app.update();
+    }
+    app
+}
+
+fn stamps(map: &bevy_emerge_core::map::Map) -> Vec<String> {
+    map.stamps.iter().map(|s| s.id.clone()).collect()
+}
+
+#[test]
+fn a_box_over_a_stamp_and_a_piece_removes_both_and_one_cmd_z_puts_both_back() {
+    // **A box is one undo group whether it takes a stamp or a piece.** The stamp is removed through
+    // `stamp_remove` and the piece through `placement_remove`, and one Cmd+Z must restore both.
+    let mut app = stamp_and_piece_in_one_box("person_box_remove_stamp");
+    assert_eq!(
+        stamps(&held(&app)),
+        ["room@1"],
+        "the fixture starts with the stamp"
+    );
+    assert_eq!(ids(&held(&app)), ["site/wall@0"], "and one free piece");
+
+    let from = pixel_over(&mut app, (-1.0, -1.0));
+    let to = pixel_over(&mut app, (7.0, 1.0));
+    step(
+        &mut app,
+        Frame {
+            keys: vec![KeyCode::KeyX],
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(from),
+            mouse: Some(true),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(to),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(to),
+            mouse: Some(false),
+            ..default()
+        },
+    );
+    assert!(
+        stamps(&held(&app)).is_empty(),
+        "the box took the stamp it covered"
+    );
+    assert!(ids(&held(&app)).is_empty(), "and the piece it covered");
+    assert!(
+        stamps(&on_disk(&app)).is_empty(),
+        "the file agrees on the stamp"
+    );
+    assert!(ids(&on_disk(&app)).is_empty(), "and on the piece");
+
+    let removals: Vec<(String, String)> = log(&app)
+        .into_iter()
+        .filter(|e| e.op == "stamp_remove" || e.op == "placement_remove")
+        .map(|e| (e.op.clone(), e.outcome.clone()))
+        .collect();
+    assert_eq!(
+        removals.len(),
+        2,
+        "one logged line per removed thing: {removals:?}"
+    );
+    assert!(
+        removals.iter().all(|(_, outcome)| outcome == "applied"),
+        "{removals:?}"
+    );
+
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::KeyZ],
+            ..default()
+        },
+    );
+    step(&mut app, Frame::default());
+    assert_eq!(
+        stamps(&held(&app)),
+        ["room@1"],
+        "one Cmd+Z puts the stamp back"
+    );
+    assert_eq!(ids(&held(&app)), ["site/wall@0"], "and the piece with it");
+    assert_eq!(
+        stamps(&on_disk(&app)),
+        ["room@1"],
+        "the file agrees on the stamp"
+    );
+    assert_eq!(ids(&on_disk(&app)), ["site/wall@0"], "and on the piece");
+}
