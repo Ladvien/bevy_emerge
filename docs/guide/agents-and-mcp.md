@@ -48,7 +48,7 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 
 `placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. `placement_set_yaw` turns a placed piece to a facing in degrees (wrapped into one full turn), which is what **R** and **T** do to a placed piece under the cursor. `placement_remove` removes a placement by id, and whatever stands on it goes too; `emerge_undo_operation` puts the removed pieces back at the rows they held. See [Placing and undo](placing-and-undo.md).
 
-`map_rename` renames the open map. The file moves with the name at once, and a name another map in the project already has is refused before anything is written. **N** on the Map door dispatches the same operation, so a rename by an agent and a rename by a person are one kind of change, and Cmd+Z takes either back. An agent undoes a rename with `emerge_undo_operation`, which puts the old name back.
+`map_rename` renames the open map. The file moves with the name at once, and a name another map in the project already has is refused before anything is written. If the old file cannot be removed, the rename is refused and nothing changes: the new file is taken back and the map keeps its old name. If that take-back also fails, the map follows the new file and the refusal says so. **N** on the Map door dispatches the same operation, so a rename by an agent and a rename by a person are one kind of change, and Cmd+Z takes either back. An agent undoes a rename with `emerge_undo_operation`, which puts the old name back.
 
 ## Snips the person took
 
