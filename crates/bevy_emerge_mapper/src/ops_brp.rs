@@ -429,7 +429,11 @@ fn operation_apply(
     }
     // **The agent's change joins the person's one undo history (B-019).** Logged here, so Cmd+Z
     // takes back the newest change whoever made it, not the newest the person made by hand.
-    if let Ok(ops::Applied::Done { outcome, operation_id, .. }) = &applied
+    if let Ok(ops::Applied::Done {
+        outcome,
+        operation_id,
+        ..
+    }) = &applied
         && let Some(state) = state.as_mut()
     {
         state.record_logged(operation_id.clone(), outcome.summary.clone());

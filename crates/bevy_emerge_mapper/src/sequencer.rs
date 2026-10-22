@@ -312,7 +312,11 @@ fn drive_sequencer(
             }
             // **The agent's change joins the person's one undo history (B-019)**, as it does through
             // `emerge/operation_apply`: a turn a sequence applies is an agent's turn.
-            if let Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) = &outcome
+            if let Ok(crate::ops::Applied::Done {
+                outcome,
+                operation_id,
+                ..
+            }) = &outcome
                 && let Some(state) = operated.state.as_mut()
             {
                 state.record_logged(operation_id.clone(), outcome.summary.clone());

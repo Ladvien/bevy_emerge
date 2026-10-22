@@ -245,7 +245,11 @@ fn cmd_z_after_an_agents_turn_takes_back_the_turn_and_not_the_resize() {
     let agent_yaw = if start_yaw == 33.0 { 34.0 } else { 33.0 };
 
     resize(&mut app, 'y', "44");
-    assert_eq!(map(&app).bounds.1, 44.0, "the size field did not resize the map");
+    assert_eq!(
+        map(&app).bounds.1,
+        44.0,
+        "the size field did not resize the map"
+    );
 
     let turned = agent_call(
         &mut app,
@@ -299,14 +303,20 @@ fn cmd_z_does_not_undo_an_agents_turn_the_agent_already_took_back() {
             "dry_run": false,
         }),
     );
-    let line = turned["operation_id"].as_str().expect("the turn's id").to_owned();
+    let line = turned["operation_id"]
+        .as_str()
+        .expect("the turn's id")
+        .to_owned();
 
     let took_back = agent_call(
         &mut app,
         "emerge/operation_undo",
         serde_json::json!({"operation_id": line, "dry_run": false}),
     );
-    assert_eq!(took_back["outcome"], "applied", "the agent's undo: {took_back}");
+    assert_eq!(
+        took_back["outcome"], "applied",
+        "the agent's undo: {took_back}"
+    );
     assert_eq!(map(&app).placements[0].yaw, start_yaw);
 
     chord(&mut app, KeyCode::KeyZ, false);
