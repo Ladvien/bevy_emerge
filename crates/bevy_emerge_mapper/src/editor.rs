@@ -7439,6 +7439,13 @@ fn apply(
                         ..
                     },
                 )) => {
+                    // **The turn is on screen as well as in the map.** An undo that only changed the
+                    // map left the piece drawn at the angle it had before (B-019).
+                    if let Err(e) = draw_every_placement(commands, assets, project, open, placed) {
+                        state
+                            .status
+                            .problem(format!("cannot draw the map after undoing {phrase}: {e}"));
+                    }
                     state.status.note(outcome.summary);
                     Undo::Logged {
                         line: operation_id,
@@ -7853,22 +7860,33 @@ fn redraw_the_map(
     // and the map would show every piece twice.
     due.map_replaced = false;
 
-    // **Everything standing is swept**, and everything in the map is spawned again.
+    // **Everything standing is swept**, and everything in the map is spawned again. A map whose
+    // stacking will not resolve is a map the author has to be told about, and the last good screen
+    // stays, which is why the sweep happens after the heights are resolved and not before.
+    if let Err(e) = draw_every_placement(&mut commands, &assets, &project, &open, &placed) {
+        state
+            .status
+            .problem(format!("the map on disk does not resolve: {e}"));
+        return;
+    }
+    // **And the counter is re-seeded**, so the next id the editor mints cannot be one the file
+    // already carries.
+    state.next_id = next_id_after(&open.map);
+}
+
+/// **Every placement on the map, drawn again from the open map.** The heights resolve before
+/// anything is swept, so a map whose stacking will not resolve leaves the last good screen up.
+fn draw_every_placement(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    project: &Project,
+    open: &OpenMap,
+    placed: &Query<(Entity, &Placement)>,
+) -> Result<(), String> {
+    let ys = heights(project, open)?;
     for (entity, _) in placed.iter() {
         commands.entity(entity).despawn();
     }
-    let ys = match heights(&project, &open) {
-        Ok(ys) => ys,
-        Err(e) => {
-            // **A map whose stacking will not resolve is a map the author has to be told about.**
-            // **The last good screen stays**, which is why the sweep happens after the heights
-            // are resolved and not before.
-            state
-                .status
-                .problem(format!("the map on disk does not resolve: {e}"));
-            return;
-        }
-    };
     for (i, p) in open.map.placements.iter().enumerate() {
         let Some(d) = descriptor_of(&project.library, p) else {
             warn!(
@@ -7879,8 +7897,8 @@ fn redraw_the_map(
         };
         let Some(&y) = ys.get(i) else { continue };
         if let Some(e) = spawn_piece(
-            &mut commands,
-            &assets,
+            commands,
+            assets,
             Pose { d: &d, yaw: p.yaw, tip: p.tip },
             p.at,
             open.map.origin,
@@ -7889,9 +7907,7 @@ fn redraw_the_map(
             commands.entity(e).insert(Placement(p.id.clone()));
         }
     }
-    // **And the counter is re-seeded**, so the next id the editor mints cannot be one the file
-    // already carries.
-    state.next_id = next_id_after(&open.map);
+    Ok(())
 }
 
 /// **A library edit reaches the pieces already standing on the map.**

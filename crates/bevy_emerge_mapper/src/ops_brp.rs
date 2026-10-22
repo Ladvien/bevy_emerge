@@ -519,11 +519,16 @@ fn operation_undo(
         due.map_replaced |= outcome.saved;
     }
     // **The change this undo took back leaves the person's history too (B-019)**, so the next Cmd+Z
-    // reaches the newest change still in effect instead of one the log no longer holds.
-    if let Ok((plan, ops::Applied::Done { .. })) = &undone
+    // reaches the newest change still in effect instead of one the log no longer holds. A put-back is
+    // the opposite: the change is in effect again, so it is the newest change and joins the history.
+    if let Ok((plan, ops::Applied::Done { outcome, operation_id, .. })) = &undone
         && let Some(state) = state.as_mut()
     {
-        state.forget_line(&plan.line.operation_id);
+        if plan.restores {
+            state.record_logged(operation_id.clone(), outcome.summary.clone());
+        } else {
+            state.forget_line(&plan.line.operation_id);
+        }
     }
     Ok(match undone {
         Ok((
