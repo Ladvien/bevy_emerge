@@ -943,6 +943,7 @@ dependencies = [
  "bevy_emerge",
  "bevy_emerge_anim",
  "bevy_emerge_core",
+ "bevy_emerge_snip",
  "image",
  "ron",
  "serde",
@@ -955,7 +956,7 @@ name = "bevy_emerge_mcp"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
- "image",
+ "bevy_emerge_snip",
  "rmcp",
  "schemars",
  "serde",
@@ -970,6 +971,15 @@ version = "0.1.0"
 dependencies = [
  "rand",
  "rand_chacha",
+]
+
+[[package]]
+name = "bevy_emerge_snip"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

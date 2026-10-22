@@ -567,6 +567,12 @@ enumerated! {
     CarouselPrev,
     CarouselNext,
     Save,
+    /// **Snip an area of the editor** — arm it, drag a rectangle over the window, type a one-line
+    /// note, and Enter saves a crop of that area with a file of what was under it. Escape cancels.
+    ///
+    /// It is a **capture**, not a registry operation: its output is a file a person and an agent
+    /// read, and it changes no map, so it has no operation name. See `snip`.
+    Snip,
     /// **Back to the chooser** — leave this map and pick another.
     ///
     /// `Cmd+O` because "open something else" is what every editor binds it to, and this screen has
@@ -876,6 +882,7 @@ impl Action {
         match self {
             Action::OwnToggle => Some("placement_set_pin"),
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
+            Action::RenameMap => Some("map_rename"),
             _ => None,
         }
     }
@@ -1150,6 +1157,15 @@ pub const BINDINGS: &[Binding] = &[
         Context::Global,
         "S",
         "save",
+    )
+    .at(Home::Control(ControlId::Title)),
+    b(
+        Action::Snip,
+        KeyCode::Backslash,
+        true,
+        Context::Global,
+        "\\",
+        "snip an area",
     )
     .at(Home::Control(ControlId::Title)),
     b(
@@ -3635,6 +3651,7 @@ mod tests {
             Action::FocusFilter,
             Action::FocusTagFilter,
             Action::ShowErrors,
+            Action::Snip,
         ];
         assert_eq!(
             actions.len(),
@@ -4186,7 +4203,10 @@ mod tests {
             // (`Cmd+\`` is VS Code's *toggle terminal*, `Ctrl+\`` is Blender's *toggle console*, and
             // `` ` `` is Emacs's *other window*), and it is the only free bare key that is not a
             // letter: every letter is bare-bound in some tab, and `Global` overlaps every tab.
-            (Context::Global, 18),
+            // 18 -> 19: `Snip`, on `Cmd+\`. **A snip is the person's gesture from either door**: a
+            // crop of the Kit door is as much a snip as one of the Map door, so it is `Global`, like
+            // Save. `Backslash` is bound in no context, so the chord is free everywhere it is live.
+            (Context::Global, 19),
             // 16 -> 17: `FocusFilter`, on `Cmd+F`. **The filter box was mouse-only on every tab
             // but one.** `FocusFilter` was `Context::Tiles`, so the Map tab's PLACE palette and the
             // Rigs tab's rig list had no keyboard route to their own filter at all — and a box the

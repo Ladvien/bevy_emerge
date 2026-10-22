@@ -446,8 +446,8 @@ pub(crate) fn drive(
     *proj = map_projection(rig.height, &tf, open.as_deref());
 }
 
-/// **Where the editor's pointer is**, in logical window pixels — the one answer every spatial system
-/// reads.
+/// **Where the editor's pointer is**, in surface pixels: the window's logical position times its scale
+/// factor, the same pixels as the editor's render target. The one answer every spatial system reads.
 ///
 /// Filled once a frame by [`sense_pointer`]. It exists so that "where is the cursor" has a single
 /// definition in this crate: a system that asks the `Window` directly is invisible to an agent, and a

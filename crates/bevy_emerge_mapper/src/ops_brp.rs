@@ -179,13 +179,20 @@ fn put_back(open: &mut Option<ResMut<crate::project::OpenMap>>, ctx: Ctx) {
 fn project_root(
     _: In<serde_json::Value>,
     project: Option<Res<crate::project::Project>>,
+    open: Option<Res<crate::project::OpenMap>>,
 ) -> Result<Value, String> {
     let Some(project) = project else {
         return Err("no project is open.".to_owned());
     };
+    // **The open map's name, while a map is open.** A rename changes the open map and not the
+    // project's name; the project's is only brought up to date on a crossing. Without this an agent
+    // asking which map is open is told the name the author has already replaced.
+    let map = open
+        .map(|o| o.map.name.clone())
+        .or_else(|| project.open_map_name.clone());
     Ok(json!({
         "project_root": project.root.to_string_lossy(),
-        "map": project.open_map_name,
+        "map": map,
     }))
 }
 

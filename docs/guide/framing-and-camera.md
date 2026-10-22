@@ -26,3 +26,7 @@ The MCP tool `emerge_frame_view` frames the Map camera on a box. Its `target` is
 A person has no key to frame the selection or a set of placements. Framing a placement is something the agent does with this tool.
 
 See [Agents and the MCP server](agents-and-mcp.md).
+
+## Snips and the camera
+
+A snip (`Cmd+\`) records the Map camera's position and direction at the moment the person takes it, when there is a Map camera, so the picture can be read against the view it came from. A snip moves nothing: the camera stays where it was.

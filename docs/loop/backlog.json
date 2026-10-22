@@ -176,9 +176,10 @@
       "id": "E-014",
       "kind": "enhancement",
       "area": "mcp",
-      "status": "open",
+      "status": "shipped",
       "title": "Snip: the developer drags a rectangle over the editor and the agent receives the crop plus where they were",
-      "evidence": "Asked for by the developer 2026-10-21. User problem: pointing at a visual problem means describing it in words; frequency: every visual review; saving: the agent gets the crop, map, camera, panel text and placements under the rectangle in one call; risk: a new gesture and a text field (register in editor::Fields), and snips are files in the project (confine and name them). Progress 2026-10-21 (556801e): the agent half shipped as emerge_snip { label, rect } (crop of a window-pixel rectangle, with path and state). Still open: the human drag gesture in the editor (UI state machine plus a registered operation that emits the snip). Iteration 2026-10-21-baseline-f7a8a9d did not take it: the human half needs (1) a note field registered in editor::Fields, (2) a windowed Screenshot crop inside bevy_emerge_mapper (the crop lives in bevy_emerge_mcp/src/snip.rs; move it to core rather than copy it), and (3) a decision whether a completed snip is a registry operation (it changes no map) or a documented gesture whose MCP front end is emerge_snip. Not a one-iteration slice without a reduction. Design settled 2026-10-21: a completed snip is a capture (like emerge_capture_still and emerge_snip), not a registry operation, since it changes no map state; the person's trigger is a new keys::Action plus a note field registered in editor::Fields, so it needs E-024 (one migration) first or in the same commit."
+      "evidence": "Asked for by the developer 2026-10-21. User problem: pointing at a visual problem means describing it in words; frequency: every visual review; saving: the agent gets the crop, map, camera, panel text and placements under the rectangle in one call; risk: a new gesture and a text field (register in editor::Fields), and snips are files in the project (confine and name them). Progress 2026-10-21 (556801e): the agent half shipped as emerge_snip { label, rect } (crop of a window-pixel rectangle, with path and state). Still open: the human drag gesture in the editor (UI state machine plus a registered operation that emits the snip). Iteration 2026-10-21-baseline-f7a8a9d did not take it: the human half needs (1) a note field registered in editor::Fields, (2) a windowed Screenshot crop inside bevy_emerge_mapper (the crop lives in bevy_emerge_mcp/src/snip.rs; move it to core rather than copy it), and (3) a decision whether a completed snip is a registry operation (it changes no map) or a documented gesture whose MCP front end is emerge_snip. Not a one-iteration slice without a reduction. Design settled 2026-10-21: a completed snip is a capture (like emerge_capture_still and emerge_snip), not a registry operation, since it changes no map state; the person's trigger is a new keys::Action plus a note field registered in editor::Fields, so it needs E-024 (one migration) first or in the same commit. Shipped in the 2026-10-22 snip iteration (a5b4dc0, branch loop/2026-10-22-snip): the person arms Cmd+\\, drags a rectangle, types a note and presses Enter; the agent reads it with emerge_list_snips. Report docs/loop/iterations/2026-10-22-snip-a5b4dc0.md.",
+      "shipped_in": "a5b4dc0"
     },
     {
       "last_failure": "",
@@ -431,6 +432,102 @@
       "last_failure": "",
       "first_seen": "2026-10-22",
       "shipped_in": "57b48fe"
+    },
+    {
+      "id": "B-028",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A rename whose old-file removal fails leaves both files on disk and the open map renamed, yet reports the rename as refused",
+      "must_fix": {
+        "blocks": true,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Judgment: blocks yes (the refusal reports failure after the rename already happened: a wrong result), common no (rename is rare), workaround yes (delete the old file by hand). The rule makes a blocks-yes item must-fix; it is logged, not fixed, in the 2026-10-22 snip iteration (Main's decision), and flagged in the report as an open must-fix. Found by reviewer reading, not reproduced live."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs:1950-1956 writes the new file and then removes the old one; a failed removal returns a refusal without undoing the write. Error text names the old file (gap 5 fix, b382ccf).",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-029",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A renamed map keeps a rules.ron example that points at a file the rename no longer creates",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Judgment: 0 of 3 (blocks no, common no: only maps whose rules.ron has an example; workaround: edit rules.ron)."
+      },
+      "status": "open",
+      "evidence": "Reviewer gap 12, 2026-10-22 snip iteration. crates/bevy_emerge_mapper/src/editor.rs:10502 and 10621 keep the example path after map_rename.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-030",
+      "kind": "bug",
+      "area": "editor",
+      "title": "The oplog ties each change to its map by name, so undo of a pre-rename change needs the rename undone first, and the refusal says 'Open <old name>'",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "Judgment: 1 of 3 (no_workaround only). Rename is rare; the refusal is clear once the rename is undone."
+      },
+      "status": "open",
+      "evidence": "Reviewer gap 13, 2026-10-22 snip iteration. crates/bevy_emerge_mapper/src/ops.rs:531-580 keys the oplog by map name.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-031",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "A snip's placement list does not name the members of a stamped piece that lie under the rectangle",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Judgment: 1 of 3 (common only). The agent can still read the full placement list for the map; the snip record just omits stamp members."
+      },
+      "status": "open",
+      "evidence": "Reviewer gap 16, 2026-10-22 snip iteration. The snip record lists placements but not StampedPiece stamp members (crates/bevy_emerge_mapper/src/snip.rs).",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-032",
+      "kind": "bug",
+      "area": "editor",
+      "title": "Arming the snip over a button whose press is already in progress still presses it",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "Judgment: 1 of 3 (no_workaround only). Partly fixed in 233fc64: picking is disabled while armed. Workaround: release and press again."
+      },
+      "status": "open",
+      "evidence": "Reviewer gap 15, partial. Root cause: Bevy's button_on_pointer_click (bevy_ui_widgets-0.20.0/src/button.rs:60-72) fires on a press that started before arming. Test a_snip_armed_over_a_button_does_not_press_it covers the case after arming only.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-033",
+      "kind": "bug",
+      "area": "editor",
+      "title": "The snip overlay label overlaps the top edge of the box",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Judgment: 0 of 3. Cosmetic; found in Main's check of the mid-drag still."
+      },
+      "status": "open",
+      "evidence": "/tmp/emerge_live/smoke2_held_0.png: the label sits on the box's top border.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
     }
   ]
 }

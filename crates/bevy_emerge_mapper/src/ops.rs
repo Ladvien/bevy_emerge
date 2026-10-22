@@ -347,6 +347,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
+        Box::new(map_rename::MapRename),
     ]
 }
 
@@ -1819,6 +1820,160 @@ pub mod placement_remove {
             };
             ctx.open = Some(open);
             done
+        }
+    }
+}
+
+/// **A map's name, changed, and the file moves with it.**
+///
+/// **The name becomes the file**, so the name is forced the way every map name is, and a name
+/// another map in the project has is refused before anything is written. The N key and an agent
+/// both come here, so the rule has one answer.
+pub mod map_rename {
+    use serde_json::json;
+
+    use super::map_set_settings::settings_of;
+    use super::{Ctx, Operation, Outcome, Refusal, Undo};
+    use bevy_emerge_core::naming::{map_file_name, to_snake_case};
+
+    /// **What the operation takes.** One field, the new name.
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        pub name: String,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The map's new name. It is forced to snake_case, the way every map name is, because the name becomes the file: `Town Two` is written as `town_two.map.ron`. It must not be empty, and no other map in the project may have it."
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "this is not a map's new name: {e}. The one field is `name`, and nothing else."
+                ))
+            })
+        }
+    }
+
+    /// **The name, forced the way every map name is.** A name that is empty once forced is a
+    /// refusal, because a map with no name has no file to be.
+    fn checked_name(raw: &str) -> Result<String, Refusal> {
+        let name = to_snake_case(raw.trim());
+        if name.is_empty() {
+            return Err(Refusal::new("a map needs a name; nothing was changed"));
+        }
+        Ok(name)
+    }
+
+    /// **A map's name, changed.**
+    pub struct MapRename;
+
+    impl Operation for MapRename {
+        fn name(&self) -> &'static str {
+            "map_rename"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            ctx.open.as_ref().map(settings_of)
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new(
+                    "no map is open, so there is no name to change.",
+                ));
+            };
+            let name = checked_name(&p.name)?;
+            if name == open.map.name {
+                return Err(Refusal::new(format!(
+                    "the map is already `{name}`, so nothing changes."
+                )));
+            }
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            // **A taken name is refused here**, before a byte is written. `OpenMap::save` would
+            // refuse it too, but the refusal belongs where the author asked, with nothing moved.
+            let target = project.maps_dir.join(map_file_name(&name));
+            if target.exists() {
+                return Err(Refusal::new(format!(
+                    "`{name}` is already a map in this project, so this map cannot take that name. \
+                     Rename this map to something else."
+                )));
+            }
+            Ok(json!({"name": name, "was": open.map.name}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let name = checked_name(&Params::parse(params)?.name)?;
+            let Some(mut open) = ctx.open.take() else {
+                return Err(Refusal::new(
+                    "no map is open, so there is no name to change.",
+                ));
+            };
+            let was = open.map.name.clone();
+            open.map.name = name.clone();
+            let Some(project) = ctx.project.as_ref() else {
+                // **The map goes back before the refusal**, as the settings commit does: a
+                // refusal that dropped it would leave the editor holding nothing.
+                open.map.name = was;
+                ctx.open = Some(open);
+                return Err(Refusal::new("no project is open."));
+            };
+            // **The save is the map's own gate.** It moves the file and removes the old one, and
+            // it refuses a taken name rather than replacing it.
+            if let Err(e) = open.save(project) {
+                // **The write landed; only the old file's removal failed.** Save has moved the map's
+                // path to the new file, so the name stays with it, and the refusal tells the author
+                // which file to delete. Putting the old name back here would leave a name no file holds.
+                if open.map_path == project.maps_dir.join(map_file_name(&name)) {
+                    ctx.open = Some(open);
+                    return Err(Refusal::new(e));
+                }
+                open.map.name = was;
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "the map was not renamed, and nothing was written: {e}"
+                )));
+            }
+            let summary = format!("renamed `{was}` to `{name}`, and the file moved with it");
+            ctx.open = Some(open);
+            // **The inverse is the name it replaced**, and undo takes the same path: a rename back,
+            // refused if that name is taken by now.
+            let inverse = json!({"name": was});
+            let after = ctx.open.as_ref().map(settings_of);
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(inverse),
+                after,
+            })
         }
     }
 }

@@ -21,6 +21,8 @@ name = "bevy_emerge_mcp"
 path = "src/main.rs"
 
 [dependencies]
+# The crop the editor and this server share, so a snip and an `emerge_snip` cut the same way.
+bevy_emerge_snip = { path = "../bevy_emerge_snip" }
 # **The official Rust SDK for the Model Context Protocol.**
 #
 # **Pinned exactly, and the newest version in the local registry.** Its API differs from 1.x, so a
@@ -46,11 +48,6 @@ ureq = { version = "3", features = ["json"] }
 # back from a file does not, and the MCP image content wants base64. `base64` is what encodes it,
 # and it is a dependency of `rmcp` already -- so this is the same crate, named directly.
 base64 = "0.22"
-
-# **Cropping the picture for `emerge_snip`.** `image` is already in the build graph through bevy
-# and the mapper, pinned once in the workspace with the `png` feature only, so this adds no new
-# crate to the tree.
-image.workspace = true
 
 [dev-dependencies]
 # **The MCP client, for the integration test.** The brief asks for a test that calls a tool "as an

@@ -18,7 +18,7 @@
 mod fixtures;
 
 use bevy_emerge_mapper::harness;
-use bevy_emerge_mapper::project::Project;
+use bevy_emerge_mapper::project::{OpenMap, Project};
 use bevy_emerge_mapper::screen::Ownership;
 use bevy_emerge_mapper::tiles::Door;
 use fixtures::Fixture;
@@ -211,5 +211,55 @@ fn the_project_is_a_project_owned_resource() {
         Some(Ownership::Project),
         "the project is classified as the door's own working state, so a door change resets it — \
          which is exactly what the crossing is supposed to avoid."
+    );
+}
+
+/// **A crossing reopens the map the author renamed, not the name it had before the rename.**
+///
+/// The rename moves the file and changes the open map's name, and the project's `open_map_name`
+/// is what a crossing reads when no map is open. Before this, the rename left the project holding
+/// the old name, so Kit → Map asked for a file that no longer existed and was refused.
+#[test]
+fn a_crossing_reopens_the_map_that_was_renamed() {
+    let root = project("door-switch-renamed");
+    let mut app = harness::build_headless(&root, "m", None)
+        .unwrap_or_else(|e| panic!("the fixture project must open: {e}"));
+    app.update();
+
+    // **Rename the open map through the same save the editor's rename uses.**
+    {
+        let world = app.world_mut();
+        let mut open = world.remove_resource::<OpenMap>().expect("a map is open");
+        open.map.name = "renamed".to_owned();
+        {
+            let project = world.resource::<Project>();
+            open.save(project)
+                .unwrap_or_else(|e| panic!("the rename must succeed: {e}"));
+        }
+        world.insert_resource(open);
+    }
+    app.update();
+
+    // **Leave the Map door, then come back.**
+    {
+        let world = app.world_mut();
+        bevy_emerge_mapper::screen::cross(world, Door::Kit)
+            .unwrap_or_else(|e| panic!("the crossing to the Kit door must succeed: {e}"));
+    }
+    app.update();
+    app.update();
+    {
+        let world = app.world_mut();
+        bevy_emerge_mapper::screen::cross(world, Door::Map).unwrap_or_else(|e| {
+            panic!("the crossing back must reopen the renamed map, and it refused: {e}")
+        });
+    }
+    app.update();
+    app.update();
+
+    let open = app.world().resource::<OpenMap>();
+    assert_eq!(
+        open.map.name, "renamed",
+        "the crossing reopened a map under a name the rename had already replaced"
     );
 }

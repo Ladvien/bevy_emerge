@@ -135,6 +135,42 @@ fn a_rename_leaves_one_file_and_the_new_name() {
     );
 }
 
+/// **A rename whose old file cannot be removed names the OLD file, not the new one.**
+///
+/// The old file is made impossible to remove by putting a directory where it was. The new file
+/// is written first, so the rename has happened; the error must tell the author which file to
+/// delete by hand. Before the fix it named the new file, which is the one that is correct.
+#[test]
+fn a_rename_that_cannot_remove_the_old_file_names_the_old_file() {
+    let root = project("rename-stuck");
+    let old = root.join("assets/emerge/maps/m.map.ron");
+    std::fs::remove_file(&old).expect("the old map is removable at the start");
+    std::fs::create_dir(&old).expect("a directory can stand where the old file was");
+
+    let mut app = harness::build_headless(&root, "m", None)
+        .unwrap_or_else(|e| panic!("the fixture project must open: {e}"));
+    app.update();
+
+    let err = {
+        let world = app.world_mut();
+        let mut open = world.remove_resource::<OpenMap>();
+        let project = world.resource_mut::<Project>();
+        open.as_mut().expect("a map is open").map.name = "renamed".to_owned();
+        let err = open
+            .as_mut()
+            .expect("a map is open")
+            .save(&project)
+            .expect_err("a rename whose old file cannot be removed must say so");
+        world.insert_resource(open.expect("a map is open"));
+        err
+    };
+    assert!(
+        err.contains("m.map.ron") && !err.contains("renamed.map.ron"),
+        "the error must name the OLD file the author has to delete by hand, and not the new one \
+         that was written. It said `{err}`"
+    );
+}
+
 /// **A rename changes the name and nothing else.**
 ///
 /// The metamorphic test, and it is about the **name**, not the bytes. Every map save re-serializes

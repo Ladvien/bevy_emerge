@@ -224,7 +224,13 @@ pub fn cross(world: &mut World, to: crate::tiles::Door) -> Result<(), String> {
                 }
             }
         }
-        other => (None, other.opens_on()),
+        other => {
+            // **The project keeps the name when no map is open.** A rename changes the open map's
+            // name and not the project's, so without this a Kit → Map crossing asks for the old
+            // name — and `OpenMap::open` makes a new, empty map under a name it cannot find.
+            project.open_map_name = carried;
+            (None, other.opens_on())
+        }
     };
     // **And it goes straight back in.** The world holds a project at every instant of the
     // crossing: the editor's systems run in the same frame as the keypress, and **twenty** of
@@ -341,6 +347,7 @@ door_state![
     crate::editor::FineAnchor,
     crate::editor::Proposal,
     crate::editor::Rung,
+    crate::snip::SnipEdit,
     crate::editor::SizeEdit,
     crate::editor::Folded,
     crate::editor::StampPicture,
@@ -583,6 +590,7 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ),
     ("bevy_emerge_mapper::labels::LabelQueue", Ownership::Door),
     ("bevy_emerge_mapper::filter::Filters", Ownership::Door),
+    ("bevy_emerge_mapper::snip::SnipEdit", Ownership::Door),
     ("bevy_emerge_mapper::notice::Showing", Ownership::Door),
     // **`Door`, because it is what is on screen right now.** A toast is an event's tail — carrying
     // one into the next kit would announce a refusal about a door the author has already left.

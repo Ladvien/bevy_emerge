@@ -324,6 +324,11 @@ pub const RADIUS_ROW: f32 = 3.0;
 /// established in this same interface — a tinted left edge means *this line is special*.
 pub const SELECT_RAIL_W: f32 = 2.0;
 
+/// The snip's drag-rectangle border: the rail's width, so a drag and a selection read as one kind of line.
+pub const SNIP_EDGE_W: f32 = 2.0;
+/// The snip's wash over the rectangle: the accent at a whisper, so the picture underneath stays true.
+pub const SNIP_WASH: Color = Color::srgba(0.950, 0.710, 0.300, 0.08);
+
 /// A chrome colour scaled toward black, for a quieter sibling of a named colour — so the derived
 /// value cannot drift from its parent the way `compose`'s hand-halved ACCENT could have.
 pub const fn scaled(colour: Color, k: f32) -> Color {
