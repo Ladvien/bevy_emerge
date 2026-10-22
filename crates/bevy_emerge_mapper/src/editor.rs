@@ -621,6 +621,7 @@ impl CloneDrag {
 /// `Turned` and `Pinned` each invert to themselves carrying the other value. So [`apply`] does the
 /// work and *returns the inverse*, and undo and redo are the same function reading opposite stacks —
 /// rather than a second body that has to be kept in step with the first.
+#[derive(Clone)]
 enum Undo {
     /// Remove the last `count` placements — the inverse of a place or a fill.
     Added { count: usize },
@@ -6223,6 +6224,17 @@ pub fn redo_for_test(world: &mut World) {
         .unwrap_or_else(|e| panic!("redo_for_test: {e}"));
 }
 
+/// Plant an undo entry whose stamp is no longer on the map, so a test can drive a **stale** entry
+/// through the real `undo` (B-026). Recorded the way an edit is recorded: pushed, and redo cleared.
+pub fn plant_stale_move_for_test(world: &mut World, id: &str) {
+    world
+        .resource_mut::<EditorState>()
+        .record(Undo::MovedStamp {
+            id: id.to_owned(),
+            from: (0.0, 0.0),
+        });
+}
+
 /// One click of the place tool with `descriptor` as the brush, reachable from `tests/headless.rs`.
 ///
 /// The click's commit — host, replacement, undo entry, drawing — and not the cursor that aims it:
@@ -7010,8 +7022,14 @@ fn undo(
         state.status.note("nothing to undo".to_owned());
         return;
     };
-    if let Some(inverse) = apply(commands, assets, project, &mut *open, state, placed, op) {
-        state.redo.push(inverse);
+    // **Kept until it is known to have applied.** A refusal puts the entry back where it was: a
+    // refused undo is a refusal, not a spent one, so the author sees why and the stack is as it was
+    // (B-026). Only a stranded entry is dropped, because the map moved and there is nothing to put back.
+    let kept = op.clone();
+    match apply(commands, assets, project, &mut *open, state, placed, op) {
+        Reversal::Done(inverse) => state.redo.push(inverse),
+        Reversal::Refused => state.undo.push(kept),
+        Reversal::Stranded => {}
     }
 }
 
@@ -7032,16 +7050,30 @@ fn redo(
     // and exactly wrong here: redoing the first of five undone steps would throw away the other four,
     // so a redo could never be repeated. Redo moves an entry between the stacks; it does not author
     // anything.
-    if let Some(inverse) = apply(commands, assets, project, &mut *open, state, placed, op) {
-        state.undo.push(inverse);
+    let kept = op.clone();
+    match apply(commands, assets, project, &mut *open, state, placed, op) {
+        Reversal::Done(inverse) => state.undo.push(inverse),
+        Reversal::Refused => state.redo.push(kept),
+        Reversal::Stranded => {}
     }
 }
 
-/// **Perform one reversal, and hand back the reversal of it.**
+/// What [`apply`] did with one reversal. Undo and redo both read it, so the rule is written once.
+enum Reversal {
+    /// Applied. The inverse goes on the other stack.
+    Done(Undo),
+    /// Refused with the map untouched. The entry goes back on the stack it came from.
+    Refused,
+    /// The map moved but could not be drawn. Nothing goes on either stack: offering to undo or redo a
+    /// state the author cannot see would compound it.
+    Stranded,
+}
+
+/// **Perform one reversal, and say what became of it.**
 ///
-/// The single body behind both stacks — see [`Undo`] on why the enum is closed under inversion. A
-/// `None` return means the operation could not be applied and nothing should be pushed anywhere,
-/// which is how a half-applied edit is kept out of the other stack.
+/// The single body behind both stacks — see [`Undo`] on why the enum is closed under inversion. The
+/// [`Reversal`] says whether the map changed and where the inverse goes. A refusal keeps the entry on
+/// the stack it came from, so refusing is never the same as spending the undo (B-026).
 fn apply(
     commands: &mut Commands,
     assets: &AssetServer,
@@ -7050,7 +7082,7 @@ fn apply(
     state: &mut EditorState,
     placed: &Query<(Entity, &Placement)>,
     op: Undo,
-) -> Option<Undo> {
+) -> Reversal {
     let inverse = match op {
         Undo::Added { count } => {
             let keep = open.map.placements.len().saturating_sub(count);
@@ -7132,7 +7164,7 @@ fn apply(
                     // happened to the drawing.
                     // Nothing goes on the other stack: the map moved but could not be drawn, and
                     // offering to redo a state the author cannot see would compound it.
-                    return None;
+                    return Reversal::Stranded;
                 }
             }
             state
@@ -7213,7 +7245,9 @@ fn apply(
             Undo::RemovedMany { items }
         }
         Undo::Turned { index, yaw } => {
-            let p = open.map.placements.get_mut(index)?;
+            let Some(p) = open.map.placements.get_mut(index) else {
+                return Reversal::Refused;
+            };
             let was = std::mem::replace(&mut p.yaw, yaw);
             let (id, at, tip, descriptor, patch) =
                 (p.id.clone(), p.at, p.tip, p.descriptor.clone(), p.patch.clone());
@@ -7247,7 +7281,9 @@ fn apply(
             Undo::Turned { index, yaw: was }
         }
         Undo::Lifted { index, lift } => {
-            let p = open.map.placements.get_mut(index)?;
+            let Some(p) = open.map.placements.get_mut(index) else {
+                return Reversal::Refused;
+            };
             let was = std::mem::replace(&mut p.lift, lift);
             let id = p.id.clone();
             // The whole ride: everything resting on this piece moved with the lift, so it all
@@ -7271,7 +7307,9 @@ fn apply(
             Undo::Lifted { index, lift: was }
         }
         Undo::Tipped { index, tip } => {
-            let p = open.map.placements.get_mut(index)?;
+            let Some(p) = open.map.placements.get_mut(index) else {
+                return Reversal::Refused;
+            };
             let was = std::mem::replace(&mut p.tip, tip);
             let id = p.id.clone();
             match redraw_placements(commands, assets, project, &*open, placed, &[index]) {
@@ -7297,13 +7335,21 @@ fn apply(
             // could not apply contributes nothing; if none could, there is nothing to put on the
             // other stack.
             let mut inverses = Vec::with_capacity(ops.len());
+            let mut stranded = false;
             for op in ops {
-                if let Some(inv) = apply(commands, assets, project, &mut *open, state, placed, op) {
-                    inverses.push(inv);
+                match apply(commands, assets, project, &mut *open, state, placed, op) {
+                    Reversal::Done(inv) => inverses.push(inv),
+                    Reversal::Refused => {}
+                    // A sub-op that moved the map and could not draw it still moved it.
+                    Reversal::Stranded => stranded = true,
                 }
             }
             if inverses.is_empty() {
-                return None;
+                return if stranded {
+                    Reversal::Stranded
+                } else {
+                    Reversal::Refused
+                };
             }
             inverses.reverse();
             Undo::Group { ops: inverses }
@@ -7323,7 +7369,7 @@ fn apply(
                 .map(|(k, st)| (from + k, Box::new(st)))
                 .collect();
             if items.is_empty() {
-                return None;
+                return Reversal::Refused;
             }
             state
                 .status
@@ -7362,7 +7408,10 @@ fn apply(
                 items.push((*i, Box::new(open.map.stamps.remove(*i))));
             }
             if items.is_empty() {
-                return None;
+                state
+                    .status
+                    .problem("those stamps are not on this map any more");
+                return Reversal::Refused;
             }
             items.reverse();
             state
@@ -7375,7 +7424,7 @@ fn apply(
                 state
                     .status
                     .problem(format!("`{id}` is not on this map any more"));
-                return None;
+                return Reversal::Refused;
             };
             let now = st.at;
             st.at = from;
@@ -7436,7 +7485,7 @@ fn apply(
                     state
                         .status
                         .problem(format!("cannot undo the pin: {}", e.0));
-                    return None;
+                    return Reversal::Refused;
                 }
             }
         }
@@ -7484,7 +7533,7 @@ fn apply(
                     state
                         .status
                         .problem(format!("cannot undo the size change: {}", e.0));
-                    return None;
+                    return Reversal::Refused;
                 }
             }
         }
@@ -7536,12 +7585,12 @@ fn apply(
                     state
                         .status
                         .problem(format!("cannot undo {phrase}: {}", e.0));
-                    return None;
+                    return Reversal::Refused;
                 }
             }
         }
     };
-    Some(inverse)
+    Reversal::Done(inverse)
 }
 
 /// Pin or unpin the placement nearest the cursor.
