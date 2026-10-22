@@ -7468,6 +7468,45 @@ fn set_pin(
     }
 }
 
+/// **Turn one placement to a facing through the operation registry**, so a turn is validated, saved
+/// and logged the way an agent's is. Returns whether it was applied. A refusal is a problem, where
+/// the author looks; the turn's own note is written by the caller.
+fn set_yaw(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+    yaw: f32,
+) -> bool {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(
+            &mut *open,
+            OpenMap::new(
+                bevy_emerge_core::map::Map::default(),
+                std::path::PathBuf::new(),
+            ),
+        )),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let outcome = crate::ops::dispatch(
+        &mut ctx,
+        "placement_set_yaw",
+        &serde_json::json!({"id": id, "yaw": yaw}),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done { .. }) => true,
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+            false
+        }
+    }
+}
+
 /// Turn the placement under the cursor by `step` degrees, and redraw it.
 ///
 /// Rewrites the yaw in the map and respawns the entity rather than rotating the transform in place:
@@ -7555,14 +7594,20 @@ fn turn_under_cursor(
         state.status.note("nothing here to turn".to_owned());
         return;
     };
-    let Some(p) = open.map.placements.get_mut(index) else {
+    let Some(p) = open.map.placements.get(index) else {
         return;
     };
     // Recorded before it moves — the entry carries the angle to go back to.
-    let was_yaw = p.yaw;
-    p.yaw = (p.yaw + step).rem_euclid(360.0);
-    let (id, at, yaw, tip, descriptor, patch) =
-        (p.id.clone(), p.at, p.yaw, p.tip, p.descriptor.clone(), p.patch.clone());
+    let (id, was_yaw) = (p.id.clone(), p.yaw);
+    // **Through the registry**, so the turn is saved and logged the way an agent's is.
+    if !set_yaw(project, open, state, &id, (was_yaw + step).rem_euclid(360.0)) {
+        return;
+    }
+    let Some(p) = open.map.placements.get(index) else {
+        return;
+    };
+    let (at, yaw, tip, descriptor, patch) =
+        (p.at, p.yaw, p.tip, p.descriptor.clone(), p.patch.clone());
     state.record(Undo::Turned {
         index,
         yaw: was_yaw,

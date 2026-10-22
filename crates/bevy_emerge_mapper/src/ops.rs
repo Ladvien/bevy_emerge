@@ -332,6 +332,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
     vec![
         Box::new(map_set_settings::MapSetSettings),
         Box::new(placement_set_pin::PlacementSetPin),
+        Box::new(placement_set_yaw::PlacementSetYaw),
     ]
 }
 
@@ -1255,6 +1256,162 @@ pub mod placement_set_pin {
             let inverse = json!({"id": p.id, "pinned": old_owned, "because": old_because});
             ctx.open = Some(open);
             let after = ctx.open.as_ref().map(pins_of);
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved,
+                inverse: Some(inverse),
+                after,
+            })
+        }
+    }
+}
+
+/// **Turn one placement to a facing**, which is what the turn keys do and what an agent asks for.
+pub mod placement_set_yaw {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The placement's id, as the map file and `emerge/state` name it.
+        pub id: String,
+        /// The facing in degrees. Wrapped into `[0, 360)` before it is stored, so `-15` is `345`.
+        pub yaw: f32,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "yaw"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The placement's id, as the map file names it."
+                    },
+                    "yaw": {
+                        "type": "number",
+                        "description": "The facing in degrees. Wrapped into 0 to 360, so -15 is 345."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not a placement's facing: {e}. The fields are `id` and `yaw`, and \
+                     nothing else."
+                ))
+            })?;
+            if !p.yaw.is_finite() {
+                return Err(Refusal::new(
+                    "a facing has to be a finite number of degrees. Nothing was turned.",
+                ));
+            }
+            Ok(p)
+        }
+    }
+
+    /// **The facing a placement is stored with**: wrapped into `[0, 360)`, as the keys wrap it.
+    fn wrapped(yaw: f32) -> f32 {
+        yaw.rem_euclid(360.0)
+    }
+
+    /// **The facings a map holds, as id and degrees**, which is the state an undo checks.
+    fn yaws_of(open: &OpenMap) -> serde_json::Value {
+        let yaws: Vec<serde_json::Value> = open
+            .map
+            .placements
+            .iter()
+            .map(|p| json!([p.id, p.yaw]))
+            .collect();
+        json!({"map": open.map.name, "yaws": yaws})
+    }
+
+    /// **Turn one placement to a facing.**
+    pub struct PlacementSetYaw;
+
+    impl Operation for PlacementSetYaw {
+        fn name(&self) -> &'static str {
+            "placement_set_yaw"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            ctx.open.as_ref().map(yaws_of)
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to turn.",
+                ));
+            };
+            if !open.map.placements.iter().any(|q| q.id == p.id) {
+                return Err(Refusal::new(format!(
+                    "no placement is called `{}` on this map, so nothing was turned.",
+                    p.id
+                )));
+            }
+            Ok(json!({"id": p.id, "yaw": wrapped(p.yaw)}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let yaw = wrapped(p.yaw);
+            let Some(mut open) = ctx.open.take() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to turn.",
+                ));
+            };
+            let Some(index) = open.map.placements.iter().position(|q| q.id == p.id) else {
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "no placement is called `{}` on this map, so nothing was turned.",
+                    p.id
+                )));
+            };
+            // **The old facing, for the undo.** Its inverse is the same operation with this value.
+            let old_yaw = open.map.placements[index].yaw;
+            open.map.placements[index].yaw = yaw;
+            let summary = format!("turned {} to {yaw:.0} deg", p.id);
+            // **And the file, so the turn is not only in memory.** A refusal to save puts the old
+            // facing back, so the editor and the file agree.
+            let Some(project) = ctx.project.as_ref() else {
+                ctx.open = Some(open);
+                return Err(Refusal::new("no project is open."));
+            };
+            let saved = match open.save(project) {
+                Ok(()) => true,
+                Err(e) => {
+                    open.map.placements[index].yaw = old_yaw;
+                    ctx.open = Some(open);
+                    return Err(Refusal::new(format!(
+                        "the turn was made but the file refused it, so nothing was written: {e}"
+                    )));
+                }
+            };
+            let inverse = json!({"id": p.id, "yaw": old_yaw});
+            ctx.open = Some(open);
+            let after = ctx.open.as_ref().map(yaws_of);
             Ok(Outcome {
                 summary,
                 affected: 1,

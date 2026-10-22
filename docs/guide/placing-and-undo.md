@@ -12,7 +12,7 @@ The palette lists the pieces the kit provides. **Up** and **Down** walk it, and 
 
 - **Click** to put the armed piece down, on the grid.
 - **Hold Alt** and click to put down one piece exactly where the cursor is, not snapped to the grid.
-- **R** and **T** turn the piece left and right. **Y** and **U** tip it along the two horizontal axes. **V** puts it back to the rotation and tip it was authored at.
+- **R** and **T** turn the piece left and right, in 15-degree steps. Each step is saved to the map file at once and logged as the operation `placement_set_yaw`. **Y** and **U** tip it along the two horizontal axes. **V** puts it back to the rotation and tip it was authored at.
 - **[** and **]** lift and lower the piece.
 - **J** moves the grid to the next rung: tile, fine, finer. The fine rungs are 0.333 m and 0.111 m on the default lattice; tile is 1.000 m.
 
@@ -38,13 +38,13 @@ The palette lists the pieces the kit provides. **Up** and **Down** walk it, and 
 
 **O** pins the placement under the cursor, or unpins it. A pinned placement survives a fill generate: the generator replaces only the unpinned pieces. Pinning asks for a reason, and the reason is stored with the pin.
 
-Agents pin through the same operation, `placement_set_pin`, and must give a reason too; see [Agents and the MCP server](agents-and-mcp.md).
+Agents pin through the same operation, `placement_set_pin`, and must give a reason too. Agents turn through `placement_set_yaw`. See [Agents and the MCP server](agents-and-mcp.md).
 
 ## Undo and redo
 
 **Cmd+Z** takes back the last edit on the map. **Shift+Cmd+Z** puts it back.
 
-An agent's edits are logged too, and `emerge_undo_operation` takes one back. Cmd+Z does not see an agent's edit yet: after an agent applies `placement_set_pin`, Cmd+Z reports "nothing to undo". This is open as B-019 in `docs/loop/backlog.json`. Until it is fixed, take an agent's edit back with `emerge_undo_operation`.
+An agent's edits are logged too, and `emerge_undo_operation` takes one back. Cmd+Z does not see an agent's edit yet: after an agent applies `placement_set_pin` or `placement_set_yaw`, Cmd+Z reports "nothing to undo". This is open as B-019 in `docs/loop/backlog.json`. Until it is fixed, take an agent's edit back with `emerge_undo_operation`. A turn you make on the Map door is on both histories: Cmd+Z reverts it on the editor's stack, and the operation log keeps its own record of it.
 
 ## Stack
 
