@@ -233,7 +233,7 @@ fn a_crossing_reopens_the_map_that_was_renamed() {
         open.map.name = "renamed".to_owned();
         {
             let project = world.resource::<Project>();
-            open.save(&project)
+            open.save(project)
                 .unwrap_or_else(|e| panic!("the rename must succeed: {e}"));
         }
         world.insert_resource(open);
