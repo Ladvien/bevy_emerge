@@ -23,9 +23,9 @@ Each crate has its own `README.md` and `CLAUDE.md`; the latter holds the crate's
 
 <video src="docs/media/demo.mp4" controls muted width="100%"></video>
 
-[![The editor placing a barrel on a road tile, with the Cmd+Z undo receipt](docs/media/demo-poster.png)](docs/media/demo.mp4)
+[![The editor framing a wall that an agent has just turned 90 degrees, with the inspector's receipt](docs/media/demo-poster.png)](docs/media/demo.mp4)
 
-[`docs/media/demo.mp4`](docs/media/demo.mp4): 40 seconds of the running editor on the scratch town map, captured at 4 frames a second. The camera is zoomed in and panned, the town houses are framed by a rectangle over MCP, a barrel is placed on a road tile (which replaces the tile), Cmd+Z undoes it, and an agent frames one placement and then the whole map. The [guide](docs/guide/README.md) walks the same path with the keys and tools for each step.
+[`docs/media/demo.mp4`](docs/media/demo.mp4): 38 seconds of the running editor on the scratch town map, captured at 4 frames a second. The camera is zoomed in and panned, an agent frames the town houses over MCP, a barrel is placed on a road tile (which replaces the tile), Cmd+Z undoes it, an agent frames one wall and turns it 90 degrees with `placement_set_yaw`, and the agent then frames the whole map. The [guide](docs/guide/README.md) walks the same path with the keys and tools for each step.
 
 ## Licence
 

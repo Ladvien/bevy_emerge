@@ -531,3 +531,67 @@ fn the_shortcut_key_is_bound() {
         "the shortcut key is bound to nothing, so the badge overlay can never be raised."
     );
 }
+
+/// **An agent's turn stands on the screen, and not only in the file.**
+///
+/// **The regression test for the defect the `placement_set_yaw` run found.** An agent applied a
+/// turn: the file said the piece was at the new yaw, the map said so, the log said so — and the
+/// piece on screen kept its old rotation until the editor was reopened. The agent's write-back
+/// replaced `OpenMap` directly, so the watcher saw nothing to adopt and `redraw_the_map` never
+/// ran. The author looked at the picture and saw nothing had happened.
+///
+/// **The assertion is on the piece's rotation in the world**, not on the map: the map was never
+/// the problem.
+#[test]
+fn an_agent_turn_stands_on_the_screen() {
+    let root = project("agentturn");
+    let mut app = editor_with_bridge(&root);
+    for _ in 0..8 {
+        app.update();
+    }
+    let before = piece_rotation(&mut app, "site/wall@0").expect("the piece is spawned");
+
+    let applied = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({
+            "operation": "placement_set_yaw",
+            "parameters": {"id": "site/wall@0", "yaw": 90.0},
+            "dry_run": false,
+        }),
+    )
+    .unwrap_or_else(|e| panic!("the apply answers: {e}"));
+    assert_eq!(
+        applied["outcome"], "applied",
+        "the turn did not apply: {applied}"
+    );
+    for _ in 0..8 {
+        app.update();
+    }
+
+    let after = piece_rotation(&mut app, "site/wall@0").expect("the piece is still spawned");
+    // **The angle of the change, not the quaternion**, because the piece's own mesh rotation is
+    // part of `before` and the test should not depend on it.
+    let (_, angle) = (after * before.inverse()).to_axis_angle();
+    assert!(
+        (angle.to_degrees() - 90.0).abs() < 0.5,
+        "the file and the map say the piece turned 90 degrees, but the piece on SCREEN turned \
+         {:.1} degrees. The agent's turn did not reach the picture, so the author sees nothing \
+         happen.",
+        angle.to_degrees()
+    );
+}
+
+/// **A placed piece's rotation in the world, by its id.**
+fn piece_rotation(app: &mut App, id: &str) -> Option<Quat> {
+    let mut found = None;
+    let mut q = app
+        .world_mut()
+        .query::<(&bevy_emerge_mapper::editor::Placement, &Transform)>();
+    for (placement, transform) in q.iter(app.world()) {
+        if placement.0 == id {
+            found = Some(transform.rotation);
+        }
+    }
+    found
+}

@@ -243,6 +243,17 @@ impl Plugin for SequencerPlugin {
     }
 }
 
+/// **What the sequencer reads and writes, bundled to stay under the parameter limit.**
+///
+/// **The redraw flag is here** because a turn applied inside a sequence must reach the screen the
+/// same way an agent's turn does.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Operated<'w> {
+    project: Option<ResMut<'w, crate::project::Project>>,
+    open: Option<ResMut<'w, crate::project::OpenMap>>,
+    due: Option<ResMut<'w, crate::watch::Due>>,
+}
+
 /// **Take the frames that are due, and finish the run when the last one is in.**
 ///
 /// **The editor's own clock**, and not the caller's — the caller asked for a *duration* and the
@@ -252,8 +263,7 @@ fn drive_sequencer(
     mut sequencer: ResMut<Sequencer>,
     surface: Option<Res<Surface>>,
     mut commands: Commands,
-    project: Option<ResMut<crate::project::Project>>,
-    mut open: Option<ResMut<crate::project::OpenMap>>,
+    mut operated: Operated,
     can_render: Option<Res<CanRender>>,
 ) {
     let Some(run) = sequencer.run.as_mut() else {
@@ -282,14 +292,23 @@ fn drive_sequencer(
         run.applied = true;
         if let Some(op) = run.operation.clone() {
             let mut ctx = crate::ops::Ctx {
-                project: project.as_deref().cloned(),
-                open: open.as_deref().cloned(),
+                project: operated.project.as_deref().cloned(),
+                open: operated.open.as_deref().cloned(),
                 source: crate::ops::Source::Agent,
                 session: crate::ops::session_id(),
             };
             // **Through the registry, and not around it.** The sequencer is a way of *when* an
             // operation happens, and it must not be a second way of *what* happens.
             let outcome = crate::ops::dispatch(&mut ctx, &op.name, &op.parameters);
+            // **Redrawn, as `emerge/operation_apply` is.** The write-back is the watcher's own
+            // write and the watcher ignores it, so a saved turn would stay off the screen until
+            // some unrelated redraw. The sequence's frames are the proof, and they would show
+            // nothing.
+            if let (Some(due), Ok(crate::ops::Applied::Done { outcome, .. })) =
+                (operated.due.as_mut(), &outcome)
+            {
+                due.map_replaced |= outcome.saved;
+            }
             run.applied_at = Some(now);
             run.operation_result = Some(match outcome {
                 Ok(crate::ops::Applied::Done { outcome, .. }) => {
@@ -302,7 +321,7 @@ fn drive_sequencer(
             });
             // **The map goes back**, changed or not.
             if let Some(fresh) = ctx.open.take()
-                && let Some(handle) = open.as_deref_mut()
+                && let Some(handle) = operated.open.as_deref_mut()
             {
                 *handle = fresh;
             }

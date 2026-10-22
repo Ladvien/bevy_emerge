@@ -875,6 +875,7 @@ impl Action {
     pub fn operation(self) -> Option<&'static str> {
         match self {
             Action::OwnToggle => Some("placement_set_pin"),
+            Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             _ => None,
         }
     }

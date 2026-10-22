@@ -69,6 +69,8 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
     ("placement_set_pin", "set_pin("),
+    // **The turn keys**, R and T, which dispatch `placement_set_yaw` through `set_yaw`.
+    ("placement_set_yaw", "set_yaw("),
     // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
     // own way of doing what `map_set_settings` does. It dispatches the operation.
     ("map_set_settings", "SizeField(Axis)"),
@@ -259,8 +261,6 @@ const UNMIGRATED: &[Action] = &[
     Action::ShowErrors,
     Action::Shortcuts,
     Action::EditTile,
-    Action::TurnPieceLeft,
-    Action::TurnPieceRight,
     Action::CycleTarget,
     Action::PalettePrev,
     Action::PaletteNext,
@@ -371,7 +371,7 @@ const UNMIGRATED: &[Action] = &[
 /// **A literal, and not `UNMIGRATED.len()`.** The first version compared the list's length with
 /// **its own length**, which is a tautology that can never fail — **and a ratchet that cannot fail
 /// is not a ratchet.** It is a number a human lowers, and the test says so when it is wrong.
-const UNMIGRATED_MAX: usize = 127;
+const UNMIGRATED_MAX: usize = 125;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

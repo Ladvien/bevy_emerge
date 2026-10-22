@@ -45,11 +45,11 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 
 ## Pinning from an agent
 
-`placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. See [Placing and undo](placing-and-undo.md).
+`placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. `placement_set_yaw` turns a placed piece to a facing in degrees (wrapped into one full turn), which is what **R** and **T** do to a placed piece under the cursor. See [Placing and undo](placing-and-undo.md).
 
 ## Known gaps
 
-- **Cmd+Z does not see an agent's edit.** Take it back with `emerge_undo_operation` until B-019 is fixed. See [Placing and undo](placing-and-undo.md#undo-and-redo).
+- **Cmd+Z does not see an agent's edit.** Take it back with `emerge_undo_operation` until B-019 is fixed. This covers `placement_set_pin` and `placement_set_yaw`. See [Placing and undo](placing-and-undo.md#undo-and-redo).
 - **`emerge_state` does not list each placement's pin.** Use `emerge_read_oplog` to see what was pinned, until E-026 is fixed.
 
 Both are open in `docs/loop/backlog.json`.
