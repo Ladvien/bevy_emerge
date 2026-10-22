@@ -47,6 +47,11 @@ ureq = { version = "3", features = ["json"] }
 # and it is a dependency of `rmcp` already -- so this is the same crate, named directly.
 base64 = "0.22"
 
+# **Cropping the picture for `emerge_snip`.** `image` is already in the build graph through bevy
+# and the mapper, pinned once in the workspace with the `png` feature only, so this adds no new
+# crate to the tree.
+image.workspace = true
+
 [dev-dependencies]
 # **The MCP client, for the integration test.** The brief asks for a test that calls a tool "as an
 # outside agent would" — through a client, over the protocol, not by calling the function.

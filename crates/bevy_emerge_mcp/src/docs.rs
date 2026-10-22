@@ -101,6 +101,21 @@ pub const TOOLS: &[ToolDoc] = &[
         idempotent: false,
     },
     ToolDoc {
+        name: "emerge_snip",
+        description: "A rectangle of the editor's picture, cut out and returned as an image. rect \
+                      is [x0, y0, x1, y1] in window pixels, origin at the top left, x1 and y1 \
+                      exclusive, so the same pixels a still is in. The crop is written to a file \
+                      whose path is in the answer, with the state of the same moment. It writes \
+                      one crop file under target/loop and changes no map data: it is not an \
+                      operation, not logged and not undoable. Refuses, and writes nothing, on a \
+                      rectangle that is empty, reversed, negative or outside the picture, and says \
+                      the picture's size. Use it to look closer at one part of a still from \
+                      emerge_capture_still.",
+        read_only: false,
+        destructive: false,
+        idempotent: false,
+    },
+    ToolDoc {
         name: "emerge_capture_sequence",
         description: "A sequence of frames of the editor, with an optional operation applied \
                        once the first frame is in -- so frame 0 is the state before the action and \
@@ -247,6 +262,15 @@ pub fn schemas() -> Value {
                 "since_seq": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
             },
+        },
+        "emerge_snip": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "rect"],
+            "properties": {
+                "label": {"type": "string", "description": "Where the crop is written, under the project's target/loop/captures: letters, digits, _ and - in parts, with / between the parts."},
+                "rect": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 4, "maxItems": 4, "description": "[x0, y0, x1, y1] in window pixels; x1 and y1 exclusive."}
+            }
         },
         "emerge_frame_view": {
             "type": "object",

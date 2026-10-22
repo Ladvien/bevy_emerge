@@ -49,7 +49,7 @@ use rmcp::{ErrorData, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use bevy_emerge_mcp::{brp, docs};
+use bevy_emerge_mcp::{brp, docs, snip};
 
 use brp::Brp;
 
@@ -141,6 +141,17 @@ pub struct RectArg {
 pub struct StillParams {
     /// **A name for the capture**, in snake_case. It names the file it is written under.
     pub label: String,
+}
+
+/// **The parameters of `emerge_snip`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SnipParams {
+    /// **A name for the snip**, in snake_case. It names the directory the crop is written under.
+    pub label: String,
+    /// **The rectangle, in window pixels: `[x0, y0, x1, y1]`**, origin at the top left, `x1` and
+    /// `y1` exclusive.
+    pub rect: [i64; 4],
 }
 
 /// **The parameters of `emerge_capture_sequence`.**
@@ -552,6 +563,80 @@ impl Emerge {
         });
         Ok(CallToolResult::success(vec![
             rmcp::model::ContentBlock::image(png, "image/png"),
+            rmcp::model::ContentBlock::text(
+                serde_json::to_string_pretty(&answer).unwrap_or_default(),
+            ),
+        ]))
+    }
+
+    /// **`emerge_snip` -- one rectangle of the picture, and nothing else.**
+    ///
+    /// **The same grab as a still**, so a crop and a still taken at the same moment are the same
+    /// pixels. **The rectangle is checked before anything is written**, so a refusal leaves no file
+    /// behind.
+    #[tool(
+        name = "emerge_snip",
+        description = "A rectangle of the editor's picture, cut out and returned as an image. rect \
+                       is [x0, y0, x1, y1] in window pixels, origin at the top left, x1 and y1 \
+                       exclusive, so the same pixels a still is in. The crop is written to a file \
+                       whose path is in the answer, with the state of the same moment. It writes \
+                       one crop file under target/loop and changes no map data: it is not an \
+                       operation, not logged and not undoable. Refuses, and writes nothing, on a \
+                       rectangle that is empty, reversed, negative or outside the picture, and says \
+                       the picture's size. Use it to look closer at one part of a still from \
+                       emerge_capture_still.",
+        annotations(
+            title = "Snip one rectangle of the editor",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn snip(
+        &self,
+        Parameters(p): Parameters<SnipParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // **The label first**: a refused label is answered before the editor is asked anything.
+        let dir = match self.capture_dir(&p.label) {
+            Ok(dir) => dir,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        let state = self
+            .editor
+            .call("emerge/state", json!({}))
+            .await
+            .unwrap_or(Value::Null);
+        let png = match self.grab().await {
+            Ok(png) => png,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        let bytes = match base64_decode(&png) {
+            Some(b) => b,
+            None => return Ok(refusal("the editor's picture was not base64.")),
+        };
+        let crop = match snip::crop_png(&bytes, p.rect) {
+            Ok(crop) => crop,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return Ok(refusal(&format!("{}: {e}", dir.display())));
+        }
+        let path = dir.join(format!("snip-{}.png", self.stamp()));
+        if let Err(e) = std::fs::write(&path, &crop.png) {
+            return Ok(refusal(&format!("{}: {e}", path.display())));
+        }
+        let answer = json!({
+            "path": path.to_string_lossy(),
+            "bytes": crop.png.len(),
+            "rect": p.rect,
+            "size": crop.size,
+            "picture": crop.picture,
+            "state": state,
+        });
+        let encoded = base64_encode(&crop.png);
+        Ok(CallToolResult::success(vec![
+            rmcp::model::ContentBlock::image(encoded, "image/png"),
             rmcp::model::ContentBlock::text(
                 serde_json::to_string_pretty(&answer).unwrap_or_default(),
             ),

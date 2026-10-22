@@ -402,3 +402,74 @@ fn a_capture_label_that_leaves_the_project_is_refused_before_the_editor_is_asked
         );
     }
 }
+
+#[test]
+fn the_snip_tool_says_what_it_crops_and_refuses_without_an_editor() {
+    let mut server = Server::start();
+    let listed = server.request("tools/list", json!({}));
+    let tool = listed["result"]["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|t| t["name"] == "emerge_snip"))
+        .cloned()
+        .unwrap_or_else(|| panic!("emerge_snip is not listed: {listed}"));
+    let description = tool["description"].as_str().unwrap_or_default();
+    for promise in [
+        "window pixels",
+        "x0, y0, x1, y1",
+        "not an operation",
+        "not logged",
+        "emerge_capture_still",
+        "Refuses",
+    ] {
+        assert!(
+            description.contains(promise),
+            "the description does not say `{promise}`, so an agent cannot tell what the tool does \
+             or how to call it: {description}"
+        );
+    }
+    let hints = &tool["annotations"];
+    assert_eq!(hints["readOnlyHint"].as_bool(), Some(false), "{hints}");
+    assert_eq!(hints["destructiveHint"].as_bool(), Some(false), "{hints}");
+    assert_eq!(hints["idempotentHint"].as_bool(), Some(false), "{hints}");
+    assert!(
+        tool["inputSchema"]["properties"].get("rect").is_some(),
+        "the tool's schema does not take a rect: {}",
+        tool["inputSchema"]
+    );
+
+    // **No editor is running, so the answer is a refusal that says so** -- not a protocol error.
+    let answer = server.call(
+        "emerge_snip",
+        json!({"label": "snip_check", "rect": [0, 0, 100, 100]}),
+    );
+    assert!(
+        answer.get("error").is_none(),
+        "refused at the protocol level: {answer}"
+    );
+    assert_eq!(
+        answer["result"]["isError"].as_bool(),
+        Some(true),
+        "{answer}"
+    );
+    let text = answer["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("editor") || text.contains("BEVY_BRP_PORT"),
+        "the refusal does not say the editor was not there: {text}"
+    );
+
+    // **A label that leaves the project is refused by the tool before the editor is asked**, the
+    // same as the still tool, so the check holds whether or not an editor is running.
+    let escaped = server.call(
+        "emerge_snip",
+        json!({"label": "../escape", "rect": [0, 0, 100, 100]}),
+    );
+    let text = escaped["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("not a capture label"),
+        "a label of `../escape` was not refused as a label: {escaped}"
+    );
+}

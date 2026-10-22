@@ -14,6 +14,7 @@
 
 pub mod brp;
 pub mod docs;
+pub mod snip;
 
 /// **The version, for the server's own handshake.**
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
