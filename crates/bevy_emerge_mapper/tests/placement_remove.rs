@@ -178,3 +178,49 @@ fn a_put_back_with_no_logged_removal_behind_it_is_refused() {
     assert_eq!(answer["outcome"], "refused", "{answer}");
     assert_eq!(ids(&held(&app)), ["site/wall@0", "site/wall@1"], "nothing was put back");
 }
+
+#[test]
+fn an_agent_cannot_put_back_a_piece_the_person_has_removed_again() {
+    // **A put-back is the undo of the removal that took its pieces, and nothing else.** The log still
+    // holds the first removal's inverse after the piece is undone and removed again, so a put-back
+    // applied on its own used to match that line and bring the piece back, skipping every undo check.
+    let mut app = two_pieces("remove_put_back_again");
+    let placed = serde_json::to_value(&held(&app).placements[0]).expect("a placement serialises");
+
+    let first = remove(&mut app, serde_json::json!({"id": "site/wall@0"}));
+    assert_eq!(first["outcome"], "applied", "{first}");
+    let first_id = first["operation_id"]
+        .as_str()
+        .expect("an apply returns its id")
+        .to_owned();
+    let back = undo(&mut app, Some(&first_id));
+    assert_eq!(back["outcome"], "applied", "{back}");
+    let again = remove(&mut app, serde_json::json!({"id": "site/wall@0"}));
+    assert_eq!(again["outcome"], "applied", "{again}");
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@1"],
+        "the person's second removal stands"
+    );
+
+    let put_back = serde_json::json!({
+        "put_back": {"head": "site/wall@0", "rows": [{"index": 0, "placed": placed}]}
+    });
+    let preview = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({"operation": "placement_remove", "parameters": put_back.clone(), "dry_run": true}),
+    );
+    assert_eq!(
+        preview["outcome"], "refused",
+        "a preview refuses what the apply refuses: {preview}"
+    );
+    let answer = remove(&mut app, put_back);
+    assert_eq!(answer["outcome"], "refused", "{answer}");
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@1"],
+        "a put-back that is not an undo puts nothing back"
+    );
+    assert_eq!(ids(&on_disk(&app)), ["site/wall@1"], "and the file agrees");
+}

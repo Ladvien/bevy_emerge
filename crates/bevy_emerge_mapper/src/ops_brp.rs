@@ -350,7 +350,7 @@ fn operation_preview(
         ));
     };
     let ctx = context(project, open);
-    match op.plan(&ctx, &p.parameters) {
+    match ops::preview(&ctx, op.as_ref(), &p.parameters) {
         Ok(plan) => Ok(json!({
             "operation": p.operation,
             "outcome": "previewed",
@@ -402,7 +402,7 @@ fn operation_apply(
             source: Source::Agent,
             session: crate::ops::session_id(),
         };
-        return match op.plan(&ctx, &p.parameters) {
+        return match ops::preview(&ctx, op.as_ref(), &p.parameters) {
             Ok(plan) => Ok(json!({
                 "operation": p.operation,
                 "outcome": "previewed",

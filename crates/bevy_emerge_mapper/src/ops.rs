@@ -329,6 +329,12 @@ pub trait Operation: 'static {
     fn state_of(&self, ctx: &Ctx, _after: &serde_json::Value) -> Option<serde_json::Value> {
         self.state(ctx)
     }
+
+    /// **Whether these parameters are a change only an undo may make**, so a dispatch that is not an
+    /// undo refuses them. `false` for every operation but a removal's put-back (gap 2).
+    fn only_as_undo(&self, _params: &serde_json::Value) -> bool {
+        false
+    }
 }
 
 /// **Every operation the editor knows, in one list.**
@@ -360,6 +366,28 @@ pub fn dispatch(ctx: &mut Ctx, name: &str, params: &serde_json::Value) -> Result
     dispatch_as(ctx, name, params, None)
 }
 
+/// **The refusal for a change only an undo may make**, the same wherever it is found: [`dispatch`]
+/// and [`preview`] both give it.
+fn undo_only_refusal(name: &str) -> Refusal {
+    Refusal::new(format!(
+        "`{name}` with `put_back` is the undo of a logged removal, not a change. Take that removal \
+         back with `emerge/operation_undo`, or Cmd+Z in the editor. Nothing was put back."
+    ))
+}
+
+/// **What [`dispatch`] would do, without doing it.** A preview goes through this, so it refuses
+/// what dispatch refuses: a preview never says "would change" for a change dispatch would not make.
+pub fn preview(
+    ctx: &Ctx,
+    op: &dyn Operation,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, Refusal> {
+    if op.only_as_undo(params) {
+        return Err(undo_only_refusal(op.name()));
+    }
+    op.plan(ctx, params)
+}
+
 /// **[`dispatch`], with the line it undoes named** — the one path for a change and for its undo,
 /// so an undo is validated, written and logged exactly as the change was.
 fn dispatch_as(
@@ -378,6 +406,12 @@ fn dispatch_as(
                 .join(", ")
         )));
     };
+    // **A change only an undo may make is refused from anywhere else** (gap 2). Only [`undo`] passes
+    // `undoes`, and it dispatches the line's own recorded inverse, so this is the one door a put-back
+    // comes through. Applied on its own, it would bring back a piece the person may have removed again.
+    if undoes.is_none() && op.only_as_undo(params) {
+        return Err(undo_only_refusal(name));
+    }
     // **The plan runs first, always.** A refusal found by the plan is found before anything is
     // written, so a refused operation changes nothing — not the map, not the file, not the log
     // (beyond the record that it was refused, which is itself worth having).
@@ -1711,6 +1745,12 @@ pub mod placement_remove {
 
         fn undo(&self) -> Undo {
             Undo::Inverse
+        }
+
+        /// **A put-back is the undo of a logged removal and nothing else** (gap 2), so only [`undo`]
+        /// may send one. `parse` refuses a request that names both `id` and `put_back`.
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).is_ok_and(|p| p.put_back.is_some())
         }
 
         fn schema(&self) -> serde_json::Value {
