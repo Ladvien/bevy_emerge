@@ -6381,6 +6381,16 @@ pub fn plant_unstamp_for_test(world: &mut World, index: usize) {
     });
 }
 
+/// Plant a redo entry whose stamp is no longer on the map, so a test can drive a **stale** entry
+/// through the real `redo` (the refused-redo path). Pushed straight onto the redo stack, which is the
+/// one place a redo entry is ever written: an undo's inverse.
+pub fn plant_stale_redo_for_test(world: &mut World, id: &str) {
+    world.resource_mut::<EditorState>().redo.push(Undo::MovedStamp {
+        id: id.to_owned(),
+        from: (0.0, 0.0),
+    });
+}
+
 /// One click of the place tool with `descriptor` as the brush, reachable from `tests/headless.rs`.
 ///
 /// The click's commit — host, replacement, undo entry, drawing — and not the cursor that aims it:
