@@ -288,14 +288,22 @@ impl EditorState {
     /// line in effect, a Cmd+Z that reached it would only refuse; dropping it means Cmd+Z takes back the
     /// newest change still in effect.
     pub(crate) fn forget_line(&mut self, line: &str) {
-        let names_line = |op: &Undo| match op {
-            Undo::Logged { line: l, .. }
-            | Undo::Pin { line: l, .. }
-            | Undo::Settings { line: l, .. } => l == line,
-            _ => false,
-        };
-        self.undo.retain(|op| !names_line(op));
-        self.redo.retain(|op| !names_line(op));
+        /// **Groups too.** A box's removals are children of one group, so the entry for one of them sits
+        /// inside it. A group left with no children goes with its last child.
+        fn forget_in(history: &mut Vec<Undo>, line: &str) {
+            history.retain_mut(|op| match op {
+                Undo::Logged { line: l, .. }
+                | Undo::Pin { line: l, .. }
+                | Undo::Settings { line: l, .. } => l.as_str() != line,
+                Undo::Group { ops } => {
+                    forget_in(ops, line);
+                    !ops.is_empty()
+                }
+                _ => true,
+            });
+        }
+        forget_in(&mut self.undo, line);
+        forget_in(&mut self.redo, line);
     }
 
     /// **Is a change recorded by row number sitting above a registry line's entry?** An undo of a
@@ -324,12 +332,23 @@ impl EditorState {
                 | Undo::Logged { .. } => false,
             }
         }
-        let start = self
-            .undo
+        // **Groups are walked too.** A box's removals sit inside one group, so the line can be a leaf of
+        // it. Leaves are taken in stack order, and a group's children in the order they run.
+        fn leaves<'a>(ops: &'a [Undo], out: &mut Vec<&'a Undo>) {
+            for op in ops {
+                match op {
+                    Undo::Group { ops } => leaves(ops, out),
+                    leaf => out.push(leaf),
+                }
+            }
+        }
+        let mut all: Vec<&Undo> = Vec::new();
+        leaves(&self.undo, &mut all);
+        let start = all
             .iter()
             .position(|op| matches!(op, Undo::Logged { line: l, .. } if l == line))
             .map_or(0, |at| at + 1);
-        self.undo[start..].iter().any(by_row)
+        all[start..].iter().any(|op| by_row(op))
     }
 
     /// Where the id mint stands — read-only, so the harness can check [`next_id_after`]'s seed

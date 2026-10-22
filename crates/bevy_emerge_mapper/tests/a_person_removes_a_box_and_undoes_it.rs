@@ -291,3 +291,167 @@ fn a_box_over_a_stack_leaves_the_piece_between_its_rows() {
         "the file agrees with the editor"
     );
 }
+
+/// Three pieces, and the box takes the outer two. The piece between them stays on the map.
+fn box_takes_the_outer_pair(name: &str) -> App {
+    let root = fixtures::Fixture::new(name)
+        .descriptor("site/wall", "alpha")
+        .place("site/wall", (0.0, 0.0))
+        .place("site/wall", (3.0, 5.0))
+        .place("site/wall", (6.0, 0.0))
+        .build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
+    app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
+    app.init_resource::<Script>();
+    app.world_mut().spawn((Window::default(), PrimaryWindow));
+    app.add_systems(PreUpdate, drive.after(InputSystems));
+    for _ in 0..8 {
+        app.update();
+    }
+    let from = pixel_over(&mut app, (-1.0, -1.0));
+    let to = pixel_over(&mut app, (7.0, 1.0));
+    step(
+        &mut app,
+        Frame {
+            keys: vec![KeyCode::KeyX],
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(from),
+            mouse: Some(true),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(to),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(to),
+            mouse: Some(false),
+            ..default()
+        },
+    );
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@1"],
+        "the box took the outer pair"
+    );
+    app
+}
+
+/// **Through the registered method**, as an agent's request goes.
+fn call(app: &mut App, method: &str, params: serde_json::Value) -> serde_json::Value {
+    use bevy::remote::{RemoteMethodSystemId, RemoteMethods};
+    let Some(RemoteMethodSystemId::Instant(id)) =
+        app.world().resource::<RemoteMethods>().get(method).cloned()
+    else {
+        panic!("no method `{method}` is registered, so an agent cannot reach it");
+    };
+    app.world_mut()
+        .run_system_with(id, Some(params))
+        .unwrap_or_else(|e| panic!("{method}: {e:?}"))
+        .unwrap_or_else(|e| panic!("{method}: {e:?}"))
+}
+
+/// An agent takes back the change one log line made.
+fn agent_undo(app: &mut App, operation_id: &str) -> serde_json::Value {
+    call(
+        app,
+        "emerge/operation_undo",
+        serde_json::json!({"operation_id": operation_id, "dry_run": false}),
+    )
+}
+
+/// The newest log line that removed `id`.
+fn removal_line(app: &App, id: &str) -> String {
+    log(app)
+        .iter()
+        .rev()
+        .find(|e| e.op == "placement_remove" && e.params["id"] == id)
+        .unwrap_or_else(|| panic!("the log holds no removal of {id}"))
+        .operation_id
+        .clone()
+}
+
+#[test]
+fn an_agent_undo_inside_a_box_leaves_the_persons_undo_whole() {
+    // **The agent takes back one piece's removal from inside the box.** The box's group still held
+    // that line, so the person's Cmd+Z would put the piece back a second time: a refusal, a problem
+    // raised for an undo the person never made, and the rest of the box left out.
+    let mut app = box_takes_the_outer_pair("person_box_agent_undo");
+    let line = removal_line(&app, "site/wall@0");
+    let answer = agent_undo(&mut app, &line);
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@0", "site/wall@1"],
+        "the agent put site/wall@0 back"
+    );
+
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::KeyZ],
+            ..default()
+        },
+    );
+    step(&mut app, Frame::default());
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@0", "site/wall@1", "site/wall@2"],
+        "the person's Cmd+Z puts back what the box still holds"
+    );
+    let status = &app.world().resource::<EditorState>().status;
+    assert!(
+        !status.has_problem(),
+        "no refusal for an undo the person never made: {}",
+        status.problem_text()
+    );
+}
+
+#[test]
+fn an_agent_that_undoes_every_line_of_a_box_leaves_no_stale_group_for_cmd_z() {
+    // **Once the agent has taken back each line, the box has nothing left in effect.** Its group must
+    // go with its last child, so a Cmd+Z with nothing to take back changes nothing and raises nothing.
+    let mut app = box_takes_the_outer_pair("person_box_agent_undo_all");
+    for id in ["site/wall@0", "site/wall@2"] {
+        let line = removal_line(&app, id);
+        let answer = agent_undo(&mut app, &line);
+        assert_eq!(answer["outcome"], "applied", "{answer}");
+    }
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@0", "site/wall@1", "site/wall@2"],
+        "the agent put back both pieces"
+    );
+
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::KeyZ],
+            ..default()
+        },
+    );
+    step(&mut app, Frame::default());
+    assert_eq!(
+        ids(&held(&app)),
+        ["site/wall@0", "site/wall@1", "site/wall@2"],
+        "a Cmd+Z with nothing left to take back changes nothing"
+    );
+    let status = &app.world().resource::<EditorState>().status;
+    assert!(
+        !status.has_problem(),
+        "a Cmd+Z over a stale group raises a refusal: {}",
+        status.problem_text()
+    );
+}
