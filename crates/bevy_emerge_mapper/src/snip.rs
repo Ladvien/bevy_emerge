@@ -42,7 +42,7 @@ const MIN_SIDE_PX: f32 = 8.0;
 /// The longest note the field keeps.
 const NOTE_CAP: usize = 200;
 
-/// A rectangle waiting for its note. `rect` is `[x0, y0, x1, y1]` in window logical pixels.
+/// A rectangle waiting for its note. `rect` is `[x0, y0, x1, y1]` in surface pixels, the editor's render target, which is physical.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pending {
     pub rect: [f32; 4],
@@ -94,6 +94,11 @@ fn under(rect: [f32; 4], at: Vec2) -> bool {
 fn overlay_px(surface: f32, ui_scale: f32) -> f32 {
     let s = if ui_scale > 0.0 { ui_scale } else { 1.0 };
     surface / s
+}
+
+/// A surface rectangle in the window's logical pixels: the surface is the logical size times the scale factor.
+fn logical_px(surface: [f32; 4], scale: f32) -> [f32; 4] {
+    surface.map(|v| v / scale)
 }
 
 /// `Cmd+\` arms the snip, and pressed again it disarms. Escape disarms while no note is open.
@@ -313,7 +318,7 @@ pub fn snip_commit(
         map,
         active_tool: format!("{:?}", state.tool),
         note: pending.note,
-        rect_window_px: r,
+        rect_window_px: logical_px(r, scale),
         scale_factor: scale,
         rect_picture_px: physical,
         size: [0, 0],
@@ -481,5 +486,16 @@ mod tests {
     fn the_overlay_is_divided_by_ui_scale() {
         assert!((overlay_px(440.0, 2.4) - 440.0 / 2.4).abs() < 1e-4);
         assert_eq!(overlay_px(440.0, 0.0), 440.0);
+    }
+
+    /// **The rectangle the record calls a window rectangle is in logical pixels.** A surface rectangle
+    /// divided by the scale factor is what the window's logical coordinates read, so an agent that scales
+    /// it back by the scale factor gets the surface rectangle again.
+    #[test]
+    fn the_window_rectangle_is_in_logical_pixels() {
+        assert_eq!(
+            logical_px([400.0, 240.0, 840.0, 520.0], 2.0),
+            [200.0, 120.0, 420.0, 260.0]
+        );
     }
 }
