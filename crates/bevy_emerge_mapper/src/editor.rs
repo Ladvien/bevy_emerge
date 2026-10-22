@@ -206,6 +206,12 @@ pub struct EditorState {
     /// and neither can reach the other's, so leaving a tab is not a reason to forget what you did on
     /// it.
     redo: Vec<Undo>,
+    /// Refusals of the top undo entry in a row. The first keeps the entry (B-026); the second drops
+    /// it, because an entry that refuses twice will not apply and would sit above every older change.
+    /// Any applied change and any new edit reset it. See [`EditorState::refused_entry`].
+    refused_undo: u8,
+    /// The same count for the redo stack.
+    refused_redo: u8,
     /// Which tool the next click belongs to. See [`Tool`].
     ///
     /// **The tool here and the drag in [`RemovalDrag`] / [`MoveDrag`]**, not one struct:
@@ -260,6 +266,39 @@ impl EditorState {
     fn record(&mut self, op: Undo) {
         self.undo.push(op);
         self.redo.clear();
+        self.settle();
+    }
+
+    /// **No entry is being refused any more**: an applied change, or a new edit, moved the stacks on.
+    fn settle(&mut self) {
+        self.refused_undo = 0;
+        self.refused_redo = 0;
+    }
+
+    /// **A refused entry goes back, and a second refusal in a row drops it (gap 3).** The first keeps
+    /// the entry, so the author sees why and can try again (B-026). An entry that refuses twice will
+    /// not apply, and left on the stack it would sit above every older change for good, so the second
+    /// refusal drops it and says so.
+    fn refused_entry(&mut self, op: Undo, redo_side: bool) {
+        let count = if redo_side {
+            &mut self.refused_redo
+        } else {
+            &mut self.refused_undo
+        };
+        *count += 1;
+        if *count < 2 {
+            let stack = if redo_side {
+                &mut self.redo
+            } else {
+                &mut self.undo
+            };
+            stack.push(op);
+        } else {
+            *count = 0;
+            self.status.problem(
+                "that entry refused twice, so it is dropped and cannot be taken back",
+            );
+        }
     }
 
     /// **Record a change another front end made through the registry**, by its operation-log line, so
@@ -936,6 +975,8 @@ impl Default for EditorState {
             renaming: None,
             undo: Vec::new(),
             redo: Vec::new(),
+            refused_undo: 0,
+            refused_redo: 0,
             tool: Tool::default(),
             leaving: false,
         }
@@ -7123,9 +7164,12 @@ fn undo(
     // (B-026). Only a stranded entry is dropped, because the map moved and there is nothing to put back.
     let kept = op.clone();
     match apply(commands, assets, project, &mut *open, state, placed, op) {
-        Reversal::Done(inverse) => state.redo.push(inverse),
-        Reversal::Refused => state.undo.push(kept),
-        Reversal::Stranded => {}
+        Reversal::Done(inverse) => {
+            state.settle();
+            state.redo.push(inverse);
+        }
+        Reversal::Refused => state.refused_entry(kept, false),
+        Reversal::Stranded => state.settle(),
     }
 }
 
@@ -7148,9 +7192,12 @@ fn redo(
     // anything.
     let kept = op.clone();
     match apply(commands, assets, project, &mut *open, state, placed, op) {
-        Reversal::Done(inverse) => state.undo.push(inverse),
-        Reversal::Refused => state.redo.push(kept),
-        Reversal::Stranded => {}
+        Reversal::Done(inverse) => {
+            state.settle();
+            state.undo.push(inverse);
+        }
+        Reversal::Refused => state.refused_entry(kept, true),
+        Reversal::Stranded => state.settle(),
     }
 }
 
@@ -7342,6 +7389,9 @@ fn apply(
         }
         Undo::Turned { index, yaw } => {
             let Some(p) = open.map.placements.get_mut(index) else {
+                state.status.problem(
+                    "cannot take back that turn: the piece it turned is no longer on the map",
+                );
                 return Reversal::Refused;
             };
             let was = std::mem::replace(&mut p.yaw, yaw);
@@ -7378,6 +7428,9 @@ fn apply(
         }
         Undo::Lifted { index, lift } => {
             let Some(p) = open.map.placements.get_mut(index) else {
+                state.status.problem(
+                    "cannot take back that lift: the piece it lifted is no longer on the map",
+                );
                 return Reversal::Refused;
             };
             let was = std::mem::replace(&mut p.lift, lift);
@@ -7404,6 +7457,9 @@ fn apply(
         }
         Undo::Tipped { index, tip } => {
             let Some(p) = open.map.placements.get_mut(index) else {
+                state.status.problem(
+                    "cannot take back that tilt: the piece it tipped is no longer on the map",
+                );
                 return Reversal::Refused;
             };
             let was = std::mem::replace(&mut p.tip, tip);
@@ -7465,6 +7521,9 @@ fn apply(
                 .map(|(k, st)| (from + k, Box::new(st)))
                 .collect();
             if items.is_empty() {
+                state
+                    .status
+                    .problem("cannot take back those stamps: none are on the map");
                 return Reversal::Refused;
             }
             state
