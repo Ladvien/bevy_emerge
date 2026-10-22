@@ -1106,6 +1106,7 @@ pub struct EditorPlugin;
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EditorState>()
+            .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()
             // Registered in the same commit as `drive_move` and `keys` read it — a missing `ResMut`
             // panics its system in Bevy 0.19 rather than skipping it (`CLAUDE.md`).
@@ -1172,6 +1173,13 @@ impl Plugin for EditorPlugin {
                 )
                     .run_if(in_state(crate::screen::Screen::Editor)),
             );
+        // **The Map opens framed on the whole map, once** (backlog E-022). The rig's default is an
+        // 18 m close-up of the origin, so a person who launched on a 1120 m town saw ground and had
+        // to zoom out to find the map. It runs once, when the map and the viewport both exist.
+        app.add_systems(
+            Update,
+            frame_map_on_open.run_if(in_state(crate::screen::Screen::Editor)),
+        );
 
         // **Resources always; systems only on the door that has a map** — as a run condition, not
         // a check here. See `Door::map_door_is_open` for what reading the door at build time cost.
@@ -3177,6 +3185,55 @@ pub fn apply_frame(
     rig.focus = focus;
     rig.height = height;
     (focus, height)
+}
+
+/// **Whether the Map has been framed for this door** (backlog E-022). A door resource, so a crossing
+/// or a leave resets it with the rest of the door's state (`screen::door_state!`) and the next Map
+/// opens framed. `done` makes the framing one-shot: after it, the person's own camera moves are never
+/// overwritten. `last_size` is the viewport size seen on the previous update.
+#[derive(Resource, Default)]
+pub struct MapFraming {
+    done: bool,
+    last_size: Option<Vec2>,
+}
+
+/// **Frame the whole map once, when the Map opens.** A map that cannot be framed is a refusal and goes
+/// in a problem, not a silent retry on every frame.
+fn frame_map_on_open(
+    mut framing: ResMut<MapFraming>,
+    mut state: ResMut<EditorState>,
+    mut rig: ResMut<crate::view::Rig>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    cameras: Query<&Camera, With<MainCamera>>,
+) {
+    if framing.done {
+        return;
+    }
+    let (Some(project), Some(open)) = (project, open) else {
+        return;
+    };
+    let Ok(camera) = cameras.single() else {
+        return;
+    };
+    // **Wait for the layout.** The first viewport size is the window's guess, not the laid-out one, and
+    // the Map is framed against the aspect it will be drawn at. So the frame waits until the size has
+    // stopped changing across two updates.
+    let size = camera.logical_viewport_size();
+    if size != framing.last_size {
+        framing.last_size = size;
+        return;
+    }
+    let Some(aspect) = aspect_of(camera) else {
+        return;
+    };
+    framing.done = true;
+    match resolve_frame(&FrameTarget::Map, &project, &open, None) {
+        Ok(frame) => {
+            apply_frame(&mut rig, &frame, aspect, &open);
+        }
+        Err(e) => state.status.problem(e),
+    }
 }
 
 fn draw_bounds(

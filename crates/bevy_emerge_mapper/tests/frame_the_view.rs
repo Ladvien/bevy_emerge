@@ -114,6 +114,13 @@ fn frame_the_map(app: &mut App) -> serde_json::Value {
 fn framing_the_map_shows_the_whole_map() {
     let mut app = editor("frame-map", 1120.0);
     let (centre, size) = bevy_emerge_mapper::editor::map_bounds(app.world().resource::<OpenMap>());
+    // The Map now opens framed on the whole map (E-022). This test was written against the 18 m
+    // close-up the Map used to open on, so it starts the view there; the call below must do the framing.
+    app.world_mut()
+        .resource_mut::<bevy_emerge_mapper::view::Rig>()
+        .height = 18.0;
+    app.update();
+    app.update();
     let before = seen(&mut app, centre, size);
     assert!(
         !before.inside,
