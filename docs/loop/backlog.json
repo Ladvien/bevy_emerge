@@ -360,7 +360,7 @@
         "evidence": "On the first probe run a barrel was placed (status 'placed barrel@1 at (-1965.65, -98.65)', undo_depth 1, map dirty). It was not reproduced in two replays of the same cursor and O inputs on a fresh editor, and the scratch session was discarded unsaved. Cause unknown."
       },
       "status": "open",
-      "evidence": "target/loop/2026-10-22-fcc4e02/live (editor.log); /tmp/emerge_live/it9/probe_pin.py",
+      "evidence": "target/loop/2026-10-22-fcc4e02/live (editor.log); /tmp/emerge_live/it9/probe_pin.py. Pointer investigation 2026-10-22 (CiBuilder): placement at scale 1 and 2 lands under the pointer (crates/bevy_emerge_mapper/tests/a_piece_lands_where_the_pointer_is.rs, 930ced5); the editor's pointer mapping is correct. The probe's coordinates were far off the map, but the cause is not identified and this was not reproduced.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
@@ -444,8 +444,8 @@
         "no_workaround": false,
         "evidence": "Finisher's judgment: blocks yes (the refusal reports failure after the rename already happened: a wrong result), common no (rename is rare, and old-file removal rarely fails), workaround yes (delete the old file by hand; the message names it since b382ccf). Main's judgment: blocks no (both files survive, nothing is lost). The judgments disagree, so per the brief it is must-fix IF reproduced. Found by reviewer reading in the 2026-10-22 snip iteration and logged before any reproduction, so it is unconfirmed."
       },
-      "status": "unconfirmed",
-      "evidence": "crates/bevy_emerge_mapper/src/ops.rs:1950-1956 writes the new file and then removes the old one; a failed removal returns a refusal without undoing the write. Error text names the old file (gap 5 fix, b382ccf). To confirm: reuse the setup of tests/a_rename_is_all_or_nothing.rs::a_rename_that_cannot_remove_the_old_file_names_the_old_file (a directory standing where the old map file was; that test calls OpenMap::save directly, not the operation), then dispatch map_rename through the registry and check the answer (applied or refused), the oplog line, the open map's name, both paths on disk, and whether Cmd+Z can rename back.",
+      "status": "fixed",
+      "evidence": "Confirmed through the registry 2026-10-22 (CiBuilder): with a directory at the old path, map_rename answered refused while the editor held `renamed` and the new file stayed on disk. Test crates/bevy_emerge_mapper/tests/a_rename_whose_old_file_cannot_go_changes_nothing.rs failed before the fix (target/loop/2026-10-22-ci-filter/b028-failing.txt). Fixed in project.rs OpenMap::save: the new file is taken back when the old one cannot be removed, so the refusal changes nothing; if the take-back also fails, the map follows the new file and the refusal says so. Commit 0a7ee4e. Passing: target/loop/2026-10-22-ci-filter/b028-fixed.txt.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
