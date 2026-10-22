@@ -265,6 +265,16 @@
         "evidence": "pointed out by the developer 2026-10-21; town.road/town.field are mesh-less 0.05 m markers OnFloor, so every top sits at y = 0.05; stair-step edges at every crossing (window-default still, c40d89f)"
       },
       "evidence": "bd5116a (paint applied, draw_order::draw_levels: smaller footprint on top, then later placement) + 63e6631 (render-only 1 cm lift per level; bias alone failed in the live still); tests/roads_and_fields_do_not_z_fight.rs (4); docs/loop/iterations/assets/2026-10-21-63e6631/B-015-before-after.png, B-015-pan-sheet.png"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-017",
+      "kind": "enhancement",
+      "area": "mcp",
+      "status": "fixed",
+      "title": "The agent cannot frame or zoom the Map's camera; it had to inject wheel events through bevy_debugger/input",
+      "evidence": "8c97677: emerge_frame_view (map | selection | placements | rect), view::frame_box, and a zoom ceiling that can show the whole map (max_zoom = 1.25 x ground diagonal / aspect); tests/frame_the_view.rs (6); docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif"
     }
   ]
 }

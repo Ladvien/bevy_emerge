@@ -557,6 +557,104 @@ fn oplog_read(
     }))
 }
 
+/// **The target of `emerge/frame_view`, as the caller writes it.** A bare word names a target (`"map"`
+/// or `"selection"`); an object names placements or a rectangle.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum FrameTargetParam {
+    Named(String),
+    Placements(PlacementsParam),
+    Rect(RectParam),
+}
+
+/// `{"placements": [ids]}` — the ids as the map lists them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlacementsParam {
+    pub placements: Vec<String>,
+}
+
+/// `{"rect": [x0, z0, x1, z1]}` — in map metres.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RectParam {
+    pub rect: [f32; 4],
+}
+
+/// **The parameters of `emerge/frame_view`.** `deny_unknown_fields`, so a typo is a refusal.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrameParams {
+    pub target: FrameTargetParam,
+}
+
+/// **`emerge/frame_view` — frame the Map camera on a box.**
+///
+/// **Camera state only.** It moves the view, not the map: it is not an operation, it is not in the
+/// registry or the operation log, and it is not undoable. It resolves and applies through
+/// [`crate::editor::resolve_frame`] and [`crate::editor::apply_frame`], the one place a frame is computed.
+///
+/// **The person sees why the view moved**: a framed call leaves a receipt naming what was framed and
+/// that an agent asked, so a camera that jumps under the author's eyes is never unexplained.
+///
+/// **A refusal moves nothing.** Every name is resolved before the camera is touched.
+fn frame_view(
+    In(p): In<FrameParams>,
+    project: Option<Res<crate::project::Project>>,
+    open: Option<Res<crate::project::OpenMap>>,
+    lock: Option<Res<crate::editor::TargetLock>>,
+    rig: Option<ResMut<crate::view::Rig>>,
+    cameras: Query<&Camera, With<crate::view::MainCamera>>,
+    state: Option<ResMut<crate::editor::EditorState>>,
+) -> Result<Value, String> {
+    fn refused(why: impl Into<String>) -> Value {
+        json!({"outcome": "refused", "why": why.into()})
+    }
+    let (Some(project), Some(open), Some(mut rig)) = (project, open, rig) else {
+        return Ok(refused("no map is open, so there is nothing to frame"));
+    };
+    let target = match p.target {
+        FrameTargetParam::Named(name) => match name.as_str() {
+            "map" => crate::editor::FrameTarget::Map,
+            "selection" => crate::editor::FrameTarget::Selection,
+            other => {
+                return Ok(refused(format!(
+                    "`{other}` is not a frame target: say \"map\", \"selection\", {{\"placements\": [ids]}} or {{\"rect\": [x0, z0, x1, z1]}}"
+                )));
+            }
+        },
+        FrameTargetParam::Placements(list) => {
+            crate::editor::FrameTarget::Placements(list.placements)
+        }
+        FrameTargetParam::Rect(r) => crate::editor::FrameTarget::Rect(r.rect),
+    };
+    let locked = lock
+        .as_deref()
+        .and_then(|l| l.placement_id().map(str::to_owned));
+    let framing = match crate::editor::resolve_frame(&target, &project, &open, locked.as_deref()) {
+        Ok(framing) => framing,
+        Err(why) => return Ok(refused(why)),
+    };
+    let Some(aspect) = cameras.single().ok().and_then(crate::editor::aspect_of) else {
+        return Ok(refused(
+            "the Map camera has no viewport yet, so there is nothing to frame against",
+        ));
+    };
+    let (focus, height) = crate::editor::apply_frame(&mut rig, &framing, aspect, &open);
+    if let Some(mut state) = state {
+        state.status.note(format!(
+            "an agent framed {} ({:.0} x {:.0} m)",
+            framing.what, framing.size.x, framing.size.z,
+        ));
+    }
+    Ok(json!({
+        "outcome": "framed",
+        "what": framing.what,
+        "focus": [focus.x, focus.y, focus.z],
+        "height_m": height,
+    }))
+}
+
 /// **Register the agent's commands.
 ///
 /// **Under the `debugger` feature**, because the transport is what carries them and a build
@@ -689,6 +787,21 @@ impl Plugin for OpsBridgePlugin {
             )
             .example(json!({"since_seq": 0, "limit": 50})),
             oplog_read,
+        );
+
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/frame_view",
+                "Frame the Map camera on the whole map, on the locked placement, on named placements, or \
+                 on a rectangle in map space. Moves only the camera: the map does not change, and the \
+                 change is not logged or undoable. A refusal moves nothing.",
+            )
+            .params(
+                "target: \"map\"; \"selection\" (the locked placement, refused when nothing is locked); \
+                     {\"placements\": [ids]}; or {\"rect\": [x0, z0, x1, z1]} in map metres.",
+            )
+            .example(json!({"target": {"rect": [200.0, 100.0, 400.0, 300.0]}})),
+            frame_view,
         );
     }
 }

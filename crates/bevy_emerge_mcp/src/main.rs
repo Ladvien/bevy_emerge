@@ -19,11 +19,12 @@
 //! | `emerge_apply_operation` | run one, and record it in the operation log |
 //! | `emerge_undo_operation` | take one change back by its id, as a new log line |
 //! | `emerge_read_oplog` | the log, newest last |
+//! | `emerge_frame_view` | frame the Map camera on the map, a selection, placements or a rectangle |
 //! | `emerge_state` | what the editor is holding now, as JSON |
 //! | `emerge_capture_still` | one picture of the editor, plus the state |
 //! | `emerge_capture_sequence` | frames at 4 fps, with an optional operation after frame 0 |
 //!
-//! **Eight tools, and the set is small on purpose.** An agent's context is spent on the tools it
+//! **Nine tools, and the set is small on purpose.** An agent's context is spent on the tools it
 //! is offered, and a catalogue of ninety-six verbs is a catalogue of ninety-six things to choose
 //! badly from. **The operation tools are a discovery surface**: the first names what exists, and
 //! the others preview, run and take back what it names. Later iterations add one tool per
@@ -92,6 +93,46 @@ pub struct UndoParams {
     /// would set.
     #[serde(default)]
     pub dry_run: bool,
+}
+
+/// **The parameters of `emerge_frame_view`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FrameParams {
+    /// **What to frame.** `"map"`, `"selection"`, `{"placements": [ids]}` or `{"rect": [x0, z0, x1, z1]}`.
+    pub target: FrameTargetArg,
+}
+
+/// **A frame target, as the caller writes it.** The editor judges every id and every number; this
+/// type only shapes the call.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum FrameTargetArg {
+    Named(NamedTarget),
+    Placements(PlacementsArg),
+    Rect(RectArg),
+}
+
+/// **A target with no arguments.** The whole map, or the locked placement.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NamedTarget {
+    Map,
+    Selection,
+}
+
+/// `{"placements": [ids]}` — the placements to frame, as the map lists them.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PlacementsArg {
+    pub placements: Vec<String>,
+}
+
+/// `{"rect": [x0, z0, x1, z1]}` — a rectangle in map metres, with x1 > x0 and z1 > z0.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RectArg {
+    pub rect: [f32; 4],
 }
 
 /// **The parameters of `emerge_capture_still`.**
@@ -684,6 +725,50 @@ impl Emerge {
             .await
         {
             Ok(v) => Ok(CallToolResult::structured(v)),
+            Err(e) => Ok(refusal(&e)),
+        }
+    }
+
+    /// **`emerge_frame_view` — frame the Map camera on a box.**
+    ///
+    /// **A camera move and nothing else.** The editor resolves the target, refuses it atomically
+    /// if any name is wrong, and otherwise sets the view; the map, the operation log and the
+    /// undo stack are untouched.
+    #[tool(
+        name = "emerge_frame_view",
+        description = "Frame the editor's Map camera on a box. target: \"map\" (the whole map), \
+                       \"selection\" (the locked placement; refused when nothing is locked), \
+                       {\"placements\": [ids]} (their union), or {\"rect\": [x0, z0, x1, z1]} (map \
+                       metres). It only moves the camera: it never changes map data, is not logged \
+                       or undoable, and is not an operation. Refuses, and moves nothing, on an \
+                       unknown id, an empty selection or a flat rectangle. Returns what was framed, \
+                       the focus and the view height in metres. \
+                       Call emerge_capture_still afterwards to see the result.",
+        annotations(
+            title = "Frame the editor's view",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn frame_view(
+        &self,
+        Parameters(p): Parameters<FrameParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self
+            .editor
+            .call("emerge/frame_view", json!({"target": p.target}))
+            .await
+        {
+            Ok(v) => {
+                let refused = v.get("outcome").and_then(|o| o.as_str()) == Some("refused");
+                if refused {
+                    Ok(CallToolResult::structured_error(v))
+                } else {
+                    Ok(CallToolResult::structured(v))
+                }
+            }
             Err(e) => Ok(refusal(&e)),
         }
     }
