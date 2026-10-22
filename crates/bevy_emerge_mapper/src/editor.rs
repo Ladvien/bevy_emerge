@@ -174,7 +174,7 @@ pub struct EditorState {
     /// "I could not be bothered" and "this is the cell block's only entrance" look identical in a
     /// diff. A canned reason supplied by the editor would be that bool wearing a sentence, so pinning
     /// asks.
-    pinning: Option<(usize, String)>,
+    pub pinning: Option<(String, String)>,
     /// **The name being typed for a group being captured**, or `None`.
     ///
     /// `pinning`'s shape and for the same reason: a group's name is the author's, and a canned one
@@ -7805,7 +7805,7 @@ fn toggle_pin(
     if p.owned {
         set_pin(project, open, state, &id, false, None);
     } else {
-        state.pinning = Some((index, String::new()));
+        state.pinning = Some((id.clone(), String::new()));
         state.status.note(format!(
             "why is {id} pinned? Enter to keep it, Esc to cancel"
         ));
@@ -10467,11 +10467,11 @@ fn pin_reason_keys(
         }
         match &event.logical_key {
             Key::Enter => {
-                let Some((index, reason)) = state.pinning.take() else {
-                    return;
-                };
-                // **Named by its id, not its row**: the list can change while the field is open.
-                let Some(id) = open.map.placements.get(index).map(|p| p.id.clone()) else {
+                // **Named by its id, not its row**, and the id is held from the moment the field
+                // opened: the list can change while the field is open (an agent can remove a lower
+                // row), and a row would then name a different piece. A piece removed while the field
+                // was open is the registry's to refuse, and it reaches the toast.
+                let Some((id, reason)) = state.pinning.take() else {
                     return;
                 };
                 let Some(project) = project.as_deref() else {
@@ -12401,7 +12401,7 @@ mod tests {
 
         {
             let mut state = app.world_mut().resource_mut::<EditorState>();
-            state.pinning = Some((0, String::new()));
+            state.pinning = Some(("site/wall".to_owned(), String::new()));
             state.renaming = Some("gal".to_owned());
             state.grouping = Some("bay".to_owned());
             state.replacing = Some("bay".to_owned());
