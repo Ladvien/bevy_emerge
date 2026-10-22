@@ -948,11 +948,15 @@ impl OpenMap {
             // has to be told which file is stale and where it is, because the alternative is a
             // message about a schema mismatch for a rename that half-happened.
             if let Err(e) = std::fs::remove_file(&self.map_path) {
+                // **The map is now the new file, whatever the removal did.** The write landed, so the
+                // caller must not treat this as a save that never happened — it moves the map's
+                // name and path together, or it leaves a name that no file holds.
+                self.map_path = path.clone();
                 return Err(format!(
                     "saved as `{}`, but the old file {} could not be removed: {e}. Delete it by hand \
                      — until then the list shows this map twice.",
                     self.map.name,
-                    self.map_path.display()
+                    path.display()
                 ));
             }
         } else {

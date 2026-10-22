@@ -3720,6 +3720,7 @@ fn rename_keys(
     mut events: MessageReader<KeyboardInput>,
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<keys::Live>,
+    project: Option<Res<Project>>,
 
     mut open: ResMut<OpenMap>,
     mut state: ResMut<EditorState>,
@@ -3755,35 +3756,7 @@ fn rename_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = state.renaming.take().unwrap_or_default();
-                let name = bevy_emerge_core::naming::to_snake_case(&raw);
-                if name.is_empty() {
-                    state
-                        .status
-                        .problem("a map needs a name; nothing was changed".to_owned());
-                } else if name != open.map.name {
-                    let was = std::mem::replace(&mut open.map.name, name.clone());
-                    // **What the rename costs, named.**
-                    //
-                    // A map's name is **a string in the game's code**, not a file the game
-                    // discovers — Sanctuary reads `town` from `town_map.rs:35` and
-                    // `["town_block", "town"]` from `emerge_data.rs:28`. So renaming a map here
-                    // **strands the game**, and the author is the only one who can fix it.
-                    //
-                    // **The receipt says so**, because the editor is the only place that knows both
-                    // facts: the name the author just typed, and the fact that the consumer reads
-                    // the map by name. The composition rename has the opposite property — the game
-                    // finds compositions by *prefix*, so a rename strands nothing there — and both
-                    // are checked rather than assumed.
-                    //
-                    // The modifier from the census, not typed: this sentence naming a key the build
-                    // does not read is the same failure as the panel doing it.
-                    state.status.note(format!(
-                        "renamed `{was}` to `{name}` — the file follows on the next {}+S, and the \
-                         old one is removed. **The game reads this map by name**, so it needs the \
-                         new one.",
-                        keys::MOD_NAME
-                    ));
-                }
+                rename_map(project.as_deref(), &mut open, &mut state, &raw);
             }
             Key::Escape => {
                 state.renaming = None;
@@ -7618,6 +7591,55 @@ fn set_pin(
             });
         }
         // **A refusal is a refusal, where the author looks** — a pin with no reason is the common one.
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+        }
+    }
+}
+
+/// **Rename the open map through the registry**, the way the size field resizes it. The N key's Enter
+/// comes here, so the name rule (snake case, not empty, no other map holds it) and the move of the file
+/// live in `map_rename`, and the receipt says where the file went.
+fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorState, raw: &str) {
+    // **The same name is nothing to do.** The operation would refuse it as a problem, but the author
+    // asked for no change, so the answer is the Escape answer.
+    if bevy_emerge_core::naming::to_snake_case(raw) == open.map.name {
+        state.status.note("name unchanged".to_owned());
+        return;
+    }
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(std::mem::replace(
+            open,
+            OpenMap::new(
+                bevy_emerge_core::map::Map::default(),
+                std::path::PathBuf::new(),
+            ),
+        )),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let outcome = crate::ops::dispatch(&mut ctx, "map_rename", &serde_json::json!({"name": raw}));
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            // **The game reads this map by name**, so the receipt says the new file is the one it needs.
+            state.status.note(format!(
+                "{} — the game reads this map by name, so it needs the new one.",
+                outcome.summary
+            ));
+            // **On the undo stack**, so Cmd+Z puts the old name back and the file with it.
+            state.record(Undo::Logged {
+                line: operation_id,
+                phrase: format!("rename to `{}`", open.map.name),
+            });
+        }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
             state.status.problem(e.0);
         }

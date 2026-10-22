@@ -876,6 +876,7 @@ impl Action {
         match self {
             Action::OwnToggle => Some("placement_set_pin"),
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
+            Action::RenameMap => Some("map_rename"),
             _ => None,
         }
     }

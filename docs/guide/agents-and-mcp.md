@@ -47,10 +47,13 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 
 `placement_set_pin` pins or unpins a placement. Pinning requires a `because` reason, and unpinning refuses one. A pinned placement survives a fill generate. `placement_set_yaw` turns a placed piece to a facing in degrees (wrapped into one full turn), which is what **R** and **T** do to a placed piece under the cursor. `placement_remove` removes a placement by id, and whatever stands on it goes too; `emerge_undo_operation` puts the removed pieces back at the rows they held. See [Placing and undo](placing-and-undo.md).
 
+`map_rename` renames the open map. The file moves with the name at once, and a name another map in the project already has is refused before anything is written. **N** on the Map door dispatches the same operation, so a rename by an agent and a rename by a person are one kind of change, and Cmd+Z takes either back. An agent undoes a rename with `emerge_undo_operation`, which puts the old name back.
+
 ## Known gaps
 
 - **Cmd+Z and an agent's edits share one history.** Cmd+Z takes back the newest change still in effect, an agent's included. `emerge_undo_operation` takes back a logged change by its operation id, or puts it back, but only when no newer change to the same map is still in effect: otherwise it refuses and names the change to undo first. See [Placing and undo](placing-and-undo.md#undo-and-redo).
 - **`emerge_state` does not list each placement's pin.** Use `emerge_read_oplog` to see what was pinned, until E-026 is fixed.
 - **Box removal and stamp removal have no agent operation.** X's drag box and stamp delete still change the map outside the registry, so only a click removal goes through `placement_remove`.
+- **Other references to a map by name are not rewritten.** `map_rename` moves the file and changes the name in the map, and nothing else. The game loads maps by name, so anything that names the old map (a game-side reference, a config entry) has to be changed by hand.
 
 E-026 is open in `docs/loop/backlog.json`.

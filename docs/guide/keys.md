@@ -52,7 +52,7 @@ Every key the editor answers to, written from the `BINDINGS` table in `crates/be
 | `Shift+B` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
 | `Cmd+B` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
 | `M` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
-| `N` | — | rename map |
+| `N` | — | rename map: type the name, then Enter moves the file now / Esc cancels |
 | `O` | — | pin / unpin |
 | `F` | while nothing in hand | fill: brush / learned / declared / composed |
 | `G` | while nothing in hand | fill: brush / learned / declared / composed |
