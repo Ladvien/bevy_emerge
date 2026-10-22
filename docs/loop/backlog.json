@@ -442,10 +442,10 @@
         "blocks": true,
         "common": false,
         "no_workaround": false,
-        "evidence": "Judgment: blocks yes (the refusal reports failure after the rename already happened: a wrong result), common no (rename is rare), workaround yes (delete the old file by hand). The rule makes a blocks-yes item must-fix; it is logged, not fixed, in the 2026-10-22 snip iteration (Main's decision), and flagged in the report as an open must-fix. Found by reviewer reading, not reproduced live."
+        "evidence": "Finisher's judgment: blocks yes (the refusal reports failure after the rename already happened: a wrong result), common no (rename is rare, and old-file removal rarely fails), workaround yes (delete the old file by hand; the message names it since b382ccf). Main's judgment: blocks no (both files survive, nothing is lost). The judgments disagree, so per the brief it is must-fix IF reproduced. Found by reviewer reading in the 2026-10-22 snip iteration and logged before any reproduction, so it is unconfirmed."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops.rs:1950-1956 writes the new file and then removes the old one; a failed removal returns a refusal without undoing the write. Error text names the old file (gap 5 fix, b382ccf).",
+      "status": "unconfirmed",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs:1950-1956 writes the new file and then removes the old one; a failed removal returns a refusal without undoing the write. Error text names the old file (gap 5 fix, b382ccf). To confirm: reuse the setup of tests/a_rename_is_all_or_nothing.rs::a_rename_that_cannot_remove_the_old_file_names_the_old_file (a directory standing where the old map file was; that test calls OpenMap::save directly, not the operation), then dispatch map_rename through the registry and check the answer (applied or refused), the oplog line, the open map's name, both paths on disk, and whether Cmd+Z can rename back.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
