@@ -691,8 +691,10 @@ impl Emerge {
                        position and the placements inside the rectangle. Each entry names its \
                        picture file, and the newest picture comes back as an image. It reads files \
                        the editor wrote, so it needs no editor running and changes nothing. Returns \
-                       how many snips there are, how many are shown, and each .json file in the \
-                       snips folder that is not a snip record or has no picture file, with the reason.",
+                       how many snips there are, how many are shown, the snips still being saved \
+                       (pending: confirmed in the editor, picture not yet written, so not yet in \
+                       the snips list) and each .json file in the snips folder that is not a snip \
+                       record or has no picture file, with the reason.",
         annotations(
             title = "List the snips the person took",
             read_only_hint = true,
@@ -716,6 +718,19 @@ impl Emerge {
             Err(e) => return Ok(refusal(&e)),
         };
         let (records, mut not_snips) = bevy_emerge_snip::read_snips(&dir);
+        let pending: Vec<Value> = bevy_emerge_snip::read_pending(&dir)
+            .iter()
+            .map(|r| {
+                let mut entry = serde_json::to_value(r).unwrap_or(Value::Null);
+                if let Value::Object(map) = &mut entry {
+                    map.insert(
+                        "status".to_string(),
+                        json!("being saved: the picture has not landed yet, so it is not in snips"),
+                    );
+                }
+                entry
+            })
+            .collect();
         let mut content = Vec::new();
         if let Some(newest) = records.first() {
             let path = dir.join(format!("{}.png", newest.stem));
@@ -750,6 +765,7 @@ impl Emerge {
             "total": records.len(),
             "shown": shown.len(),
             "snips": shown,
+            "pending": pending,
             "not_snips": not_snips,
         });
         content.push(rmcp::model::ContentBlock::text(

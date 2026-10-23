@@ -186,6 +186,61 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
+/// **The name a snip carries from the moment it is confirmed until its picture is written.** A
+/// file with this prefix is a record of a snip whose picture has not landed, so [`read_snips`]
+/// skips it and [`read_pending`] lists it.
+pub const PENDING_PREFIX: &str = "pending-";
+
+/// **Record a confirmed snip before its picture is taken.** The editor's readback lands a frame or
+/// more after the confirm, so without this record a read in between finds nothing at all.
+/// `create_new` means a record already there is refused rather than replaced.
+pub fn write_pending(dir: &Path, record: &SnipRecord) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("could not make {}: {e}", dir.display()))?;
+    let path = dir.join(format!("{PENDING_PREFIX}{}.json", record.stem));
+    let text = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
+    write_new(&path, text.as_bytes())?;
+    Ok(path)
+}
+
+/// **Remove a snip's pending record once its picture has landed, or its save has failed.** A
+/// record that was never removed would show a snip as being saved forever, so this runs on both
+/// outcomes. A record already gone is not an error.
+pub fn clear_pending(dir: &Path, stem: &str) {
+    let _ = std::fs::remove_file(dir.join(format!("{PENDING_PREFIX}{stem}.json")));
+}
+
+/// **The snips confirmed but not yet written, newest first.** Each record's stem is the one its
+/// picture will be given. A folder that does not exist has none.
+pub fn read_pending(dir: &Path) -> Vec<SnipRecord> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut records: Vec<SnipRecord> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                return None;
+            }
+            let stem = path
+                .file_stem()?
+                .to_str()?
+                .strip_prefix(PENDING_PREFIX)?
+                .to_string();
+            let text = std::fs::read_to_string(&path).ok()?;
+            let mut record: SnipRecord = serde_json::from_str(&text).ok()?;
+            record.stem = stem;
+            Some(record)
+        })
+        .collect();
+    records.sort_by(|a, b| {
+        b.taken_at_ms
+            .cmp(&a.taken_at_ms)
+            .then_with(|| b.stem.cmp(&a.stem))
+    });
+    records
+}
+
 /// **Read every snip in `dir`, newest first.** A file that is not a snip record is named in the
 /// second list rather than hiding the rest. A folder that does not exist has no snips.
 pub fn read_snips(dir: &Path) -> (Vec<SnipRecord>, Vec<String>) {
@@ -203,7 +258,11 @@ pub fn read_snips(dir: &Path) -> (Vec<SnipRecord>, Vec<String>) {
     let mut problems = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+        let pending = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with(PENDING_PREFIX));
+        if pending || path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
         // **The file's own name names the picture.** A stem written inside the record is not
@@ -339,6 +398,33 @@ mod written {
         let (records, problems) = read_snips(&fresh_dir("never_made"));
         assert!(records.is_empty());
         assert!(problems.is_empty());
+    }
+
+    /// **A snip confirmed on Enter is listed as pending until its picture lands.** The picture is
+    /// written by the editor's readback, which is a frame or more later, so a read in between must
+    /// say the snip exists and is still being saved, not return an empty list.
+    #[test]
+    fn a_confirmed_snip_is_pending_until_its_picture_lands() {
+        let dir = fresh_dir("pending");
+        let mut rec = record(7, "the gate is too narrow");
+        rec.stem = "snip-7".into();
+        write_pending(&dir, &rec).expect("the pending record is written");
+
+        let (records, problems) = read_snips(&dir);
+        assert!(records.is_empty(), "a pending snip is not yet a snip: {records:?}");
+        assert!(problems.is_empty(), "a pending snip is not a problem: {problems:?}");
+        let pending = read_pending(&dir);
+        assert_eq!(pending.len(), 1, "the pending snip is listed");
+        assert_eq!(pending[0].stem, "snip-7");
+        assert_eq!(pending[0].note, "the gate is too narrow");
+
+        write_snip(&dir, "snip-7", picture(), [0, 0, 16, 10], rec.clone())
+            .expect("the picture lands");
+        clear_pending(&dir, "snip-7");
+        assert!(read_pending(&dir).is_empty(), "the picture landed, so nothing is pending");
+        let (records, _) = read_snips(&dir);
+        assert_eq!(records.len(), 1, "the finished snip is listed");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

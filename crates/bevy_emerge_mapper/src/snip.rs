@@ -361,11 +361,16 @@ pub fn snip_commit(
     let dir = project.root.join(SNIP_DIR);
     let root: PathBuf = project.root.clone();
 
+    if let Err(e) = bevy_emerge_snip::write_pending(&dir, &record) {
+        state.status.problem(e);
+        return;
+    }
     commands.spawn(Screenshot::primary_window()).observe(
         move |shot: On<ScreenshotCaptured>, mut state: ResMut<EditorState>| {
             let rgba = match shot.image.clone().try_into_dynamic() {
                 Ok(dynamic) => dynamic.to_rgba8(),
                 Err(e) => {
+                    bevy_emerge_snip::clear_pending(&dir, &stem);
                     state.status.problem(format!(
                         "the capture cannot become a picture ({e:?}); nothing was saved."
                     ));
@@ -381,6 +386,7 @@ pub fn snip_commit(
                 record.clone(),
             ) {
                 Ok(files) => {
+                    bevy_emerge_snip::clear_pending(&dir, &stem);
                     let shown = files
                         .png
                         .strip_prefix(&root)
@@ -389,7 +395,10 @@ pub fn snip_commit(
                         .to_string();
                     state.status.note(format!("snip saved to {shown}"));
                 }
-                Err(e) => state.status.problem(e),
+                Err(e) => {
+                    bevy_emerge_snip::clear_pending(&dir, &stem);
+                    state.status.problem(e)
+                }
             }
         },
     );

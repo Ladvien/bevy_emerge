@@ -762,6 +762,38 @@ fn a_snip_whose_picture_is_missing_is_named_and_the_list_still_answers() {
     );
 }
 
+/// **A snip confirmed in the editor and not yet written is listed as pending, not as nothing.**
+/// The picture lands a frame or more after the confirm, so an agent that lists straight after the
+/// Enter must see the snip, with a status that says it is still being saved.
+#[test]
+fn a_snip_still_being_saved_is_listed_as_pending() {
+    let (project, dir) = snips_folder("pending");
+    bevy_emerge_snip::write_pending(&dir, &record("snip-3000", 3000, "the gate is too narrow"))
+        .expect("the pending record is written");
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_snips", json!({}));
+    assert!(
+        answer["result"]["isError"].as_bool() != Some(true),
+        "{answer}"
+    );
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    assert_eq!(body["total"], 0, "a pending snip is not a finished one: {body}");
+    assert_eq!(body["pending"][0]["stem"], "snip-3000", "{body}");
+    assert_eq!(
+        body["pending"][0]["note"], "the gate is too narrow",
+        "{body}"
+    );
+    assert!(
+        body["pending"][0]["status"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("being saved"),
+        "a pending snip does not say it is still being saved: {body}"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
 /// **The picture is named by the record file's own name.** A record that names a stem with path
 /// separators must not send the picture outside the folder. Before the fix the stem inside the record
 /// was joined onto the folder, so the picture path pointed at `../../escape.png`.
