@@ -3047,6 +3047,50 @@ pub fn select_piece(import: &mut crate::tiles::ImportState, project: &Project, i
     }
 }
 
+/// **Set one library piece's label axis through the operation** (E-042). The chip calls this for a
+/// piece in the library, so a person's light goes to the operation log and is undone with the rest.
+/// `Source::Human` stamps the label as a person's decision. Returns `true` when the write landed,
+/// so the caller records the change only then; a refusal goes to the status row.
+pub fn set_label(
+    import: &mut crate::tiles::ImportState,
+    project: &mut crate::project::Project,
+    id: &str,
+    axis: &str,
+    tokens: &[String],
+) -> bool {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let params = serde_json::json!({"id": id, "axis": axis, "tokens": tokens});
+    match crate::ops::dispatch(&mut ctx, "label_set", &params) {
+        Ok(crate::ops::Applied::Done { .. }) => {
+            if let Some(fresh) = ctx.project {
+                adopt_library(project, &fresh);
+            }
+            true
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            import.status.problem(e.0);
+            false
+        }
+    }
+}
+
+/// **Carry the library a label operation changed onto the live project.** Only the fields a
+/// library write touches move: the measured library and the layers the Map draws from it. A
+/// clone is not the live state, so without this the write would reach the file and not the screen.
+pub fn adopt_library(live: &mut crate::project::Project, fresh: &crate::project::Project) {
+    live.measured = fresh.measured.clone();
+    live.library = fresh.library.clone();
+    live.masks = fresh.masks.clone();
+    live.kits = fresh.kits.clone();
+    live.triangles = fresh.triangles.clone();
+    live.touched = fresh.touched.clone();
+}
+
 /// Grow or shrink one axis. Clamped at one cell rather than at zero: a map has to enclose something,
 /// and `Map::validate` refuses a non-positive extent — better to stop at the floor than to write a
 /// map the save will then reject.

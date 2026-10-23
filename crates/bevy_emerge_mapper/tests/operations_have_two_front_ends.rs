@@ -92,6 +92,9 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The shelf's row click (E-044)**, which selects through `on_library_click`, which calls
     // `select_piece` and dispatches `piece_select`.
     ("piece_select", "select_piece("),
+    // **The label chips (E-042)**, which toggle one token on a library piece's axis through
+    // `toggle_tag`, which calls `set_label` and dispatches `label_set` with the person's source.
+    ("label_set", "set_label("),
 ];
 
 /// **Every operation has a BRP command, and the editor running is what says so.**

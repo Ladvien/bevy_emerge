@@ -187,6 +187,10 @@ pub enum By {
     Model,
     /// A person typed it, clicked it, or confirmed it in the editor.
     Human,
+    /// An agent wrote it through a registered operation (`label_set`). **Not a person's word**, so
+    /// it counts as unconfirmed, the same as a model's; and not a model's, so the record does not
+    /// claim a VLM said it.
+    Agent,
 }
 
 /// How sure a labeller said it was — display only, never a branch.
@@ -266,12 +270,13 @@ impl AxisOrigin {
         }
     }
 
-    /// **Whether a model wrote an axis that nobody has since confirmed.** The one predicate the
-    /// labels row and `emerge_list_pieces`' `by_model` both ask, so the two cannot disagree about
-    /// which pieces still await a person.
-    pub fn any_by_model(&self) -> bool {
+    /// **Whether a model or an agent wrote an axis that nobody has since confirmed.** The one
+    /// predicate the labels row and `emerge_list_pieces`' `by_model` both ask, so the two cannot
+    /// disagree about which pieces still await a person.
+    pub fn any_unconfirmed(&self) -> bool {
         [self.kind, self.effects, self.look, self.surfaces, self.mount, self.note]
-            .contains(&Some(By::Model))
+            .iter()
+            .any(|by| matches!(by, Some(By::Model | By::Agent)))
     }
 }
 

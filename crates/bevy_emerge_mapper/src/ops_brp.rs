@@ -180,6 +180,16 @@ fn put_back(
     {
         handle.rules = fresh;
     }
+    // **The library too, when an operation changed it** (E-042). `commit_measured` writes the
+    // library and the layers the Map draws from it, so a label kept only in the clone would be on
+    // disk and not on screen. Compared first, for the reason the rules are: most operations change
+    // no library, and writing through `as_deref_mut` marks the resource changed.
+    if let Some(fresh) = ctx.project.as_ref()
+        && project.as_deref().is_some_and(|p| p.measured != fresh.measured)
+        && let Some(handle) = project.as_deref_mut()
+    {
+        crate::editor::adopt_library(handle, fresh);
+    }
     if let Some(fresh) = ctx.open
         && let Some(handle) = open.as_deref_mut()
     {
@@ -423,7 +433,7 @@ fn axis_values(d: &Descriptor) -> [(&'static str, Axis, Value); 6] {
 /// with every field `null` and no axes, so a row never changes shape with its provenance.
 ///
 /// Returns the provenance, whether the piece is unlabelled (no axis labelled), and whether any
-/// axis was written by the model and never confirmed by a person.
+/// axis was written by a model or an agent and never confirmed by a person.
 fn provenance(d: &Descriptor) -> (Value, bool, bool) {
     let mut axes = serde_json::Map::new();
     for (name, axis, value) in axis_values(d) {
@@ -433,10 +443,11 @@ fn provenance(d: &Descriptor) -> (Value, bool, bool) {
         let by = match by {
             By::Model => "model",
             By::Human => "human",
+            By::Agent => "agent",
         };
         axes.insert(name.to_owned(), json!({"value": value, "by": by}));
     }
-    let by_model = d.labels.as_ref().is_some_and(|l| l.by.any_by_model());
+    let by_model = d.labels.as_ref().is_some_and(|l| l.by.any_unconfirmed());
     let unlabelled = axes.is_empty();
     let (model, at, confidence) = match &d.labels {
         Some(l) => (l.model.clone(), Some(l.at.clone()), l.confidence.map(|c| c.to_string())),

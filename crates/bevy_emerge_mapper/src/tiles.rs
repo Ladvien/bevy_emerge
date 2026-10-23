@@ -3199,7 +3199,7 @@ fn write_library(project: &mut Project) -> Result<std::path::PathBuf, String> {
 /// therefore byte-identical to what was already there, the change vanished, and the status line
 /// reported success: *"added `crate_b` — it is in the palette now"* about a palette that never gained
 /// it. A derived layer is not a place to keep anything; this is the only door to the one that is.
-fn commit_measured(
+pub(crate) fn commit_measured(
     project: &mut Project,
     measured: bevy_emerge_core::library::Library,
 ) -> Result<std::path::PathBuf, String> {
@@ -6306,6 +6306,25 @@ fn toggle_tag(axis: Axis, token_ix: usize, project: &mut Project, state: &mut Im
     let Some((d, where_to)) = state.editing_mut(&mut project.measured) else {
         return;
     };
+    // **A library entry goes through the operation** (E-042). The chip names one token, so the axis's
+    // whole new list is the old one with that token toggled. `label_set` sorts it and stamps it as a
+    // person's decision, and the write is logged, so it can be undone with the rest.
+    if where_to == Persist::Library {
+        let id = d.id.clone();
+        let mut next = axis.list(d).clone();
+        match next.iter().position(|t| *t == token) {
+            Some(i) => {
+                next.remove(i);
+            }
+            None => next.push(token.clone()),
+        }
+        if crate::editor::set_label(state, project, &id, wire_axis(axis), &next) {
+            state.record(history_before);
+            let said = format!("{} tags updated", axis.label().to_lowercase());
+            state.status.say(persist(project, where_to, said));
+        }
+        return;
+    }
     let list = axis.list(d);
     match list.iter().position(|t| *t == token) {
         Some(i) => {
@@ -6335,6 +6354,16 @@ fn toggle_tag(axis: Axis, token_ix: usize, project: &mut Project, state: &mut Im
     let said = format!("{} tags updated", axis.label().to_lowercase());
     state.record(history_before);
     state.status.say(persist(project, where_to, said));
+}
+
+/// **The name an operation's `axis` field uses for one token axis** (E-042).
+fn wire_axis(axis: Axis) -> &'static str {
+    match axis {
+        Axis::Kind => "kind",
+        Axis::Effects => "effects",
+        Axis::Look => "look",
+        Axis::Surfaces => "surfaces",
+    }
 }
 
 // **No `Res<Build>` any more.** This system used to read `build.placing` to decide whether the arrows
@@ -9464,7 +9493,7 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                         // **Some axis is still a model's and nobody has confirmed it**: the unchecked
                         // colour, with the model's own date. A later touch by a person is said beside
                         // it, so the one date on the row is never mistaken for the other.
-                        Some(m) if l.by.any_by_model() => {
+                        Some(m) if l.by.any_unconfirmed() => {
                             let touched = (model_date != l.at).then(|| format!("touched {}", l.at));
                             let short = crate::labels::model_short(m).to_owned();
                             (

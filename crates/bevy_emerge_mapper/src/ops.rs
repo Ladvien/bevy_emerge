@@ -352,6 +352,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(brush_arm::BrushArm),
         Box::new(door_open::DoorOpen),
         Box::new(piece_select::PieceSelect),
+        Box::new(label_set::LabelSet),
     ]
 }
 
@@ -1526,6 +1527,334 @@ pub mod placement_set_yaw {
                 saved,
                 inverse: Some(inverse),
                 after,
+            })
+        }
+    }
+}
+
+/// **Set one library piece's label axis to a list of vocabulary tokens** (E-042). An agent calls
+/// this, and so does a person through the chip; the write is the same and the provenance is the
+/// caller's `Source`, so the label says who put the tokens there. Mount and note are not vocabulary
+/// lists, so they are not here.
+pub mod label_set {
+    use super::*;
+    use bevy_emerge_core::descriptor::{Axis, By, Descriptor, LabelOrigin};
+    use bevy_emerge_core::vocab::{Vocabularies, Vocabulary};
+    use serde_json::json;
+
+    /// **The axes an agent can set.** The order is the order the schema lists them in.
+    const AXES: [&str; 4] = ["kind", "effects", "look", "surfaces"];
+
+    /// **What a piece carries on the axes and its label**, which an undo puts back exactly.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Record {
+        pub kind: Vec<String>,
+        pub effects: Vec<String>,
+        pub look: Vec<String>,
+        pub surfaces: Vec<String>,
+        pub labels: Option<LabelOrigin>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The library piece's id, as `emerge/pieces` names it.
+        pub id: String,
+        /// Which axis to set. Absent on an undo's put-back.
+        #[serde(default)]
+        pub axis: Option<String>,
+        /// The tokens the axis should hold, which replace it. Absent on an undo's put-back.
+        #[serde(default)]
+        pub tokens: Option<Vec<String>>,
+        /// **Undo only.** The whole record to put back, exactly as it was.
+        #[serde(default)]
+        pub restore: Option<Record>,
+    }
+
+    /// **What a request asks for**: a set of tokens, or an undo's exact put-back. Never both.
+    enum Request {
+        Set {
+            id: String,
+            axis: String,
+            tokens: Vec<String>,
+        },
+        Restore {
+            id: String,
+            record: Record,
+        },
+    }
+
+    /// **The parameters, parsed and shaped.** `deny_unknown_fields`, so a typo is a refusal.
+    fn request(raw: &serde_json::Value) -> Result<Request, Refusal> {
+        let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+            Refusal::new(format!(
+                "this is not a label to set: {e}. The fields are `id`, `axis` (kind, effects, look \
+                 or surfaces) and `tokens`."
+            ))
+        })?;
+        match (p.restore, p.axis, p.tokens) {
+            (Some(record), None, None) => Ok(Request::Restore { id: p.id, record }),
+            (Some(_), _, _) => Err(Refusal::new(
+                "a restore names the whole record, so it takes `id` and `restore` and nothing else.",
+            )),
+            (None, Some(axis), Some(tokens)) => {
+                if !AXES.contains(&axis.as_str()) {
+                    return Err(Refusal::new(format!(
+                        "`{axis}` is not a label axis. The axes are kind, effects, look and \
+                         surfaces. Nothing was set."
+                    )));
+                }
+                Ok(Request::Set {
+                    id: p.id,
+                    axis,
+                    tokens,
+                })
+            }
+            (None, _, _) => Err(Refusal::new(
+                "setting a label needs `id`, `axis` and `tokens`. Nothing was set.",
+            )),
+        }
+    }
+
+    /// **The vocabulary one axis draws its tokens from.**
+    fn vocab_for<'a>(v: &'a Vocabularies, axis: &str) -> &'a Vocabulary {
+        match axis {
+            "kind" => &v.kind,
+            "effects" => &v.effects,
+            "look" => &v.look,
+            _ => &v.surfaces,
+        }
+    }
+
+    /// **The token list one axis holds on a piece.**
+    fn list_of<'a>(d: &'a mut Descriptor, axis: &str) -> &'a mut Vec<String> {
+        match axis {
+            "kind" => &mut d.kind,
+            "effects" => &mut d.effects,
+            "look" => &mut d.look,
+            _ => &mut d.offers.surfaces,
+        }
+    }
+
+    fn axis_of(axis: &str) -> Axis {
+        match axis {
+            "kind" => Axis::Kind,
+            "effects" => Axis::Effects,
+            "look" => Axis::Look,
+            _ => Axis::Surfaces,
+        }
+    }
+
+    /// **The tokens, checked against the axis's vocabulary and put in its order.** A token the
+    /// vocabulary does not hold is refused with the nearest one, and a token listed twice is
+    /// refused, because a set that names a thing twice is not a set. The vocabulary order means
+    /// the same set always writes the same line.
+    fn checked(vocab: &Vocabulary, axis: &str, tokens: &[String]) -> Result<Vec<String>, Refusal> {
+        let mut seen: Vec<&str> = Vec::new();
+        for t in tokens {
+            if !vocab.contains(t) {
+                let hint = bevy_emerge_core::vocab::nearest(vocab, t)
+                    .map(|n| format!(" Did you mean `{n}`?"))
+                    .unwrap_or_default();
+                return Err(Refusal::new(format!(
+                    "`{t}` is not a {axis} token.{hint} Nothing was set."
+                )));
+            }
+            if seen.contains(&t.as_str()) {
+                return Err(Refusal::new(format!(
+                    "`{t}` is listed twice on {axis}. Nothing was set."
+                )));
+            }
+            seen.push(t);
+        }
+        Ok(vocab
+            .names()
+            .filter(|n| seen.contains(n))
+            .map(str::to_string)
+            .collect())
+    }
+
+    /// **The record a piece has now**, which an undo checks and a put-back restores.
+    fn record_of(d: &Descriptor) -> Record {
+        Record {
+            kind: d.kind.clone(),
+            effects: d.effects.clone(),
+            look: d.look.clone(),
+            surfaces: d.offers.surfaces.clone(),
+            labels: d.labels.clone(),
+        }
+    }
+
+    /// **The state an agent reads back**: the axes and the label, by piece id.
+    fn state_json(d: &Descriptor) -> serde_json::Value {
+        json!({
+            "id": d.id,
+            "kind": d.kind,
+            "effects": d.effects,
+            "look": d.look,
+            "surfaces": d.offers.surfaces,
+            "labels": d.labels,
+        })
+    }
+
+    /// **Write one axis and stamp it with the caller's provenance.** A kind change settles the
+    /// effects it implies, and a changed effects list is stamped too, so the label never claims
+    /// an effect it did not put there.
+    fn set_axis(d: &mut Descriptor, vocab: &Vocabularies, axis: &str, tokens: Vec<String>, by: By) {
+        let effects_before = d.effects.clone();
+        *list_of(d, axis) = tokens;
+        crate::labels::stamp_by(d, axis_of(axis), by);
+        if axis == "kind" {
+            crate::labels::settle_implied_effects(d, vocab);
+            if d.effects != effects_before {
+                crate::labels::stamp_by(d, Axis::Effects, by);
+            }
+        }
+    }
+
+    /// **The edit, computed on a copy of the measured library.** Nothing is written here; the
+    /// commit does that, and a refused write then leaves the piece as it was.
+    struct Edit {
+        measured: bevy_emerge_core::library::Library,
+        before: Record,
+        after: serde_json::Value,
+        summary: String,
+    }
+
+    fn edit(project: &Project, source: Source, req: &Request) -> Result<Edit, Refusal> {
+        let id = match req {
+            Request::Set { id, .. } | Request::Restore { id, .. } => id,
+        };
+        let mut measured = project.measured.clone();
+        let index = measured
+            .descriptors
+            .iter()
+            .position(|d| &d.id == id)
+            .ok_or_else(|| {
+                Refusal::new(format!(
+                    "no library piece is called `{id}`, so nothing was set. Pick one from the \
+                     Meshes shelf."
+                ))
+            })?;
+        let d = &mut measured.descriptors[index];
+        let before = record_of(d);
+        let (summary, after) = match req {
+            Request::Set { axis, tokens, .. } => {
+                let tokens = checked(vocab_for(&project.vocab, axis), axis, tokens)?;
+                let by = match source {
+                    Source::Human => By::Human,
+                    Source::Agent => By::Agent,
+                };
+                set_axis(d, &project.vocab, axis, tokens, by);
+                (format!("set {axis} on `{id}`"), state_json(d))
+            }
+            Request::Restore { record, .. } => {
+                d.kind = record.kind.clone();
+                d.effects = record.effects.clone();
+                d.look = record.look.clone();
+                d.offers.surfaces = record.surfaces.clone();
+                d.labels = record.labels.clone();
+                (format!("restored `{id}`"), state_json(d))
+            }
+        };
+        Ok(Edit {
+            measured,
+            before,
+            after,
+            summary,
+        })
+    }
+
+    /// **Set one piece's label axis.**
+    pub struct LabelSet;
+
+    impl Operation for LabelSet {
+        fn name(&self) -> &'static str {
+            "label_set"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "axis", "tokens"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The library piece's id, as emerge/pieces names it."
+                    },
+                    "axis": {
+                        "type": "string",
+                        "enum": AXES,
+                        "description": "Which label axis to set: kind, effects, look or surfaces."
+                    },
+                    "tokens": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "The vocabulary tokens the axis should hold. Replaces the axis; a token the vocabulary does not hold, or one listed twice, is refused."
+                    }
+                }
+            })
+        }
+
+        /// **An undo's put-back is never a request an agent may send.**
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            matches!(request(params), Ok(Request::Restore { .. }))
+        }
+
+        /// **The piece's state now**, against the one the change recorded. A piece that has gone
+        /// missing answers nothing, so an undo cannot match it.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let id = after.get("id")?.as_str()?;
+            let project = ctx.project.as_ref()?;
+            let d = project.measured.descriptors.iter().find(|d| d.id == id)?;
+            Some(state_json(d))
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let req = request(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to set a label in.",
+                ));
+            };
+            Ok(edit(project, ctx.source, &req)?.after)
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let req = request(params)?;
+            let source = ctx.source;
+            let id = match &req {
+                Request::Set { id, .. } | Request::Restore { id, .. } => id.clone(),
+            };
+            let Some(project) = ctx.project.as_mut() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to set a label in.",
+                ));
+            };
+            let e = edit(project, source, &req)?;
+            // **The file first.** `commit_measured` writes and only then adopts the library, so a
+            // refused save leaves the piece and the editor as they were.
+            if let Err(msg) = crate::tiles::commit_measured(project, e.measured) {
+                return Err(Refusal::new(format!(
+                    "the file refused the change, so nothing was written and the piece is unchanged: {msg}"
+                )));
+            }
+            Ok(Outcome {
+                summary: e.summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({"id": id, "restore": e.before})),
+                after: Some(e.after),
             })
         }
     }

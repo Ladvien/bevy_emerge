@@ -1487,7 +1487,9 @@ pub fn apply_fields(
         origin.by = if was.model.as_deref() == Some(stamp.model.as_str()) {
             was.by
         } else {
-            let by_hand = |b: Option<By>| b.filter(|b| *b == By::Human);
+            // An agent's claim names no model, so a different model's arrival does not make it
+            // wrong: it carries forward with a person's, as the author's word.
+            let by_hand = |b: Option<By>| b.filter(|b| matches!(b, By::Human | By::Agent));
             AxisOrigin {
                 kind: by_hand(was.by.kind),
                 effects: by_hand(was.by.effects),
@@ -1577,7 +1579,18 @@ pub(crate) fn stamp_human(
     d: &mut bevy_emerge_core::descriptor::Descriptor,
     axis: bevy_emerge_core::descriptor::Axis,
 ) {
-    use bevy_emerge_core::descriptor::{By, LabelOrigin};
+    stamp_by(d, axis, bevy_emerge_core::descriptor::By::Human);
+}
+
+/// **Stamp one axis with the provenance of whoever wrote it** (E-042). A person writes `By::Human`
+/// and an agent writes `By::Agent`; the two are never folded together, because an agent's claim is
+/// unconfirmed until a person looks. `at` moves to today for either.
+pub(crate) fn stamp_by(
+    d: &mut bevy_emerge_core::descriptor::Descriptor,
+    axis: bevy_emerge_core::descriptor::Axis,
+    by: bevy_emerge_core::descriptor::By,
+) {
+    use bevy_emerge_core::descriptor::LabelOrigin;
 
     let today = date_today();
     let record = d.labels.get_or_insert_with(|| LabelOrigin {
@@ -1585,7 +1598,7 @@ pub(crate) fn stamp_human(
         ..Default::default()
     });
     record.at = today;
-    record.by.set(axis, By::Human);
+    record.by.set(axis, by);
 }
 
 /// **The model's name as a person reads it on a row**: its last path segment with the weight-file
