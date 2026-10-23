@@ -852,6 +852,39 @@ fn append(ctx: &Ctx, entry: &Entry) -> Result<(), String> {
     Ok(())
 }
 
+/// Edit distance between two ids. Core's `vocab::edit_distance` is private, and the ops that
+/// suggest ids need only a short list, so they share this one.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let old = row[j + 1];
+            row[j + 1] = if ca == *cb {
+                prev
+            } else {
+                1 + prev.min(row[j]).min(old)
+            };
+            prev = old;
+        }
+    }
+    row[b.len()]
+}
+
+/// The three ids closest to `bad`, nearest first.
+fn nearest_ids(ids: &[&str], bad: &str) -> Vec<String> {
+    let mut scored: Vec<(usize, &str)> =
+        ids.iter().map(|id| (levenshtein(id, bad), *id)).collect();
+    scored.sort();
+    scored
+        .into_iter()
+        .take(3)
+        .map(|(_, id)| id.to_string())
+        .collect()
+}
+
 /// **The operations a map's own settings are changed by.**
 pub mod map_set_settings {
     use super::*;
@@ -1758,8 +1791,19 @@ pub mod label_set {
             .iter()
             .position(|d| &d.id == id)
             .ok_or_else(|| {
+                if let Some(ns) = project.other_kit_of(id) {
+                    return Refusal::new(format!(
+                        "`{id}` belongs to kit `{ns}`, not the kit being authored (`{}`), so nothing was set.",
+                        project.namespace
+                    ));
+                }
+                let ids: Vec<&str> = measured.descriptors.iter().map(|d| d.id.as_str()).collect();
+                let hint = match nearest_ids(&ids, id) {
+                    near if near.is_empty() => String::new(),
+                    near => format!(" Close ids: {}.", near.join(", ")),
+                };
                 Refusal::new(format!(
-                    "no library piece is called `{id}`, so nothing was set. Pick one from the \
+                    "no library piece is called `{id}`, so nothing was set.{hint} Pick one from the \
                      Meshes shelf."
                 ))
             })?;
@@ -2302,39 +2346,6 @@ pub mod piece_select {
     }
 
     pub struct PieceSelect;
-
-    /// Edit distance between two ids. Core's `vocab::edit_distance` is private, and this op needs
-    /// only a short suggestion list, so the op carries its own.
-    fn levenshtein(a: &str, b: &str) -> usize {
-        let b: Vec<char> = b.chars().collect();
-        let mut row: Vec<usize> = (0..=b.len()).collect();
-        for (i, ca) in a.chars().enumerate() {
-            let mut prev = row[0];
-            row[0] = i + 1;
-            for (j, cb) in b.iter().enumerate() {
-                let old = row[j + 1];
-                row[j + 1] = if ca == *cb {
-                    prev
-                } else {
-                    1 + prev.min(row[j]).min(old)
-                };
-                prev = old;
-            }
-        }
-        row[b.len()]
-    }
-
-    /// The three ids closest to `bad`, nearest first.
-    fn nearest_ids(ids: &[&str], bad: &str) -> Vec<String> {
-        let mut scored: Vec<(usize, &str)> =
-            ids.iter().map(|id| (levenshtein(id, bad), *id)).collect();
-        scored.sort();
-        scored
-            .into_iter()
-            .take(3)
-            .map(|(_, id)| id.to_string())
-            .collect()
-    }
 
     /// **The answer to a selection, validated.** `plan` and `commit` share it.
     fn selection_answer(ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {

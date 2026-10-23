@@ -645,6 +645,12 @@ pub(crate) fn piece_select_refusal(
     }
     let known = project.library.descriptors.iter().any(|d| d.id == id);
     if known && project.measured.get(id).is_none() {
+        if let Some(ns) = project.other_kit_of(id) {
+            return Some(format!(
+                "`{id}` belongs to kit `{ns}`, not the kit being authored (`{}`).",
+                project.namespace
+            ));
+        }
         return Some(format!(
             "`{id}` is not on the shelf, because it has no measurement yet."
         ));
