@@ -523,6 +523,9 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
     };
     let path = oplog_path(project);
     let text = std::fs::read_to_string(&path).unwrap_or_default();
+    // **A change that records no undo, by id and op name.** It stays out of the undo lines, so an
+    // undo of its id can say what it is rather than that it is not in the log.
+    let mut silent: HashMap<String, String> = HashMap::new();
     let mut lines = Vec::new();
     for (n, raw) in text
         .lines()
@@ -537,8 +540,13 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
                 path.display()
             ))
         })?;
-        if entry.outcome == "applied" && find(&entry.op).is_none_or(|op| op.undo() != Undo::None) {
-            lines.push(entry);
+        let records_no_undo = find(&entry.op).is_some_and(|op| op.undo() == Undo::None);
+        if entry.outcome == "applied" {
+            if records_no_undo {
+                silent.insert(entry.operation_id.clone(), entry.op.clone());
+            } else {
+                lines.push(entry);
+            }
         }
     }
     // **Each line's chain, whether each chain is in effect, and each chain's newest line.**
@@ -583,6 +591,12 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
             chain
         }
         Some(id) => {
+            if let Some(op) = silent.get(id) {
+                return Err(Refusal::new(format!(
+                    "`{id}` is a {op} and changes nothing, so there is nothing to undo. \
+                     emerge_read_oplog lists the changes that can be undone."
+                )));
+            }
             let Some(chain) = chain_of.get(id).copied() else {
                 return Err(Refusal::new(format!(
                     "no operation `{id}` is in the log. emerge_read_oplog lists the ids."

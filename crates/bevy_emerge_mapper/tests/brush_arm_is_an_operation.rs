@@ -173,3 +173,41 @@ fn an_arm_that_cannot_be_logged_says_nothing_was_changed() {
     assert_eq!(armed(&app), before, "the held piece is unchanged");
     let _ = std::fs::remove_dir_all(&log);
 }
+
+/// **The id of the newest line in the log**, the arm's own line when the test has just armed.
+fn newest_operation_id(app: &App) -> String {
+    let project = app.world().resource::<Project>();
+    let text = std::fs::read_to_string(ops::oplog_path(project)).expect("the log is read");
+    let last = text
+        .lines()
+        .rfind(|l| !l.trim().is_empty())
+        .expect("the log has a line");
+    let line: serde_json::Value = serde_json::from_str(last).expect("the line is JSON");
+    line["operation_id"].as_str().expect("the line names its id").to_owned()
+}
+
+/// **Undoing an arm by its id says there is nothing to take back.** An arm changes no map and
+/// records no inverse, so the log lists it but the undo path must not answer as if the id were
+/// missing from the log.
+#[test]
+fn undo_names_an_arm_as_having_nothing_to_take_back() {
+    let mut app = editor("arm_undo_by_id");
+    let answer = arm(&mut app, "site/gate");
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let id = newest_operation_id(&app);
+
+    let answer = call(
+        &mut app,
+        "emerge/operation_undo",
+        serde_json::json!({"operation_id": id, "dry_run": false}),
+    );
+    let text = answer.to_string();
+    assert!(
+        text.contains("nothing to undo"),
+        "an arm must be named as having nothing to undo: {answer}"
+    );
+    assert!(
+        !text.contains("is in the log"),
+        "the arm is in the log, so the refusal must not say it is not: {answer}"
+    );
+}
