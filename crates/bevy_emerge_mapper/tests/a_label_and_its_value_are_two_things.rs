@@ -91,14 +91,15 @@ fn the_labels_gap_is_the_design_systems_row_gap() {
     );
 }
 
-/// **`row_label`'s body, out of the source.**
+/// **`row_label_with`'s body, out of the source.** `row_label` delegates to it, and it is the one
+/// builder every label goes through: B-013 gave it a marker parameter, so the spawn moved here.
 fn row_label_body(src: &str) -> String {
-    // **The definition, not a doc mention.** `chrome.rs` names `row_label` in a doc comment
+    // **The definition, not a doc mention.** `chrome.rs` names `row_label_with` in a doc comment
     // before it defines it, and a split on the bare name would take the mention.
     let after = src
-        .split("pub fn row_label(row: &mut ChildSpawnerCommands")
+        .split("pub fn row_label_with(")
         .nth(1)
-        .expect("chrome.rs defines a row_label");
+        .expect("chrome.rs defines a row_label_with");
     // **The body, up to the next top-level `fn`.** A `\n}\n` split would stop at the first
     // closing brace, which is the `Node { ... }` block's — three lines into the function.
     let mut body = String::new();
