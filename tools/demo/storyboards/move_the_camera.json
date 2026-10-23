@@ -1,17 +1,16 @@
 {
   "name": "move_the_camera",
-  "fps": 15,
+  "fps": 8,
   "scale": 2,
   "width": 600,
   "crop": [470, 64, 950, 690],
-  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-30, -40, 60, 10]}}}],
-  "chunks": [{"seconds": 6}],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [16.6, -69.9, 56.6, -39.9]}}}],
+  "chunks": [{"seconds": 4.0}],
   "steps": [
-    {"at": 0.4, "caption": "person: hold D to pan right"},
-    {"at": 0.6, "hold": "KeyD", "secs": 1.5},
-    {"at": 2.3, "caption": "person: hold S to pan toward you"},
-    {"at": 2.5, "hold": "KeyS", "secs": 1.5},
-    {"at": 4.1, "caption": "person: hold A to pan back left"},
-    {"at": 4.3, "hold": "KeyA", "secs": 1.4}
+    {"at": 0.4, "caption": "person: taps A and D to pan left and right"},
+    {"at": 0.8, "hold": "KeyD", "secs": 0.1},
+    {"at": 1.5, "hold": "KeyA", "secs": 0.1},
+    {"at": 2.2, "hold": "KeyD", "secs": 0.1},
+    {"at": 2.9, "hold": "KeyA", "secs": 0.1}
   ]
 }

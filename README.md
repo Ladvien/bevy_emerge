@@ -112,27 +112,43 @@ Review: after Enter the status line confirms the snip. The GIF at the top shows 
 
 Goal: bring the whole map back into view after you have zoomed in on part of it.
 
-![Starts zoomed in on one corner; Home frames the whole map](docs/media/frame-the-map.gif)
+![A small 34 x 34 m block map: starts zoomed in on one corner; Home frames the whole block](docs/media/frame-the-map.gif)
 
 1. Press Home. On a Mac laptop without a Home key, press Fn+←.
 
-Review: the inspector's UNDER line reads "framed the whole map (300 x 1120 m)". The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing in full.
+Review: the inspector's LAST line reads "framed the whole map (34 x 34 m)" on the block map (the town map reads its own size, 300 x 1120 m). The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing in full.
 
 If it doesn't work: if Home frames one piece instead of the whole map, a piece is locked as the target (H picks it). Press Esc, or move the cursor off its cell, and Home frames the whole map again.
 
 ### Move the camera
 
-Goal: pan across the town.
+Goal: pan left and right over the abbey.
 
-![The camera pans left and right across the town](docs/media/move-the-camera.gif)
+![The camera pans left and right over the abbey and the town wall, one tap of A or D at a time](docs/media/move-the-camera.gif)
 
-Review: hold A and D to pan left and right. The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing and the camera in full.
+Review: tap A and D to pan left and right. The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing and the camera in full.
+
+### Review a kit's labels
+
+Goal: see which pieces a model labelled, and read the labels on one piece.
+
+![An agent lists the pieces a model labelled and opens the kit door; the arrow keys walk down the piece list, and the INSPECTOR labels row leads with the confidence, then the model file and the date](docs/media/review-labels.gif)
+
+1. Press = to cross to the kit door. It opens on the Meshes tab.
+2. Press → to move into the piece list, then ↓ and Shift+↓ to walk down it.
+3. Read the INSPECTOR's labels row. It leads with how sure the model was, then names the model file and the date the labels were made.
+
+Review: the labels row reads like `confidence high · <model file> · <date>`, and wraps inside the panel when the model's name is long. Model labels show in the unchecked colour until a person confirms each axis. An agent finds the same pieces with `emerge_list_pieces`: `unlabelled` lists the pieces nobody has labelled, `by_model` lists the pieces a model labelled, and `confidence` narrows that list. The [kit guide](docs/guide/kit-meshes-tiles-compositions.md) covers the labels row in full.
+
+If it doesn't work: if = does nothing, a question may be on screen. Answer it, then press = again. If the map has unsaved edits, the editor asks before it leaves for the kit door, so choose Save and go or Stay.
 
 ## Agents
 
-The MCP server gives an agent the same typed operations a person uses, including removing pieces, a box and a stamp (`placement_remove` and `stamp_remove`). The [tool reference](docs/mcp-tools.md) lists the eleven tools and their parameters. An agent's change lands in the same operation log and undo history as yours, and it shows on your receipt: the UNDER line in the inspector. A refusal goes to the toast and the journal (Cmd+E).
+The MCP server gives an agent the same typed operations a person uses, including removing pieces, a box and a stamp (`placement_remove` and `stamp_remove`). The [tool reference](docs/mcp-tools.md) lists the twelve tools and their parameters. An agent's change lands in the same operation log and undo history as yours, and it shows on your receipt: the LAST line in the inspector. A refusal goes to the toast and the journal (Cmd+E).
 
 ![An agent removes the abbey with placement_remove, the church disappears, then Cmd+Z puts it back](docs/media/agent-removes-then-undo.gif)
+
+An agent can cross to the kit door or the map door with `door_open`, and find pieces by their labels with `emerge_list_pieces`.
 
 Known gaps:
 

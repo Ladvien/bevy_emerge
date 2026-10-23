@@ -661,3 +661,67 @@ fn a_snip_armed_over_a_button_does_not_press_it() {
         "disarmed: picking is back on"
     );
 }
+
+/// **The drag box is plainly visible.** A snip's rectangle was drawn with a wash at alpha 0.08 and a
+/// 2 px border, which measured as about 1% of a 600 px-wide capture: the box was there, but nobody
+/// could find it. The wash must be a translucent accent (alpha between 0.2 and 0.5, so the map under
+/// it still reads), and the border at least 3 px. Measured in the real layout, not from the constants.
+#[test]
+fn the_drag_box_is_plainly_visible() {
+    use bevy::ui::Node;
+    use bevy_emerge_mapper::snip::SnipOverlay;
+
+    let mut app = editor("snip_box_visible");
+    let world = app.world_mut();
+    world
+        .query_filtered::<&mut Window, With<PrimaryWindow>>()
+        .single_mut(world)
+        .expect("the editor has one primary window")
+        .resolution
+        .set_scale_factor_override(Some(2.0));
+    for _ in 0..3 {
+        app.update();
+    }
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::Backslash],
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(Vec2::new(200.0, 120.0)),
+            mouse: Some(true),
+            ..default()
+        },
+    );
+    step(
+        &mut app,
+        Frame {
+            pointer: Some(Vec2::new(420.0, 260.0)),
+            ..default()
+        },
+    );
+    app.update();
+
+    let mut q = app
+        .world_mut()
+        .query_filtered::<(&Node, &BackgroundColor), With<SnipOverlay>>();
+    let (node, fill) = q
+        .single(app.world())
+        .expect("the drag draws exactly one overlay");
+    let alpha = fill.0.alpha();
+    assert!(
+        (0.2..=0.5).contains(&alpha),
+        "the drag box's wash must be a translucent accent at alpha 0.2–0.5, not {alpha}"
+    );
+    let Val::Px(border) = node.border.left else {
+        panic!("the drag box's border must be a pixel width, not {:?}", node.border.left);
+    };
+    assert!(
+        border >= 3.0,
+        "the drag box's border must be at least 3 px so it reads at a glance, not {border} px"
+    );
+}

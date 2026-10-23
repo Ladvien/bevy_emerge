@@ -778,6 +778,38 @@
       "evidence": "Fixed in 315e184: confirm writes pending-<stem>.json synchronously; emerge_list_snips lists it under pending with status 'being saved' until the picture lands, then clears it. Failing before: an_agent_calls_the_server::a_snip_still_being_saved_is_listed_as_pending (line 782: left Null, right 'snip-3000'; total 0, no pending); compile red E0425 in bevy_emerge_snip. Passing after: bevy_emerge_snip 9/9; bevy_emerge_mcp 14/14; a_person_snips_an_area_of_the_editor 9/9. Review gaps fixed: 3 and 9 and 10 (9db260c), 6 (7f39d90, 96294cd: startup sweep), 13 (d6f62cf). The live race was not reproduced; shown in code only. Report: docs/loop/iterations/2026-10-23-cycle6-f34d8f4.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
+    },
+    {
+      "id": "B-043",
+      "kind": "bug",
+      "area": "editor",
+      "title": "The snip rectangle's outline is too faint to see in a demo at README size",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Cycle 7 judgment 2 of 3: blocks yes (a README clip could not show the box), common yes (every snip), no workaround no (the box reads at full size). Fixed in 435c765."
+      },
+      "status": "fixed",
+      "evidence": "Cycle 7 (435c765): snip drag box wash alpha 0.08 -> 0.28 and edge 2 -> 3 px (chrome::SNIP_WASH, chrome::SNIP_EDGE_W). Box fill (81,61,32) before, (139,104,46) after, over base (29,27,24). Stills: docs/loop/iterations/assets/2026-10-23-cycle7/B-043-before.png and -after.png. Test the_drag_box_is_plainly_visible fails on the old constants. Report: docs/loop/iterations/2026-10-23-cycle7-e89e86f.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-040",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "frame_the_map needs a crop or window aspect where the Home view fills at least 40% of the frame",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Cycle 7: criterion met is Main's call (whole-town Home framing at 32.2% is not covered by the shipped clip)."
+      },
+      "status": "fixed",
+      "evidence": "Cycle 6: Home on town gives scene 32.2% on both attempts (bar 40%); the town_block Home probe gives 36.9%. The whole 300x1120 m map fills about a third of the crop. Options: a landscape crop for a long, thin map. Moving the 40% bar is the developer's call. Report: docs/loop/iterations/2026-10-23-cycle6-f34d8f4.md | Cycle 7 (900c8cf, f93ea8e): frame-the-map on town_block, crop fitted to the Home view: scene min 56.2%, Home change 58.7%, longest static 1.13 s, 0.37 MB. Whole-town Home framing (300x1120 m) at 32.2% is NOT covered. Report: docs/loop/iterations/2026-10-23-cycle7-e89e86f.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
     }
   ]
 }

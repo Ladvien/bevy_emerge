@@ -4384,25 +4384,37 @@ fn spawn_tiles_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
 ///
 /// `1` is this door's first panel, not the binary's — so on the Kit door `1` is Meshes. Everything
 /// reachable by mouse is reachable by keyboard (`docs/ui.md` §4.2), and the strip is what both read.
-fn tab_shortcuts(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    live: Res<crate::keys::Live>,
-    project: Res<Project>,
-    door: Res<Door>,
+fn tab_shortcuts(world: &mut World) {
+    let Some(door) = world.get_resource::<Door>().copied() else {
+        return;
+    };
+    // **The slot that was pressed**, read here and acted on below, so the `World` borrow ends first.
+    let want = {
+        let keyboard = world.resource::<ButtonInput<KeyCode>>();
+        let live = *world.resource::<crate::keys::Live>();
+        door.tabs().iter().enumerate().find_map(|(i, &want)| {
+            let action = Action::tab_slot(i)?;
+            keys::just_pressed(keyboard, live, action).then_some(want)
+        })
+    };
+    if let Some(want) = want {
+        crate::editor::open_door(world, door, Some(want));
+    }
+}
+
+/// **Enter a tab for the operation that asked for it** (`door_open` with a tab). It is the same entry
+/// as the slot key and the chip click, so the scan-on-arrival and the receipt clearing happen once.
+pub fn go_to_tab(
+    In(want): In<Mode>,
+    project: Option<Res<Project>>,
     mut mode: ResMut<Mode>,
     mut state: ResMut<ImportState>,
-    // Cleared when leaving the Tiles tab — see `enter_tab`.
     mut build: ResMut<crate::build::Build>,
 ) {
-    for (i, &want) in door.tabs().iter().enumerate() {
-        let Some(action) = Action::tab_slot(i) else {
-            continue;
-        };
-        if keys::just_pressed(&keyboard, *live, action) {
-            enter_tab(want, &project, &mut mode, &mut state, &mut build);
-            return;
-        }
-    }
+    let Some(project) = project else {
+        return;
+    };
+    enter_tab(want, &project, &mut mode, &mut state, &mut build);
 }
 
 /// **Go to a panel** — the one step, so the key and the click cannot come to mean different things.
@@ -4468,24 +4480,24 @@ fn enter_tab(
 /// that reading was one word too strong. It needs the chip to stop being a `Button`. A press is a
 /// press; `Enter` belongs to whatever has the keyboard, and a tab strip never should.
 ///
-/// So: no `Button`, no `Activate`, no focus — a `Pointer<Click>` observer that walks the same
-/// [`enter_tab`] the key does. It bubbles, so a click on the chip's chord or label reaches the chip.
-fn click_tab(
-    click: On<PointerClick>,
-    tabs: Query<&Tab>,
-    project: Option<Res<Project>>,
-    mode: Option<ResMut<Mode>>,
-    state: Option<ResMut<ImportState>>,
-    // `Option`, like every other door resource an observer takes: a global `Activate`/`Pointer`
-    // observer fires on any screen, and a missing `Res<T>` panics rather than skipping.
-    build: Option<ResMut<crate::build::Build>>,
-) {
-    let (Ok(tab), Some(project), Some(mut mode), Some(mut state), Some(mut build)) =
-        (tabs.get(click.entity), project, mode, state, build)
-    else {
+/// So: no `Button`, no `Activate`, no focus — a `Pointer<Click>` observer that goes through the same
+/// [`crate::editor::open_door`] the key does, so a click and a key log the same `door_open` line. It bubbles, so a click on the chip's chord or label reaches the chip.
+fn click_tab(click: On<PointerClick>, tabs: Query<&Tab>, mut commands: Commands) {
+    let Ok(tab) = tabs.get(click.entity) else {
         return;
     };
-    enter_tab(tab.0, &project, &mut mode, &mut state, &mut build);
+    let want = tab.0;
+    // Deferred, because `open_door` takes the whole `World`. A global `Pointer` observer fires on any
+    // screen, so the door and the editor state are checked where the command runs, not assumed here.
+    commands.queue(move |world: &mut World| {
+        let Some(door) = world.get_resource::<Door>().copied() else {
+            return;
+        };
+        if !world.contains_resource::<crate::editor::EditorState>() {
+            return;
+        }
+        crate::editor::open_door(world, door, Some(want));
+    });
 }
 
 /// **`R` rescans**, because meshes arrive while the editor is open — an importer that only sees what
@@ -9202,7 +9214,7 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                     // in the status band, by `labels::Labeler`. What stays here is what varies per
                     // proposal: when it was made, how many attempts it took, and how sure it was.
                     Text::new(format!(
-                        "PROPOSED {}{attempts}, confidence {:?}",
+                        "PROPOSED {}{attempts}, confidence {}",
                         p_.date, s.confidence
                     )),
                     TextColor(crate::chrome::SUGGEST),
@@ -9447,10 +9459,36 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
             // per-axis author already drives the tag-chip colour and is not duplicated as text.
             let (labels_text, labels_ink) = match &d.labels {
                 None => ("not labelled".to_owned(), LABEL),
-                Some(l) => match &l.model {
-                    Some(m) => (format!("{m} · {}", l.at), TEXT),
-                    None => (format!("by hand · {}", l.at), TEXT),
-                },
+                Some(l) => {
+                    // **How sure the model said it was**, read first on the row, so the word a person
+                    // scans for is the part a long model name cannot push past the panel's edge. A
+                    // hand-written record carries no confidence, so it has none to show.
+                    let sure = l.confidence.map(|c| format!("confidence {c}"));
+                    let model_date = l.model_date().unwrap_or(&l.at);
+                    // The row's parts, in reading order, joined with the one separator the row uses.
+                    let joined = |parts: &[Option<String>]| {
+                        parts.iter().flatten().map(String::as_str).collect::<Vec<_>>().join(" · ")
+                    };
+                    match &l.model {
+                        // **Some axis is still a model's and nobody has confirmed it**: the unchecked
+                        // colour, with the model's own date. A later touch by a person is said beside
+                        // it, so the one date on the row is never mistaken for the other.
+                        Some(m) if l.by.any_by_model() => {
+                            let touched = (model_date != l.at).then(|| format!("touched {}", l.at));
+                            let short = crate::labels::model_short(m).to_owned();
+                            (
+                                joined(&[sure, Some(short), Some(model_date.to_owned()), touched]),
+                                crate::chrome::UNCHECKED,
+                            )
+                        }
+                        // **Every axis is confirmed**: the row says when a person checked it.
+                        Some(m) => {
+                            let short = crate::labels::model_short(m).to_owned();
+                            (joined(&[sure, Some(short), Some(format!("checked {}", l.at))]), TEXT)
+                        }
+                        None => (joined(&[sure, Some("by hand".to_owned()), Some(l.at.clone())]), TEXT),
+                    }
+                }
             };
             p.spawn(Node {
                 flex_direction: FlexDirection::Row,
@@ -9460,6 +9498,8 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
             })
             .with_children(|row| {
                 crate::chrome::row_label(row, crate::chrome::COL_LABEL, "labels");
+                // **Wraps, like the mesh row above it.** The value used to be one no-wrap line clipped
+                // at the row's edge, so a long model stem cut the confidence word off the panel.
                 crate::chrome::row_value(row, labels_text, labels_ink, ());
             });
 

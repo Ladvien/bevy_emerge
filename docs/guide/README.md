@@ -16,11 +16,13 @@ The editor is how a level designer builds a map out of a kit: the meshes, the ti
 
 ## Watch it first
 
-Four recordings of the running editor on the scratch town map:
+Five recordings of the running editor on scratch maps:
 - [Snip, agent turn and undo](../media/hero.gif), 14 seconds: the person snips a wall and writes a note, an agent reads it and turns the wall, and Cmd+Z takes the turn back.
-- [Moving the camera](../media/move-the-camera.gif), 6 seconds: holding A and D pans across the town.
+- [Moving the camera](../media/move-the-camera.gif), 4.6 seconds: tapping A and D pans left and right over the abbey.
 - [Placing and undo](../media/place-and-undo.gif), 4.5 seconds: the person arms the gate house from the list and clicks the ground to place it; Cmd+Z takes it back.
 - [Agent removes, then undo](../media/agent-removes-then-undo.gif), 3.6 seconds: an agent removes the abbey with `placement_remove`; Cmd+Z puts it back.
+- [Framing the map](../media/frame-the-map.gif), 2.6 seconds: the view starts zoomed in on one corner of a 34 x 34 m block; Home frames the whole block.
+- [Reviewing a kit's labels](../media/review-labels.gif), 5 seconds: an agent lists the pieces a model labelled, the editor crosses to the kit door, and the labels row leads with the confidence, then names the model file and the date.
 
 The [full walkthrough](../media/demo.mp4), 64 seconds, shows the rest of this guide's path: open, frame, place and undo; an agent framing a region; an agent turning and removing placements, each taken back with Cmd+Z; and a person's snip read back with `emerge_list_snips`.
 

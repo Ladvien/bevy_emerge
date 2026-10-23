@@ -136,6 +136,11 @@ pub struct LabelOrigin {
     /// Which model, when one wrote any of it. Absent for a piece only ever labelled by hand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The day the model wrote its axes, `YYYY-MM-DD`. Set by [`LabelOrigin::stamped`] and never
+    /// moved by a person's touch, which moves `at`. Absent on a record written before this field
+    /// existed; a reader falls back to `at`, which was then the model's date.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_at: Option<String>,
     /// The day of the most recent write, `YYYY-MM-DD`. A date rather than a timestamp: this is read
     /// by a person deciding what to re-check, not by anything that needs to order two edits.
     ///
@@ -196,6 +201,18 @@ pub enum Confidence {
     Low,
 }
 
+/// **The word an author reads**, lower case: `high`, `medium`, `low`. The one spelling every
+/// surface uses, so a proposal line and a labels row cannot say the same confidence two ways.
+impl std::fmt::Display for Confidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::High => "high",
+            Self::Medium => "medium",
+            Self::Low => "low",
+        })
+    }
+}
+
 impl LabelOrigin {
     /// **A fresh record naming the model that is about to write**, with no axis claimed yet.
     ///
@@ -207,8 +224,16 @@ impl LabelOrigin {
             by: AxisOrigin::default(),
             model: Some(model.to_owned()),
             at: at.to_owned(),
+            model_at: Some(at.to_owned()),
             confidence,
         }
+    }
+
+    /// **The model's labelling date**, or `None` when no model wrote the record. A record written
+    /// before `model_at` existed has no separate date, and `at` was then the model's, so it stands
+    /// in. One rule, shared by the labels row and `emerge/pieces`, so they cannot show two dates.
+    pub fn model_date(&self) -> Option<&str> {
+        self.model.as_ref().map(|_| self.model_at.as_deref().unwrap_or(&self.at))
     }
 }
 
@@ -239,6 +264,14 @@ impl AxisOrigin {
             Axis::Mount => self.mount,
             Axis::Note => self.note,
         }
+    }
+
+    /// **Whether a model wrote an axis that nobody has since confirmed.** The one predicate the
+    /// labels row and `emerge_list_pieces`' `by_model` both ask, so the two cannot disagree about
+    /// which pieces still await a person.
+    pub fn any_by_model(&self) -> bool {
+        [self.kind, self.effects, self.look, self.surfaces, self.mount, self.note]
+            .contains(&Some(By::Model))
     }
 }
 
@@ -1808,6 +1841,7 @@ mod tests {
                 },
                 model: Some("qwen3-vl".into()),
                 at: "2026-08-22".into(),
+                model_at: Some("2026-08-20".into()),
                 confidence: Some(Confidence::High),
             }),
             ..crate_desc()
@@ -1816,6 +1850,19 @@ mod tests {
             ron::ser::to_string_pretty(&d, ron::ser::PrettyConfig::default()).expect("serializes");
         let back: Descriptor = ron::from_str(&text).expect("parses");
         assert_eq!(d, back);
+    }
+
+    #[test]
+    fn a_record_written_before_model_at_reads_its_model_date_from_at() {
+        let old: LabelOrigin = ron::from_str(
+            r#"(by: (kind: Some(Model)), model: Some("qwen3-vl"), at: "2026-08-22")"#,
+        )
+        .expect("parses");
+        assert_eq!(old.model_date(), Some("2026-08-22"));
+        let human: LabelOrigin = ron::from_str(r#"(at: "2026-08-22")"#).expect("parses");
+        assert_eq!(human.model_date(), None);
+        let stamped = LabelOrigin::stamped("qwen3-vl", "2026-08-20", None);
+        assert_eq!(stamped.model_date(), Some("2026-08-20"));
     }
 }
 

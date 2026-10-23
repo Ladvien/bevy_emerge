@@ -86,6 +86,9 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The palette click**, which arms a piece through `on_row_click`, which calls `arm_piece`
     // and dispatches `brush_arm`.
     ("brush_arm", "arm_piece("),
+    // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
+    // runs the `door_open` operation (item 1 of cycle 8).
+    ("door_open", "open_door("),
 ];
 
 /// **Every operation has a BRP command, and the editor running is what says so.**
@@ -250,9 +253,6 @@ fn every_mcp_tool_is_prefixed_and_unique() {
 /// list, and it is explicit: a verb is on the list or it goes through an operation, and there is
 /// no third thing.
 const UNMIGRATED: &[Action] = &[
-    Action::TabSlot1,
-    Action::TabSlot2,
-    Action::TabSlot3,
     Action::ComposePrev,
     Action::ComposeNext,
     Action::ComposeArm,
@@ -261,7 +261,6 @@ const UNMIGRATED: &[Action] = &[
     Action::CompositionPrev,
     Action::CompositionNext,
     Action::ArmComposition,
-    Action::SwitchDoor,
     Action::ComposeMemberPrev,
     Action::ComposeMemberNext,
     Action::CarouselPrev,
@@ -388,7 +387,8 @@ const UNMIGRATED: &[Action] = &[
 // 125 -> 124: `Remove` -> `placement_remove` (E-029): a stamp and a box dispatch `stamp_remove` and `placement_remove`.
 // 124 -> 125: `FrameView` (E-021), camera state with no document change, so no operation names it.
 // 125 -> 123: `PalettePrev` and `PaletteNext` -> `brush_arm` (gap 1): the arrow walk arms through the operation a click uses.
-const UNMIGRATED_MAX: usize = 123;
+// 123 -> 119: `TabSlot1`, `TabSlot2`, `TabSlot3` and `SwitchDoor` -> `door_open` (cycle 8, item 1): every door and tab key opens through the operation.
+const UNMIGRATED_MAX: usize = 119;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

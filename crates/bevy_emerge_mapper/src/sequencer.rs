@@ -281,6 +281,7 @@ struct Operated<'w> {
     open: Option<ResMut<'w, crate::project::OpenMap>>,
     due: Option<ResMut<'w, crate::watch::Due>>,
     state: Option<ResMut<'w, crate::editor::EditorState>>,
+    confirm: Option<Res<'w, crate::confirm::Confirm>>,
 }
 
 /// **Take the frames that are due, and finish the run when the last one is in.**
@@ -349,7 +350,18 @@ fn drive_sequencer(
             };
             // **Through the registry, and not around it.** The sequencer is a way of *when* an
             // operation happens, and it must not be a second way of *what* happens.
-            let outcome = crate::ops::dispatch(&mut ctx, &op.name, &op.parameters);
+            // **A door is refused before its plan, as `emerge/operation_apply` refuses it (cycle 8).**
+            // A question on screen, a leaving question or a door already waiting owns the next frame.
+            // Before this, the sequence refused nothing and answered `applied` for a door it never
+            // crossed to.
+            let asking = operated.confirm.as_deref().is_some_and(|c| c.is_open());
+            let door_refusal = (op.name == "door_open")
+                .then(|| operated.state.as_deref().and_then(|s| crate::editor::door_refusal(s, asking)))
+                .flatten();
+            let outcome = match door_refusal {
+                Some(why) => Ok(crate::ops::Applied::Refused(crate::ops::Refusal::new(why))),
+                None => crate::ops::dispatch(&mut ctx, &op.name, &op.parameters),
+            };
             // **Redrawn, as `emerge/operation_apply` is.** The write-back is the watcher's own
             // write and the watcher ignores it, so a saved turn would stay off the screen until
             // some unrelated redraw. The sequence's frames are the proof, and they would show
@@ -370,6 +382,15 @@ fn drive_sequencer(
             {
                 state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
             }
+            // **A door the operation answered with is stored for the editor to cross (cycle 8).** The
+            // BRP path stores it the same way, and `editor::apply_pending_door` carries it out in the
+            // next frame, so the door the sequence opened is the door the person is on.
+            if let Ok(crate::ops::Applied::Done { outcome, .. }) = &outcome
+                && op.name == "door_open"
+                && let Some(state) = operated.state.as_mut()
+            {
+                crate::editor::request_door(state, outcome.after.as_ref());
+            }
             // **The person's receipt says what the sequence applied (B-020)**, as the apply does.
             if let Some(state) = operated.state.as_mut() {
                 match &outcome {
@@ -384,7 +405,14 @@ fn drive_sequencer(
             run.applied_at = Some(now);
             run.operation_result = Some(match outcome {
                 Ok(crate::ops::Applied::Done { outcome, .. }) => {
-                    json!({"outcome": "applied", "summary": outcome.summary, "saved": outcome.saved})
+                    // **A door the editor will ask about is not yet open**, as `emerge/operation_apply`
+                    // answers it: `waiting`, and the word that names what it waits for.
+                    let waiting = outcome
+                        .after
+                        .as_ref()
+                        .and_then(|after| after["waiting"].as_str())
+                        .filter(|_| op.name == "door_open");
+                    json!({"outcome": if waiting.is_some() { "waiting" } else { "applied" }, "waiting_on": waiting, "summary": outcome.summary, "saved": outcome.saved})
                 }
                 Ok(crate::ops::Applied::Refused(e)) => {
                     json!({"outcome": "refused", "refusal": e.0})

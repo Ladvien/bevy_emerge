@@ -350,6 +350,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(stamp_remove::StampRemove),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
+        Box::new(door_open::DoorOpen),
     ]
 }
 
@@ -1691,6 +1692,200 @@ pub mod brush_arm {
             let summary = match plan["armed"].as_str() {
                 Some(id) => format!("armed {id}"),
                 None => "put the brush down".to_owned(),
+            };
+            Ok(Outcome {
+                summary,
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(plan),
+            })
+        }
+    }
+}
+
+/// **Open a door, or a panel of one (cycle 8, item 1).**
+///
+/// **The answer is the target; the editor does the crossing.** The keys and an agent's request reach
+/// the same operation, so a door is crossed by one path whoever asks. `door` is `kit`, `map` or
+/// `rigs`, and `tab`, when given, is a panel that door shows. Nothing changes on disk: the answer is
+/// read by [`crate::editor::request_door`], and the crossing is run by `editor::apply_door_request`.
+///
+/// **The kit is not a parameter.** A project opens with one kit, and no operation switches kits, so a
+/// request that named one would have nothing to switch to.
+pub mod door_open {
+    use super::*;
+    use crate::tiles::{Door, Mode};
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// `kit`, `map` or `rigs`.
+        pub door: String,
+        /// A panel that door shows, by its label (e.g. `meshes`). Absent opens the door on its first
+        /// panel.
+        #[serde(default)]
+        pub tab: Option<String>,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            let doors: Vec<String> = Door::ALL.iter().map(|d| d.label().to_lowercase()).collect();
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["door"],
+                "properties": {
+                    "door": {
+                        "type": "string",
+                        "enum": doors,
+                        "description": "The door to cross to. kit makes reusable content; map builds the level; rigs is the rig bench."
+                    },
+                    "tab": {
+                        "type": "string",
+                        "description": "A panel that door shows, e.g. meshes. Absent opens the door on its first panel."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "this is not a door to open: {e}. The fields are `door` and `tab`, and nothing else."
+                ))
+            })
+        }
+    }
+
+    pub struct DoorOpen;
+
+    /// **The answer to a door request, validated.** `plan` and `commit` share it.
+    ///
+    /// `read_map` is the Map door's read. `plan` does it, so a map that will not open is refused
+    /// before the answer says "applied". `commit` does not read it again: `dispatch_as` has just
+    /// planned, and the crossing reads the map once more. The same file was parsed three times per
+    /// request before this (cycle 8, gap 12).
+    fn door_answer(
+        ctx: &Ctx,
+        params: &serde_json::Value,
+        read_map: bool,
+    ) -> Result<serde_json::Value, Refusal> {
+        let p = Params::parse(params)?;
+        let Some(door) = Door::ALL
+            .into_iter()
+            .find(|d| d.label().eq_ignore_ascii_case(&p.door))
+        else {
+            let names: Vec<String> = Door::ALL.iter().map(|d| d.label().to_lowercase()).collect();
+            return Err(Refusal::new(format!(
+                "`{}` is not a door. The doors are {}.",
+                p.door,
+                names.join(", ")
+            )));
+        };
+        let tab = match p.tab.as_deref() {
+            None => None,
+            Some(name) => {
+                let Some(mode) = Mode::ALL
+                    .iter()
+                    .copied()
+                    .find(|m| m.label().eq_ignore_ascii_case(name))
+                else {
+                    let all: Vec<String> =
+                        Mode::ALL.iter().map(|m| m.label().to_lowercase()).collect();
+                    return Err(Refusal::new(format!(
+                        "`{name}` is not a panel. The panels are {}.",
+                        all.join(", ")
+                    )));
+                };
+                if !door.tabs().contains(&mode) {
+                    let shown: Vec<String> =
+                        door.tabs().iter().map(|m| m.label().to_lowercase()).collect();
+                    return Err(Refusal::new(format!(
+                        "the {} door does not show `{name}`. It shows {}.",
+                        door.label().to_lowercase(),
+                        shown.join(", ")
+                    )));
+                }
+                Some(mode)
+            }
+        };
+        // **The Map door needs a map to show:** with no map open it would have nothing to cross onto,
+        // and the crossing would be a silent no-op.
+        let map_open = ctx.open.is_some()
+            || ctx
+                .project
+                .as_ref()
+                .and_then(|project| project.open_map_name.as_ref())
+                .is_some();
+        if door == Door::Map && !map_open {
+            return Err(Refusal::new(
+                "the Map door needs a map, and no map is open. Open a map first, then the Map door \
+                 has something to show.",
+            ));
+        }
+        // **The Map door crosses onto the map on disk, and a map that will not open cannot be crossed
+        // to.** The crossing reads it through this same `OpenMap::open`, so the read happens here, before
+        // the answer says "applied". It writes nothing.
+        if read_map
+            && door == Door::Map
+            && ctx.open.is_none()
+            && let Some(project) = ctx.project.as_ref()
+            && let Some(name) = project.open_map_name.as_deref()
+        {
+            crate::project::OpenMap::open(project, name).map_err(Refusal::new)?;
+        }
+        // **Leaving a map with unsaved edits is the person's question.** The request is accepted and
+        // the answer names what it waits on: the editor asks the leaving question, and this operation
+        // cannot answer it for them.
+        let waiting = door != Door::Map && ctx.open.as_ref().is_some_and(|open| open.dirty());
+        let mut answer = json!({
+            "door": door.label().to_lowercase(),
+            "tab": tab.map(|m| m.label().to_lowercase()),
+        });
+        if waiting {
+            answer["waiting"] = json!("the map has unsaved changes");
+        }
+        Ok(answer)
+    }
+
+    impl Operation for DoorOpen {
+        fn name(&self) -> &'static str {
+            "door_open"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            door_answer(ctx, params, true)
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = door_answer(ctx, params, false)?;
+            let door = plan["door"].as_str().unwrap_or("");
+            let target = match plan["tab"].as_str() {
+                Some(tab) => format!("the {door} door on {tab}"),
+                None => format!("the {door} door"),
+            };
+            let summary = if plan.get("waiting").is_some() {
+                format!(
+                    "asked for {target}; the map has unsaved changes, so the leaving question comes first"
+                )
+            } else {
+                format!("opened {target}")
             };
             Ok(Outcome {
                 summary,

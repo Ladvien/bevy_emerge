@@ -324,10 +324,12 @@ pub const RADIUS_ROW: f32 = 3.0;
 /// established in this same interface — a tinted left edge means *this line is special*.
 pub const SELECT_RAIL_W: f32 = 2.0;
 
-/// The snip's drag-rectangle border: the rail's width, so a drag and a selection read as one kind of line.
-pub const SNIP_EDGE_W: f32 = 2.0;
-/// The snip's wash over the rectangle: the accent at a whisper, so the picture underneath stays true.
-pub const SNIP_WASH: Color = Color::srgba(0.950, 0.710, 0.300, 0.08);
+/// The snip's drag-rectangle border. It is heavier than the rail's 2 px on purpose: at 2 px a drag
+/// measured about 1% of a 600 px-wide capture and was hard to find, so the box gets 3 px.
+pub const SNIP_EDGE_W: f32 = 3.0;
+/// The snip's wash over the rectangle: the accent, translucent enough that the map under it still
+/// reads. At 0.08 it was too faint to find; 0.28 is a clear amber tint without hiding the pieces.
+pub const SNIP_WASH: Color = Color::srgba(0.950, 0.710, 0.300, 0.28);
 
 /// A chrome colour scaled toward black, for a quieter sibling of a named colour — so the derived
 /// value cannot drift from its parent the way `compose`'s hand-halved ACCENT could have.
