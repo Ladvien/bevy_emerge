@@ -100,13 +100,17 @@ fn a_burst_of_due_frames_is_asked_for_one_at_a_time() {
             .start(&params("burst", 2.0, 15), 0.0)
             .expect("the sequence starts");
     }
+    // **Exactly one, not at most one.** `<= 1` also passes when nothing is spawned at all, so the
+    // first update must have put frame 0 in flight, and it must stay there: four seconds is under
+    // the five-second landing timeout, so no frame lands and none is replaced.
     for _ in 0..4 {
         app.update();
         let n = in_flight(&mut app);
-        assert!(
-            n <= 1,
-            "{n} screenshots are in flight at once, and Bevy keeps one per render target per \
-             frame, so the rest are despawned without a PNG (\"Duplicate render target\")"
+        assert_eq!(
+            n, 1,
+            "{n} screenshots are in flight, and the sequence must hold exactly one: Bevy keeps one \
+             per render target per frame, so a second is despawned without a PNG (\"Duplicate \
+             render target\")"
         );
     }
 }
