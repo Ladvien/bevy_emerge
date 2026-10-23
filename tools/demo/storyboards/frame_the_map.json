@@ -3,12 +3,11 @@
   "fps": 15,
   "scale": 2,
   "width": 600,
-  "crop": [470, 64, 950, 690],
-  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-40, -30, 40, 30]}}}],
-  "chunks": [{"seconds": 6}],
+  "crop": [503, 239, 917, 513],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-17, -17, -13, -13]}}}],
+  "chunks": [{"seconds": 3.0}],
   "steps": [
-    {"at": 0.0, "caption": "person: the view is zoomed in on the middle"},
-    {"at": 0.8, "caption": "agent: emerge_frame_view frames the town"},
-    {"at": 1.0, "mcp": "emerge_frame_view", "args": {"target": {"rect": [-150, -110, 150, 130]}}}
+    {"at": 0.0, "caption": "person: the view is zoomed in on one corner"},
+    {"at": 1.0, "key": "Home", "caption": "person: Home frames the whole 34 x 34 m block"}
   ]
 }
