@@ -1,0 +1,29 @@
+{
+  "name": "hero",
+  "fps": 15,
+  "scale": 2,
+  "width": 960,
+  "crop": [0, 64, 960, 690],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-150, -110, 150, 110]}}}],
+  "chunks": [
+    {"seconds": 6},
+    {"seconds": 2.5, "operation": {"name": "placement_remove", "parameters": {"id": "tower_00"}}},
+    {"seconds": 2.5, "operation": {"name": "placement_remove", "parameters": {"id": "tower_16"}}},
+    {"seconds": 3}
+  ],
+  "steps": [
+    {"at": 0.4, "caption": "person: ⌘\\ arms the snip tool"},
+    {"at": 0.8, "key": "Backslash", "mods": ["SuperLeft"]},
+    {"at": 1.6, "caption": "person: drag a box round the cluster"},
+    {"at": 1.8, "drag": [500, 240, 680, 420], "secs": 1.6},
+    {"at": 3.6, "caption": "person: type a note, Enter saves"},
+    {"at": 3.8, "type": "remove these corners"},
+    {"at": 5.2, "key": "Enter"},
+    {"at": 5.5, "mcp": "emerge_list_snips", "args": {"limit": 1}, "caption": "agent: reads the snip"},
+    {"at": 6.0, "caption": "agent: placement_remove tower_00"},
+    {"at": 8.5, "caption": "agent: placement_remove tower_16"},
+    {"at": 11.0, "caption": "person: ⌘Z takes the newest change back"},
+    {"at": 11.5, "key": "KeyZ", "mods": ["SuperLeft"]},
+    {"at": 12.5, "key": "KeyZ", "mods": ["SuperLeft"], "caption": "person: ⌘Z again, the first change is back"}
+  ]
+}

@@ -22,7 +22,7 @@
 //! | `emerge_frame_view` | frame the Map camera on the map, a selection, placements or a rectangle |
 //! | `emerge_state` | what the editor is holding now, as JSON |
 //! | `emerge_capture_still` | one picture of the editor, plus the state |
-//! | `emerge_capture_sequence` | frames at 4 fps, with an optional operation after frame 0 |
+//! | `emerge_capture_sequence` | frames at 4 fps by default (2 to 15 a second), with an optional operation after frame 0 |
 //! | `emerge_snip` | one rectangle of the picture, cut out and written as a crop with its metadata |
 //! | `emerge_list_snips` | the snips the person took, newest first, with the newest picture |
 //!
@@ -179,7 +179,7 @@ pub struct SequenceParams {
     /// **How long the sequence runs, in seconds.** Between a moment and ten.
     #[serde(default = "two_seconds")]
     pub seconds: f32,
-    /// **How many frames a second.** Four, or two for a long slow operation.
+    /// **How many frames a second.** Four by default; a whole rate from two to fifteen. A higher rate costs frame time while recording.
     #[serde(default = "four_fps")]
     pub fps: u32,
     /// **The operation to apply, once frame 0 is in.** Without it the sequence is the settle
@@ -219,6 +219,16 @@ pub struct LogParams {
     /// **How many entries at most**, 1 to 200. The default is 50, which is a screenful.
     #[serde(default = "fifty")]
     pub limit: usize,
+}
+
+/// **The parameters of `emerge_state`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StateParams {
+    /// **Where the pinned list starts**, counted in map order. `0` is the first pin. When there are
+    /// more than 50 pins, the answer's `pinned_next` names the value to pass for the next page.
+    #[serde(default)]
+    pub pinned_from: usize,
 }
 
 /// **Fifty entries, which is a screenful.**
@@ -496,7 +506,10 @@ impl Emerge {
                        pieces it has, what is armed, what is selected, which door and tab are open, \
                        and what the editor last said and what has gone wrong. The editor section also \
                        names the next undo and redo (undo_next, redo_next) and how many are stacked \
-                       (undo_depth, redo_depth). Returns that summary as JSON, and changes nothing. \
+                       (undo_depth, redo_depth). The map section names up to 50 pinned placements \
+                       by id and reason (pinned). pinned_total is the full count; past 50, pass \
+                       pinned_from (from pinned_next) to read the rest. Returns that summary as JSON, \
+                       and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
                        that it landed.",
         annotations(
@@ -507,8 +520,15 @@ impl Emerge {
             open_world_hint = false
         )
     )]
-    async fn state(&self) -> Result<CallToolResult, ErrorData> {
-        match self.editor.call("emerge/state", json!({})).await {
+    async fn state(
+        &self,
+        Parameters(p): Parameters<StateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self
+            .editor
+            .call("emerge/state", json!({"pinned_from": p.pinned_from}))
+            .await
+        {
             Ok(v) => Ok(CallToolResult::structured(v)),
             Err(e) => Ok(refusal(&e)),
         }
@@ -751,7 +771,7 @@ impl Emerge {
                        once the first frame is in -- so frame 0 is the state before the action and \
                        the later frames are what it did. The frames are written to a directory and \
                        their paths are in the answer. The editor takes the frames, so the timing \
-                       does not depend on this server's round trips.",
+                       does not depend on this server's round trips. The rate is two to fifteen frames a second: on a real editor 8 and 15 held their frame interval, 20 did not.",
         annotations(
             title = "Capture a sequence of the editor",
             read_only_hint = false,

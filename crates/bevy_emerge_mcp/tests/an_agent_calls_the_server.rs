@@ -309,6 +309,31 @@ fn the_undo_tool_says_what_it_does_and_refuses_without_an_editor() {
     );
 }
 
+/// **The state tool says its cap and how to page past it**, so an agent that reads only the listing
+/// knows the pin list is capped at 50, how to tell a cut list, and which argument reads the rest.
+#[test]
+fn the_state_tool_says_its_cap_and_how_to_page_it() {
+    let mut server = Server::start();
+    let listed = server.request("tools/list", json!({}));
+    let tool = listed["result"]["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|t| t["name"] == "emerge_state"))
+        .cloned()
+        .unwrap_or_else(|| panic!("emerge_state is not listed: {listed}"));
+    let description = tool["description"].as_str().unwrap_or_default();
+    assert!(
+        description.contains("up to 50")
+            && description.contains("pinned_total")
+            && description.contains("pinned_from")
+            && description.contains("pinned_next"),
+        "emerge_state must say the list is capped at 50, how to tell a cut list, and how to page it: {description}"
+    );
+    assert!(
+        tool["inputSchema"]["properties"]["pinned_from"].is_object(),
+        "emerge_state must take pinned_from, so a reader can page the list: {tool}"
+    );
+}
+
 /// **An unknown tool is refused, and the answer says which tools there are.**
 #[test]
 fn an_unknown_tool_is_refused_with_the_list() {

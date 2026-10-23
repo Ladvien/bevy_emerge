@@ -491,6 +491,64 @@
       "evidence": "Fixed in 85d86ce: TextLayout::default().with_no_wrap() on the snip label. Test the_snip_label_sits_above_the_box_and_never_over_it. Failing before: label bottom 307 px, box top 240 px. Captures /tmp/emerge_live/b033/narrow_held.png and narrow_held_crop.png.",
       "last_failure": "",
       "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-035",
+      "kind": "bug",
+      "area": "ci",
+      "title": "A badge in a band sits 12 px off its control on the hosted CI runner, so a_badge_in_a_band_is_level_with_its_control fails on Linux",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Hosted CI run 39857129899 (PR #26, merge 3ab4fca) fails this test on main. Judgment: blocks yes, because a red main CI fails every PR's gate. Local gate is green."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in 58a0e2d (cycle 2, branch loop/2026-10-22-cycle2): band clusters are FlexWrap::NoWrap and CLUSTER_W is deleted, so a band cluster is one chip high on any platform. Superseded the 132->140 cap in 2807c87, which the reviewer rejected as a magic number. New test tests/headless.rs every_band_cluster_is_one_chip_high; a_badge_in_a_band_is_level_with_its_control is unchanged. Failing before: on the Mac, a temporary 100 px cap gave 'MAP Title: cluster 54 px tall, tallest chip 25 px, 3 chip(s) at y [12.5, 12.5, 41.5]'. Original Linux failure: 'MAP Title: badge centred at 27, control at 15'. Linux: 16/16 passing on big under xvfb. Main's hosted CI run 39861048027 (merge 3ab4fca) was red on this test; the loop does not wait on CI (E-031).",
+      "last_failure": "39861048027",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-027",
+      "kind": "bug",
+      "area": "editor",
+      "title": "An agent's placement_remove shifts rows under the person's live row references (the pin-reason field stores a row while the person types), so Enter can pin the wrong piece",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Unreproduced. Reviewer gap 1 in the 2026-10-22 remove iteration covered the out-of-turn undo (fixed in e0c1b00); the forward direction was left open by the fixer. Judgment: LIFO order and the gap-1 refusal cover the common path; not must-fix until a repro exists."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in b825045 (the pin-reason field stores the placement id, not a row) and d592cad (the field opens through O; pinning is private; a pin whose piece was removed before Enter is refused and the field closes). Failing before: b027_the_pin_reason_names_its_piece, 0 passed, 1 failed (b027_the_pin_reason_names_its_piece.rs:101); passing after: b027 1 passed, e024 4 passed, --lib editor 29 passed. The removed-piece test a_pin_whose_piece_was_removed_before_enter_is_refused_and_closes_the_field is characterisation (it passes on the fix; no failing-before). The live editor repro was not run; the bug was reproduced only as the failing test.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-032",
+      "kind": "enhancement",
+      "area": "tests",
+      "title": "Two review coverage gaps remain: a box's stamp half is not exercised live, and stamp_remove's undo-only rule has no dedicated test",
+      "status": "fixed",
+      "evidence": "Coverage only (3834a54). No bug found; both behaviours were already correct, so there is no failing-before. Tests: stamp_remove.rs a_stamp_put_back_is_refused_as_an_apply_and_only_its_undo_brings_the_stamp_back (6 passed in its file); a_person_removes_a_box_and_undoes_it.rs a_box_over_a_stamp_and_a_piece_removes_both_and_one_cmd_z_puts_both_back (5 passed). Scope cut: the stamp half of a box has a headless test, not a live capture.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-026",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "emerge_state reports each placement's pin, so a pin change is visible in a state dump",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "emerge_state reports placements as a count only (ops_brp.rs editor_state). The pins are reported only by the operation's own result and oplog. The E-024 brief asked for a dump showing the pin indicator changing; it could not be shown from emerge_state."
+      },
+      "status": "fixed",
+      "evidence": "Shipped in 9407d42 (the map block carries pinned and pinned_total), paged in d4b9be1 (pinned_from, pinned_next, how_to_narrow; cap 50, the oplog_read shape), and described in 06b9f3f (the MCP test the_state_tool_says_its_cap_and_how_to_page_it replaced a substring check); c2d9f63 fixed the guide; docs/mcp-tools.md regenerated. Failing before: e026_emerge_state_reports_each_pin, 0 passed, 3 failed (pinned null). Paging test emerge_state_pages_the_pin_list_past_the_cap (55 pins) has no captured failing-before: it asserts a key that did not exist before.",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
     }
   ]
 }

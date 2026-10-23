@@ -12611,6 +12611,93 @@ fn a_badge_in_a_band_is_level_with_its_control() {
     );
 }
 
+/// **Every chord cluster in a band is one chip high, on every tab.**
+///
+/// A band cannot hang a stack below its control, so a band cluster that wraps is clamped off its
+/// control and sits off its middle (B-035). This measures the chips themselves, so it holds on any
+/// platform whatever its label widths: the cluster is no taller than its tallest chip, and every chip
+/// shares one row.
+#[test]
+fn every_band_cluster_is_one_chip_high() {
+    use bevy::ui::{ComputedNode, UiGlobalTransform};
+    use bevy_emerge_mapper::badges::BadgeCluster;
+    use bevy_emerge_mapper::keys::Home;
+
+    let root = Fixture::new("bandrow")
+        .descriptor("floor", "alpha")
+        .build("m");
+
+    let mut stacked = Vec::new();
+    let mut checked = 0usize;
+    let mut most_chips = 0usize;
+    for mode in TABS {
+        let mut app = badges_up(&root, mode);
+        let clusters: Vec<(String, Rect, Vec<Rect>)> = {
+            let mut q = app.world_mut().query::<(
+                &BadgeCluster,
+                &ComputedNode,
+                &UiGlobalTransform,
+                &Visibility,
+                &Children,
+            )>();
+            let world = app.world();
+            q.iter(world)
+                .filter(|(c, _, _, v, _)| {
+                    matches!(c.0, Home::Control(id) if id.in_a_band()) && **v != Visibility::Hidden
+                })
+                .filter(|(_, n, _, _, _)| n.size() != Vec2::ZERO)
+                .map(|(c, n, tf, _, kids)| {
+                    let chips: Vec<Rect> = kids
+                        .iter()
+                        .filter_map(|k| {
+                            let cn = world.get::<ComputedNode>(k)?;
+                            let ct = world.get::<UiGlobalTransform>(k)?;
+                            (cn.size() != Vec2::ZERO)
+                                .then(|| Rect::from_center_size(ct.translation, cn.size()))
+                        })
+                        .collect();
+                    let Home::Control(id) = c.0 else { unreachable!() };
+                    (
+                        format!("{} {id:?}", mode.label()),
+                        Rect::from_center_size(tf.translation, n.size()),
+                        chips,
+                    )
+                })
+                .collect()
+        };
+        for (label, cluster, chips) in clusters {
+            if chips.is_empty() {
+                continue;
+            }
+            checked += 1;
+            most_chips = most_chips.max(chips.len());
+            let tallest = chips.iter().map(|r| r.height()).fold(0.0_f32, f32::max);
+            let first_row = chips[0].center().y;
+            let one_row = chips.iter().all(|r| (r.center().y - first_row).abs() <= 1.0);
+            if cluster.height() > tallest + 1.0 || !one_row {
+                stacked.push(format!(
+                    "{label}: cluster {} px tall, tallest chip {tallest} px, {} chip(s) at y {:?}",
+                    cluster.height(),
+                    chips.len(),
+                    chips.iter().map(|r| r.center().y).collect::<Vec<_>>(),
+                ));
+            }
+        }
+    }
+    assert!(
+        stacked.is_empty(),
+        "these band clusters are more than one chip high, so a band cannot hang them level with \
+         their control:\n  {}",
+        stacked.join("\n  ")
+    );
+    assert!(
+        checked >= 1 && most_chips >= 2,
+        "no band cluster with two or more chords was measured across {} tabs (clusters: {checked}, \
+         most chips: {most_chips}); the rule is being enforced against nothing",
+        TABS.len()
+    );
+}
+
 /// **A refusal toasts, and the journal keeps it after `Esc` has cleared the tab.**
 ///
 /// The refusal used to be a block wedged into the status band — twenty-six pixels of chrome holding

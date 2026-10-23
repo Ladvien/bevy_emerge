@@ -203,6 +203,15 @@ struct Loaded<'w> {
     open: Option<Res<'w, crate::project::OpenMap>>,
 }
 
+/// **The parameters of `emerge/state`.** Only the pin page is a parameter; the rest of the summary is
+/// the state as it stands.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct StateParams {
+    /// The first owned placement to name, counted in map order. `0` is the start of the list.
+    pub pinned_from: usize,
+}
+
 /// **`emerge/state` — what the editor is holding right now.**
 ///
 /// **A read, and the answer to "what does the editor look like?"** — the question an agent asks
@@ -218,7 +227,7 @@ struct Loaded<'w> {
 /// **And it is cheap.** Everything here is already in memory, so the whole command is a read and
 /// a `json!` — no scanning, no measuring, no rendering.
 fn editor_state(
-    _: In<serde_json::Value>,
+    In(params): In<StateParams>,
     loaded: Loaded,
     state: Option<Res<crate::editor::EditorState>>,
     tiles: Option<Res<crate::tiles::ImportState>>,
@@ -227,6 +236,28 @@ fn editor_state(
     mode: Option<Res<crate::tiles::Mode>>,
 ) -> Result<Value, String> {
     let Loaded { project, open } = loaded;
+    // **The pins, named by id and reason.** A pin is the one thing an agent cannot see in the state
+    // today, and the list is capped so a state dump stays a summary. `pinned_total` is the true
+    // count, so a reader can tell a full list from a cut one.
+    const PINNED_CAP: usize = 50;
+    let pinned_total = open
+        .as_ref()
+        .map_or(0, |o| o.map.placements.iter().filter(|p| p.owned).count());
+    // **The page the caller asked for.** `pinned_from` counts pins in map order, so the next page
+    // starts exactly where this one stopped.
+    let pinned_from = params.pinned_from;
+    let pinned: Vec<Value> = open.as_ref().map_or_else(Vec::new, |o| {
+        o.map
+            .placements
+            .iter()
+            .filter(|p| p.owned)
+            .skip(pinned_from)
+            .take(PINNED_CAP)
+            .map(|p| json!({"id": p.id, "because": p.owned_because}))
+            .collect()
+    });
+    let pinned_next = (pinned_from.saturating_add(PINNED_CAP) < pinned_total)
+        .then(|| pinned_from + PINNED_CAP);
     // **The map, and what is in it.**
     let map = open.as_ref().map(|o| {
         json!({
@@ -241,6 +272,12 @@ fn editor_state(
             "stamps": o.map.stamps.len(),
             "bash": o.map.bash,
             "note": o.map.note,
+            "pinned": pinned,
+            "pinned_total": pinned_total,
+            // **Where the next page starts**, and the sentence that says so — the shape `oplog_read`
+            // gives a capped result, so a reader that pages one pages the other the same way.
+            "pinned_next": pinned_next,
+            "how_to_narrow": pinned_next.map(|n| format!("pass pinned_from={n} to read the rest")),
             // **Whether the file and the editor agree.** An agent that changed something needs to
             // know it reached the disk.
             "dirty": o.dirty(),
@@ -788,7 +825,7 @@ impl Plugin for OpsBridgePlugin {
                 "emerge/state",
                 "What the editor is holding right now: the open map and its bounds, how many \
                  pieces it has, what is armed, what is selected, which door and tab are open, and \
-                 what the editor last said. A read.",
+                 what the editor last said, and which placements are pinned and why. A read.",
             )
             .example(json!({})),
             editor_state,
@@ -802,8 +839,8 @@ impl Plugin for OpsBridgePlugin {
                  poll emerge/capture_sequence_status with it.",
             )
             .params("label: a snake_case name for the sequence. out_dir: the absolute directory the \
-                     frames are written to. seconds: how long the sequence runs. fps: 4, or 2 for a \
-                     long slow operation. operation: an optional operation to apply once frame 0 is \
+                     frames are written to. seconds: how long the sequence runs. fps: 4 by default; any \
+                     whole rate from 2 to 20 a second, and a higher rate costs frame time while recording. operation: an optional operation to apply once frame 0 is \
                      in.")
             .example(json!({
                 "label": "fill_preview",

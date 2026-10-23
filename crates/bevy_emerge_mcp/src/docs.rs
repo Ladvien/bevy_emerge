@@ -82,7 +82,10 @@ pub const TOOLS: &[ToolDoc] = &[
                        pieces it has, what is armed, what is selected, which door and tab are open, \
                        and what the editor last said and what has gone wrong. The editor section also \
                        names the next undo and redo (undo_next, redo_next) and how many are stacked \
-                       (undo_depth, redo_depth). Returns that summary as JSON, and changes nothing. \
+                       (undo_depth, redo_depth). The map section names up to 50 pinned placements \
+                       by id and reason (pinned). pinned_total is the full count; past 50, pass \
+                       pinned_from (from pinned_next) to read the rest. Returns that summary as JSON, \
+                       and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
                        that it landed.",
         read_only: true,
@@ -136,7 +139,7 @@ pub const TOOLS: &[ToolDoc] = &[
                        once the first frame is in -- so frame 0 is the state before the action and \
                        the later frames are what it did. The frames are written to a directory and \
                        their paths are in the answer. The editor takes the frames, so the timing \
-                       does not depend on this server's round trips.",
+                       does not depend on this server's round trips. The rate is two to fifteen frames a second: on a real editor 8 and 15 held their frame interval, 20 did not.",
         read_only: false,
         destructive: true,
         idempotent: false,
@@ -243,7 +246,13 @@ pub fn schemas() -> Value {
                 "dry_run": {"type": "boolean", "default": false},
             },
         },
-        "emerge_state": {"type": "object", "additionalProperties": false},
+        "emerge_state": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "pinned_from": {"type": "integer", "minimum": 0, "default": 0, "description": "Where the pinned list starts, in map order. 0 is the first pin."}
+            }
+        },
         "emerge_capture_still": {
             "type": "object",
             "additionalProperties": false,
@@ -259,7 +268,7 @@ pub fn schemas() -> Value {
             "properties": {
                 "label": {"type": "string", "description": "A snake_case name for the sequence."},
                 "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 10, "default": 2.0},
-                "fps": {"type": "integer", "enum": [4, 2], "default": 4},
+                "fps": {"type": "integer", "minimum": 2, "maximum": 15, "default": 4},
                 "operation": {
                     "type": "object",
                     "required": ["name"],

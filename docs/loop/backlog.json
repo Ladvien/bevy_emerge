@@ -189,7 +189,7 @@
       "area": "keys",
       "status": "open",
       "title": "An action search palette over keys::Action::ALL (renzora's command palette)",
-      "evidence": "From the renzora/engine survey (crates/renzora_command_palette/src/modal.rs). User problem: an action is reachable only by knowing its chord; frequency: high (128+ actions); saving: two keystrokes instead of a chord hunt; risk: the palette must refuse what the current keys::Context refuses, through Status::problem."
+      "evidence": "From the renzora/engine survey (crates/renzora_command_palette/src/modal.rs). User problem: an action is reachable only by knowing its chord; frequency: high (128+ actions); saving: two keystrokes instead of a chord hunt; risk: the palette must refuse what the current keys::Context refuses, through Status::problem. Cycle 2 (99c764c): not built (budget); depends on E-025 open-key migration; next cycle."
     },
     {
       "last_failure": "",
@@ -215,7 +215,7 @@
       "area": "editor",
       "status": "open",
       "title": "The full undo history as a list, with click-to-jump (the rest of renzora's history panel)",
-      "evidence": "E-016 shipped the next undo and redo, named. User problem: going back several steps is blind repetition; frequency: occasional; saving: one click instead of N Cmd+Z; risk: a jump of N steps is N guarded undos, each of which can refuse."
+      "evidence": "E-016 shipped the next undo and redo, named. User problem: going back several steps is blind repetition; frequency: occasional; saving: one click instead of N Cmd+Z; risk: a jump of N steps is N guarded undos, each of which can refuse. Cycle 2 (99c764c): investigation only, not built (budget); next cycle. Design noted: a jump of k entries applies k inverses and stores them as one Undo::Group on the other stack, which the existing Group apply supports."
     },
     {
       "last_failure": "",
@@ -273,22 +273,6 @@
       "last_failure": "2026-10-21 pin iteration (base 74f5085): chose placement_set_pin (O key, Action::OwnToggle). The pin verb itself passed its 3 agent tests and the editor's pin, unpin and reason paths dispatched it. Blocked by operations_have_two_front_ends: the_allowlist_of_unmigrated_actions_only_shrinks asserts UNMIGRATED == Action::ALL (every keys::Action variant is listed), so removing OwnToggle from UNMIGRATED fails unless the variant leaves the enum. Leaving the enum means rebinding O outside keys::Action, which drops the Typing-field guard (a name typed with O would pin); or redesigning the keymap so bindings name operations. Either is a design decision, not one verb. WIP patch kept outside the repo at /tmp/e024-pin-wip.patch.",
       "first_seen": "2026-10-21",
       "shipped_in": "8389191"
-    },
-    {
-      "id": "E-026",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "emerge_state reports each placement's pin, so a pin change is visible in a state dump",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "emerge_state reports placements as a count only (ops_brp.rs editor_state). The pins are reported only by the operation's own result and oplog. The E-024 brief asked for a dump showing the pin indicator changing; it could not be shown from emerge_state."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs editor_state; ops.rs pins_of",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
     },
     {
       "id": "E-027",
@@ -351,22 +335,6 @@
         "evidence": "lat.py n=4 at 837bfc8 / 6aa6185 / a862342: 132 / 162 / 245 ms median, still well under the ~1 s target. Not interleaved, noisy machine; not reproduced. One yes: not must-fix."
       },
       "evidence": "docs/loop/iterations/2026-10-22-yaw-6aa6185.md Performance. Next: interleaved A/B (both orders, /tmp/emerge_ab/ab.py pattern) of the file path on base vs HEAD; confirm or close. 2026-10-22 interleaved A/B (ab98e7d vs 4364dd4, BRP state-level): file->state 20.22 -> 19.01 ms (t=-0.20); file first still 308 -> 340 ms (t~-0.78, n=6). Not reproduced at this level; photon-to-present not measured, so still unconfirmed.",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
-      "id": "B-027",
-      "kind": "bug",
-      "area": "editor",
-      "title": "An agent's placement_remove shifts rows under the person's live row references (the pin-reason field stores a row while the person types), so Enter can pin the wrong piece",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "Unreproduced. Reviewer gap 1 in the 2026-10-22 remove iteration covered the out-of-turn undo (fixed in e0c1b00); the forward direction was left open by the fixer. Judgment: LIFO order and the gap-1 refusal cover the common path; not must-fix until a repro exists."
-      },
-      "status": "open",
-      "evidence": "Reviewer note in docs/loop/iterations/2026-10-22-remove-12b8c26.md: the pin-reason field stores a row at editor.rs ~7526 and looks the id up only at Enter (~10116). An agent removal of a lower row while the person types shifts that row. Selection and hover may hold rows too (unchecked). The undo-stack variant (row-recorded entries at editor.rs ~7032/~7148) is covered by the stack's LIFO order plus the e0c1b00 refusal: an entry above the agent's removal was recorded after the shift, and one below it is reached only after the removal is undone. Fix direction: hold placement ids, not rows, in live references.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
@@ -456,28 +424,28 @@
       "first_seen": "2026-10-22"
     },
     {
-      "id": "B-035",
-      "kind": "bug",
-      "area": "ci",
-      "title": "A badge in a band sits 12 px off its control on the hosted CI runner, so a_badge_in_a_band_is_level_with_its_control fails on Linux",
-      "must_fix": {
-        "blocks": true,
-        "common": true,
-        "no_workaround": true,
-        "evidence": "Hosted CI run 39857129899 (PR #26, merge 3ab4fca) fails this test on main. Judgment: blocks yes, because a red main CI fails every PR's gate. Local gate is green."
-      },
+      "id": "E-033",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "README demos show each change: re-shoot the five clips so every change is visible at README size",
       "status": "open",
-      "evidence": "tests/headless.rs:12593. Badge centred at y 27, control at y 15 (12 px drift). Not diagnosed in cycle 1; likely a font or layout difference on the hosted runner.",
-      "last_failure": "39857129899",
+      "evidence": "Cycle 2 (99c764c): the re-shoot failed tools/demo/check.py on every clip, so the README keeps cycle 1's GIFs. Bars: scene >= 40% of frame, change >= 5% per change moment, static <= 1.5 s, size cap. Measured: hero attempt A scene 75.2%, agent 34.2%, undo 33.9%, static 0.93 s, 0.45 MB, numbers pass but the house is off-crop; hero attempt B scene 87.7%, agent 3.2%, undo 3.0%; place_and_undo scene 90.4%, place 0.8%, undo 1.1%, static 2.0 s; agent_removes_then_undo scene 92.4%, agent 4.1%, undo 4.3%, static 2.1 s; frame_the_map scene 30.8%, Home 85.2%, static 1.27 s; move_the_camera scene 29.5%, static 0.67 s, 3.89 MB. Leads: the crop is not centred on the view centre (the editor reports focus for block_3_1 at (18.29, -18.29), but the house is off-centre in frame 0); the MIN_ZOOM floor keeps small targets far (the barrel is a 2 px dot); pick large pieces; the camera pan leaves the town. The tooling (tools/demo record.py, render.py, check.py, storyboards) ships in 9064805 and 99c764c.",
+      "last_failure": "",
       "first_seen": "2026-10-22"
     },
     {
-      "id": "E-032",
-      "kind": "enhancement",
-      "area": "tests",
-      "title": "Two review coverage gaps remain: a box's stamp half is not exercised live, and stamp_remove's undo-only rule has no dedicated test",
-      "status": "open",
-      "evidence": "From cycle 1 review note 8. Partly closed by 911c7b9 (redo-path test) and c5edd65 (sequencer receipt test). Open: crates/bevy_emerge_mapper/src/stamp_remove.rs:189 (undo-only rule) has no direct test; the stamp half of a box has no live capture.",
+      "id": "B-036",
+      "kind": "bug",
+      "area": "capture",
+      "title": "A 20 fps capture sequence hung once on a warm editor (not reproduced)",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Judgment 0 of 3: one report, not reproduced; the shipped cap is 15 fps and 20 fps is refused."
+      },
+      "status": "unconfirmed",
+      "evidence": "Reported in the cycle-2 demo run (one occurrence on a warm editor at 20 fps). Not reproduced in the recorded measurements: 4538240 measured 20 fps on a fresh editor, not sustained (mean error 12.6 and 18.0 ms against a 12.5 ms limit, every frame written). db60e4c recorded 40 fps as the editor not answering while the sequencer stayed busy. The 15 fps cap (MAX_FPS) makes 20 fps a refusal, so the hang matters only if the cap rises or a 15 fps warm sequence stalls. Next: repeat 15 and 20 fps on a warm editor with actual_t_s spacing and the BRP status.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     }

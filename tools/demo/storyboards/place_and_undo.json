@@ -1,0 +1,16 @@
+{
+  "name": "place_and_undo",
+  "fps": 15,
+  "scale": 2,
+  "width": 960,
+  "crop": [0, 64, 960, 690],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [45, 185, 85, 215]}}}],
+  "chunks": [{"seconds": 6}],
+  "steps": [
+    {"at": 0.4, "caption": "person: the barrel brush is armed; click the ground"},
+    {"at": 0.8, "click": [710, 380]},
+    {"at": 1.4, "clear_cursor": true},
+    {"at": 2.6, "caption": "person: ⌘Z takes the barrel back"},
+    {"at": 3.2, "key": "KeyZ", "mods": ["SuperLeft"]}
+  ]
+}

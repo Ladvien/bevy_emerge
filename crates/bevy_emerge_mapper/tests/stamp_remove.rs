@@ -231,3 +231,44 @@ fn an_agent_stamp_undo_waits_while_a_stamp_change_by_place_sits_above_it() {
     );
     assert!(stamps(&on_disk(&app)).is_empty(), "and off the file too");
 }
+
+#[test]
+fn a_stamp_put_back_is_refused_as_an_apply_and_only_its_undo_brings_the_stamp_back() {
+    // **A put-back is the undo of the removal that took its stamp, and nothing else.** The removal is on
+    // the log, so its inverse is there to match; an apply that sends the same put-back must still be
+    // refused, in preview and in apply, and the undo of that removal must still work.
+    let mut app = editor("stamp_remove_put_back_apply");
+    let stamp = serde_json::to_value(&held(&app).stamps[0]).expect("a stamp serialises");
+    let removed = remove(&mut app, serde_json::json!({"id": "room@1"}));
+    assert_eq!(removed["outcome"], "applied", "{removed}");
+    let operation_id = removed["operation_id"]
+        .as_str()
+        .expect("an apply returns its id")
+        .to_owned();
+
+    let put_back = serde_json::json!({"put_back": {"index": 0, "stamp": stamp}});
+    let preview = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({"operation": "stamp_remove", "parameters": put_back.clone(), "dry_run": true}),
+    );
+    assert_eq!(
+        preview["outcome"], "refused",
+        "a preview refuses what the apply refuses: {preview}"
+    );
+    let answer = remove(&mut app, put_back);
+    assert_eq!(answer["outcome"], "refused", "{answer}");
+    assert!(
+        stamps(&held(&app)).is_empty(),
+        "a put-back that is not an undo puts nothing back"
+    );
+    assert!(stamps(&on_disk(&app)).is_empty(), "and the file agrees");
+
+    let back = undo(&mut app, Some(&operation_id));
+    assert_eq!(back["outcome"], "applied", "{back}");
+    assert_eq!(
+        stamps(&held(&app)),
+        ["room@1"],
+        "the undo of that removal still puts the stamp back"
+    );
+}

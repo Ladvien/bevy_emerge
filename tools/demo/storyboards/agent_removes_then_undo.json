@@ -1,0 +1,17 @@
+{
+  "name": "agent_removes_then_undo",
+  "fps": 15,
+  "scale": 2,
+  "width": 960,
+  "crop": [0, 64, 960, 690],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-150, -110, 150, 110]}}}],
+  "chunks": [
+    {"seconds": 3, "operation": {"name": "placement_remove", "parameters": {"id": "tower_04"}}},
+    {"seconds": 3}
+  ],
+  "steps": [
+    {"at": 0.0, "caption": "agent: placement_remove tower_04"},
+    {"at": 3.0, "caption": "person: ⌘Z takes the agent's change back"},
+    {"at": 3.6, "key": "KeyZ", "mods": ["SuperLeft"]}
+  ]
+}
