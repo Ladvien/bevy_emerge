@@ -39,6 +39,8 @@ use bevy::prelude::*;
 
 use bevy_emerge_mapper::harness;
 
+mod fixtures;
+
 /// The surface image's current physical size.
 fn surface_size(app: &App) -> Option<(u32, u32)> {
     let surface = app
@@ -113,8 +115,8 @@ fn window_size(app: &mut App) -> Option<(u32, u32)> {
 /// before the compositor finishes, 3440×1440 after.
 #[test]
 fn the_surface_is_created_at_the_windows_size() {
-    let root = std::path::Path::new("/Users/ladvien/sanctuary");
-    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let root = fixtures::Fixture::new("surface_window").build("town");
+    let root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
     let mut app = App::new();
     // **The harness's plugin set, plus a window.** `WindowPlugin` with `primary_window: None` and
     // `WinitPlugin` disabled is how the headless runs avoid taking the thread; a `Window` *entity*
@@ -218,12 +220,8 @@ fn the_surface_is_created_at_the_windows_size() {
 /// another shape. Neither may change.
 #[test]
 fn a_headless_run_keeps_its_placeholder_and_resizes() {
-    let mut app = harness::build_headless(
-        std::path::Path::new("/Users/ladvien/sanctuary"),
-        "town",
-        None,
-    )
-    .unwrap_or_else(|e| panic!("{e}"));
+    let root = fixtures::Fixture::new("headless_placeholder").build("town");
+    let mut app = harness::build_headless(&root, "town", None).unwrap_or_else(|e| panic!("{e}"));
     for _ in 0..3 {
         app.update();
     }
