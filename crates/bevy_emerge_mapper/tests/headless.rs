@@ -5261,6 +5261,78 @@ fn the_map_palette_walks_from_the_keyboard() {
     );
 }
 
+/// **An arrow that arms a piece is the same operation a palette click is (gap 1).**
+///
+/// The walk used to set the brush and the tool directly, so the operation log never heard of it: an
+/// agent reading `emerge_read_oplog` saw no record of what the person armed, and the arm could not
+/// be told apart from nothing having happened. The walk now dispatches `brush_arm` as the person,
+/// the same as a click, so the line it writes names the piece that ended up armed.
+#[test]
+fn the_palette_walk_arms_through_the_operation_as_a_person() {
+    use bevy_emerge_mapper::editor::EditorState;
+    use bevy_emerge_mapper::project::Project;
+
+    let root = Fixture::new("palette_walk_op")
+        .descriptor("wall", "alpha")
+        .descriptor("floor", "beta")
+        .build("test_map");
+    let mut app = harness::build_headless(&root, "test_map", None)
+        .unwrap_or_else(|e| panic!("the fixture project must open: {e}"));
+    app.update();
+
+    let step = |app: &mut bevy::prelude::App, key: bevy::prelude::KeyCode| {
+        app.add_systems(
+            bevy::prelude::Update,
+            bevy::prelude::IntoScheduleConfigs::before(
+                move |mut keys: bevy::prelude::ResMut<
+                    bevy::input::ButtonInput<bevy::prelude::KeyCode>,
+                >,
+                      mut done: bevy::prelude::Local<bool>| {
+                    if !*done {
+                        keys.release_all();
+                        keys.press(key);
+                        *done = true;
+                    }
+                },
+                bevy_emerge_mapper::keys::Phase::Act,
+            ),
+        );
+        app.update();
+    };
+
+    let key = bevy_emerge_mapper::keys::binding(bevy_emerge_mapper::keys::Action::PaletteNext).key;
+    step(&mut app, key);
+
+    let project = app.world().resource::<Project>().clone();
+    let armed = {
+        let state = app.world().resource::<EditorState>();
+        state
+            .brush
+            .and_then(|i| project.library.descriptors.get(i))
+            .map(|d| d.id.clone())
+            .expect("the walk arms something")
+    };
+    let text = std::fs::read_to_string(bevy_emerge_mapper::ops::oplog_path(&project))
+        .unwrap_or_default();
+    let arms: Vec<serde_json::Value> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("a log line is JSON"))
+        .filter(|l: &serde_json::Value| l["op"] == "brush_arm")
+        .collect();
+    assert_eq!(
+        arms.len(),
+        1,
+        "one arrow arms one piece, so the log holds one brush_arm line: {arms:?}"
+    );
+    assert_eq!(arms[0]["source"], "human", "the person armed it, not an agent: {}", arms[0]);
+    assert_eq!(
+        arms[0]["params"]["descriptor"], armed,
+        "the logged arm names the piece the walk left armed: {}",
+        arms[0]
+    );
+}
+
 /// **The door's other half: `Esc` throws the layout away and the map is untouched.**
 ///
 /// The half that is actually about safety. Alvarez et al. 2018 (`10.1145/3235765.3235815`) added a

@@ -2747,17 +2747,13 @@ fn walk_palette(
     let Some(&next) = visible.get(want.min(visible.len().saturating_sub(1))) else {
         return;
     };
-    state.brush = Some(next);
-    // **Arming from the keyboard returns to placing**, for the reason `on_row_click` gives below:
-    // picking something to place is an unambiguous statement that you are done deleting or moving.
-    state.tool = Tool::Place;
-    let name = project
-        .library
-        .descriptors
-        .get(next)
-        .map(|d| d.id.clone())
-        .unwrap_or_else(|| "?".to_owned());
-    state.status.note(format!("`{name}` armed"));
+    // **The walk is the `brush_arm` operation, the same one a click is** (gap 1). It used to set the
+    // brush and the tool itself, so the log never heard of it. `arm_piece` dispatches the arm as the
+    // person, applies its answer, and returns to placing, exactly as a click does.
+    let Some(id) = project.library.descriptors.get(next).map(|d| d.id.clone()) else {
+        return;
+    };
+    arm_piece(&mut state, &project, &id);
 }
 
 /// One observer for the whole palette. `Activate` carries the entity, so the index lives on the row
