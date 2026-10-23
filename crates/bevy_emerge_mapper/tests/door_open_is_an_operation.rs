@@ -118,12 +118,12 @@ fn a_stored_request_crosses_the_door_on_the_next_frame() {
         "the test starts on another door, so a crossing to Kit is visible"
     );
     app.world_mut().resource_mut::<EditorState>().door_request =
-        Some(DoorRequest { door: Door::Kit, tab: Some(Mode::Meshes) });
+        Some(DoorRequest { door: Door::Kit, tab: Some(Mode::Tiles) });
     for _ in 0..4 {
         app.update();
     }
     assert_eq!(*app.world().resource::<Door>(), Door::Kit, "the request crossed to the Kit door");
-    assert!(*app.world().resource::<Mode>() == Mode::Meshes, "and opened the Meshes panel");
+    assert!(*app.world().resource::<Mode>() == Mode::Tiles, "and opened the Tiles panel");
     assert!(
         app.world().resource::<EditorState>().door_request.is_none(),
         "a crossed request is consumed, so it does not cross again"
