@@ -102,7 +102,8 @@ pub const TOOLS: &[ToolDoc] = &[
                        by_model, confidence (high, medium or low), id_contains. total is the true \
                        count after the filters. A page holds 50 rows; past 50, pass pieces_from \
                        (from pieces_next) to read the rest, and how_to_narrow names the filters \
-                       when a filtered page is still capped. Returns that page as JSON, and changes \
+                       when a filtered page is still capped. Refuses when no project is open, \
+                       rather than answering an empty list. Returns that page as JSON, and changes \
                        nothing.",
         read_only: true,
         destructive: false,

@@ -467,8 +467,13 @@ fn confidence_word(word: &str) -> Result<Confidence, String> {
 fn editor_pieces(In(params): In<PiecesParams>, loaded: Loaded) -> Result<Value, String> {
     const PIECE_CAP: usize = 50;
     let wanted = params.confidence.as_deref().map(confidence_word).transpose()?;
+    // **No project is not an empty library.** An empty page here read as "nothing needs labelling".
     let Some(project) = loaded.project else {
-        return Ok(json!({"total": 0, "pieces": [], "pieces_next": null, "how_to_narrow": null}));
+        return Err(
+            "no project is open, so there is no library to list: open a project (start the editor \
+             on its root) and ask again"
+                .to_string(),
+        );
     };
     let filtered: Vec<(&Descriptor, Value, bool)> = project
         .library

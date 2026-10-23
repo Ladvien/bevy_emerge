@@ -79,6 +79,21 @@ fn try_call(app: &mut App, method: &str, params: serde_json::Value) -> Result<se
         .map_err(|e| format!("{e:?}"))
 }
 
+/// **With no project open there is no library, and the answer says so.** An empty page would read
+/// as an empty library: an agent that asked which pieces need labelling would conclude none do.
+#[test]
+fn with_no_project_open_the_list_is_refused_not_empty() {
+    let mut app = editor("pieces-no-project");
+    app.world_mut()
+        .remove_resource::<bevy_emerge_mapper::project::Project>();
+    let refused = try_call(&mut app, "emerge/pieces", serde_json::json!({}));
+    let reason = refused.expect_err("a list with no project open must be refused, not answered empty");
+    assert!(
+        reason.contains("no project is open"),
+        "the refusal must say why there is nothing to list; got {reason}"
+    );
+}
+
 fn ids(answer: &serde_json::Value) -> Vec<String> {
     let mut ids: Vec<String> = answer["pieces"]
         .as_array()
