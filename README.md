@@ -132,6 +132,8 @@ Review: hold A and D to pan left and right. The [framing and camera guide](docs/
 
 The MCP server gives an agent the same typed operations a person uses, including removing pieces, a box and a stamp (`placement_remove` and `stamp_remove`). The [tool reference](docs/mcp-tools.md) lists the eleven tools and their parameters. An agent's change lands in the same operation log and undo history as yours, and it shows on your receipt: the UNDER line in the inspector. A refusal goes to the toast and the journal (Cmd+E).
 
+![An agent removes the abbey with placement_remove, the church disappears, then Cmd+Z puts it back](docs/media/agent-removes-then-undo.gif)
+
 Known gaps:
 
 - Renaming a map does not rewrite other references to it by name.
