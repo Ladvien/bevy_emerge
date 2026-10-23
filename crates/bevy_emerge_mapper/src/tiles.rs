@@ -4480,24 +4480,24 @@ fn enter_tab(
 /// that reading was one word too strong. It needs the chip to stop being a `Button`. A press is a
 /// press; `Enter` belongs to whatever has the keyboard, and a tab strip never should.
 ///
-/// So: no `Button`, no `Activate`, no focus — a `Pointer<Click>` observer that walks the same
-/// [`enter_tab`] the key does. It bubbles, so a click on the chip's chord or label reaches the chip.
-fn click_tab(
-    click: On<PointerClick>,
-    tabs: Query<&Tab>,
-    project: Option<Res<Project>>,
-    mode: Option<ResMut<Mode>>,
-    state: Option<ResMut<ImportState>>,
-    // `Option`, like every other door resource an observer takes: a global `Activate`/`Pointer`
-    // observer fires on any screen, and a missing `Res<T>` panics rather than skipping.
-    build: Option<ResMut<crate::build::Build>>,
-) {
-    let (Ok(tab), Some(project), Some(mut mode), Some(mut state), Some(mut build)) =
-        (tabs.get(click.entity), project, mode, state, build)
-    else {
+/// So: no `Button`, no `Activate`, no focus — a `Pointer<Click>` observer that goes through the same
+/// [`crate::editor::open_door`] the key does, so a click and a key log the same `door_open` line. It bubbles, so a click on the chip's chord or label reaches the chip.
+fn click_tab(click: On<PointerClick>, tabs: Query<&Tab>, mut commands: Commands) {
+    let Ok(tab) = tabs.get(click.entity) else {
         return;
     };
-    enter_tab(tab.0, &project, &mut mode, &mut state, &mut build);
+    let want = tab.0;
+    // Deferred, because `open_door` takes the whole `World`. A global `Pointer` observer fires on any
+    // screen, so the door and the editor state are checked where the command runs, not assumed here.
+    commands.queue(move |world: &mut World| {
+        let Some(door) = world.get_resource::<Door>().copied() else {
+            return;
+        };
+        if !world.contains_resource::<crate::editor::EditorState>() {
+            return;
+        }
+        crate::editor::open_door(world, door, Some(want));
+    });
 }
 
 /// **`R` rescans**, because meshes arrive while the editor is open — an importer that only sees what

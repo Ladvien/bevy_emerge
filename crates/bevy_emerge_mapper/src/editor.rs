@@ -2091,8 +2091,10 @@ pub fn open_door(world: &mut World, door: crate::tiles::Door, tab: Option<crate:
         "door": door.label().to_lowercase(),
         "tab": tab.map(|m| m.label().to_lowercase()),
     });
-    let project = world.remove_resource::<Project>();
-    let open = world.remove_resource::<OpenMap>();
+    // **Copies, not the world's own.** A door press changes no document. Taking the resources out and
+    // putting them back marked both changed, so every watcher of the map saw an edit on each tab press.
+    let project = world.get_resource::<Project>().cloned();
+    let open = world.get_resource::<OpenMap>().cloned();
     let mut ctx = crate::ops::Ctx {
         project,
         open,
@@ -2100,12 +2102,6 @@ pub fn open_door(world: &mut World, door: crate::tiles::Door, tab: Option<crate:
         session: crate::ops::session_id(),
     };
     let applied = crate::ops::dispatch(&mut ctx, "door_open", &params);
-    if let Some(p) = ctx.project {
-        world.insert_resource(p);
-    }
-    if let Some(o) = ctx.open {
-        world.insert_resource(o);
-    }
     match applied {
         Ok(crate::ops::Applied::Done { outcome, .. }) => {
             request_door(

@@ -6,11 +6,12 @@
 //! with the exact target in its answer. Nothing here writes a map.
 
 use bevy_emerge_mapper::editor::{DoorRequest, EditorState};
-use bevy_emerge_mapper::tiles::{Door, Mode};
+use bevy_emerge_mapper::tiles::{Door, Mode, Tab};
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::ops::{self, Applied, Ctx, Source};
 use bevy_emerge_mapper::project::{OpenMap, Project};
 use serde_json::json;
+use bevy::ecs::change_detection::DetectChanges;
 
 mod fixtures;
 
@@ -211,5 +212,125 @@ fn a_dirty_map_asked_for_the_map_door_waits_for_nobody() {
         outcome.after.as_ref().is_some_and(|a| a.get("waiting").is_none()),
         "no leaving question for a request that stays on the Map door: {:?}",
         outcome.after
+    );
+}
+
+/// **Opening the door you are on changes no document.** `open_door` used to take `Project` and
+/// `OpenMap` out of the world and put them back, which marks both changed on every tab press, so
+/// every system that watches the map believes it was edited. A probe reads the change flags the way
+/// a real system does.
+#[derive(bevy::prelude::Resource, Default)]
+struct DocumentProbe {
+    project_changed: bool,
+    open_changed: bool,
+}
+
+fn probe_document(
+    project: Option<bevy::prelude::Res<Project>>,
+    open: Option<bevy::prelude::Res<OpenMap>>,
+    mut seen: bevy::prelude::ResMut<DocumentProbe>,
+) {
+    seen.project_changed = project.is_some_and(|p| p.is_changed());
+    seen.open_changed = open.is_some_and(|o| o.is_changed());
+}
+
+#[test]
+fn opening_the_door_you_are_on_marks_no_document_changed() {
+    let root = fixtures::Fixture::new("door_open_marks_nothing").build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    app.init_resource::<DocumentProbe>();
+    app.add_systems(bevy::prelude::Update, probe_document);
+    for _ in 0..4 {
+        app.update();
+    }
+    // The precondition: a frame that does nothing to the map reads unchanged, so the probe is honest.
+    app.update();
+    let quiet = app.world().resource::<DocumentProbe>();
+    assert!(
+        !quiet.project_changed && !quiet.open_changed,
+        "a quiet frame reads unchanged before the press, so a changed read means the press did it"
+    );
+    let door = *app.world().resource::<Door>();
+    let tab = *app.world().resource::<Mode>();
+    bevy_emerge_mapper::editor::open_door(app.world_mut(), door, Some(tab));
+    app.update();
+    let after = app.world().resource::<DocumentProbe>();
+    assert!(!after.project_changed, "the press on the current door marked the project changed");
+    assert!(!after.open_changed, "the press on the current door marked the open map changed");
+}
+
+#[test]
+fn a_click_on_a_tab_chip_writes_the_same_log_line_a_key_press_does() {
+    // **A chip click is the same entry as the slot key** (cycle 8 gap 2). The key goes through
+    // `open_door`, which logs a `door_open` line; a click that went straight to `enter_tab` logs
+    // nothing, so the log misses a press the person made.
+    use bevy::camera::{ImageRenderTarget, NormalizedRenderTarget};
+    use bevy::picking::backend::HitData;
+    use bevy::picking::events::{Pointer, PointerClick};
+    use bevy::picking::pointer::{Location, PointerButton, PointerId};
+    use bevy::prelude::{Entity, Vec2};
+    let root = fixtures::Fixture::new("door_open_click_logs").build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..4 {
+        app.update();
+    }
+    app.world_mut().resource_mut::<EditorState>().door_request =
+        Some(DoorRequest { door: Door::Kit, tab: None });
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(*app.world().resource::<Door>(), Door::Kit, "the test stands on the Kit door");
+    let log = app.world().resource::<Project>().project_dir.join("oplog.jsonl");
+    let door_lines = |path: &std::path::Path| {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| {
+                serde_json::from_str::<serde_json::Value>(l)
+                    .ok()
+                    .is_some_and(|v| v["op"] == "door_open")
+            })
+            .count()
+    };
+    let before = door_lines(&log);
+    let chip = {
+        let world = app.world_mut();
+        let mut tabs = world.query::<(Entity, &Tab)>();
+        tabs.iter(world)
+            .find(|(_, tab)| tab.0 == Mode::Tiles)
+            .map(|(entity, _)| entity)
+            .expect("the Kit door shows a Tiles chip")
+    };
+    app.world_mut().trigger(PointerClick {
+        entity: chip,
+        pointer: Pointer::new(
+            PointerId::Mouse,
+            Location {
+                target: NormalizedRenderTarget::Image(ImageRenderTarget {
+                    handle: Default::default(),
+                    scale_factor: 1.0,
+                }),
+                position: Vec2::ZERO,
+            },
+        ),
+        button: PointerButton::Primary,
+        hit: HitData {
+            camera: Entity::PLACEHOLDER,
+            depth: 0.0,
+            position: None,
+            normal: None,
+            extra: None,
+        },
+        duration: std::time::Duration::ZERO,
+        count: 1,
+    });
+    for _ in 0..4 {
+        app.update();
+    }
+    assert!(*app.world().resource::<Mode>() == Mode::Tiles, "the chip opened its tab");
+    assert_eq!(
+        door_lines(&log),
+        before + 1,
+        "the click wrote one door_open line, as a key press does"
     );
 }
