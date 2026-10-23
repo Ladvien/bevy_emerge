@@ -89,6 +89,17 @@ pub struct Sequencer {
     finished: Vec<Finished>,
 }
 
+/// **How long one capture may take to land** before the run gives up on it. A readback lands
+/// within a frame or two, so five seconds is a stalled editor, and a run that waits longer must
+/// say so rather than hang.
+const CAPTURE_TIMEOUT_S: f32 = 5.0;
+
+/// **The capture on its way to disk**: the frame it is for, and when it was asked for.
+struct InFlight {
+    index: u32,
+    since: f32,
+}
+
 /// **A run in flight.**
 struct Run {
     id: u64,
@@ -112,6 +123,8 @@ struct Run {
     asked: Vec<Frame>,
     /// **The frames whose PNG has landed.** The run is finished when this has caught up.
     written: Vec<String>,
+    /// **The capture on its way to disk**, if one is. One at a time: see `drive_sequencer`.
+    in_flight: Option<InFlight>,
 }
 
 /// **One frame, written.**
@@ -196,6 +209,7 @@ impl Sequencer {
             operation_result: None,
             asked: Vec::new(),
             written: Vec::new(),
+            in_flight: None,
         });
         Ok(id)
     }
@@ -288,6 +302,19 @@ fn drive_sequencer(
     // headless editor ends the run and says why.
     let can_render = can_render.map(|c| c.0).unwrap_or(false);
 
+    // **A capture that never lands ends the run with its reason**, rather than leaving the run
+    // waiting for a PNG that is not coming.
+    if let Some(flight) = run.in_flight.as_ref()
+        && now - flight.since > CAPTURE_TIMEOUT_S
+    {
+        let error = format!(
+            "frame {} did not land within {CAPTURE_TIMEOUT_S} s, so the run stopped rather than wait for it",
+            flight.index
+        );
+        finish_run(&mut sequencer, Some(error));
+        return;
+    }
+
     // **The operation goes in AFTER frame 0 has been asked for.**
     //
     // **This is the whole reason the sequencer is on the editor's side.** The screenshot reads
@@ -365,12 +392,12 @@ fn drive_sequencer(
             break;
         }
         let index = run.next;
-        run.next += 1;
         let path = run.out_dir.join(format!("f{index:03}_t{t:.2}s.png"));
         let actual = now;
         let Some(handle) = surface.map(|s| s.image.clone()).filter(|_| can_render) else {
             // **No renderer: the frame is asked for and nothing more.** The schedule still
             // advances, so the run finishes and the manifest still says when each frame was due.
+            run.next += 1;
             run.asked.push(Frame {
                 index,
                 t_s: t,
@@ -379,6 +406,15 @@ fn drive_sequencer(
             });
             continue;
         };
+        // **One capture in flight at a time.** Bevy keeps one screenshot per render target per
+        // frame: a second one requested while the first is pending is despawned without ever
+        // writing a PNG ("Duplicate render target"), and its observer never fires, so the run
+        // waited for a frame that could never land (B-038). A due frame waits here until the one
+        // before it has landed.
+        if run.in_flight.is_some() {
+            break;
+        }
+        run.next += 1;
         // **The frame is written by the observer, when the readback lands.**
         //
         // The screenshot is spawned here and the PNG is written when the capture completes,
@@ -386,6 +422,7 @@ fn drive_sequencer(
         // the frame *before* the one that was asked for.
         let out = path.clone();
         let written_path = out.to_string_lossy().into_owned();
+        let run_id = run.id;
         commands
             .spawn(bevy::render::view::screenshot::Screenshot::image(handle))
             .observe(
@@ -404,9 +441,19 @@ fn drive_sequencer(
                     let Some(run) = sequencer.run.as_mut() else {
                         return;
                     };
+                    // **A capture that outlived its run** (it timed out, or a new run started) has
+                    // nothing to land in, so its PNG is not counted.
+                    if run.id != run_id {
+                        return;
+                    }
                     run.written.push(written_path.clone());
+                    if run.in_flight.as_ref().is_some_and(|f| f.index == index) {
+                        run.in_flight = None;
+                    }
                 },
             );
+        // **The capture in flight is this frame**, until its PNG lands (see the top of the loop).
+        run.in_flight = Some(InFlight { index, since: now });
         // **The frame is counted when it is ASKED for**, and the run is finished when it is
         // WRITTEN. The two are different moments — the readback lands a frame or two after the
         // spawn — and a run that finished on the ask would report itself done while its last
