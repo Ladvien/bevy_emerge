@@ -243,9 +243,9 @@ impl Labeler {
         match (self.read_for.is_some(), self.model.as_deref(), self.link) {
             (false, ..) => ("", ""),
             (true, None, _) => ("labeler: not configured", ""),
-            (true, Some(m), Link::Untried) => ("labeler: ", m),
-            (true, Some(m), Link::Live) => ("connected: ", m),
-            (true, Some(m), Link::Down) => ("unreachable: ", m),
+            (true, Some(m), Link::Untried) => ("labeler: ", model_short(m)),
+            (true, Some(m), Link::Live) => ("connected: ", model_short(m)),
+            (true, Some(m), Link::Down) => ("unreachable: ", model_short(m)),
         }
     }
 
@@ -1588,6 +1588,29 @@ pub(crate) fn stamp_human(
     record.by.set(axis, By::Human);
 }
 
+/// **The model's name as a person reads it on a row**: its last path segment with the weight-file
+/// extension dropped. A path such as `/Users/me/models/Qwen3-VL-8B-Instruct-Q4_K_M.gguf` reads as
+/// `Qwen3-VL-8B-Instruct-Q4_K_M`, and a bare name passes through unchanged.
+///
+/// Display only. The full path stays in the record and in `emerge/pieces`, so this can never be the
+/// thing that identifies a model. The extension list is closed, because a model name may contain a
+/// dot (`qwen2.5-7b`) that is not an extension and must not be cut.
+pub fn model_short(model: &str) -> &str {
+    const WEIGHT_FILES: [&str; 4] = [".gguf", ".safetensors", ".bin", ".onnx"];
+    let segment = model.rsplit(['/', '\\']).next().unwrap_or(model);
+    let stem = WEIGHT_FILES
+        .iter()
+        .find_map(|ext| {
+            segment
+                .len()
+                .checked_sub(ext.len())
+                .filter(|&at| segment.is_char_boundary(at) && segment[at..].eq_ignore_ascii_case(ext))
+                .map(|at| &segment[..at])
+        })
+        .unwrap_or(segment);
+    if stem.is_empty() { model } else { stem }
+}
+
 #[cfg(test)]
 mod tests {
     /// **The band never says `connected` about something nothing has connected to.**
@@ -2441,5 +2464,32 @@ mod tests {
         assert_eq!(s.pending(), 1);
         assert!(s.remove(&lib).is_some());
         assert_eq!(s.pending(), 0);
+    }
+
+    #[test]
+    fn a_model_reads_by_its_file_stem_and_keeps_its_dots() {
+        use super::model_short;
+        assert_eq!(
+            model_short("/Users/me/models/Qwen3-VL-8B-Instruct-Q4_K_M.gguf"),
+            "Qwen3-VL-8B-Instruct-Q4_K_M"
+        );
+        assert_eq!(model_short("https://host.lan/models/x.onnx"), "x");
+        assert_eq!(model_short("C:\\models\\m.safetensors"), "m");
+        // A dot that is not an extension is part of the name, and must not be cut.
+        assert_eq!(model_short("qwen2.5-7b"), "qwen2.5-7b");
+        assert_eq!(model_short("gemma-x"), "gemma-x");
+        assert_eq!(model_short(".gguf"), ".gguf");
+    }
+
+    #[test]
+    fn the_status_line_names_the_model_by_its_file_stem() {
+        let mut l = super::Labeler {
+            read_for: Some(std::path::PathBuf::from("/kit")),
+            ..Default::default()
+        };
+        l.model = Some("/Users/me/models/Qwen3-VL-8B.gguf".into());
+        assert_eq!(l.line(), "labeler: Qwen3-VL-8B");
+        l.answered("/Users/me/models/Qwen3-VL-8B.gguf");
+        assert_eq!(l.line(), "connected: Qwen3-VL-8B");
     }
 }

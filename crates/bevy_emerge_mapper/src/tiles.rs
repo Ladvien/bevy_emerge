@@ -9477,10 +9477,11 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                             } else {
                                 format!(" · touched {}", l.at)
                             };
-                            (format!("{m} · {model_date}{touched}{sure}"), crate::chrome::UNCHECKED)
+                            let short = crate::labels::model_short(m);
+                            (format!("{short} · {model_date}{touched}{sure}"), crate::chrome::UNCHECKED)
                         }
                         // **Every axis is confirmed**: the row says when a person checked it.
-                        Some(m) => (format!("{m} · checked {}{sure}", l.at), TEXT),
+                        Some(m) => (format!("{} · checked {}{sure}", crate::labels::model_short(m), l.at), TEXT),
                         None => (format!("by hand · {}{sure}", l.at), TEXT),
                     }
                 }
@@ -9493,7 +9494,23 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
             })
             .with_children(|row| {
                 crate::chrome::row_label(row, crate::chrome::COL_LABEL, "labels");
-                crate::chrome::row_value(row, labels_text, labels_ink, ());
+                // **One line, clipped at the row's edge.** Bevy 0.20 has no text-overflow ellipsis, so
+                // a long model name is cut at the edge rather than wrapped onto a second line.
+                row.spawn(Node {
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    min_width: Val::Px(0.0),
+                    overflow: Overflow::clip_x(),
+                    ..default()
+                })
+                .with_children(|clip| {
+                    clip.spawn((
+                        Text::new(labels_text),
+                        TextColor(labels_ink),
+                        crate::chrome::font(crate::chrome::text::BODY),
+                        TextLayout::new(Justify::Left, LineBreak::NoWrap),
+                    ));
+                });
             });
 
             // **How far up, for the two mounts that have an up.**

@@ -99,7 +99,7 @@ fn labels_row(app: &mut App) -> Option<(String, Color)> {
     let world = app.world_mut();
     let mut q = world.query::<(&Text, &TextColor)>();
     q.iter(world)
-        .find(|(t, _)| t.0.contains("gemma-x") || t.0.starts_with("by hand"))
+        .find(|(t, _)| t.0.contains("gemma-x") || t.0.contains("Qwen3-VL") || t.0.starts_with("by hand"))
         .map(|(t, c)| (t.0.clone(), c.0))
 }
 
@@ -160,4 +160,18 @@ fn an_open_model_axis_keeps_the_models_date_and_says_when_a_person_touched_it() 
     let (text, ink) = labels_row(&mut app).expect("the labels row should be drawn");
     assert_eq!(text, "gemma-x · 2026-10-20 · touched 2026-10-21 · confidence high");
     assert_eq!(ink, bevy_emerge_mapper::chrome::UNCHECKED);
+}
+
+/// **The row names the model as a person reads it.** A model stored by its full path shows its file
+/// stem; the path itself stays in the record, where `emerge/pieces` still reports it whole.
+#[test]
+fn the_labels_row_shows_the_models_file_stem_not_its_path() {
+    let mut app = open(fixtures::Fixture::new("labels_model_path").labelled_by(
+        "fence",
+        "alpha",
+        "(kind: Some(Model), effects: Some(Model), look: Some(Model))",
+        r#"model: Some("/Users/me/models/Qwen3-VL-8B-Instruct-Q4_K_M.gguf"), at: "2026-10-20", confidence: Some(High)"#,
+    ));
+    let (text, _) = labels_row(&mut app).expect("the labels row should be drawn");
+    assert_eq!(text, "Qwen3-VL-8B-Instruct-Q4_K_M · 2026-10-20 · confidence high");
 }
