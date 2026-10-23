@@ -148,7 +148,7 @@ fn context(
 /// **`ResMut::into_inner` hands back a borrow, not the value** — so the value is cloned out and
 /// the changed one is cloned back. **The clone is the price of the registry's `dyn`**, and it is
 /// paid once per operation rather than once per frame.
-fn take(
+pub(crate) fn take(
     project: &Option<ResMut<crate::project::Project>>,
     open: &Option<ResMut<crate::project::OpenMap>>,
 ) -> Ctx {
@@ -164,7 +164,7 @@ fn take(
 ///
 /// **The map, and the rules when an operation changed them.** Most operations read the library and
 /// write the file and leave the project alone; a rename is the one that rewrites `rules.ron`.
-fn put_back(
+pub(crate) fn put_back(
     project: &mut Option<ResMut<crate::project::Project>>,
     open: &mut Option<ResMut<crate::project::OpenMap>>,
     ctx: Ctx,
@@ -620,7 +620,7 @@ fn operation_preview(
 ///
 /// The plan reads the library and nothing else. The door, the job and the shelf filter are editor
 /// state, so they are read here, where the editor's resources are in hand.
-fn piece_select_refusal(
+pub(crate) fn piece_select_refusal(
     door: Option<crate::tiles::Door>,
     mode: Option<crate::tiles::Mode>,
     project: Option<&crate::project::Project>,
