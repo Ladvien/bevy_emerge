@@ -475,6 +475,21 @@ fn operation_apply(
                 .join(", ")
         ));
     };
+    // **A door asked for while the leaving question is up is refused before anything is planned.** The
+    // person's answer to that question owns the next crossing, and the editor would refuse a second
+    // request only after this answer had already said "applied". Refused here, as the editor refuses it,
+    // and nothing is written or logged.
+    if p.operation == "door_open" && state.as_deref().is_some_and(|s| s.leaving) {
+        let refusal = "a door is already waiting on the leaving question. The person answers it first, then the door can be asked for again.";
+        if let Some(state) = state.as_mut() {
+            state.problem_agent_refusal(&p.operation, refusal);
+        }
+        return Ok(json!({
+            "operation": p.operation,
+            "outcome": "refused",
+            "refusal": refusal,
+        }));
+    }
     // **A preview is the plan, and nothing else.**
     //
     // **And a preview takes the resources by *reference*, not by ownership** — a preview that
@@ -562,18 +577,26 @@ fn operation_apply(
             outcome,
             operation_id,
             entry,
-        }) => Ok(json!({
-            "operation": p.operation,
-            "outcome": "applied",
-            "summary": outcome.summary,
-            "affected": outcome.affected,
-            "saved": outcome.saved,
-            // **The id the agent cites and the human reverts by.** The brief asks for it on every
-            // mutating tool, and an operation whose id nobody can name is an operation nobody can
-            // present.
-            "operation_id": operation_id,
-            "log_entry": entry,
-        })),
+        }) => {
+            // **A door the editor will ask about is not yet open (cycle 8).** The request is accepted, and
+            // the answer names what it waits on, so nobody reads "applied" as "the door is open".
+            let answer = match outcome.after.as_ref().and_then(|after| after["waiting"].as_str()) {
+                Some(why) if p.operation == "door_open" => format!("waiting for the person: {why}"),
+                _ => "applied".to_owned(),
+            };
+            Ok(json!({
+                "operation": p.operation,
+                "outcome": answer,
+                "summary": outcome.summary,
+                "affected": outcome.affected,
+                "saved": outcome.saved,
+                // **The id the agent cites and the human reverts by.** The brief asks for it on every
+                // mutating tool, and an operation whose id nobody can name is an operation nobody can
+                // present.
+                "operation_id": operation_id,
+                "log_entry": entry,
+            }))
+        }
         Ok(ops::Applied::Refused(e)) => Ok(json!({
             "operation": p.operation,
             "outcome": "refused",

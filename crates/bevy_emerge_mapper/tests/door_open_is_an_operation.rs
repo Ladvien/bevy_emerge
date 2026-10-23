@@ -129,3 +129,87 @@ fn a_stored_request_crosses_the_door_on_the_next_frame() {
         "a crossed request is consumed, so it does not cross again"
     );
 }
+
+#[test]
+fn a_map_that_does_not_parse_is_refused_not_answered_as_applied() {
+    // **The Map door crosses onto the map on disk.** A map that will not parse cannot be crossed to,
+    // and the crossing used to refuse after the answer had already said "applied". The read is the one
+    // the crossing makes, so it belongs in the plan, before anything is answered.
+    let root = fixtures::Fixture::new("door_open_bad_map").build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    let mut project = app.world_mut().remove_resource::<Project>().expect("a project is open");
+    let open = app.world_mut().remove_resource::<OpenMap>().expect("a map is open");
+    let map_path = open.map_path.clone();
+    std::fs::write(&map_path, "this is not a map").expect("the map file can be written");
+    project.open_map_name = Some("m".to_owned());
+    let mut ctx = Ctx {
+        project: Some(project),
+        open: None,
+        source: Source::Human,
+        session: String::new(),
+    };
+    let text = match ops::dispatch(&mut ctx, "door_open", &json!({"door": "map"})) {
+        Err(refusal) => refusal.to_string(),
+        Ok(Applied::Refused(refusal)) => refusal.to_string(),
+        Ok(done) => panic!("a map that does not parse was answered as applied: {}", summary(done)),
+    };
+    assert!(
+        text.contains(&map_path.display().to_string()),
+        "the refusal names the map file that would not open: {text}"
+    );
+}
+
+#[test]
+fn a_dirty_map_asked_to_leave_says_it_waits_for_the_person() {
+    // **Leaving unsaved edits is the person's question.** The answer is accepted and names what it
+    // waits on; the editor asks the question. It must not read as "opened".
+    let root = fixtures::Fixture::new("door_open_dirty").build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    let project = app.world_mut().remove_resource::<Project>().expect("a project is open");
+    let mut open = app.world_mut().remove_resource::<OpenMap>().expect("a map is open");
+    open.map.note = Some("an edit that is not saved".to_owned());
+    assert!(open.dirty(), "the test makes the map unsaved");
+    let mut ctx = Ctx {
+        project: Some(project),
+        open: Some(open),
+        source: Source::Human,
+        session: String::new(),
+    };
+    let applied = ops::dispatch(&mut ctx, "door_open", &json!({"door": "kit"}))
+        .unwrap_or_else(|e| panic!("door_open refused a request the person decides: {e}"));
+    let Applied::Done { outcome, .. } = applied else {
+        panic!("door_open did not accept the request");
+    };
+    assert_eq!(
+        outcome.after.as_ref().and_then(|a| a["waiting"].as_str()),
+        Some("the map has unsaved changes"),
+        "the answer says it waits on the person, and why: {:?}",
+        outcome.after
+    );
+}
+
+#[test]
+fn a_dirty_map_asked_for_the_map_door_waits_for_nobody() {
+    // **Already on the Map door, the request crosses nothing**, so nothing is waiting on the person.
+    let root = fixtures::Fixture::new("door_open_dirty_map").build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    let project = app.world_mut().remove_resource::<Project>().expect("a project is open");
+    let mut open = app.world_mut().remove_resource::<OpenMap>().expect("a map is open");
+    open.map.note = Some("an edit that is not saved".to_owned());
+    let mut ctx = Ctx {
+        project: Some(project),
+        open: Some(open),
+        source: Source::Human,
+        session: String::new(),
+    };
+    let applied = ops::dispatch(&mut ctx, "door_open", &json!({"door": "map"}))
+        .unwrap_or_else(|e| panic!("door_open refused the Map door: {e}"));
+    let Applied::Done { outcome, .. } = applied else {
+        panic!("door_open did not accept the request");
+    };
+    assert!(
+        outcome.after.as_ref().is_some_and(|a| a.get("waiting").is_none()),
+        "no leaving question for a request that stays on the Map door: {:?}",
+        outcome.after
+    );
+}

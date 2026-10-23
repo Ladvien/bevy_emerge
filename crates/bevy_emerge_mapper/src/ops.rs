@@ -1834,18 +1834,43 @@ pub mod door_open {
                      has something to show.",
                 ));
             }
-            Ok(json!({
+            // **The Map door crosses onto the map on disk, and a map that will not open cannot be crossed
+            // to.** The crossing reads it through this same `OpenMap::open`, so the read happens here, before
+            // the answer says "applied". It writes nothing.
+            if door == Door::Map
+                && ctx.open.is_none()
+                && let Some(project) = ctx.project.as_ref()
+                && let Some(name) = project.open_map_name.as_deref()
+            {
+                crate::project::OpenMap::open(project, name).map_err(Refusal::new)?;
+            }
+            // **Leaving a map with unsaved edits is the person's question.** The request is accepted and
+            // the answer names what it waits on: the editor asks the leaving question, and this operation
+            // cannot answer it for them.
+            let waiting = door != Door::Map && ctx.open.as_ref().is_some_and(|open| open.dirty());
+            let mut answer = json!({
                 "door": door.label().to_lowercase(),
                 "tab": tab.map(|m| m.label().to_lowercase()),
-            }))
+            });
+            if waiting {
+                answer["waiting"] = json!("the map has unsaved changes");
+            }
+            Ok(answer)
         }
 
         fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
             let plan = self.plan(ctx, params)?;
             let door = plan["door"].as_str().unwrap_or("");
-            let summary = match plan["tab"].as_str() {
-                Some(tab) => format!("opened the {door} door on {tab}"),
-                None => format!("opened the {door} door"),
+            let target = match plan["tab"].as_str() {
+                Some(tab) => format!("the {door} door on {tab}"),
+                None => format!("the {door} door"),
+            };
+            let summary = if plan.get("waiting").is_some() {
+                format!(
+                    "asked for {target}; the map has unsaved changes, so the leaving question comes first"
+                )
+            } else {
+                format!("opened {target}")
             };
             Ok(Outcome {
                 summary,
