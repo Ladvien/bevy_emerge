@@ -7,6 +7,7 @@
 //! own state.
 
 use bevy::prelude::*;
+use bevy::input::{ButtonInput, InputSystems};
 use bevy_emerge_mapper::filter::{Filters, Pane};
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::ops;
@@ -104,4 +105,46 @@ fn a_piece_the_shelf_filter_hides_is_refused() {
     let why = answer["refusal"].as_str().unwrap_or_default();
     assert!(why.contains("filter"), "the refusal says the filter hides it: {why}");
     assert_eq!(selected(&app), None);
+}
+
+fn press_arrow_down_once(mut keys: ResMut<ButtonInput<KeyCode>>, mut done: Local<bool>) {
+    if !*done {
+        keys.press(KeyCode::ArrowDown);
+        *done = true;
+    }
+}
+
+/// **An arrow walk on the Meshes shelf is a selection, so it writes the same log line a row click
+/// and an agent's `piece_select` write.** E-044: the walk set `selected_library_id` by hand, so a
+/// keyboard selection left no record in the operation log and no agent could see it.
+#[test]
+fn the_shelf_walk_selects_through_the_operation() {
+    let mut app = editor_at("piece-select-walk", Mode::Meshes);
+    select(&mut app, "site/gate");
+    let log = app.world().resource::<bevy_emerge_mapper::project::Project>().project_dir.join("oplog.jsonl");
+    let count = |p: &std::path::Path| {
+        std::fs::read_to_string(p)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.contains("\"op\":\"piece_select\""))
+            .count()
+    };
+    let before = count(&log);
+
+    // Pressed in `PreUpdate` after `InputSystems`, which clears the keys each frame: the same
+    // injection `a_person_removes_a_piece_and_undoes_it` uses.
+    app.add_systems(PreUpdate, press_arrow_down_once.after(InputSystems));
+    app.update();
+
+
+    assert_eq!(selected(&app).as_deref(), Some("site/wall"), "the arrow moved the highlight");
+    assert_eq!(
+        count(&log),
+        before + 1,
+        "the walk wrote one piece_select line to the operation log"
+    );
+    let last = std::fs::read_to_string(&log).unwrap();
+    let line: serde_json::Value = serde_json::from_str(last.lines().last().unwrap()).unwrap();
+    assert_eq!(line["source"], "human", "a walk is a person's selection: {line}");
+    assert_eq!(line["params"]["id"], "site/wall");
 }

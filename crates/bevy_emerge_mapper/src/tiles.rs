@@ -6504,11 +6504,15 @@ fn move_selection(
                 // nothing — no note, no move — until the box was cleared. Land on the row the
                 // cursor would land on, same shape as the seed arm below, and keep walking.
                 if let Some(land) = library_landing(&ids, &cursor) {
-                    state.status.note(format!(
-                        "`{land}` selected — {} removes it",
-                        crate::keys::binding(Action::RemoveTile).chord
-                    ));
-                    state.selected_library_id = Some(land);
+                    if tiles_tab {
+                        state.status.note(format!(
+                            "`{land}` selected — {} removes it",
+                            crate::keys::binding(Action::RemoveTile).chord
+                        ));
+                        state.selected_library_id = Some(land);
+                    } else {
+                        crate::editor::select_piece(&mut state, &project, &land);
+                    }
                 }
                 return;
             };
@@ -6518,11 +6522,19 @@ fn move_selection(
                 at.saturating_sub(stride)
             };
             if let Some(next) = ids.get(want.min(ids.len().saturating_sub(1))) {
-                state.selected_library_id = Some(next.clone());
-                state.status.note(format!(
-                    "`{next}` selected — {} removes it",
-                    keys::binding(Action::RemoveTile).chord
-                ));
+                // **On the Meshes shelf the walk is a selection, so it is the operation** (E-044):
+                // `piece_select` writes the log line a row click and an agent write. The Tiles tab
+                // keeps the direct write, because `piece_select` is a Meshes-shelf operation and
+                // that tab's walk picks a tile's source, which no operation names yet.
+                if tiles_tab {
+                    state.selected_library_id = Some(next.clone());
+                    state.status.note(format!(
+                        "`{next}` selected — {} removes it",
+                        keys::binding(Action::RemoveTile).chord
+                    ));
+                } else {
+                    crate::editor::select_piece(&mut state, &project, next);
+                }
             }
         }
         None => {
