@@ -803,11 +803,14 @@ pub fn panel_root<'a>(
 ///
 /// # What the frame must not carry
 ///
-/// **No `Hovered`, and `Pickable::IGNORE` throughout.** `view::over_ui` and `view::drive` both ask
-/// "is the pointer on the interface" by looking for a true `Hovered`, and a frame node carrying one
-/// would answer yes for the entire window — the map would stop taking clicks and the wheel would
-/// stop zooming, everywhere, with nothing to point at. `Hovered` belongs on the panels, which is
-/// where [`panel_root`] puts it.
+/// **No `Hovered`, and `Pickable::IGNORE` throughout: on the frame and on every node inside it.**
+/// `view::over_ui` and `view::drive` both ask "is the pointer on the interface" by looking for a
+/// true `Hovered`, and `Hovered` is true for an entity
+/// *or any descendant*. So one pickable child inside a non-hoverable row (a label, a value, a
+/// glyph) turns that row's `Hovered` on, and the frame's with it, and the answer is yes for the
+/// entire window: the map would stop taking clicks and the wheel would stop zooming, everywhere,
+/// with nothing to point at. `Hovered` belongs on the panels, which is where [`panel_root`] puts
+/// it, and on the one node a row exposes as a button (`Pickable::default()` with `Hovered`).
 #[derive(Resource)]
 pub struct Frame {
     pub root: Entity,
