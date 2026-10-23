@@ -26,7 +26,7 @@ Every change an agent makes is an **operation**: a named, typed action the edito
 3. `emerge_apply_operation` applies it. The operation is written to the operation log.
 4. `emerge_undo_operation` takes it back.
 
-A refusal says why. For example, `placement_set_pin` refuses a pin with no reason. The person sees the refusal in the toast and the journal (Cmd+E). A change the agent applies replaces the person's receipt, the UNDER line in the inspector, so the person sees what changed.
+A refusal says why. For example, `placement_set_pin` refuses a pin with no reason. The person sees the refusal in the toast and the journal (Cmd+E). A change the agent applies replaces the person's receipt, the LAST line in the inspector, so the person sees what changed.
 
 ## Tools
 
@@ -67,7 +67,7 @@ The picture lands a frame or more after Enter. Until it does, the snip is listed
 
 ## Opening a door
 
-`door_open {door, tab?}` crosses to a door: `kit`, `map` or `rigs`, and optionally a panel that door shows (`tab`, by label, e.g. `meshes`). It is the request the 1, 2 and 3 keys make, and it follows the same rules.
+`door_open {door, tab?}` crosses to a door: `kit`, `map` or `rigs`, and optionally a panel that door shows (`tab`, by label, e.g. `meshes`). It is the request the = key (the other door) and the 1, 2 and 3 keys (a panel) make, and a click on a panel's chip; it follows the same rules.
 
 The reply's `outcome` is one of three words:
 
