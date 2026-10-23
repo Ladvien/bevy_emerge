@@ -38,6 +38,33 @@ class StepsAreTimedFromTheirChunk(unittest.TestCase):
         self.assertEqual(record.chunk_of(6.0, [6.0, 2.5, 3.0]), (1, 0.0))
 
 
+class RecordingInjector:
+    """Stands in for Injector: writes each injected input into the same log as the timeline's events."""
+
+    def __init__(self, log):
+        self.log = log
+
+    def cursor(self, x, y):
+        self.log.append(("inject", "cursor"))
+
+    def send(self, **kw):
+        self.log.append(("inject", kw.get("action")))
+
+
+class ClickIsStampedBeforeItLands(unittest.TestCase):
+    def test_the_click_event_is_stamped_before_the_tap_is_injected(self):
+        log = []
+        tl = record.Timeline()
+        tl.add = lambda **event: (log.append(("stamp", event["type"])), record.Timeline.add(tl, **event))
+        step = {"_kind": "click", "click": [10, 20], "at": 0.0}
+        record.do_step(step, tl, RecordingInjector(log), None)
+        click_stamp = log.index(("stamp", "click"))
+        tap = log.index(("inject", "Tap"))
+        # A click's stamp must come before its Tap is sent, as a key's does; stamped after, the event
+        # claims the moment the click finished and lands a frame late.
+        self.assertLess(click_stamp, tap, f"log was {log}")
+
+
 class EventsLandOnTheFrameThatShowsThem(unittest.TestCase):
     def test_an_event_moves_to_the_first_frame_captured_at_or_after_its_stamp(self):
         frames = [0.0, 0.1, 0.2, 0.3]

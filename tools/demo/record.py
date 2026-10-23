@@ -270,8 +270,8 @@ def do_step(step, timeline, inj, agent):
         x, y = step["click"]
         inj.cursor(x, y)
         timeline.add(t=timeline.now(), type="cursor", x=x, y=y)
-        inj.send(kind="Mouse", button="Left", action="Tap")
         timeline.add(t=timeline.now(), type="click", x=x, y=y)
+        inj.send(kind="Mouse", button="Left", action="Tap")
     elif kind == "key":
         mods = step.get("mods", [])
         for m in mods:
