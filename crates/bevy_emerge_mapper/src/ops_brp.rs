@@ -605,6 +605,42 @@ fn operation_preview(
     }
 }
 
+/// **Why the Meshes shelf cannot select this piece now, or `None` when it can (E-044).**
+///
+/// The plan reads the library and nothing else. The door, the job and the shelf filter are editor
+/// state, so they are read here, where the editor's resources are in hand.
+fn piece_select_refusal(
+    door: Option<crate::tiles::Door>,
+    mode: Option<crate::tiles::Mode>,
+    project: Option<&crate::project::Project>,
+    filters: Option<&crate::filter::Filters>,
+    id: &str,
+) -> Option<String> {
+    use crate::tiles::{Door, Mode};
+    if door != Some(Door::Kit) || mode != Some(Mode::Meshes) {
+        return Some(
+            "the Meshes shelf is not on screen. Open the kit door on its meshes panel first (door_open with door kit and tab meshes), then select the piece."
+                .to_string(),
+        );
+    }
+    // No project is open: the plan refuses it with the editor's own sentence.
+    let (Some(project), Some(filters)) = (project, filters) else {
+        return None;
+    };
+    if !filters.keeps(crate::filter::Pane::Candidates, id) {
+        return Some(format!(
+            "the shelf filter hides `{id}`. Clear the filter, then select the piece."
+        ));
+    }
+    let known = project.library.descriptors.iter().any(|d| d.id == id);
+    if known && project.measured.get(id).is_none() {
+        return Some(format!(
+            "`{id}` is not on the shelf, because it has no measurement yet."
+        ));
+    }
+    None
+}
+
 /// **`emerge/operation_apply` — run one operation.**
 ///
 /// **The one way an agent changes the editor.** It dispatches through
@@ -618,6 +654,10 @@ fn operation_apply(
     mut due: Option<ResMut<crate::watch::Due>>,
     mut state: Option<ResMut<crate::editor::EditorState>>,
     confirm: Option<Res<crate::confirm::Confirm>>,
+    door: Option<Res<crate::tiles::Door>>,
+    mode: Option<Res<crate::tiles::Mode>>,
+    filters: Option<Res<crate::filter::Filters>>,
+    mut import: Option<ResMut<crate::tiles::ImportState>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -641,6 +681,28 @@ fn operation_apply(
         {
             if let Some(state) = state.as_mut() {
                 state.problem_agent_refusal(&p.operation, why);
+            }
+            return Ok(json!({
+                "operation": p.operation,
+                "outcome": "refused",
+                "refusal": why,
+            }));
+        }
+    }
+
+    // **A piece is selected only from the Meshes shelf, as the shelf shows it (E-044).** A refusal
+    // changes nothing and is logged nowhere, as a refused door is not.
+    if p.operation == "piece_select" {
+        let id = p.parameters.get("id").and_then(Value::as_str).unwrap_or_default();
+        if let Some(why) = piece_select_refusal(
+            door.as_deref().copied(),
+            mode.as_deref().copied(),
+            project.as_deref(),
+            filters.as_deref(),
+            id,
+        ) {
+            if let Some(state) = state.as_mut() {
+                state.problem_agent_refusal(&p.operation, &why);
             }
             return Ok(json!({
                 "operation": p.operation,
@@ -703,6 +765,15 @@ fn operation_apply(
         && p.operation == "door_open"
     {
         crate::editor::request_door(state, outcome.after.as_ref());
+    }
+
+    // **An agent's selection is the row a click would be (E-044).** The answer names the piece, and
+    // the Meshes shelf holds it as a click holds it.
+    if let (Ok(ops::Applied::Done { outcome, .. }), Some(import)) =
+        (&applied, import.as_deref_mut())
+        && p.operation == "piece_select"
+    {
+        crate::editor::apply_selected(import, outcome.after.as_ref());
     }
     // **The agent's change joins the person's one undo history (B-019).** Logged here, so Cmd+Z
     // takes back the newest change whoever made it, not the newest the person made by hand. An

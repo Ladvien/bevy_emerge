@@ -3011,6 +3011,42 @@ pub fn apply_armed(state: &mut EditorState, project: &Project, after: Option<&se
     }
 }
 
+/// **The Meshes shelf's selection, as an operation answers it (E-044).** A click and `piece_select`
+/// both land here, so the answer names the piece and the shelf holds it as a click holds it: through
+/// `focus_on`, which keeps the highlight and the focused pack in step.
+pub fn apply_selected(import: &mut crate::tiles::ImportState, after: Option<&serde_json::Value>) {
+    let Some(id) = after
+        .and_then(|a| a.get("selected"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return;
+    };
+    import.focus_on(&crate::tiles::EditTarget::Library(id.to_string()));
+}
+
+/// **A click on a shelf row selects that piece (E-044).** It is the same operation an agent calls,
+/// so a click and an agent cannot disagree about what selecting a piece does. The note names the
+/// removal chord, because the row is where a person goes to remove a piece.
+pub fn select_piece(import: &mut crate::tiles::ImportState, project: &Project, id: &str) {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let params = serde_json::json!({"id": id});
+    match crate::ops::dispatch(&mut ctx, "piece_select", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            apply_selected(import, outcome.after.as_ref());
+            import.status.note(format!(
+                "`{id}` selected — {} removes it",
+                keys::chord(Action::RemoveTile)
+            ));
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => import.status.problem(e.0),
+    }
+}
+
 /// Grow or shrink one axis. Clamped at one cell rather than at zero: a map has to enclose something,
 /// and `Map::validate` refuses a non-positive extent — better to stop at the floor than to write a
 /// map the save will then reject.

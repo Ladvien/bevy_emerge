@@ -7106,28 +7106,19 @@ fn on_library_click(
     activate: On<Activate>,
     rows: Query<&LibraryRow>,
     state: Option<ResMut<ImportState>>,
+    project: Option<Res<Project>>,
 ) {
     // **`Option`, because this is a GLOBAL observer** — it fires for any `Activate` anywhere in
     // the application, and in Bevy 0.19 a missing resource panics at param validation rather
     // than skipping. See [`on_cell_verb`] for the whole argument; the ratchet is
     // `every_resource_says_what_a_door_does_to_it.rs`.
-    let Some(mut state) = state else {
+    let (Some(mut state), Some(project)) = (state, project) else {
         return;
     };
+    // **A click is the operation an agent calls (E-044).** The highlight, the focused pack and the
+    // note are written in one place, `editor::select_piece`, so the two cannot drift apart.
     if let Ok(row) = rows.get(activate.entity) {
-        state.selected_library_id = Some(row.0.clone());
-        // The heading cursor is part of the same cursor; leaving it set is two highlights.
-        state.focused_pack = None;
-        // **The chord comes from the census.** It was `"Del removes it"` by hand, while every
-        // keyboard path on this tab formats `keys::binding(Action::RemoveTile).chord` — and
-        // `REMOVE_NAME` is `"Delete"` on macOS, so the click and the arrow named the same key two
-        // different ways (the audit's M14). `keys.rs`: *"nothing else in this crate is allowed to
-        // name a `KeyCode` for an action"*.
-        state.status.note(format!(
-            "`{}` selected — {} removes it",
-            row.0,
-            keys::chord(Action::RemoveTile)
-        ));
+        crate::editor::select_piece(&mut state, &project, &row.0);
     }
 }
 

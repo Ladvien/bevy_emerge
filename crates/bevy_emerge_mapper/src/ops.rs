@@ -351,6 +351,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
         Box::new(door_open::DoorOpen),
+        Box::new(piece_select::PieceSelect),
     ]
 }
 
@@ -1893,6 +1894,138 @@ pub mod door_open {
                 saved: false,
                 inverse: None,
                 after: Some(plan),
+            })
+        }
+    }
+}
+
+/// **`piece_select`: point the kit door's Meshes shelf at one library piece.**
+///
+/// The shelf row click and an agent's request are this one operation (E-044). It changes no
+/// document, so `Undo::None`. The plan validates only what the library knows: the id names a piece.
+/// Whether the Meshes shelf is on screen, and whether the filter shows the piece, are editor state,
+/// so `ops_brp::operation_apply` checks them for agents before dispatch.
+pub mod piece_select {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The id of a library piece, e.g. `site/wall`.
+        pub id: String,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The id of a library piece on the Meshes shelf, e.g. site/wall. A piece the shelf filter hides is refused."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "this is not a piece to select: {e}. The one field is `id`."
+                ))
+            })
+        }
+    }
+
+    pub struct PieceSelect;
+
+    /// Edit distance between two ids. Core's `vocab::edit_distance` is private, and this op needs
+    /// only a short suggestion list, so the op carries its own.
+    fn levenshtein(a: &str, b: &str) -> usize {
+        let b: Vec<char> = b.chars().collect();
+        let mut row: Vec<usize> = (0..=b.len()).collect();
+        for (i, ca) in a.chars().enumerate() {
+            let mut prev = row[0];
+            row[0] = i + 1;
+            for (j, cb) in b.iter().enumerate() {
+                let old = row[j + 1];
+                row[j + 1] = if ca == *cb {
+                    prev
+                } else {
+                    1 + prev.min(row[j]).min(old)
+                };
+                prev = old;
+            }
+        }
+        row[b.len()]
+    }
+
+    /// The three ids closest to `bad`, nearest first.
+    fn nearest_ids(ids: &[&str], bad: &str) -> Vec<String> {
+        let mut scored: Vec<(usize, &str)> =
+            ids.iter().map(|id| (levenshtein(id, bad), *id)).collect();
+        scored.sort();
+        scored
+            .into_iter()
+            .take(3)
+            .map(|(_, id)| id.to_string())
+            .collect()
+    }
+
+    /// **The answer to a selection, validated.** `plan` and `commit` share it.
+    fn selection_answer(ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let p = Params::parse(params)?;
+        let Some(project) = ctx.project.as_ref() else {
+            return Err(Refusal::new(
+                "no map or kit is open, so there is no library to select a piece from.",
+            ));
+        };
+        let ids: Vec<&str> = project
+            .library
+            .descriptors
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        if !ids.contains(&p.id.as_str()) {
+            let hint = match nearest_ids(&ids, &p.id) {
+                near if near.is_empty() => "The library has no pieces.".to_string(),
+                near => format!("Close ids: {}.", near.join(", ")),
+            };
+            return Err(Refusal::new(format!(
+                "`{}` is not a library piece. {hint}",
+                p.id
+            )));
+        }
+        Ok(json!({ "selected": p.id }))
+    }
+
+    impl Operation for PieceSelect {
+        fn name(&self) -> &'static str {
+            "piece_select"
+        }
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            selection_answer(ctx, params)
+        }
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let after = selection_answer(ctx, params)?;
+            let id = after["selected"].as_str().unwrap_or_default().to_string();
+            Ok(Outcome {
+                summary: format!("selected `{id}`"),
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(after),
             })
         }
     }
