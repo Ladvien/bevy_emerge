@@ -107,16 +107,6 @@ const LANE: f32 = chrome::GAP_ROW;
 /// unrelated boxes at exactly the moment the reach was making it stand clear of the panel.
 const STACK: f32 = chrome::GAP_ROW;
 
-/// How wide a cluster of bare chords grows before it wraps. Badges within a cluster are ordinary
-/// flow children of a wrapping row, so this is the only number deciding a cluster's shape — and two
-/// badges at one anchor cannot overlap by construction.
-///
-/// Sized for the widest row the platform draws. Off macOS a chord reads `Ctrl+` where macOS reads
-/// `Cmd+`, one glyph wider, and the MAP Title's three keycaps (`N`, `Ctrl+S`, `Ctrl+\`) overran the old
-/// 132 px cap by under 2 px. The cluster then wrapped to three rows, which a band cannot hang level,
-/// so the badge was clamped off its control (`a_badge_in_a_band_is_level_with_its_control`, B-035).
-const CLUSTER_W: f32 = 140.0;
-
 /// How wide a legend's descriptions may run before they wrap — a **cap**, not a width.
 ///
 /// The wrapper hugs its words and wraps only past this, so a legend of five short globals is a
@@ -755,7 +745,7 @@ fn rebuild_badges(
         }
         for home in &homes {
             commands.entity(layer).with_children(|p| {
-                // **A legend is a column; everything else is a wrapping row of bare chords.** The
+                // **A legend is a column; everything else is a row of bare chords.** The
                 // difference is what each is for: a chord sitting on a control is read *with* the
                 // control, so it wants to be small and out of the words; a legend is read on its own
                 // and wants one verb per line — the shape a key list always should have had, and
@@ -783,11 +773,11 @@ fn rebuild_badges(
                         } else {
                             FlexDirection::Row
                         },
-                        flex_wrap: if labelled {
-                            FlexWrap::NoWrap
-                        } else {
-                            FlexWrap::Wrap
-                        },
+                        // **A cluster never wraps.** A labelled cluster is a column and a band cluster is
+                        // a row, so `NoWrap` holds either to one line whatever its labels measure. A band
+                        // that wrapped put its chords on a second row, and a band cannot hang a second
+                        // row below its control (B-035).
+                        flex_wrap: FlexWrap::NoWrap,
                         // **A legend's rows are all one width**, so it reads as a block rather than
                         // as a ragged stack of boxes — `Stretch` takes the widest and gives it to
                         // every row. A cluster of bare chords wants the opposite: each box hugs its
@@ -800,11 +790,6 @@ fn rebuild_badges(
                             AlignItems::Stretch
                         } else {
                             AlignItems::Start
-                        },
-                        max_width: if labelled {
-                            Val::Auto
-                        } else {
-                            Val::Px(CLUSTER_W)
                         },
                         // **A labelled cluster is ONE box, and its rows are rows.**
                         //
