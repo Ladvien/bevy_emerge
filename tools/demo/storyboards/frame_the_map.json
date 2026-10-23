@@ -1,14 +1,13 @@
 {
   "name": "frame_the_map",
-  "fps": 15,
+  "fps": 8,
   "scale": 2,
   "width": 600,
   "crop": [470, 64, 950, 690],
-  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-40, -30, 40, 30]}}}],
-  "chunks": [{"seconds": 6}],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-146, -106, -128, -88]}}}],
+  "chunks": [{"seconds": 2.4}],
   "steps": [
-    {"at": 0.0, "caption": "person: the view is zoomed in on the middle"},
-    {"at": 0.8, "caption": "agent: emerge_frame_view frames the town"},
-    {"at": 1.0, "mcp": "emerge_frame_view", "args": {"target": {"rect": [-150, -110, 150, 130]}}}
+    {"at": 0.0, "caption": "person: zoomed in on one corner"},
+    {"at": 0.5, "mcp": "emerge_frame_view", "args": {"target": {"rect": [-150, -110, 150, 130]}}, "caption": "agent: frames the whole map"}
   ]
 }

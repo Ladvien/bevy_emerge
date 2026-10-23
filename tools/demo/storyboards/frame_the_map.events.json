@@ -1,0 +1,123 @@
+{
+ "name": "frame_the_map",
+ "fps": 8,
+ "scale": 2,
+ "crop": [
+  470,
+  64,
+  950,
+  690
+ ],
+ "width": 600,
+ "title": null,
+ "frames": [
+  {
+   "t": 0.06,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f000_t0.00s.png"
+  },
+  {
+   "t": 0.158,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f001_t0.12s.png"
+  },
+  {
+   "t": 0.29,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f002_t0.25s.png"
+  },
+  {
+   "t": 0.46,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f003_t0.38s.png"
+  },
+  {
+   "t": 0.545,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f004_t0.50s.png"
+  },
+  {
+   "t": 0.678,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f005_t0.62s.png"
+  },
+  {
+   "t": 0.783,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f006_t0.75s.png"
+  },
+  {
+   "t": 0.928,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f007_t0.88s.png"
+  },
+  {
+   "t": 1.043,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f008_t1.00s.png"
+  },
+  {
+   "t": 1.158,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f009_t1.12s.png"
+  },
+  {
+   "t": 1.293,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f010_t1.25s.png"
+  },
+  {
+   "t": 1.421,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f011_t1.38s.png"
+  },
+  {
+   "t": 1.545,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f012_t1.50s.png"
+  },
+  {
+   "t": 1.665,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f013_t1.62s.png"
+  },
+  {
+   "t": 1.783,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f014_t1.75s.png"
+  },
+  {
+   "t": 1.921,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f015_t1.88s.png"
+  },
+  {
+   "t": 2.044,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f016_t2.00s.png"
+  },
+  {
+   "t": 2.169,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f017_t2.12s.png"
+  },
+  {
+   "t": 2.294,
+   "path": "/tmp/c5_video_scratch/proj/target/loop/captures/demo_frame_the_map_0/f018_t2.25s.png"
+  }
+ ],
+ "chunks": [
+  {
+   "index": 0,
+   "label": "demo_frame_the_map_0",
+   "start": 0.033,
+   "operation_applied_t_s": null,
+   "operation_result": null,
+   "planned_s": 2.4,
+   "captured_s": 2.261
+  }
+ ],
+ "events": [
+  {
+   "t": 0.06,
+   "type": "caption",
+   "text": "person: zoomed in on one corner",
+   "t_stamp": 0.03295104199787602
+  },
+  {
+   "t": 0.545,
+   "type": "agent",
+   "tool": "emerge_frame_view",
+   "result": "{\"focus\": [0.0, 23.163301467895508, 10.0], \"height_m\": 559.7171020507812, \"outcome\": \"framed\", \"what\": \"the rectangle [-150, -110, 150, 130] m\"}",
+   "t_stamp": 0.5389672499732114
+  },
+  {
+   "t": 0.678,
+   "type": "caption",
+   "text": "agent: frames the whole map",
+   "t_stamp": 0.5823920829570852
+  }
+ ]
+}
