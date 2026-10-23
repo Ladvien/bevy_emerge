@@ -116,3 +116,40 @@ fn emerge_state_caps_the_pin_list_and_still_counts_every_pin() {
     // **The cap cuts the end, not a sample.** The first pins in map order are the ones named.
     assert_eq!(map["pinned"][0]["id"], serde_json::json!(ids[0]), "{state}");
 }
+
+#[test]
+fn emerge_state_pages_the_pin_list_past_the_cap() {
+    let total = PINNED_CAP + 5;
+    let mut app = editor("state_pin_pages", total);
+    let ids: Vec<String> = held(&app).placements.iter().map(|p| p.id.clone()).collect();
+    for id in &ids {
+        pin(&mut app, id, "held");
+    }
+
+    // **The first page says where the next one starts**, in the shape `oplog_read` uses.
+    let first = call(&mut app, "emerge/state", serde_json::json!({}));
+    assert_eq!(
+        first["map"]["pinned_next"],
+        serde_json::json!(PINNED_CAP),
+        "{first}"
+    );
+    assert!(
+        first["map"]["how_to_narrow"]
+            .as_str()
+            .is_some_and(|s| s.contains("pinned_from=50")),
+        "the cut list says how to read the rest: {first}"
+    );
+
+    // **The second page starts where the first stopped**, and holds the remainder.
+    let rest = call(
+        &mut app,
+        "emerge/state",
+        serde_json::json!({"pinned_from": PINNED_CAP}),
+    );
+    let map = &rest["map"];
+    assert_eq!(map["pinned"].as_array().map(Vec::len), Some(5), "{rest}");
+    assert_eq!(map["pinned"][0]["id"], serde_json::json!(ids[PINNED_CAP]), "{rest}");
+    assert_eq!(map["pinned_total"], serde_json::json!(total), "{rest}");
+    assert_eq!(map["pinned_next"], serde_json::Value::Null, "{rest}");
+    assert_eq!(map["how_to_narrow"], serde_json::Value::Null, "{rest}");
+}

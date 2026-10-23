@@ -203,6 +203,15 @@ struct Loaded<'w> {
     open: Option<Res<'w, crate::project::OpenMap>>,
 }
 
+/// **The parameters of `emerge/state`.** Only the pin page is a parameter; the rest of the summary is
+/// the state as it stands.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct StateParams {
+    /// The first owned placement to name, counted in map order. `0` is the start of the list.
+    pub pinned_from: usize,
+}
+
 /// **`emerge/state` — what the editor is holding right now.**
 ///
 /// **A read, and the answer to "what does the editor look like?"** — the question an agent asks
@@ -218,7 +227,7 @@ struct Loaded<'w> {
 /// **And it is cheap.** Everything here is already in memory, so the whole command is a read and
 /// a `json!` — no scanning, no measuring, no rendering.
 fn editor_state(
-    _: In<serde_json::Value>,
+    In(params): In<StateParams>,
     loaded: Loaded,
     state: Option<Res<crate::editor::EditorState>>,
     tiles: Option<Res<crate::tiles::ImportState>>,
@@ -234,15 +243,21 @@ fn editor_state(
     let pinned_total = open
         .as_ref()
         .map_or(0, |o| o.map.placements.iter().filter(|p| p.owned).count());
+    // **The page the caller asked for.** `pinned_from` counts pins in map order, so the next page
+    // starts exactly where this one stopped.
+    let pinned_from = params.pinned_from;
     let pinned: Vec<Value> = open.as_ref().map_or_else(Vec::new, |o| {
         o.map
             .placements
             .iter()
             .filter(|p| p.owned)
+            .skip(pinned_from)
             .take(PINNED_CAP)
             .map(|p| json!({"id": p.id, "because": p.owned_because}))
             .collect()
     });
+    let pinned_next = (pinned_from.saturating_add(PINNED_CAP) < pinned_total)
+        .then(|| pinned_from + PINNED_CAP);
     // **The map, and what is in it.**
     let map = open.as_ref().map(|o| {
         json!({
@@ -259,6 +274,10 @@ fn editor_state(
             "note": o.map.note,
             "pinned": pinned,
             "pinned_total": pinned_total,
+            // **Where the next page starts**, and the sentence that says so — the shape `oplog_read`
+            // gives a capped result, so a reader that pages one pages the other the same way.
+            "pinned_next": pinned_next,
+            "how_to_narrow": pinned_next.map(|n| format!("pass pinned_from={n} to read the rest")),
             // **Whether the file and the editor agree.** An agent that changed something needs to
             // know it reached the disk.
             "dirty": o.dirty(),

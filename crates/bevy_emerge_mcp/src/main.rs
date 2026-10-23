@@ -221,6 +221,16 @@ pub struct LogParams {
     pub limit: usize,
 }
 
+/// **The parameters of `emerge_state`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StateParams {
+    /// **Where the pinned list starts**, counted in map order. `0` is the first pin. When there are
+    /// more than 50 pins, the answer's `pinned_next` names the value to pass for the next page.
+    #[serde(default)]
+    pub pinned_from: usize,
+}
+
 /// **Fifty entries, which is a screenful.**
 fn fifty() -> usize {
     50
@@ -509,8 +519,15 @@ impl Emerge {
             open_world_hint = false
         )
     )]
-    async fn state(&self) -> Result<CallToolResult, ErrorData> {
-        match self.editor.call("emerge/state", json!({})).await {
+    async fn state(
+        &self,
+        Parameters(p): Parameters<StateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self
+            .editor
+            .call("emerge/state", json!({"pinned_from": p.pinned_from}))
+            .await
+        {
             Ok(v) => Ok(CallToolResult::structured(v)),
             Err(e) => Ok(refusal(&e)),
         }
