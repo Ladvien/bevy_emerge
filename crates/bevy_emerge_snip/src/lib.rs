@@ -105,10 +105,16 @@ pub struct CameraView {
 }
 
 /// **A placement that was inside the rectangle**: its id and its world position in metres.
+///
+/// **A stamped row is listed too**, with its row id in `id` and the stamp it belongs to in `stamp`.
+/// A stamp's rows have no placement of their own, so the stamp's id is the one an agent acts on
+/// (`stamp_remove` takes it). `stamp` is absent for an ordinary placement.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlacedIn {
     pub id: String,
     pub world: [f32; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<String>,
 }
 
 /// **The two files a snip leaves.**

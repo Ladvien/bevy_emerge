@@ -6491,7 +6491,13 @@ fn redraw_stamps(
                     parent
                 }
             };
-            commands.entity(e).insert((StampedPiece, ChildOf(parent)));
+            commands.entity(e).insert((
+                StampedPiece {
+                    stamp: stamp_id.clone(),
+                    row: p.id.clone(),
+                },
+                ChildOf(parent),
+            ));
             if p.paint != 0 {
                 commands.entity(e).insert(bevy_emerge::Paint(p.paint));
             }
@@ -6513,10 +6519,16 @@ fn redraw_stamps(
     );
 }
 
-/// A drawn row belonging to a stamp. Carries no id: the stamp list is the truth and this is a
-/// picture of it, rebuilt whole.
+/// A drawn row belonging to a stamp. It names the stamp it is drawn for and the row it expands, so
+/// a snip can list it with an id an agent can act on (`stamp_remove` takes the stamp's id). Still
+/// not a [`Placement`]: the stamp list is the truth and this is a picture of it, rebuilt whole.
 #[derive(Component)]
-struct StampedPiece;
+pub struct StampedPiece {
+    /// The [`Stamped::id`] this row is drawn for.
+    pub stamp: String,
+    /// The expanded row's id, as the picture names it.
+    pub row: String,
+}
 
 /// **The stamp as one thing** — a parent entity per [`Stamped`] row, with the pieces it expands to
 /// as children.
