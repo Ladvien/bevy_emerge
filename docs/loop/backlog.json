@@ -187,9 +187,9 @@
       "id": "E-015",
       "kind": "enhancement",
       "area": "keys",
-      "status": "open",
+      "status": "deferred",
       "title": "An action search palette over keys::Action::ALL (renzora's command palette)",
-      "evidence": "From the renzora/engine survey (crates/renzora_command_palette/src/modal.rs). User problem: an action is reachable only by knowing its chord; frequency: high (128+ actions); saving: two keystrokes instead of a chord hunt; risk: the palette must refuse what the current keys::Context refuses, through Status::problem. Cycle 2 (99c764c): not built (budget); depends on E-025 open-key migration; next cycle."
+      "evidence": "From the renzora/engine survey (crates/renzora_command_palette/src/modal.rs). User problem: an action is reachable only by knowing its chord; frequency: high (128+ actions); saving: two keystrokes instead of a chord hunt; risk: the palette must refuse what the current keys::Context refuses, through Status::problem. Cycle 2 (99c764c): not built (budget); depends on E-025 open-key migration; next cycle. Cycle 3 (52d7f84): deferred, not built. Its open key has no honest migration to pay for it under E-025, and UNMIGRATED_MAX (125) was not raised to make room."
     },
     {
       "last_failure": "",
@@ -206,16 +206,6 @@
         "evidence": "docs/loop/iterations/assets/2026-10-21-63e6631/window-narrow.png: about 70 logical px of viewport at 1800 x 1406 physical"
       },
       "evidence": "Not must-fix: ordinary windows are wider, and widening the window is the workaround. Panels that shrink, or one that folds away, would fix it."
-    },
-    {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
-      "id": "E-018",
-      "kind": "enhancement",
-      "area": "editor",
-      "status": "open",
-      "title": "The full undo history as a list, with click-to-jump (the rest of renzora's history panel)",
-      "evidence": "E-016 shipped the next undo and redo, named. User problem: going back several steps is blind repetition; frequency: occasional; saving: one click instead of N Cmd+Z; risk: a jump of N steps is N guarded undos, each of which can refuse. Cycle 2 (99c764c): investigation only, not built (budget); next cycle. Design noted: a jump of k entries applies k inverses and stores them as one Undo::Group on the other stack, which the existing Group apply supports."
     },
     {
       "last_failure": "",
@@ -429,25 +419,35 @@
       "area": "docs",
       "title": "README demos show each change: re-shoot the five clips so every change is visible at README size",
       "status": "open",
-      "evidence": "Cycle 2 (99c764c): the re-shoot failed tools/demo/check.py on every clip, so the README keeps cycle 1's GIFs. Bars: scene >= 40% of frame, change >= 5% per change moment, static <= 1.5 s, size cap. Measured: hero attempt A scene 75.2%, agent 34.2%, undo 33.9%, static 0.93 s, 0.45 MB, numbers pass but the house is off-crop; hero attempt B scene 87.7%, agent 3.2%, undo 3.0%; place_and_undo scene 90.4%, place 0.8%, undo 1.1%, static 2.0 s; agent_removes_then_undo scene 92.4%, agent 4.1%, undo 4.3%, static 2.1 s; frame_the_map scene 30.8%, Home 85.2%, static 1.27 s; move_the_camera scene 29.5%, static 0.67 s, 3.89 MB. Leads: the crop is not centred on the view centre (the editor reports focus for block_3_1 at (18.29, -18.29), but the house is off-centre in frame 0); the MIN_ZOOM floor keeps small targets far (the barrel is a 2 px dot); pick large pieces; the camera pan leaves the town. The tooling (tools/demo record.py, render.py, check.py, storyboards) ships in 9064805 and 99c764c.",
+      "evidence": "Cycle 2 (99c764c): the re-shoot failed tools/demo/check.py on every clip, so the README keeps cycle 1's GIFs. Bars: scene >= 40% of frame, change >= 5% per change moment, static <= 1.5 s, size cap. Measured: hero attempt A scene 75.2%, agent 34.2%, undo 33.9%, static 0.93 s, 0.45 MB, numbers pass but the house is off-crop; hero attempt B scene 87.7%, agent 3.2%, undo 3.0%; place_and_undo scene 90.4%, place 0.8%, undo 1.1%, static 2.0 s; agent_removes_then_undo scene 92.4%, agent 4.1%, undo 4.3%, static 2.1 s; frame_the_map scene 30.8%, Home 85.2%, static 1.27 s; move_the_camera scene 29.5%, static 0.67 s, 3.89 MB. Leads: the crop is not centred on the view centre (the editor reports focus for block_3_1 at (18.29, -18.29), but the house is off-centre in frame 0); the MIN_ZOOM floor keeps small targets far (the barrel is a 2 px dot); pick large pieces; the camera pan leaves the town. The tooling (tools/demo record.py, render.py, check.py, storyboards) ships in 9064805 and 99c764c. Cycle 3 (52d7f84), check.py with the corrected crop [470, 64, 950, 690]: frame_the_map FAIL, static run 1.67 s (limit 1.5), home change 77.66%, size 0.90 MB; move_the_camera FAIL, scene 17.1% (need >= 40%), size 26.77 MB (limit 3.0 MB), static 0.53 s; place_and_undo FAIL, undo change 0.36% (need >= 5%). hero and agent_removes_then_undo not recorded: the sequencer drops screenshots (B-038). Storyboards and record.py on loop/2026-10-23-video (f8942d3), unmerged.",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
     {
-      "id": "B-036",
+      "last_failure": "",
+      "first_seen": "2026-10-23",
+      "id": "B-038",
       "kind": "bug",
       "area": "capture",
-      "title": "A 20 fps capture sequence hung once on a warm editor (not reproduced)",
+      "title": "The capture sequencer drops a screenshot ('Duplicate render target') and then never reports done",
       "must_fix": {
-        "blocks": false,
+        "blocks": true,
         "common": false,
         "no_workaround": false,
-        "evidence": "Judgment 0 of 3: one report, not reproduced; the shipped cap is 15 fps and 20 fps is refused."
+        "evidence": "Blocks any recording above 4 fps (the default 4 fps is unaffected). Blocks the video track's hero and agent_removes_then_undo clips, which cannot be recorded at all."
       },
-      "status": "unconfirmed",
-      "evidence": "Reported in the cycle-2 demo run (one occurrence on a warm editor at 20 fps). Not reproduced in the recorded measurements: 4538240 measured 20 fps on a fresh editor, not sustained (mean error 12.6 and 18.0 ms against a 12.5 ms limit, every frame written). db60e4c recorded 40 fps as the editor not answering while the sequencer stayed busy. The 15 fps cap (MAX_FPS) makes 20 fps a refusal, so the hang matters only if the cap rises or a 15 fps warm sequence stalls. Next: repeat 15 and 20 fps on a warm editor with actual_t_s spacing and the BRP status.",
+      "status": "open",
+      "evidence": "Cycle 3 (52d7f84): the video track recorded at 15 fps; the editor logged 'Duplicate render target for screenshot, skipping' and the run never reported done. Code: crates/bevy_emerge_mapper/src/sequencer.rs counts a run's written frames only in the ScreenshotCaptured observer, so a skipped screenshot never fires it and the run never reaches its total. The same warning is in /tmp/emerge_live/editor_fps.log (8 times, in the fps30 and fps40 probes) and editor_demo.log (once). B-036 (a 20 fps hang, seen once) is folded in: the same wait, the same missing callback, but not reproduced as the same cause. Next: on a fresh editor, make a screenshot skip and check that the run reports the dropped frame and finishes; then record at 15 fps; then repeat B-036's 15 and 20 fps runs."
+    },
+    {
       "last_failure": "",
-      "first_seen": "2026-10-22"
+      "first_seen": "2026-10-23",
+      "id": "E-034",
+      "kind": "enhancement",
+      "area": "chrome",
+      "title": "The frame's doc says Pickable::IGNORE throughout; say that a row's children need it too",
+      "status": "open",
+      "evidence": "Cycle 3 (52d7f84) reviewer note on chrome.rs: an unignored child is hit, and a hit on a child marks its row Hovered through the descendant. The history row's text is IGNORE from spawn for this reason, but the 'What the frame must not carry' doc in crates/bevy_emerge_mapper/src/chrome.rs says only that the frame itself carries no Hovered. Small doc change: every descendant of a row that must not be hovered is IGNORE."
     }
   ]
 }

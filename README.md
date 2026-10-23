@@ -93,7 +93,7 @@ Goal: put a piece on the grid, then take it back.
 1. Pick a piece from the palette and click the grid.
 2. Press Cmd+Z to take it back.
 
-Review: the inspector's UNDO line names the step that Cmd+Z takes back. The [placing and undo guide](docs/guide/placing-and-undo.md) has the details.
+Review: the inspector's UNDO line names the step that Cmd+Z takes back, and the history list under REDO shows the recent changes. Clicking a row jumps to just after that change, and repeated Cmd+Z goes back the same way. The [placing and undo guide](docs/guide/placing-and-undo.md) has the details.
 
 ### Snip a region for an agent
 
