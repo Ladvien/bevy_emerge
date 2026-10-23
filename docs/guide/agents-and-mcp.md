@@ -65,6 +65,22 @@ A person snips an area of the editor with `Cmd+\` and types a note (see [Keys](k
 
 The picture lands a frame or more after Enter. Until it does, the snip is listed under `pending` as "being saved", with its `age_ms`, and not under `snips`. A pending snip older than 10 seconds is listed as abandoned: the editor quit or the capture was lost, so take it again. When the editor opens a project, it clears every pending record an earlier editor left.
 
+## Opening a door
+
+`door_open {door, tab?}` crosses to a door: `kit`, `map` or `rigs`, and optionally a panel that door shows (`tab`, by label, e.g. `meshes`). It is the request the 1, 2 and 3 keys make, and it follows the same rules.
+
+The reply's `outcome` is one of three words:
+
+- `applied`: the door is open.
+- `waiting`: the editor asks a question before it crosses. `waiting_on` says what it waits for. Today that is the leaving question, which comes up when the map has unsaved changes. `waiting` does not mean the door is open. `emerge_state` shows the question: `leaving` is true while it is up, and `door_waiting` names the door the crossing would reach.
+- `refused`: nothing was requested, and `refusal` says why. A door request is refused while another one waits, and while a confirmation question is open.
+
+The question gate applies to `door_open` only. Other operations still run while a question is open.
+
+`log_entry` is the operation-log line written for the request. It records the request as accepted, so its outcome reads `applied` even when the reply says `waiting`. The crossing itself is not logged.
+
+A door request has no undo. If its log line cannot be written, the request is refused.
+
 ## Known gaps
 
 - **Cmd+Z and an agent's edits share one history.** Cmd+Z takes back the newest change still in effect, an agent's included. `emerge_undo_operation` takes back a logged change by its operation id, or puts it back, but only when no newer change to the same map is still in effect: otherwise it refuses and names the change to undo first. See [Placing and undo](placing-and-undo.md#undo-and-redo).
