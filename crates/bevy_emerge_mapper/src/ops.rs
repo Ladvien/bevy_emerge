@@ -1540,8 +1540,20 @@ pub mod brush_arm {
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct Params {
-        /// The library id of the piece to arm, as the palette names it, e.g. `site/wall`.
-        pub descriptor: String,
+        /// The library id of the piece to arm, as the palette names it, e.g. `site/wall`. `null`
+        /// puts the brush down, as Esc does for an armed piece.
+        #[serde(default, deserialize_with = "present")]
+        pub descriptor: Option<Option<String>>,
+    }
+
+    /// **Present, possibly null.** Serde's own `Option` reads an absent key as `None` too, so a
+    /// typo would look like a request to put the brush down. Here the outer `None` is an absent
+    /// key (refused) and the inner `None` is an explicit null (put down).
+    fn present<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <Option<String> as serde::Deserialize>::deserialize(d).map(Some)
     }
 
     /// How many ids a refusal lists. The closest first, so a typo's intended piece is among them.
@@ -1572,8 +1584,8 @@ pub mod brush_arm {
                 "required": ["descriptor"],
                 "properties": {
                     "descriptor": {
-                        "type": "string",
-                        "description": "The library id of the piece to arm, as the palette names it, e.g. `site/wall`."
+                        "type": ["string", "null"],
+                        "description": "The library id of the piece to arm, as the palette names it, e.g. `site/wall`. null puts the brush down."
                     }
                 }
             })
@@ -1612,12 +1624,22 @@ pub mod brush_arm {
             params: &serde_json::Value,
         ) -> Result<serde_json::Value, Refusal> {
             let p = Params::parse(params)?;
+            let descriptor = match p.descriptor {
+                None => {
+                    return Err(Refusal::new(
+                        "this is not a piece to arm: `descriptor` is missing. Name a piece, or \
+                         give null to put the brush down.",
+                    ));
+                }
+                Some(None) => return Ok(json!({"armed": null})),
+                Some(Some(id)) => id,
+            };
             let Some(project) = ctx.project.as_ref() else {
                 return Err(Refusal::new(
                     "no project is open, so there is no library to arm a piece from.",
                 ));
             };
-            if !project.library.descriptors.iter().any(|d| d.id == p.descriptor) {
+            if !project.library.descriptors.iter().any(|d| d.id == descriptor) {
                 // **The refusal names what exists** (gap 2): an agent cannot retry with an id it cannot
                 // see, and "the palette lists the pieces" sent it to a palette it has no tool to read.
                 let mut ids: Vec<&str> = project
@@ -1629,10 +1651,10 @@ pub mod brush_arm {
                 if ids.is_empty() {
                     return Err(Refusal::new(format!(
                         "`{}` is not in the library, and the library holds no pieces, so nothing was armed.",
-                        p.descriptor
+                        descriptor
                     )));
                 }
-                ids.sort_by_key(|id| (distance(id, &p.descriptor), id.to_string()));
+                ids.sort_by_key(|id| (distance(id, &descriptor), id.to_string()));
                 let shown = ids
                     .iter()
                     .take(LISTED_ON_REFUSAL)
@@ -1642,18 +1664,21 @@ pub mod brush_arm {
                 return Err(Refusal::new(format!(
                     "`{}` is not in the library, so nothing was armed. The library holds {} pieces; \
                      the closest are: {shown}.",
-                    p.descriptor,
+                    descriptor,
                     ids.len()
                 )));
             }
-            Ok(json!({"armed": p.descriptor}))
+            Ok(json!({"armed": descriptor}))
         }
 
         fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
             let plan = self.plan(ctx, params)?;
-            let id = plan["armed"].as_str().unwrap_or_default().to_owned();
+            let summary = match plan["armed"].as_str() {
+                Some(id) => format!("armed {id}"),
+                None => "put the brush down".to_owned(),
+            };
             Ok(Outcome {
-                summary: format!("armed {id}"),
+                summary,
                 affected: 0,
                 saved: false,
                 inverse: None,

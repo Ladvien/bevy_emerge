@@ -2832,17 +2832,21 @@ pub fn arm_piece(state: &mut EditorState, project: &Project, descriptor: &str) {
 
 /// **The brush an armed outcome names.** The library holds the piece by its index, so the id is
 /// resolved against the library here, once, for both front ends. Both call this with the operation's
-/// `after`; an outcome that names no piece changes nothing.
+/// `after`: a name arms that piece, `null` puts the brush down (Esc's answer), and an outcome that
+/// names neither changes nothing.
 pub fn apply_armed(state: &mut EditorState, project: &Project, after: Option<&serde_json::Value>) {
-    let Some(id) = after
-        .and_then(|a| a.get("armed"))
-        .and_then(serde_json::Value::as_str)
-    else {
-        return;
-    };
-    if let Some(ix) = project.library.descriptors.iter().position(|d| d.id == id) {
-        state.brush = Some(ix);
-        state.tool = Tool::Place;
+    match after.and_then(|a| a.get("armed")) {
+        Some(serde_json::Value::Null) => state.brush = None,
+        Some(armed) => {
+            let Some(id) = armed.as_str() else {
+                return;
+            };
+            if let Some(ix) = project.library.descriptors.iter().position(|d| d.id == id) {
+                state.brush = Some(ix);
+                state.tool = Tool::Place;
+            }
+        }
+        None => {}
     }
 }
 

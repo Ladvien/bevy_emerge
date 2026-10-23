@@ -211,3 +211,46 @@ fn undo_names_an_arm_as_having_nothing_to_take_back() {
         "the arm is in the log, so the refusal must not say it is not: {answer}"
     );
 }
+
+/// **`descriptor: null` puts the brush down**, as Esc does for an armed piece. Before this, the
+/// only way for an agent to leave a piece armed was to arm a different one.
+#[test]
+fn a_null_descriptor_puts_the_brush_down() {
+    let mut app = editor("arm_disarm");
+    let answer = arm(&mut app, "site/gate");
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    assert_eq!(armed(&app).as_deref(), Some("site/gate"));
+
+    let answer = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({
+            "operation": "brush_arm",
+            "parameters": {"descriptor": null},
+            "dry_run": false,
+        }),
+    );
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    assert_eq!(armed(&app), None, "a null descriptor must leave nothing armed");
+}
+
+/// **A missing `descriptor` is still a refusal.** Null is a request to disarm; an absent key is a
+/// typo, and a typo must not put the brush down.
+#[test]
+fn a_missing_descriptor_is_refused_and_the_brush_stays() {
+    let mut app = editor("arm_missing");
+    let answer = arm(&mut app, "site/gate");
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+
+    let answer = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({
+            "operation": "brush_arm",
+            "parameters": {},
+            "dry_run": false,
+        }),
+    );
+    assert_eq!(answer["outcome"], "refused", "{answer}");
+    assert_eq!(armed(&app).as_deref(), Some("site/gate"));
+}
