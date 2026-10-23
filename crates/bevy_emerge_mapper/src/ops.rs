@@ -455,8 +455,9 @@ fn dispatch_as(
 ///
 /// The change is already in the map and the file when the append fails. Its recorded inverse is
 /// the put-back, so it is committed through the same operation, with no log line. The refusal
-/// then says the change was taken back. When there is no inverse, or the take-back itself fails,
-/// the refusal says the change is still in place rather than claiming it was undone.
+/// then says the change was taken back. When there is no inverse, the refusal says either that
+/// nothing was changed (the operation changed nothing) or that the change is still in place, and
+/// it never claims the change was undone. A failed take-back also says the change is still in place.
 fn take_back(ctx: &mut Ctx, op: &dyn Operation, outcome: &Outcome, log_error: String) -> Refusal {
     let Some(inverse) = outcome.inverse.as_ref() else {
         // **An operation that changed nothing has nothing to keep in place.** Saying "still in
