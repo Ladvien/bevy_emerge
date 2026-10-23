@@ -22,7 +22,7 @@
 //! | `emerge_frame_view` | frame the Map camera on the map, a selection, placements or a rectangle |
 //! | `emerge_state` | what the editor is holding now, as JSON |
 //! | `emerge_capture_still` | one picture of the editor, plus the state |
-//! | `emerge_capture_sequence` | frames at 4 fps by default (2 to 20 a second), with an optional operation after frame 0 |
+//! | `emerge_capture_sequence` | frames at 4 fps by default (2 to 15 a second), with an optional operation after frame 0 |
 //! | `emerge_snip` | one rectangle of the picture, cut out and written as a crop with its metadata |
 //! | `emerge_list_snips` | the snips the person took, newest first, with the newest picture |
 //!
@@ -179,7 +179,7 @@ pub struct SequenceParams {
     /// **How long the sequence runs, in seconds.** Between a moment and ten.
     #[serde(default = "two_seconds")]
     pub seconds: f32,
-    /// **How many frames a second.** Four by default; a whole rate from two to twenty. A higher rate costs frame time while recording.
+    /// **How many frames a second.** Four by default; a whole rate from two to fifteen. A higher rate costs frame time while recording.
     #[serde(default = "four_fps")]
     pub fps: u32,
     /// **The operation to apply, once frame 0 is in.** Without it the sequence is the settle
@@ -771,7 +771,7 @@ impl Emerge {
                        once the first frame is in -- so frame 0 is the state before the action and \
                        the later frames are what it did. The frames are written to a directory and \
                        their paths are in the answer. The editor takes the frames, so the timing \
-                       does not depend on this server's round trips.",
+                       does not depend on this server's round trips. The rate is two to fifteen frames a second: on a real editor 8 and 15 held their frame interval, 20 did not.",
         annotations(
             title = "Capture a sequence of the editor",
             read_only_hint = false,

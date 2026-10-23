@@ -139,7 +139,7 @@ pub const TOOLS: &[ToolDoc] = &[
                        once the first frame is in -- so frame 0 is the state before the action and \
                        the later frames are what it did. The frames are written to a directory and \
                        their paths are in the answer. The editor takes the frames, so the timing \
-                       does not depend on this server's round trips.",
+                       does not depend on this server's round trips. The rate is two to fifteen frames a second: on a real editor 8 and 15 held their frame interval, 20 did not.",
         read_only: false,
         destructive: true,
         idempotent: false,
@@ -268,7 +268,7 @@ pub fn schemas() -> Value {
             "properties": {
                 "label": {"type": "string", "description": "A snake_case name for the sequence."},
                 "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 10, "default": 2.0},
-                "fps": {"type": "integer", "minimum": 2, "maximum": 20, "default": 4},
+                "fps": {"type": "integer", "minimum": 2, "maximum": 15, "default": 4},
                 "operation": {
                     "type": "object",
                     "required": ["name"],

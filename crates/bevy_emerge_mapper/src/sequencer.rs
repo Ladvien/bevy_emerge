@@ -28,7 +28,7 @@ pub const MIN_FPS: u32 = 2;
 /// **The fastest rate a sequence may ask for**, in frames a second. Set from a measurement on a
 /// real editor (see the commit). A higher rate is refused, not clamped: a caller must never get
 /// frames at a rate it did not ask for.
-pub const MAX_FPS: u32 = 20;
+pub const MAX_FPS: u32 = 15;
 
 /// **How a capture sequence is asked for.**
 #[derive(Debug, Clone, Deserialize)]

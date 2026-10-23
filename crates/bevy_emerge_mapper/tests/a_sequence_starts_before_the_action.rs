@@ -249,7 +249,7 @@ fn a_sequence_refuses_a_bad_name_a_bad_length_and_a_bad_rate() {
     bad.fps = 60;
     assert!(
         sequencer.start(&bad, 0.0).is_err(),
-        "a sequence at sixty frames a second was accepted; the editor takes two to twenty a second"
+        "a sequence at sixty frames a second was accepted; the editor takes two to fifteen a second"
     );
 
     let _ = std::fs::remove_dir_all(&out);
@@ -281,5 +281,34 @@ fn a_sequence_takes_eight_frames_a_second() {
         started.is_ok(),
         "a sequence at eight frames a second was refused: {:?}",
         started.err()
+    );
+}
+
+/// **A sequence above the measured cap is refused.**
+///
+/// **Sixteen frames a second is past what a real editor keeps to a quarter of the frame interval.**
+/// The cap is fifteen (see `MAX_FPS` and the commit that set it). A rate above it is refused, not
+/// clamped, so a caller never gets frames at a rate it did not ask for.
+#[test]
+fn a_sequence_refuses_sixteen_frames_a_second() {
+    let root = project("sequencesixteen");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..4 {
+        app.update();
+    }
+    let out = std::env::temp_dir().join(format!("emerge-seq16-{}", std::process::id()));
+    let mut sequencer = app.world_mut().resource_mut::<Sequencer>();
+    let params = SequenceParams {
+        label: "seq".to_owned(),
+        out_dir: out.to_string_lossy().into_owned(),
+        seconds: 1.0,
+        fps: 16,
+        operation: None,
+    };
+    let started = sequencer.start(&params, 0.0);
+    let _ = std::fs::remove_dir_all(&out);
+    assert!(
+        started.is_err(),
+        "a sequence at sixteen frames a second was accepted; the editor takes two to fifteen a second"
     );
 }

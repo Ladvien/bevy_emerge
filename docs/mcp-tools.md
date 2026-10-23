@@ -88,7 +88,7 @@ The snips the person took in the editor, newest first: each one's name, when it 
 
 ### `emerge_capture_sequence`
 
-A sequence of frames of the editor, with an optional operation applied once the first frame is in -- so frame 0 is the state before the action and the later frames are what it did. The frames are written to a directory and their paths are in the answer. The editor takes the frames, so the timing does not depend on this server's round trips.
+A sequence of frames of the editor, with an optional operation applied once the first frame is in -- so frame 0 is the state before the action and the later frames are what it did. The frames are written to a directory and their paths are in the answer. The editor takes the frames, so the timing does not depend on this server's round trips. The rate is two to fifteen frames a second: on a real editor 8 and 15 held their frame interval, 20 did not.
 
 | annotation | value |
 |---|---|
