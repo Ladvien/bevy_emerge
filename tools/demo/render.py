@@ -2,7 +2,7 @@
 """Render a record.py timeline (events.json) into a GIF: crop, cursor marker, keycaps, click pulses,
 captions, an optional title card, and the last frame held. Needs Pillow and ffmpeg.
 
-usage: render.py <events.json> --out <file.gif> [--hold 1.5] [--sheet <file.png>] [--stills t1,t2]
+usage: render.py <events.json> --out <file.gif> [--hold 1.5] [--settle 0.5] [--colors 256] [--sheet <file.png>] [--stills t1,t2]
 
 Frames are sampled on a clock at the storyboard's fps: each output tick shows the latest editor
 frame taken at or before it, so every frame is shown for its real time and the GIF is uniform.
@@ -25,6 +25,7 @@ FONT_PATHS = [
     "/System/Library/Fonts/Supplemental/Courier New.ttf",
 ]
 KEYCAP_SECONDS = 0.8
+SETTLE_S = 0.5
 CLICK_SECONDS = 0.4
 CAPTION_BAR = 56
 ACCENT = (255, 200, 60)
@@ -64,6 +65,16 @@ def load_font(size):
             except OSError:
                 continue
     return ImageFont.load_default(size=size)
+
+
+def timeline_end(rec, settle=SETTLE_S):
+    """Where the GIF's action ends: the last event's aligned time plus a settle, never past the
+    last captured frame. Frames captured after this are overrun from a slow chunk, so they are dropped."""
+    last_frame = rec["frames"][-1]["t"]
+    if not rec["events"]:
+        return last_frame
+    last_event = max(e["t"] for e in rec["events"])
+    return min(last_event + settle, last_frame)
 
 
 def last_before(events, types, t):
@@ -156,11 +167,11 @@ class Renderer:
         return out
 
 
-def encode(frames_dir, fps, out_path):
+def encode(frames_dir, fps, out_path, colors=256):
     palette = os.path.join(frames_dir, "palette.png")
     pattern = os.path.join(frames_dir, "%05d.png")
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-framerate", str(fps), "-i", pattern,
-                    "-vf", "palettegen=stats_mode=diff", palette], check=True)
+                    "-vf", f"palettegen=stats_mode=diff:max_colors={colors}", palette], check=True)
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-framerate", str(fps), "-i", pattern,
                     "-i", palette, "-lavfi", "paletteuse=dither=bayer", "-loop", "0", out_path],
                    check=True)
@@ -172,6 +183,10 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--width", type=int, default=1100)
     ap.add_argument("--hold", type=float, default=1.5)
+    ap.add_argument("--settle", type=float, default=SETTLE_S,
+                    help="seconds of picture after the last event before the hold (<= 0.5)")
+    ap.add_argument("--colors", type=int, default=256,
+                    help="GIF palette size, 2 to 256 (move_the_camera uses 64)")
     ap.add_argument("--sheet", help="write an 8-cell contact sheet of evenly spaced ticks")
     ap.add_argument("--stills", help="comma-separated times (s) to write as full-size PNGs beside --out")
     args = ap.parse_args()
@@ -181,7 +196,8 @@ def main():
     fps = rec["fps"]
     r = Renderer(rec, args.width)
 
-    span = rec["frames"][-1]["t"] + args.hold
+    end = timeline_end(rec, args.settle)
+    span = end + args.hold
     ticks = [k / fps for k in range(int(span * fps) + 1)]
     work = tempfile.mkdtemp(prefix="render_")
     try:
@@ -191,9 +207,9 @@ def main():
                 card.save(os.path.join(work, f"{i:05d}.png"))
         offset = len(os.listdir(work))
         for k, t in enumerate(ticks):
-            img = r.frame(t)
+            img = r.frame(min(t, end))
             img.save(os.path.join(work, f"{offset + k:05d}.png"))
-        encode(work, fps, args.out)
+        encode(work, fps, args.out, args.colors)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -203,7 +219,7 @@ def main():
         cell_h = round(cell_w * (r.height + CAPTION_BAR) / args.width)
         sheet = Image.new("RGB", (cell_w * 4 + 15, cell_h * 2 + 5), (80, 80, 80))
         for i, t in enumerate(picks):
-            cell = r.frame(t).resize((cell_w, cell_h), Image.LANCZOS)
+            cell = r.frame(min(t, end)).resize((cell_w, cell_h), Image.LANCZOS)
             sheet.paste(cell, ((i % 4) * (cell_w + 5), (i // 4) * (cell_h + 5)))
         sheet.save(args.sheet)
         print("sheet ticks:", [round(t, 2) for t in picks])
