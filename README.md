@@ -4,7 +4,9 @@
 
 bevy_emerge is a world editor for Bevy games, for game developers who want to build levels with an AI agent working beside them.
 
-![A person snips a box over a wall and writes a note, an agent reads the snip and turns the wall, and the person's Cmd+Z takes the turn back](docs/media/hero.gif)
+![The whole editor window: an AI agent turns the abbey 90 degrees and removes its table through MCP calls, each change named on the inspector's LAST line and in the history list as the agent's; then the person presses Cmd+Z twice and takes both back](docs/media/agent-drives.gif)
+
+An agent calls `emerge_apply_operation` twice (a turn, then a removal). The inspector on the left names each change and who made it, and two presses of Cmd+Z take them back. [How agents work](docs/guide/agents.md).
 
 The full recording is [`docs/media/demo.mp4`](docs/media/demo.mp4), 64 seconds long.
 
@@ -62,6 +64,9 @@ The tools are listed in [MCP tools](docs/mcp-tools.md).
 ## What you can do
 
 - **Build a map.** Place pieces, fill areas, and undo a placement. See [building maps](docs/guide/building-maps.md).
+
+  ![The whole editor window on the Map door: the PLACE list is walked to the gate house, R turns it before it is placed, two clicks place two gate houses, X and a click remove one, and Cmd+Z puts it back; the inspector names each step](docs/media/build-a-map.gif)
+
 - **Make kits and labels.** Bring in meshes, group them into kits, and label each piece. See [kits and labels](docs/guide/kits-and-labels.md).
 - **Work with an agent.** Let an agent turn and remove pieces, and frame and capture the map, while you watch and snip problems. See [agents](docs/guide/agents.md).
 - **Use the data files.** Read and edit the files a game loads. See [data files](docs/guide/data-files.md).

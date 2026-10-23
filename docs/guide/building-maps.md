@@ -2,6 +2,10 @@
 
 The Map door is one of the editor's three workspaces. It is where you lay pieces on the ground. A **piece** is one kit item you place. A **placement** is one piece on the map. A **stamp** is a composition laid down as one unit. A **composition** is a named group of pieces that you keep for reuse. This page covers the tasks you do on the Map. For the file formats, see [data files](data-files.md). For every key, see [keys](keys.md).
 
+![The whole editor window on the Map door: the PLACE list is walked to the gate house, R turns it before it is placed, two clicks place two gate houses, X and a click remove one, and Cmd+Z puts it back; the inspector names each step](../media/build-a-map.gif)
+
+The clip shows the jobs below in one pass: arm a piece from the PLACE list, set its facing with `R` while it is armed, click to place, `X` and a click to remove, and Cmd+Z to undo. The INSPECTOR on the left names each step: BRUSH and YAW for the armed piece, MAP for the count, LAST for the newest change, and the history list with who made each one.
+
 ## Place a piece and undo it
 
 **Goal:** Put one piece on the ground and take it back.
@@ -19,14 +23,17 @@ The Map door is one of the editor's three workspaces. It is where you lay pieces
 
 ## Turn, tip and lift a piece
 
-**Goal:** Rotate, tip or raise a piece you have already placed.
+**Goal:** Rotate, tip or raise a piece you have already placed, or set the facing of the piece you are about to place.
 
-1. Press `R` to turn the piece left, or `T` to turn it right.
-2. Press `Y` to tip it about x, or `U` to tip it about z.
-3. Press `V` to straighten it.
-4. Press `]` to lift the piece, or `[` to lower it.
+1. To turn a placed piece, first put the brush down (`Esc`), so no piece is armed. Point at the piece.
+2. Press `R` to turn it left, or `T` to turn it right, 15° a press. Hold the key to keep turning.
+3. Press `Y` to tip it about x, or `U` to tip it about z, a quarter turn a press.
+4. Press `V` to straighten it.
+5. Press `]` to lift the piece, or `[` to lower it.
 
 **What you see:** The piece turns, tips, or moves up or down in place.
+
+**While a piece is armed,** `R`, `T`, `Y` and `U` turn and tip the armed piece instead (the INSPECTOR's YAW row shows its facing), so the next click places it already turned. A placed piece under the pointer is left alone.
 
 ## Move a piece
 

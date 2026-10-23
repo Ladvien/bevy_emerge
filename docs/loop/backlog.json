@@ -530,6 +530,102 @@
       "evidence": "Every MCP description except gap 7's already says by_model matches agent-written axes, so this is naming only. Later alias: unconfirmed. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
+    },
+    {
+      "id": "B-046",
+      "kind": "bug",
+      "area": "fill",
+      "title": "A generator's proposal is not drawn before Enter, so the person keeps or throws away a layout they cannot see",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Every learned/declared/composed generate; the only workaround is keep-then-undo. Judgment 2 of 3: must-fix."
+      },
+      "status": "open",
+      "evidence": "GifGen 2026-10-23 on town_block: G shows only the status note 'proposed: 289 piece(s) replacing 289 ... Enter keeps it, Esc throws it away'; the 3D view is unchanged until Enter. The brief requires wide operations to be previewed before they commit.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "B-047",
+      "kind": "bug",
+      "area": "labels",
+      "title": "Clicking an unlit KIND chip on a model-labelled piece stamps the kind by hand, but the clicked chip does not appear lit",
+      "status": "unconfirmed",
+      "evidence": "GifKit 2026-10-23 (barrel, kit door): clicking decor set the labels row to 'by hand set kind' and the status to 'kind tags updated', but container stayed lit and decor did not visibly light (the cursor ring sat over it). Frames /tmp/gifs/label-a-kit/frames/label-a-kit_t4.70.png and _t5.20.png. Not yet traced in tiles.rs toggle_tag.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "B-048",
+      "kind": "bug",
+      "area": "editor",
+      "title": "Undoing a removal blanks the ground patches for one frame",
+      "status": "unconfirmed",
+      "evidence": "docs/media/agent-drives.gif frame 22 (about 2.2 s): during the first Cmd+Z (put back abbey_table and 3 on it) the red field patches vanish for one frame and return. Likely a full respawn on put-back.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-053",
+      "kind": "enhancement",
+      "area": "harness",
+      "title": "bevy_debugger_mcp's input tool cannot type text, so no field can be filled over BRP",
+      "status": "open",
+      "evidence": "bevy_debugger_bevy/src/commands.rs has no text/logical-key path; typing letters into the new-map NAME field and the shelf filter did nothing (2026-10-23 live tutorial run and cycle 6/9 agents). Fix belongs in the bevy_debugger_mcp repo.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-054",
+      "kind": "enhancement",
+      "area": "chooser",
+      "title": "Enter on '+ new map' makes the map but does not open it; a second Enter is needed",
+      "status": "open",
+      "evidence": "DocStart 2026-10-23 from chooser.rs; documented in docs/guide/getting-started.md steps 4-5.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-055",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "Stale code comments the docs rewrite found",
+      "status": "open",
+      "evidence": "vlm.rs header says a human applies each suggestion (labels apply on arrival, By::Model); keys.rs comments describe a Cmd+2 row and Compose lattice keys that no longer exist and a retired twelve-row ceiling; bevy_emerge_mcp main.rs module doc says eleven tools (there are twelve); tiles.rs ~6428 calls an agent's label_set a person's decision; labels.rs writes proposals to a file nothing loads.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-056",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "emerge_capture_sequence is annotated destructiveHint true but only writes frame files",
+      "status": "open",
+      "evidence": "DocAgents 2026-10-23 from docs/mcp-tools.md.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-057",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "Saving the town map roughly triples its file (75 KB to 229 KB)",
+      "status": "open",
+      "evidence": "DocGame and GifAgent 2026-10-23: a save took town.map.ron from 75,089 to 228,856 bytes (placements expanded). Check whether the expansion is intended.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-058",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "Whole-window GIFs for build-a-map, label-a-kit and generate-a-layout",
+      "status": "open",
+      "evidence": "2026-10-23 round: agent-drives shipped as the README hero. build-a-map failed on caption sync and small pieces; label-a-kit waits on B-047; generate-a-layout waits on B-046. Storyboards and attempts in /tmp/gifs/ (not committed).",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
     }
   ]
 }

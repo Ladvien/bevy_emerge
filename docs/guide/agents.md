@@ -45,6 +45,10 @@ Say to the agent what you see. For example: "The abbey blocks the gate. Take it 
 
 To turn a placement instead of removing it, use `placement_set_yaw` with `id` and `yaw`. Yaw wraps to 0 to 360, so `-15` is `345`.
 
+![The whole editor window: the agent turns the abbey with placement_set_yaw and removes its table with placement_remove; the inspector's LAST line and history list name each change as the agent's; two Cmd+Z presses take both back](../media/agent-drives.gif)
+
+The inspector on the left shows the same thing you would read in the tool answers: LAST names the newest change, UNDO names what Cmd+Z takes back next, and the history list marks the agent's changes with `agent`.
+
 ![An agent removes the abbey with placement_remove, and the person's Cmd+Z puts it back.](../media/agent-removes-then-undo.gif)
 
 What you see: after step 4 the abbey is gone from the map and the gate is open. After your Cmd+Z the abbey stands on the gate again, and the operation log has one new undo line.
