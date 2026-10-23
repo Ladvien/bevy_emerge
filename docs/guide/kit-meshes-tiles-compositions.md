@@ -33,6 +33,16 @@ Label suggestions are offered rather than applied:
 
 **Cmd+Z** undoes a meshes edit, and **Shift+Cmd+Z** redoes it.
 
+### The labels row
+
+The INSPECTOR shows each piece's labels on one row. It names where the labels came from: a model file, or `by hand` for labels a person set. It then gives the date they were made and the confidence (high, medium or low). A long model file name runs past the panel's edge, and the end of the row is cut off there.
+
+Labels a model suggested show in the unchecked colour until a person confirms each axis. A confirmed axis is drawn like the rest of the inspector.
+
+An agent finds the same pieces without reading each one. `emerge_list_pieces` filters the list with `unlabelled` (no labels yet), `by_model` (labelled by a model), `confidence` (high, medium or low), `with_mesh` and `id_contains`. The reply counts every match, and it lists fifty at a time.
+
+The kit door opens with `=`, and it opens on this Meshes panel. An agent crosses to it with the `door_open` operation.
+
 ## TILES (panel 2)
 
 A tile is a sub-assembly: meshes set in a fixed arrangement so they act as one piece on the map. The Tiles panel has two pages, the tile list and the meshes it is made of.
