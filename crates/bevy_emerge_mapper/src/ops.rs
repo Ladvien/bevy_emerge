@@ -436,23 +436,43 @@ fn dispatch_as(
         inverse: outcome.inverse.clone(),
         after: outcome.after.clone(),
     };
-    // **A log that could not be written is a refusal, not a silent loss.**
+    // **A log that could not be written is a refusal, and the change does not stay.**
     //
-    // The log is the source of truth, so an operation applied without a record of it is an
-    // operation that happened and cannot be told about — and an agent that cannot cite what it
-    // did cannot present it. **So a failed append fails the operation**, and the caller is told
-    // why.
-    append(ctx, &entry).map_err(|e| {
-        Refusal::new(format!(
-            "the operation was applied but the log could not be written, so it cannot be reported \
-             or undone: {e}"
-        ))
-    })?;
+    // The log is the source of truth. An operation applied without a record of it is an operation
+    // that happened and cannot be told about or undone, so a failed append takes the change back
+    // through its recorded inverse and says so. The take-back itself is not logged: nothing the
+    // log should describe happened. See [`take_back`].
+    append(ctx, &entry).map_err(|e| take_back(ctx, &*op, &outcome, e))?;
     Ok(Applied::Done {
         outcome,
         operation_id: entry.operation_id.clone(),
         entry: Box::new(entry),
     })
+}
+
+/// **A change whose log line cannot be written is taken back, or the refusal says it stayed.**
+///
+/// The change is already in the map and the file when the append fails. Its recorded inverse is
+/// the put-back, so it is committed through the same operation, with no log line. The refusal
+/// then says the change was taken back. When there is no inverse, or the take-back itself fails,
+/// the refusal says the change is still in place rather than claiming it was undone.
+fn take_back(ctx: &mut Ctx, op: &dyn Operation, outcome: &Outcome, log_error: String) -> Refusal {
+    let Some(inverse) = outcome.inverse.as_ref() else {
+        return Refusal::new(format!(
+            "the operation was applied but could not be logged, and it records no inverse to take \
+             it back, so the change is still in place: {log_error}"
+        ));
+    };
+    match op.commit(ctx, inverse) {
+        Ok(_) => Refusal::new(format!(
+            "the operation could not be logged, so it was taken back and nothing was changed: \
+             {log_error}"
+        )),
+        Err(Refusal(why)) => Refusal::new(format!(
+            "the operation was applied but could not be logged, and taking it back failed, so the \
+             change is still in place: {log_error}. Taking it back said: {why}"
+        )),
+    }
 }
 
 /// **What an undo resolved to**: the change being taken back or put back, the log line whose
