@@ -1273,6 +1273,11 @@ struct StatusBlock;
 /// push the blocks below it down. Two covers 165 of the 174 receipt sites (B-009).
 const RECEIPT_LINES: f32 = 2.0;
 
+/// The receipt row's label. It reads `LAST` while the receipt speaks and `HINT` while a hint does,
+/// so the words in the slot always name what they are.
+#[derive(Component)]
+struct ReceiptLabel;
+
 /// The live cost readout. In the chrome bar, in a reserved column — see [`COST_COL`], and
 /// `the_triangle_count_does_not_shove_the_maps_name` for what happens without one. `pub` so that
 /// test can drive it.
@@ -1294,20 +1299,9 @@ enum Field {
     Undo,
     /// **What Cmd+Shift+Z will put back**, named the same way. An empty history reads `nothing`.
     Redo,
-    /// The last thing that happened — the only line that is prose.
+    /// The last thing that happened — the only line that is prose. While a hint is set it takes this
+    /// slot instead (B-013), labelled `HINT`, and the receipt returns when the hint clears.
     Last,
-    /// **What the cursor is telling you right now**, as opposed to what just happened.
-    ///
-    /// Its own text because the ghost writes it EVERY FRAME while a surface piece hovers over bare
-    /// floor, and sharing [`Self::Last`]'s text meant every message an action produced was erased
-    /// before it could be read. Two different questions — "what did I just do" and "why can't I
-    /// place this" — so two lines.
-    ///
-    /// **The second line of the receipt's row** (B-013), not a row of its own. That row holds two
-    /// lines and its value column is clipped to them, so a hint never grows the row and never moves
-    /// UNDO or REDO. While a receipt needs both lines the hint is hidden, and it returns when the
-    /// receipt clears.
-    Hint,
     /// **What the piece-verbs would act on**, and the chord that opens it for editing.
     ///
     /// The readout the panel was missing. `BRUSH` says what a click would *place*; nothing said what
@@ -1350,7 +1344,6 @@ impl Field {
             Field::Undo => "UNDO",
             Field::Redo => "REDO",
             Field::Last => "LAST",
-            Field::Hint => "HINT",
         }
     }
 }
@@ -2208,36 +2201,22 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     }
                     spawned.with_children(|row| {
                         if field == Field::Last {
-                            // The receipt and the hint are two lines in one row, and each line has its
-                            // label, so the hint is not taken for a second receipt.
-                            row.spawn(Node {
-                                flex_direction: FlexDirection::Column,
-                                ..default()
-                            })
-                            .with_children(|col| {
-                                crate::chrome::row_label(col, crate::chrome::COL_LABEL, field.label());
-                                crate::chrome::row_label(
-                                    col,
-                                    crate::chrome::COL_LABEL,
-                                    Field::Hint.label(),
-                                );
-                            });
+                            // **The hint takes the receipt's slot while it speaks** (B-013). The label
+                            // is the one that changes with it: `LAST` for a receipt, `HINT` for a hint.
+                            crate::chrome::row_label_with(
+                                row,
+                                crate::chrome::COL_LABEL,
+                                field.label(),
+                                ReceiptLabel,
+                            );
                             row.spawn(Node {
                                 flex_direction: FlexDirection::Column,
                                 flex_grow: 1.0,
                                 min_width: Val::Px(0.0),
-                                // **Two lines is the whole room this slot has.** The receipt and the hint
-                                // share the row's reserved two lines. The clip keeps a third line (a
-                                // two-line receipt with a hint under it) from growing the row, which would
-                                // push UNDO and REDO down. The hint is the line that gives way: while a
-                                // receipt needs both lines, the hint is hidden until the receipt clears.
-                                height: Val::Px((RECEIPT_LINES * crate::chrome::BODY_LINE_H).ceil()),
-                                overflow: bevy::ui::Overflow::clip_y(),
                                 ..default()
                             })
                             .with_children(|col| {
                                 crate::chrome::row_value(col, "", TEXT, Field::Last);
-                                crate::chrome::row_value(col, "", TEXT, Field::Hint);
                             });
                         } else {
                             // `COL_LABEL`: these hold an ordinary word (`brush`, `under`, `edges`). It
@@ -3838,7 +3817,8 @@ fn refresh_status(
     faults: Res<EdgeFaults>,
     state: Res<EditorState>,
     under: Res<UnderCursor>,
-    mut fields: Query<(&Field, &mut Text, &mut TextColor)>,
+    mut fields: Query<(&Field, &mut Text, &mut TextColor), Without<ReceiptLabel>>,
+    mut labels: Query<&mut Text, With<ReceiptLabel>>,
 ) {
     // `none` covers both "nothing armed" and "the armed index no longer exists", which read the same
     // to an author and want the same word.
@@ -3847,6 +3827,14 @@ fn refresh_status(
         .and_then(|ix| project.library.descriptors.get(ix))
         .map(|d| d.id.as_str())
         .unwrap_or("none");
+
+    // **The label follows the words in the slot** (B-013): `HINT` while a hint speaks, `LAST` otherwise.
+    let label = if state.hint.is_empty() { "LAST" } else { "HINT" };
+    for mut text in &mut labels {
+        if text.0 != label {
+            text.0 = label.to_owned();
+        }
+    }
 
     for (field, mut text, mut colour) in &mut fields {
         // **The undo rows are only read when the history or the map changed**, and once when they
@@ -3939,13 +3927,14 @@ fn refresh_status(
                 },
                 if open.dirty() { ACCENT } else { TEXT },
             ),
-            // A refusal has to read differently from a success, or "NOT SAVED" scrolls past as if it
-            // were a receipt.
-            Field::Hint => (state.hint.clone(), ACCENT),
             // **What the next Cmd+Z and Cmd+Shift+Z will do**, named from the two stacks. See
             // [`stack_row`].
             Field::Undo => stack_row(state.undo_next(&open.map), state.undo_depth()),
             Field::Redo => stack_row(state.redo_next(&open.map), state.redo_depth()),
+            // **The hint takes the receipt's slot while it speaks** (B-013), in the refusal colour: a
+            // refusal has to read differently from a success, or "NOT SAVED" scrolls past as if it were a
+            // receipt. The receipt comes back when the hint clears.
+            Field::Last if !state.hint.is_empty() => (state.hint.clone(), ACCENT),
             // **The receipt only, and never coloured by guessing.** This read
             // `status.starts_with("NOT SAVED")`, which made exactly one refusal red and left every
             // other one — `stamp refused:`, `is not a number of metres`, every `cannot draw it:` —
@@ -11595,7 +11584,7 @@ fn flood_from_cursor(
         // **And this one was measured invisible.** The flood refused; the INSPECTOR's `Field::Last`
         // row was empty in a capture; and the author had no way to know the fill had not happened.
         // The ghost's refusal for the same piece — the same fact, from the same piece — was plainly
-        // visible in the amber `Field::Hint` row, because the ghost writes a different field.
+        // visible in the amber hint line of the receipt row, because the ghost writes a different field.
         Err(e) => {
             state.status.problem(e);
             return;

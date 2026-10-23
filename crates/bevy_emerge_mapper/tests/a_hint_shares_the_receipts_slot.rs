@@ -3,10 +3,10 @@
 //! B-012. The receipt sits in UNDER's value column with no label of its own, so "map is 300 x 44 x
 //! 1120 m, and the file was written" reads as the value of UNDER, the row above it.
 //!
-//! B-013. The hint row (`Field::Hint`) is zero tall while it is empty, so a hint appearing (a
+//! B-013. The hint row (`Field::Hint`) was zero tall while it was empty, so a hint appearing (a
 //! surface or mounted piece armed over floor it cannot stand on) pushed EDGES, MAP SIZE and the
-//! lists below it down. The fix folds the hint into the receipt's reserved slot, so the panel keeps
-//! one height whatever the status says.
+//! lists below it down. The fix puts the hint in the receipt's slot: while a hint speaks, the slot
+//! shows the hint (labelled `HINT`) and the receipt waits; when the hint clears, the receipt returns.
 //!
 //! **The real geometry, from the real layout**: `ComputedNode` and `UiGlobalTransform` in a headless
 //! app, the receipt produced by the size field itself, and the hint set on the editor's state.
@@ -147,5 +147,100 @@ fn the_receipt_row_is_labelled_so_it_is_not_taken_for_under() {
         "the LAST label sits at {label:.1} px but the receipt at {:.1} px; the receipt has no \
          label on its own row",
         receipt.1,
+    );
+}
+
+/// **A receipt longer than two lines is drawn whole.** The LAST slot reserves two lines (B-009), but
+/// a longer receipt grows the row to fit it; it is never cut.
+///
+/// Failed before the fix: `cbf3423` put `Overflow::clip_y()` on the value column at two lines, so a
+/// third line of the receipt was painted into nothing. The text node itself still measured three
+/// lines, so only the clipping ancestor shows it — which is what this test reads.
+#[test]
+fn a_long_receipt_is_drawn_whole() {
+    let mut app = editor("receipt-whole");
+    let receipt = "ran 8 piece(s) along the line, and this receipt is long enough that it wraps onto a \
+                   second line and then keeps going onto a third one";
+    app.world_mut().resource_mut::<EditorState>().status.note(receipt.to_owned());
+    let drawn = drawn_texts(&mut app);
+    assert!(
+        drawn.iter().any(|(t, _, _)| t == receipt),
+        "the receipt is not drawn, so the test drives nothing; drawn: {drawn:?}"
+    );
+
+    let world = app.world_mut();
+    let mut q = world.query::<(Entity, &Text)>();
+    let entity = q
+        .iter(world)
+        .find(|(_, t)| t.0 == receipt)
+        .map(|(e, _)| e)
+        .unwrap_or_else(|| panic!("no entity holds the receipt"));
+
+    let bounds = |world: &World, e: Entity| -> (f32, f32) {
+        let node = world.get::<ComputedNode>(e).expect("a drawn text has a ComputedNode");
+        let tf = world.get::<UiGlobalTransform>(e).expect("a drawn text has a transform");
+        let h = node.size().y;
+        (tf.translation.y - h / 2.0, tf.translation.y + h / 2.0)
+    };
+    let (top, bottom) = bounds(world, entity);
+    assert!(
+        bottom - top > 2.0 * 14.0,
+        "the receipt is not three lines tall ({:.1} px), so the test does not reach the clip",
+        bottom - top
+    );
+
+    let mut at = entity;
+    while let Some(parent) = world.get::<ChildOf>(at).map(|c| c.parent()) {
+        at = parent;
+        let Some(node) = world.get::<bevy::ui::Node>(at) else { continue };
+        if node.overflow.y == bevy::ui::OverflowAxis::Visible {
+            continue;
+        }
+        let (ptop, pbottom) = bounds(world, at);
+        assert!(
+            bottom <= pbottom + 0.5 && top >= ptop - 0.5,
+            "the receipt spans {top:.1}..{bottom:.1} px but a clipping ancestor shows only \
+             {ptop:.1}..{pbottom:.1} px; the receipt is cut, not drawn whole"
+        );
+    }
+}
+
+/// **A hint and a receipt share the slot, and the hint speaks while it is set.** While the hint is
+/// set, the receipt is not drawn; when the hint clears, the receipt comes back.
+///
+/// Failed before the fix: the hint and the receipt were drawn in two rows, so the receipt was still
+/// in the list while the hint was set.
+#[test]
+fn the_receipt_returns_when_the_hint_clears() {
+    let mut app = editor("receipt-returns");
+    let receipt = "map size to 300 x 44 x 1120 m, and the file was written";
+    app.world_mut().resource_mut::<EditorState>().status.note(receipt.to_owned());
+    let receipted = drawn_texts(&mut app);
+    assert!(
+        receipted.iter().any(|(t, _, _)| t == receipt),
+        "the receipt is not drawn before the hint, so the test drives nothing; drawn: {receipted:?}"
+    );
+
+    let hint = "a surface piece cannot stand on this floor";
+    app.world_mut().resource_mut::<EditorState>().hint = hint.to_owned();
+    let hinted = drawn_texts(&mut app);
+    assert!(
+        hinted.iter().any(|(t, _, _)| t == hint),
+        "the hint is not drawn; drawn: {hinted:?}"
+    );
+    assert!(
+        !hinted.iter().any(|(t, _, _)| t == receipt),
+        "the receipt is still drawn while the hint speaks, so they share no slot; drawn: {hinted:?}"
+    );
+
+    app.world_mut().resource_mut::<EditorState>().hint.clear();
+    let cleared = drawn_texts(&mut app);
+    assert!(
+        cleared.iter().any(|(t, _, _)| t == receipt),
+        "the receipt did not come back when the hint cleared; drawn: {cleared:?}"
+    );
+    assert!(
+        !cleared.iter().any(|(t, _, _)| t == hint),
+        "the hint is still drawn after it cleared; drawn: {cleared:?}"
     );
 }

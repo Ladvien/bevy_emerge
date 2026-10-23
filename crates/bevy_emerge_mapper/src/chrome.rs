@@ -1958,6 +1958,16 @@ pub fn list_heading(parent: &mut ChildSpawnerCommands, text: &str) {
 /// that does not fit push its own value right instead of painting on it. Short labels line up at
 /// exactly the column, which is the whole point, and no call site changes.
 pub fn row_label(row: &mut ChildSpawnerCommands, width: f32, label: &str) {
+    row_label_with(row, width, label, ());
+}
+
+/// [`row_label`] with a marker on its label, for a label that changes while the row is on screen.
+pub fn row_label_with(
+    row: &mut ChildSpawnerCommands,
+    width: f32,
+    label: &str,
+    marker: impl Bundle,
+) -> Entity {
     row.spawn((
         Node {
             min_width: Val::Px(width),
@@ -1987,7 +1997,9 @@ pub fn row_label(row: &mut ChildSpawnerCommands, width: f32, label: &str) {
         TextColor(LABEL),
         font(text::LABEL),
         TextLayout::new(Justify::Left, LineBreak::NoWrap),
-    ));
+        marker,
+    ))
+    .id()
 }
 
 /// **The value beside a [`row_label`]** — 11 px, one step louder than its label, which is the
