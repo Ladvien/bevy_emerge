@@ -349,6 +349,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
         Box::new(map_rename::MapRename),
+        Box::new(brush_arm::BrushArm),
     ]
 }
 
@@ -529,7 +530,7 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
                 path.display()
             ))
         })?;
-        if entry.outcome == "applied" {
+        if entry.outcome == "applied" && find(&entry.op).is_none_or(|op| op.undo() != Undo::None) {
             lines.push(entry);
         }
     }
@@ -1501,6 +1502,100 @@ pub mod placement_set_yaw {
                 saved,
                 inverse: Some(inverse),
                 after,
+            })
+        }
+    }
+}
+
+/// **Arm a piece, so the next placement puts it down.**
+///
+/// E-037: the palette click did this in the UI, so an agent could place pieces but could not choose
+/// one. Arming changes no map, so it records no undo: its `after` is the piece the editor now holds,
+/// and the editor applies it (`editor::arm_piece`, `editor::apply_armed`).
+pub mod brush_arm {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The library id of the piece to arm, as the palette names it, e.g. `site/wall`.
+        pub descriptor: String,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["descriptor"],
+                "properties": {
+                    "descriptor": {
+                        "type": "string",
+                        "description": "The library id of the piece to arm, as the palette names it, e.g. `site/wall`."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "this is not a piece to arm: {e}. The one field is `descriptor`, and nothing else."
+                ))
+            })
+        }
+    }
+
+    /// **Arm one piece from the library.**
+    pub struct BrushArm;
+
+    impl Operation for BrushArm {
+        fn name(&self) -> &'static str {
+            "brush_arm"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        /// **A piece the library holds, or a refusal.** Nothing is armed by a refused request.
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to arm a piece from.",
+                ));
+            };
+            if !project.library.descriptors.iter().any(|d| d.id == p.descriptor) {
+                return Err(Refusal::new(format!(
+                    "`{}` is not in the library, so nothing was armed. The palette lists the \
+                     library's pieces.",
+                    p.descriptor
+                )));
+            }
+            Ok(json!({"armed": p.descriptor}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let id = plan["armed"].as_str().unwrap_or_default().to_owned();
+            Ok(Outcome {
+                summary: format!("armed {id}"),
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(plan),
             })
         }
     }

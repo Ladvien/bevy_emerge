@@ -83,6 +83,9 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
     // own way of doing what `map_set_settings` does. It dispatches the operation.
     ("map_set_settings", "SizeField(Axis)"),
+    // **The palette click**, which arms a piece through `on_row_click`, which calls `arm_piece`
+    // and dispatches `brush_arm`.
+    ("brush_arm", "arm_piece("),
 ];
 
 /// **Every operation has a BRP command, and the editor running is what says so.**

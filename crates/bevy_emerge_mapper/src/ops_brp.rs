@@ -486,13 +486,24 @@ fn operation_apply(
     if let (Some(due), Ok(ops::Applied::Done { outcome, .. })) = (due.as_mut(), &applied) {
         due.map_replaced |= outcome.saved;
     }
+    // **An armed piece is the editor's brush (E-037)**: the answer names the piece, and the editor
+    // holds it as a palette click would.
+    if let (Ok(ops::Applied::Done { outcome, .. }), Some(state), Some(project)) =
+        (&applied, state.as_deref_mut(), project.as_deref())
+        && p.operation == "brush_arm"
+    {
+        crate::editor::apply_armed(state, project, outcome.after.as_ref());
+    }
     // **The agent's change joins the person's one undo history (B-019).** Logged here, so Cmd+Z
-    // takes back the newest change whoever made it, not the newest the person made by hand.
+    // takes back the newest change whoever made it, not the newest the person made by hand. An
+    // operation that changes no document (`Undo::None`, such as arming a piece) has nothing to take
+    // back, so it stays out of the history.
     if let Ok(ops::Applied::Done {
         outcome,
         operation_id,
         ..
     }) = &applied
+        && ops::find(&p.operation).is_some_and(|op| op.undo() != ops::Undo::None)
         && let Some(state) = state.as_mut()
     {
         state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
