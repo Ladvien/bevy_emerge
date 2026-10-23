@@ -271,9 +271,11 @@ def do_step(step, timeline, inj, agent):
             time.sleep(step["secs"] / 8)
         inj.send(kind="Mouse", button="Left", action="Release")
     elif kind == "mcp":
+        # Stamped when the call starts: the editor acts on the call as it arrives, and a stamp taken
+        # after a slow answer would place the change seconds after the frames that show it.
+        t = timeline.now()
         answer = agent.json_call(step["mcp"], step.get("args", {}))
-        timeline.add(t=timeline.now(), type="agent", tool=step["mcp"],
-                     result=json.dumps(answer)[:200])
+        timeline.add(t=t, type="agent", tool=step["mcp"], result=json.dumps(answer)[:200])
     elif kind == "caption":
         timeline.add(t=timeline.now(), type="caption", text=step["caption"])
     else:
