@@ -112,7 +112,7 @@ Review: after Enter the status line confirms the snip. The GIF at the top shows 
 
 Goal: bring the whole map back into view after you have zoomed in on part of it.
 
-![Starts zoomed in on the middle of the town; an agent frames the town with emerge_frame_view](docs/media/frame-the-map.gif)
+![Starts zoomed in on one corner; Home frames the whole map](docs/media/frame-the-map.gif)
 
 1. Press Home. On a Mac laptop without a Home key, press Fn+←.
 
