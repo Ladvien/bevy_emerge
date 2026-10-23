@@ -658,6 +658,9 @@ fn piece_select_refusal(
 /// [`crate::ops::dispatch`], which is the same function a key handler calls — so the two front
 /// ends cannot drift, and the log records the agent's work in the same file the human's work is
 /// recorded in.
+// Each resource is its own parameter, so an app without one still runs, and the ratchet tests that
+// read this signature see each one; a bundle would hide them from both.
+#[allow(clippy::too_many_arguments)]
 fn operation_apply(
     In(p): In<ApplyParams>,
     mut project: Option<ResMut<crate::project::Project>>,
