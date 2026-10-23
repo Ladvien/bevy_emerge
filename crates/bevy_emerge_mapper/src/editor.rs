@@ -3947,7 +3947,7 @@ const HISTORY_EACH_WAY: isize = 3;
 /// current position, fixed at spawn. `refresh_history` writes the rest each time the history
 /// changes. A click jumps to `position` as one undo group (`jump`). The keyboard route to the same
 /// row is `|offset|` presses of Cmd+Z (rows behind) or Cmd+Shift+Z (rows ahead); see
-/// `docs/guide/placing-and-undo.md`.
+/// `docs/guide/building-maps.md`.
 #[derive(Component)]
 pub struct HistorySlot {
     pub offset: isize,
