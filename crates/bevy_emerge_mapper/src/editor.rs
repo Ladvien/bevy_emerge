@@ -4140,7 +4140,7 @@ fn rename_keys(
     mut events: MessageReader<KeyboardInput>,
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<keys::Live>,
-    project: Option<Res<Project>>,
+    mut project: Option<ResMut<Project>>,
 
     mut open: ResMut<OpenMap>,
     mut state: ResMut<EditorState>,
@@ -4176,7 +4176,7 @@ fn rename_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = state.renaming.take().unwrap_or_default();
-                rename_map(project.as_deref(), &mut open, &mut state, &raw);
+                rename_map(project.as_deref_mut(), &mut open, &mut state, &raw);
             }
             Key::Escape => {
                 state.renaming = None;
@@ -8027,6 +8027,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
+            carry_rules(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8075,6 +8076,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
+            carry_rules(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8127,6 +8129,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
+            carry_rules(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8251,10 +8254,27 @@ fn set_pin(
     }
 }
 
+/// **Carry an operation's rules back into the project.** A rename rewrites `rules.ron`'s examples,
+/// and generate reads them from the Project resource, so the rules the operation changed must go
+/// back in. Only the rules change, and only when they did, so a change-detected resource is not
+/// marked changed by an operation that left the rules alone.
+fn carry_rules(project: &mut Project, ctx: &mut crate::ops::Ctx) {
+    if let Some(fresh) = ctx.project.take()
+        && project.rules != fresh.rules
+    {
+        project.rules = fresh.rules;
+    }
+}
+
 /// **Rename the open map through the registry**, the way the size field resizes it. The N key's Enter
 /// comes here, so the name rule (snake case, not empty, no other map holds it) and the move of the file
 /// live in `map_rename`, and the receipt says where the file went.
-fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorState, raw: &str) {
+fn rename_map(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    raw: &str,
+) {
     // **The same name is nothing to do.** The operation would refuse it as a problem, but the author
     // asked for no change, so the answer is the Escape answer.
     if bevy_emerge_core::naming::to_snake_case(raw) == open.map.name {
@@ -8262,7 +8282,7 @@ fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorS
         return;
     }
     let mut ctx = crate::ops::Ctx {
-        project: project.cloned(),
+        project: project.as_ref().map(|p| (**p).clone()),
         open: Some(std::mem::replace(
             open,
             OpenMap::new(
@@ -8276,6 +8296,9 @@ fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorS
     let outcome = crate::ops::dispatch(&mut ctx, "map_rename", &serde_json::json!({"name": raw}));
     if let Some(fresh) = ctx.open.take() {
         *open = fresh;
+    }
+    if let Some(project) = project {
+        carry_rules(project, &mut ctx);
     }
     match outcome {
         Ok(crate::ops::Applied::Done {
