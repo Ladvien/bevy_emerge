@@ -1,0 +1,132 @@
+# Building maps
+
+The Map door is one of the editor's three workspaces. It is where you lay pieces on the ground. A **piece** is one kit item you place. A **placement** is one piece on the map. A **stamp** is a composition laid down as one unit. A **composition** is a named group of pieces that you keep for reuse. This page covers the tasks you do on the Map. For the file formats, see [data files](data-files.md). For every key, see [keys](keys.md).
+
+## Place a piece and undo it
+
+**Goal:** Put one piece on the ground and take it back.
+
+![A gate house is armed from the palette, a click places it on the ground, and Cmd+Z takes it back.](../media/place-and-undo.gif)
+
+1. Pick a piece in the palette.
+2. Click the ground where the piece goes.
+3. Press `Cmd+Z` to take the placement back.
+4. Press `Cmd+Shift+Z` to put it back.
+
+**What you see:** The piece appears where you clicked. `Cmd+Z` takes it back, and `Cmd+Shift+Z` puts it back.
+
+**If it goes wrong:** Hold `Alt` (Option on a Mac) while you click to place the piece exactly where the pointer is. Alt turns off grid snapping for that click.
+
+## Turn, tip and lift a piece
+
+**Goal:** Rotate, tip or raise a piece you have already placed.
+
+1. Press `R` to turn the piece left, or `T` to turn it right.
+2. Press `Y` to tip it about x, or `U` to tip it about z.
+3. Press `V` to straighten it.
+4. Press `]` to lift the piece, or `[` to lower it.
+
+**What you see:** The piece turns, tips, or moves up or down in place.
+
+## Move a piece
+
+**Goal:** Pick up a placed piece and set it down somewhere else.
+
+1. Press `B` to move.
+2. Drag the piece to the new spot.
+
+**What you see:** The piece moves to the spot you set it down on.
+
+## Remove pieces
+
+**Goal:** Take a piece off the map.
+
+1. Press `X` to enter removal mode.
+2. Click the piece you want to remove.
+3. Press `X` again to leave removal mode.
+
+**What you see:** The piece comes off the map. `Cmd+Z` puts it back.
+
+## Clone and run
+
+**Goal:** Copy a piece, or lay a line of the same piece.
+
+1. Press `Shift+B` to clone.
+2. Press `Cmd+B` to run a line of pieces.
+
+**What you see:** The clone tool copies the piece you pick up. The run tool lays a line of the same piece.
+
+## Keep a group as a composition
+
+**Goal:** Save a set of pieces as a named composition you can stamp again later.
+
+1. Select the set of pieces you want to keep.
+2. Press `M` to keep the set as a composition.
+
+**What you see:** The set is kept as a composition. Press `P` to open the composition picker, then `Enter` to arm a composition for the map.
+
+## Fill an area
+
+**Goal:** Fill an empty area with pieces in one step.
+
+1. Press `F` and click an empty cell. The fill spreads across the empty cells connected to it.
+
+**What you see:** The fill places pieces across the connected empty cells.
+
+**If it goes wrong:** A fill stops at 4,096 cells, and the status line says so. A fill cannot start on a cell that already holds a piece. To carry on, fill again from another empty cell next to the stopped area.
+
+## Generate a layout and keep it or throw it away
+
+**Goal:** Ask the editor for a layout, look at it, and keep it or throw it away.
+
+1. Press `G` to generate from the pieces the kit has learned. Press `Shift+G` to generate from the rules the kit declares. Press `Cmd+G` to generate from compositions.
+2. Press `Enter` to keep the layout. Press `Esc` to throw it away.
+
+**What you see:** The layout waits for your answer. Press `Enter` to keep it, or `Esc` to throw it away.
+
+## Pin a piece
+
+**Goal:** Mark a piece you want to keep.
+
+1. Point at the piece and press `O` to pin it. Press `O` on a pinned piece to unpin it.
+
+**What you see:** The pin toggles on the piece.
+
+## Undo and redo
+
+**Goal:** Take back a change, or put it back.
+
+1. Press `Cmd+Z` to take back the last change on the Map, whoever made it.
+2. Press `Cmd+Shift+Z` to redo a change you took back.
+
+**What you see:** Changes you make by hand and changes an agent makes through the editor share the same undo stack. `Cmd+Z` takes back an agent's change too.
+
+## Snip a region for an agent
+
+**Goal:** Send a region of the screen to an agent.
+
+1. Press `Cmd+\` to snip an area.
+2. Drag a rectangle over the region you want.
+
+**What you see:** The snip is saved as a picture and a small file. Both go to `target/loop/captures/snips/`. The agent reads them through MCP.
+
+## Move the camera
+
+**Goal:** Look at a different part of the map.
+
+![The camera pans left and right over the abbey as A and D are tapped.](../media/move-the-camera.gif)
+
+1. Press `W`, `A`, `S` or `D` to pan.
+2. Press `Q` or `E` to turn the view.
+
+**What you see:** The camera moves and turns. It does not change the map.
+
+## Frame the map
+
+**Goal:** Bring the piece you are working on, or the whole map, into view.
+
+![The view starts zoomed in on one corner of a small block map. Home brings the whole block into view.](../media/frame-the-map.gif)
+
+1. Press `Home`.
+
+**What you see:** `Home` frames the locked placement when there is one. If there is none, it frames the whole map. Framing moves the camera only, so it is not in the undo history.

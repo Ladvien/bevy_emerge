@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Ladvien/bevy_emerge/actions/workflows/ci.yml/badge.svg)](https://github.com/Ladvien/bevy_emerge/actions/workflows/ci.yml)
 
-bevy_emerge is a world editor for Bevy games that you and an AI agent drive together. You build and point: place pieces, drag a snip over a problem, write a note. The agent acts through the same operations you use: turn, remove, frame, capture, check. One Cmd+Z takes back either of you. It also learns a layout's grammar from maps you build and generates new layouts with wave function collapse.
+bevy_emerge is a world editor for Bevy games, for game developers who want to build levels with an AI agent working beside them.
 
 ![A person snips a box over a wall and writes a note, an agent reads the snip and turns the wall, and the person's Cmd+Z takes the turn back](docs/media/hero.gif)
 
@@ -10,49 +10,40 @@ The full recording is [`docs/media/demo.mp4`](docs/media/demo.mp4), 64 seconds l
 
 ## Why
 
-- **Show the agent a problem, not a description of it.** Snip a region and write a note. The agent reads both with `emerge_list_snips`.
-- **The agent sees what you see.** Stills, sequences and framing give it the same view you have.
-- **One undo history.** A change an agent makes is undone with the same Cmd+Z you use.
-- **Edit a map on disk, see it live.** Change a map file in a text editor, and the running editor shows the change in well under a second (measured 0.1–0.6 s on a 727-piece map), with no rebuild.
-- **Layouts follow your example.** The grammar comes from maps you built, so the output keeps their look and rules.
+- **You and an agent use the same operations.** Turning, removing, pinning, renaming, opening a door and arming a piece are named operations. An agent changes the map only through them, so its change is the same kind of change as yours. Some of your keys still change the map without going through them.
+- **One undo history.** Cmd+Z takes back the agent's last turn as well as your own. The agent's turn joins your history, so you do not need a second undo.
+- **Snips show the agent what you mean.** Cmd+\ lets you drag a rectangle over the editor and write a note. The agent can list your snips, read each note, and get each picture from its file.
+- **Edit data files and see the result.** The editor checks its project files every quarter of a second and re-reads the ones that changed.
+- **Layouts learned from your maps.** You lay out a corner the way you want it. The editor learns the rules from that arrangement, then continues it with wave function collapse, so it adds more of your layout, not a generic one.
+- **Labels that wait for you.** A vision model can propose a label for each piece. Each proposal is marked unchecked. To confirm an axis, toggle one of its label chips, which marks the whole axis as yours. No button confirms a proposal in place.
 
 ## Status
 
-Works today:
+**Works today:** the editor (`bevy_emerge_mapper`) for building maps from kits; the MCP server (`bevy_emerge_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout.
 
-- Placing and removing pieces in the editor, and saving the map with Cmd+S.
-- Eleven MCP tools that let an agent act through the same operations.
-- One undo history for you and the agent.
-- Snips with notes, which agents read.
-- Home frames the locked piece, or the whole map.
-- Removing a box or a stamp, for you and for an agent.
+**Install:** use the crates by path or git. `bevy_emerge_rng` and `bevy_emerge_solver` are marked `publish = false`.
 
-In progress:
-
-- More operations for agents.
-
-bevy_emerge is not yet published to crates.io. Use it by path or git.
+The mapper editor is AI-written and has not had a line-by-line human audit. It is covered by tests, but read [`crates/bevy_emerge_mapper/README.md`](crates/bevy_emerge_mapper/README.md) before you trust it with a project you care about.
 
 ## Quickstart
 
-You need a Rust toolchain for edition 2024 and a machine that can open a Bevy window. Then:
+You need a stable Rust toolchain and the graphics requirements of Bevy 0.20. Clone the repository and run the editor on its own project:
 
 ```sh
 git clone https://github.com/Ladvien/bevy_emerge
 cd bevy_emerge
-cargo run -p bevy_emerge_mapper -- <project-root> [map-name]
+cargo run -p bevy_emerge_mapper -- .
 ```
 
-- `<project-root>` is a directory that holds `assets/emerge/`, the kit and maps the editor opens.
-- `map-name` is the map to open. Cmd+O goes back to the menu.
+The editor opens a menu of the project's kits and maps. Each kit shows how many pieces it holds. Choose a map in the MAPS column to open it. [Getting started](docs/guide/getting-started.md) walks through your first map.
 
-For an agent, start the MCP server against the same project. Both ends read `BEVY_BRP_PORT`, which defaults to 15702:
+To let an agent drive the open editor, run the MCP server with the project directory. The editor must be running for the tools to answer:
 
 ```sh
-cargo run -p bevy_emerge_mcp -- --project <project-root>
+cargo run -q -p bevy_emerge_mcp -- --project /path/to/project
 ```
 
-An MCP client config for it:
+Add it to your MCP client, for example:
 
 ```json
 {
@@ -66,105 +57,45 @@ An MCP client config for it:
 }
 ```
 
-## How it fits a game
+The tools are listed in [MCP tools](docs/mcp-tools.md).
 
-Sanctuary, a game built on Bevy, depends on `bevy_emerge_core` by path. It lays out town blocks with wave function collapse, learned from an authored example block. A project keeps its kit and maps in `assets/emerge/`: the editor opens that folder, and the game loads the same files.
+## What you can do
 
-`bevy_emerge_core` is engine-free, and `crates/bevy_emerge_core/tests/engine_free.rs` checks it. One seeded ChaCha8 stream (`bevy_emerge_rng`) serves every crate, so a seed gives the same layout.
+- **Build a map.** Place pieces, fill areas, and undo a placement. See [building maps](docs/guide/building-maps.md).
+- **Make kits and labels.** Bring in meshes, group them into kits, and label each piece. See [kits and labels](docs/guide/kits-and-labels.md).
+- **Work with an agent.** Let an agent turn and remove pieces, and frame and capture the map, while you watch and snip problems. See [agents](docs/guide/agents.md).
+- **Use the data files.** Read and edit the files a game loads. See [data files](docs/guide/data-files.md).
+- **Know the keys.** See [keys](docs/guide/keys.md).
 
-| Crate | What it is | Engine |
-|---|---|---|
-| `bevy_emerge_core` | The engine-free world-building core: constraint IR, solvers, WFC and the deterministic RNG. | none |
-| `bevy_emerge_snip` | Cuts one rectangle out of a PNG of the editor, shared by the editor and the MCP server. | none |
-| `bevy_emerge` | The runtime half: `spawn_descriptor` and a plugin that put a library and a map into a Bevy world. | Bevy 0.20 |
-| `bevy_emerge_anim` | Clip-weight blending on a skinned rig's `AnimationPlayer`. | Bevy 0.20 |
-| `bevy_emerge_mapper` | The editor. It opens a project directory and writes what a game loads. It is AI-written and not line-by-line audited; read its [README](crates/bevy_emerge_mapper/README.md) before you rely on it. | Bevy 0.20 |
-| `bevy_emerge_mcp` | An MCP server that lets an agent drive a running editor through typed operations. | Bevy Remote Protocol client |
-| `bevy_emerge_rng` | One deterministic ChaCha8 stream, shared by every crate. | none |
-| `bevy_emerge_solver` | A deterministic SAT back-end with no clock, threads or entropy. | none |
-| `bevy_devshot` | A frame on demand: touch a sentinel file and the next frame is written as a PNG. | Bevy 0.20 |
+## Use it in your game
 
-## Common tasks
+Depend on the crates you need by path or git. `bevy_emerge_core` has no engine dependency and holds the grammar and solver, so a game can use it without the editor. Sanctuary, the game this was built for, depends on `bevy_emerge_core` by path and lays out its town blocks with it. See [your game](docs/guide/your-game.md) for the steps.
 
-### Place a piece and undo it
+## Crates
 
-Goal: put a piece on the grid, then take it back.
-
-1. Pick a piece from the palette and click the grid.
-2. Press Cmd+Z to take it back.
-
-Review: the inspector's UNDO line names the step that Cmd+Z takes back, and the history list under REDO shows the recent changes. Clicking a row jumps to just after that change, and repeated Cmd+Z goes back the same way. The [placing and undo guide](docs/guide/placing-and-undo.md) has the details.
-
-![Arms the gate house from the list, clicks the ground to place it, then Cmd+Z takes it back](docs/media/place-and-undo.gif)
-
-### Snip a region for an agent
-
-Goal: show an agent a region and get one change back that you can undo.
-
-1. Press Cmd+\ to arm the snip, then drag a box over the region.
-2. Type a note and press Enter.
-3. The agent reads the snip with `emerge_list_snips` and changes a placement with an operation such as `placement_set_yaw`.
-4. Press Cmd+Z to undo the agent's change.
-
-Review: after Enter the status line confirms the snip. The GIF at the top shows the agent's turn and the Cmd+Z that takes it back.
-
-### Frame the map
-
-Goal: bring the whole map back into view after you have zoomed in on part of it.
-
-![A small 34 x 34 m block map: starts zoomed in on one corner; Home frames the whole block](docs/media/frame-the-map.gif)
-
-1. Press Home. On a Mac laptop without a Home key, press Fn+←.
-
-Review: the inspector's LAST line reads "framed the whole map (34 x 34 m)" on the block map (the town map reads its own size, 300 x 1120 m). The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing in full.
-
-If it doesn't work: if Home frames one piece instead of the whole map, a piece is locked as the target (H picks it). Press Esc, or move the cursor off its cell, and Home frames the whole map again.
-
-### Move the camera
-
-Goal: pan left and right over the abbey.
-
-![The camera pans left and right over the abbey and the town wall, one tap of A or D at a time](docs/media/move-the-camera.gif)
-
-Review: tap A and D to pan left and right. The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing and the camera in full.
-
-### Review a kit's labels
-
-Goal: see which pieces a model labelled, and read the labels on one piece.
-
-![An agent lists the pieces a model labelled and opens the kit door; the arrow keys walk down the piece list, and the INSPECTOR labels row leads with the confidence, then the model file and the date](docs/media/review-labels.gif)
-
-1. Press = to cross to the kit door. It opens on the Meshes tab.
-2. Press → to move into the piece list, then ↓ and Shift+↓ to walk down it.
-3. Read the INSPECTOR's labels row. While a model still owns an axis, it leads with how sure the model was, then names the model file and the date the model made its labels. An axis an agent or a person set is named by its axis instead.
-4. To take back a label an agent set, press Cmd+Z on the Meshes panel. It undoes the agent's `label_set` in one step, and the INSPECTOR's receipt reads `restored <piece>`.
-
-Review: the labels row reads like `confidence high · <model file> · <date>` while a model owns an axis, names an agent's axes as `agent set <axes>` and a person's as `by hand set <axes>`, and wraps inside the panel when the model's name is long. Model labels, and labels an agent set, show in the unchecked colour until a person confirms each axis. An agent finds the same pieces with `emerge_list_pieces`: `unlabelled` lists the pieces nobody has labelled, `by_model` lists the pieces a model or an agent labelled and no person has confirmed, and `confidence` narrows that list. The [kit guide](docs/guide/kit-meshes-tiles-compositions.md) covers the labels row in full.
-
-If it doesn't work: if = does nothing, a question may be on screen. Answer it, then press = again. If the map has unsaved edits, the editor asks before it leaves for the kit door, so choose Save and go or Stay.
-
-## Agents
-
-The MCP server gives an agent the same typed operations a person uses, including removing pieces, a box and a stamp (`placement_remove` and `stamp_remove`). The [tool reference](docs/mcp-tools.md) lists the twelve tools and their parameters. An agent's change lands in the same operation log and undo history as yours, and it shows on your receipt: the LAST line in the inspector. A refusal goes to the toast and the journal (Cmd+E).
-
-![An agent removes the abbey with placement_remove, the church disappears, then Cmd+Z puts it back](docs/media/agent-removes-then-undo.gif)
-
-An agent can cross to the kit door or the map door with `door_open`, select a kit piece with `piece_select`, write one label axis with `label_set`, and find pieces by their labels with `emerge_list_pieces`.
-
-Known gaps:
-
-- Renaming a map does not rewrite other references to it by name.
+| Crate | What it is |
+|---|---|
+| `bevy_emerge_mapper` | The standalone editor. Opens a project directory and writes the files a game loads. |
+| `bevy_emerge_mcp` | The MCP server that gives an agent the editor's operations over stdio. It talks to the running editor. |
+| `bevy_emerge` | The runtime half. Loads a library and a map into a Bevy world. |
+| `bevy_emerge_core` | The world-building core: constraint representation, solvers, wave function collapse and the grammar learner. Engine-free. |
+| `bevy_emerge_solver` | A deterministic SAT back-end. It reads no clock and uses no threads or entropy. |
+| `bevy_emerge_anim` | Blends clip weights on a skinned rig's animation player. |
+| `bevy_emerge_rng` | One deterministic ChaCha8 random stream. `bevy_emerge_core` re-exports it. |
+| `bevy_emerge_snip` | Cuts one rectangle out of a picture of the editor. Shared by the editor and the MCP server. |
+| `bevy_devshot` | A frame on demand. Touch a sentinel file and the next frame is written as a PNG from the GPU. |
 
 ## Documentation
 
-- [Editor guide](docs/guide/README.md): every page of the editor's guide, from getting started to keys.
-- [MCP tool reference](docs/mcp-tools.md).
-- [The iteration loop](docs/guide/loop.md): how the editor's changes are proposed, proved and recorded.
+- [Guide](docs/guide/README.md): every page, in reading order.
+- [MCP tools](docs/mcp-tools.md): the tools an agent can call.
+- [The development loop](docs/guide/loop.md): how the project is built, one iteration at a time.
+- [Mapper README](crates/bevy_emerge_mapper/README.md): what the editor is and its status.
 
 ## Contributing
 
-Run `cargo test --workspace` before you push. CI runs it on Linux (see the badge). `AGENTS.md` holds the rules for agents working in this repo.
+Run `cargo test --workspace` before you push. CI runs the same command under a virtual display (see `.github/workflows/ci.yml`). The badge at the top of this page shows its status. [`AGENTS.md`](AGENTS.md) sets the conventions the code follows. [The development loop](docs/guide/loop.md) describes how changes are proposed, tested and reported.
 
 ## Licence
 
-MIT OR Apache-2.0, at your option; see `LICENSE-MIT` and `LICENSE-APACHE`. Models under `assets/` and third-party assets keep their own licences, as their folders' READMEs state.
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT licence](LICENSE-MIT), at your option.

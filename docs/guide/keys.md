@@ -1,167 +1,177 @@
 # Keys
 
-Every key the editor answers to, written from the `BINDINGS` table in `crates/bevy_emerge_mapper/src/keys.rs` as it stood when this page was last updated. If a binding changes in the code, this page changes with it. Holding **K** in the editor shows the live list for the tab you are on, and that list wins if the two disagree.
+This page lists the keys the editor answers to, grouped by where they work. It is taken from the binding table in `crates/bevy_emerge_mapper/src/keys.rs`. Hold `K` in the editor to see the same keys in an overlay.
 
-`Cmd` is the platform command key (`⌘` on macOS). Where a row says **Shift:** or a chord has `Shift+`, the modifier changes what the key does; a `left`/`right`/`up`/`down` row is an arrow key.
+## How to read this page
 
-## Every tab
+Cmd means the Command key on a Mac. Shift and Alt keep their names. Alt is Option on a Mac. A row with two chords, such as `Cmd+Z` and `Cmd+Shift+Z`, is two bindings that do opposite jobs.
 
-| Key | When | Does |
-|---|---|---|
-| `1` | — | panel 1 / 2 / 3 of this door |
-| `2` | — | panel 1 / 2 / 3 of this door |
-| `3` | — | panel 1 / 2 / 3 of this door |
-| `Cmd+Delete` | — | define this piece |
-| `K` | — | hold: every key lands on what it does |
-| `Cmd+S` | — | save |
-| `Cmd+O` | — | back to the menu |
-| `=` | — | the other door |
-| `Cmd+E` | — | every error this session |
-| `Cmd+C` | — | copy this tab's text |
-| `Esc` | — | back out |
-| `W` | — | pan |
-| `A` | — | pan |
-| `S` | — | pan |
-| `D` | — | pan |
-| `Q` | — | turn view |
-| `E` | — | turn view |
-| `Cmd+F` | — | filter the list |
-| `Cmd+\` | — | snip: press to arm (press again to disarm), drag a rectangle over the editor, type a note. Enter saves a picture and its record; Esc cancels and writes nothing |
+The editor has three doors. A door is one of its three workspaces:
 
-## MAP
+- **Map** builds a level out of pieces.
+- **Kit** makes the reusable content: meshes, tiles, and compositions.
+- **Rigs** checks the animation rigs.
 
-| Key | When | Does |
-|---|---|---|
-| `Cmd+Z` | — | undo / redo |
-| `Shift+Cmd+Z` | — | undo / redo |
-| `H` | — | target the stack |
-| `up` | while nothing in hand | walk the palette / Shift: x5 |
-| `down` | while nothing in hand | walk the palette / Shift: x5 |
-| `P` | while nothing in hand | take the arrows to the compositions |
-| `up` | while picking a composition | walk the compositions / Shift: x5 |
-| `down` | while picking a composition | walk the compositions / Shift: x5 |
-| `R` | — | turn L / turn R / tip x / tip z / straight |
-| `T` | — | turn L / turn R / tip x / tip z / straight |
-| `Y` | — | turn L / turn R / tip x / tip z / straight |
-| `U` | — | turn L / turn R / tip x / tip z / straight |
-| `V` | — | turn L / turn R / tip x / tip z / straight |
-| `J` | — | grid rung: tile / fine / finer |
-| `[` | — | lift / lower this |
-| `]` | — | lift / lower this |
-| `X` | — | removal mode |
-| `Home` | — | frame the view: the locked placement, or the whole map |
-| `B` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
-| `Shift+B` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
-| `Cmd+B` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
-| `M` | — | move / Shift: clone / Cmd: run / M: keep as a composition |
-| `N` | — | rename map: type the name, then Enter moves the file now / Esc cancels |
-| `O` | — | pin / unpin |
-| `F` | while nothing in hand | fill: brush / learned / declared / composed |
-| `G` | while nothing in hand | fill: brush / learned / declared / composed |
-| `Shift+G` | while nothing in hand | fill: brush / learned / declared / composed |
-| `Cmd+G` | while nothing in hand | fill: brush / learned / declared / composed |
-| `Enter` | while a proposal is waiting | keep this layout / Esc throws it away |
-| `Enter` | while picking a composition | arm this composition for the map |
+A piece is one placed item on a map. A composition is a named group of pieces that you place as one. A kit is the set of meshes, tiles, and compositions you make once and reuse.
 
-On a Mac laptop without a Home key, press `Fn+←` for `Home`.
+The "Works when" column names the state the editor must be in:
 
-## KIT · MESHES
+- **Any time** means the key works in every state of that tab.
+- **Nothing in hand** means no piece is held.
+- **While a piece is in hand** means you have picked a piece up and not yet dropped it.
+- **While a derivation waits** means the editor has proposed a result and is waiting for a yes or no.
+- **While browsing tiles** means the Tiles panel is live, and the arrow keys walk the tiles.
+- **While a composition is being picked** means the composition picker has the arrow keys.
 
-| Key | When | Does |
-|---|---|---|
-| `up` | — | walk the lists / Shift: x5 |
-| `down` | — | walk the lists / Shift: x5 |
-| `left` | — | walk the lists / Shift: x5 |
-| `right` | — | walk the lists / Shift: x5 |
-| `I` | — | type an id |
-| `M` | — | mount |
-| `Enter` | while nothing in hand | add / update this tile |
-| `Space` | except while holding a piece | open / close the pack |
-| `Enter` | while a proposal is waiting | keep the derived edges / Esc throws them away |
-| `R` | — | rescan / exclude |
-| `Shift+R` | — | rescan / exclude |
-| `Delete` | — | send back to NOT IMPORTED |
-| `Cmd+Z` | — | undo / redo |
-| `Shift+Cmd+Z` | — | undo / redo |
-| `T` | — | cell forward |
-| `F` | — | cell left |
-| `G` | — | cell back |
-| `H` | — | cell right |
-| `Shift+T` | — | add a vocabulary token |
-| `[` | — | previous layer |
-| `]` | — | next layer |
-| `Z` | — | solid this cell |
-| `X` | — | edge this cell |
-| `V` | — | clear this cell |
-| `B` | — | rescan solid / turn x / y / z |
-| `N` | — | rescan solid / turn x / y / z |
-| `O` | — | rescan solid / turn x / y / z |
-| `P` | — | rescan solid / turn x / y / z |
-| `L` | — | suggest / all / abandon |
-| `Shift+L` | — | suggest / all / abandon |
-| `Shift+Y` | — | suggest / all / abandon |
-| `/` | — | filter the tags |
+A key marked "in filter boxes" still walks its list while a filter box has focus. Every other key pauses while you type in a name, an id, or a filter box. Typing the letter `S` in a name does not save the map, because saving is `Cmd+S`.
 
-## KIT · TILES
+## Everywhere
 
-| Key | When | Does |
-|---|---|---|
-| `up` | while browsing the tiles | walk the tiles / Shift: x5 |
-| `down` | while browsing the tiles | walk the tiles / Shift: x5 |
-| `right` | while browsing the tiles | to the meshes / left goes back |
-| `left` | while nothing in hand | back to the tiles |
-| `Enter` | while browsing the tiles | open this tile |
-| `up` | while nothing in hand | walk the library / Shift: x5 |
-| `down` | while nothing in hand | walk the library / Shift: x5 |
-| `up` | while holding a piece | move the piece |
-| `down` | while holding a piece | move the piece |
-| `left` | while holding a piece | move the piece |
-| `right` | while holding a piece | move the piece |
-| `,` | while holding a piece | step to the previous / next member |
-| `.` | while holding a piece | step to the previous / next member |
-| `Shift+up` | while holding a piece | flush it to that side |
-| `Shift+down` | while holding a piece | flush it to that side |
-| `Shift+left` | while holding a piece | flush it to that side |
-| `Shift+right` | while holding a piece | flush it to that side |
-| `Space` | except while browsing the tiles | take the piece / Esc puts it back |
-| `[` | except while browsing the tiles | layer |
-| `]` | except while browsing the tiles | layer |
-| `J` | except while browsing the tiles | grid deeper by thirds, wrapping |
-| `Enter` | while nothing in hand | drop the piece / Shift: a slot |
-| `Shift+Enter` | while nothing in hand | drop the piece / Shift: a slot |
-| `R` | except while browsing the tiles | turn / remove this / Shift: empty the tile |
-| `Delete` | except while browsing the tiles | turn / remove this / Shift: empty the tile |
-| `Shift+Delete` | except while browsing the tiles | turn / remove this / Shift: empty the tile |
-| `N` | — | name a new tile |
-| `C` | — | close the tile |
-| `Cmd+Z` | except while browsing the tiles | undo / redo |
-| `Shift+Cmd+Z` | except while browsing the tiles | undo / redo |
+These keys work on every tab.
 
-## KIT · COMPOSE
+| Key | Works when | Does |
+| --- | --- | --- |
+| `1`, `2`, `3` | Any time | Go to panel 1, 2, or 3 of the door you are in. |
+| `=` | Any time | Switch between the Map and Kit doors. |
+| `Cmd+Delete` | Any time | Define this piece. On a Mac, the Delete key sends Backspace. |
+| `K` (held) | Any time | Show every key and what it does. Release to hide it. |
+| `Cmd+S` | Any time | Save. |
+| `Cmd+\` | Any time | Snip an area. |
+| `Cmd+O` | Any time | Go back to the menu. |
+| `Cmd+E` | Any time | Show every error this session. |
+| `Cmd+C` | Any time | Copy this tab's text. |
+| `Cmd+F` | Any time | Filter the list. |
+| `Esc` | Any time | Back out of the current state. |
+| `W`, `A`, `S`, `D` | Any time | Pan forward, left, back, and right. |
+| `Q`, `E` | Any time | Turn the view left and right. |
 
-| Key | When | Does |
-|---|---|---|
-| `up` | — | walk the focused list / Shift: x5 |
-| `down` | — | walk the focused list / Shift: x5 |
-| `Enter` | — | arm this composition for the map |
-| `I` | — | rename this composition |
-| `left` | — | which list the arrows walk |
-| `right` | — | which list the arrows walk |
-| `O` | — | previous / next composition |
-| `P` | — | previous / next composition |
+## Map
 
-## RIGS · ANIM
+These keys work on the Map tab.
 
-| Key | When | Does |
-|---|---|---|
-| `up` | — | walk the rigs / Shift: x5 |
-| `down` | — | walk the rigs / Shift: x5 |
-| `Enter` | — | adopt measured values into rigs.ron |
-| `Cmd+Z` | — | undo / redo the last write |
-| `Shift+Cmd+Z` | — | undo / redo the last write |
-| `left` | — | scrub phase (Shift: fine) |
-| `right` | — | scrub phase (Shift: fine) |
-| `Space` | — | play / scrub |
-| `C` | — | check all rigs |
-| `G` | — | ghost: measured over declared |
-| `V` | — | view: figure / feet / side / ground |
+| Key | Works when | Does |
+| --- | --- | --- |
+| `Cmd+Z` | Any time | Undo. |
+| `Cmd+Shift+Z` | Any time | Redo. |
+| `H` | Any time | Target the stack. |
+| `Up` / `Down` | Nothing in hand | Walk the palette. Hold Shift to move five at a time. Works in filter boxes. |
+| `P` | Nothing in hand | Take the arrow keys to the compositions. |
+| `Up` / `Down` | While a composition is being picked | Walk the compositions. Hold Shift to move five at a time. |
+| `Enter` | While a composition is being picked | Arm this composition for the map. |
+| `R` | Any time | Turn the piece left. |
+| `T` | Any time | Turn the piece right. |
+| `Y` | Any time | Tip the piece about x. |
+| `U` | Any time | Tip the piece about z. |
+| `V` | Any time | Straighten the piece. |
+| `J` | Any time | Change the grid rung: tile, fine, then finer. |
+| `[` / `]` | Any time | Lower / lift this piece. |
+| `X` | Any time | Enter removal mode. |
+| `Home` | Any time | Frame the view: the locked placement when there is one, otherwise the whole map. |
+| `B` | Any time | Move. |
+| `Shift+B` | Any time | Clone. |
+| `Cmd+B` | Any time | Run. |
+| `M` | Any time | Keep the selected set as a composition. |
+| `N` | Any time | Rename the map. |
+| `O` | Any time | Pin or unpin. |
+| `F` | Nothing in hand | Fill with the brush. |
+| `G` | Nothing in hand | Fill with the learned source. |
+| `Shift+G` | Nothing in hand | Fill with the declared source. |
+| `Cmd+G` | Nothing in hand | Fill with the composed source. |
+| `Enter` | While a derivation waits | Keep this layout. |
+| `Esc` | While a derivation waits | Throw the layout away. |
+
+## Meshes
+
+These keys work on the Meshes panel of the Kit door.
+
+| Key | Works when | Does |
+| --- | --- | --- |
+| `Up` / `Down` | Any time | Walk the lists. Hold Shift to move five at a time. Works in filter boxes. |
+| `Left` | Any time | Move focus to the candidates. Works in filter boxes. |
+| `Right` | Any time | Move focus to the library. Works in filter boxes. |
+| `I` | Any time | Type an id. |
+| `M` | Any time | Mount. |
+| `Enter` | Nothing in hand | Add or update this tile. |
+| `Space` | No piece in hand | Open or close the pack. |
+| `Enter` | While a derivation waits | Keep the derived edges. |
+| `Esc` | While a derivation waits | Throw the derived edges away. |
+| `R` | Any time | Rescan. |
+| `Shift+R` | Any time | Exclude the pack. |
+| `Delete` | Any time | Send this back to NOT IMPORTED. |
+| `Cmd+Z` | Any time | Undo this tab's last change. |
+| `Cmd+Shift+Z` | Any time | Redo this tab's last change. |
+| `T` | Any time | Move the cell cursor forward. |
+| `F` | Any time | Move the cell cursor left. |
+| `G` | Any time | Move the cell cursor back. |
+| `H` | Any time | Move the cell cursor right. |
+| `Shift+T` | Any time | Add a vocabulary token. |
+| `[` / `]` | Any time | Previous / next layer. |
+| `Z` | Any time | Mark this cell solid. |
+| `X` | Any time | Mark this cell as an edge. |
+| `V` | Any time | Clear this cell. |
+| `B` | Any time | Rescan the solid. |
+| `N`, `O`, `P` | Any time | Turn the mesh about x, about y, and about z. |
+| `L` | Any time | Suggest labels. |
+| `Shift+L` | Any time | Suggest labels for all. |
+| `Shift+Y` | Any time | Abandon all suggestions. |
+| `/` | Any time | Filter the tags. |
+
+## Tiles
+
+These keys work on the Tiles panel of the Kit door.
+
+| Key | Works when | Does |
+| --- | --- | --- |
+| `Up` / `Down` | While browsing tiles | Walk the tiles. Hold Shift to move five at a time. Works in filter boxes. |
+| `Right` | While browsing tiles | Go to the meshes. |
+| `Left` | Nothing in hand | Go back to the tiles. |
+| `Enter` | While browsing tiles | Open this tile. |
+| `Up` / `Down` | Nothing in hand | Walk the library. Hold Shift to move five at a time. Works in filter boxes. |
+| `Up` / `Down` | While a piece is in hand | Move the piece forward and back. |
+| `Left` / `Right` | While a piece is in hand | Move the piece left and right. |
+| `,` / `.` | While a piece is in hand | Step to the previous / next member. |
+| `Shift` + arrow | While a piece is in hand | Flush the piece to that side. |
+| `Space` | Not browsing tiles | Take the piece. `Esc` puts it back. |
+| `[` / `]` | Not browsing tiles | Move the layer down / up. |
+| `J` | Not browsing tiles | Make the grid deeper by thirds, wrapping around. |
+| `Enter` | Nothing in hand | Drop the piece. |
+| `Shift+Enter` | Nothing in hand | Drop the piece into a slot. |
+| `R` | Not browsing tiles | Turn this piece. |
+| `Delete` | Not browsing tiles | Remove this piece from the tile. |
+| `Shift+Delete` | Not browsing tiles | Empty the tile. |
+| `N` | Any time | Name a new tile. |
+| `C` | Any time | Close the tile. |
+| `Cmd+Z` | Not browsing tiles | Undo this tab's last change. |
+| `Cmd+Shift+Z` | Not browsing tiles | Redo this tab's last change. |
+
+## Anim
+
+These keys work on the Rigs door's Anim tab.
+
+| Key | Works when | Does |
+| --- | --- | --- |
+| `Up` / `Down` | Any time | Walk the rigs. Hold Shift to move five at a time. Works in filter boxes. |
+| `Enter` | Any time | Adopt the measured values into the rig file. |
+| `Cmd+Z` | Any time | Undo the last write. |
+| `Cmd+Shift+Z` | Any time | Redo the last write. |
+| `Left` / `Right` | Any time | Scrub the phase. Hold Shift to scrub finely. |
+| `Space` | Any time | Play or scrub. |
+| `C` | Any time | Check all rigs. |
+| `G` | Any time | Toggle the ghost: measured over declared. |
+| `V` | Any time | Change the view: figure, feet, side, or ground. |
+
+## Compose
+
+These keys work on the Compose tab of the Kit door.
+
+| Key | Works when | Does |
+| --- | --- | --- |
+| `Up` / `Down` | Any time | Walk the focused list. Hold Shift to move five at a time. |
+| `Enter` | Any time | Arm this composition for the map. |
+| `I` | Any time | Rename this composition. |
+| `Left` / `Right` | Any time | Choose which list the arrow keys walk. |
+| `O` / `P` | Any time | Previous / next composition. |
+
+## Text fields and menus
+
+While a name, an id, or a filter box has focus, the editor reads your keys as text. Every shortcut above pauses, except the list keys marked "Works in filter boxes".

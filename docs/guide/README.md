@@ -1,33 +1,16 @@
-# bevy_emerge editor guide
+# Guide
 
-The editor is how a level designer builds a map out of a kit: the meshes, the tiles cut from them, and the compositions built from tiles. Everything here is what the editor does today; where a page describes a step, the step was checked against `crates/bevy_emerge_mapper/src/keys.rs` or the running editor.
+Read these in order the first time through.
 
-| Page | What it covers |
-|---|---|
-| [Getting started](getting-started.md) | Building, launching, the menu, the two doors, the panels, saving |
-| [Placing and undo](placing-and-undo.md) | Placing, turning, lifting, removing, moving, cloning, running a line, pinning, undo and redo |
-| [Fills and proposals](fills-and-proposals.md) | Flood fills, the learned, declared and composed generators, and accepting or throwing a proposal away |
-| [Kit: meshes, tiles, compositions](kit-meshes-tiles-compositions.md) | Building the reusable pieces a map is made of |
-| [Framing and the camera](framing-and-camera.md) | Where the camera starts, panning, turning and zooming, and framing from an agent |
-| [Agents and the MCP server](agents-and-mcp.md) | Driving the editor from an agent, with the same undo history a person uses |
-| [Keys](keys.md) | Every key, when it applies, and what it does |
-| [Demo](../media/demo.mp4) | The full 64-second walkthrough. The README shows the short GIFs |
-| [The iteration loop](loop.md) | How the editor's changes are proposed, proved and recorded |
+- [Getting started](getting-started.md): install, open the editor on the project, and make your first map.
+- [Building maps](building-maps.md): place, fill and undo pieces on a map.
+- [Kits and labels](kits-and-labels.md): group meshes into kits and label each piece.
+- [Agents](agents.md): let an agent drive the editor alongside you, with snips and a shared undo.
+- [Your game](your-game.md): use the crates in your own Bevy game.
+- [Keys](keys.md): every key, by context.
+- [Data files](data-files.md): the files a project keeps and a game loads.
 
-## Watch it first
+Reference:
 
-Five recordings of the running editor on scratch maps:
-- [Snip, agent turn and undo](../media/hero.gif), 14 seconds: the person snips a wall and writes a note, an agent reads it and turns the wall, and Cmd+Z takes the turn back.
-- [Moving the camera](../media/move-the-camera.gif), 4.6 seconds: tapping A and D pans left and right over the abbey.
-- [Placing and undo](../media/place-and-undo.gif), 4.5 seconds: the person arms the gate house from the list and clicks the ground to place it; Cmd+Z takes it back.
-- [Agent removes, then undo](../media/agent-removes-then-undo.gif), 3.6 seconds: an agent removes the abbey with `placement_remove`; Cmd+Z puts it back.
-- [Framing the map](../media/frame-the-map.gif), 2.6 seconds: the view starts zoomed in on one corner of a 34 x 34 m block; Home frames the whole block.
-- [Reviewing a kit's labels](../media/review-labels.gif), 5 seconds: an agent lists the pieces a model labelled, the editor crosses to the kit door, and the labels row leads with the confidence, then names the model file and the date.
-
-The [full walkthrough](../media/demo.mp4), 64 seconds, shows the rest of this guide's path: open, frame, place and undo; an agent framing a region; an agent turning and removing placements, each taken back with Cmd+Z; and a person's snip read back with `emerge_list_snips`.
-
-## Where things live
-
-- `crates/bevy_emerge_mapper/` is the editor. `src/keys.rs` owns every binding; `src/editor.rs` owns the map tab.
-- `crates/bevy_emerge_core/` holds the data formats and the placement stack.
-- `crates/bevy_emerge_mcp/` is the MCP server that lets an agent drive a running editor. Its tools are listed in [`docs/mcp-tools.md`](../mcp-tools.md).
+- [MCP tools](../mcp-tools.md): every tool an agent can call, with its arguments.
+- [The development loop](loop.md): how the project is built, one iteration at a time.
