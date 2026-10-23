@@ -268,7 +268,7 @@ pub fn schemas() -> Value {
             "properties": {
                 "label": {"type": "string", "description": "A snake_case name for the sequence."},
                 "seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 10, "default": 2.0},
-                "fps": {"type": "integer", "enum": [4, 2], "default": 4},
+                "fps": {"type": "integer", "minimum": 2, "maximum": 20, "default": 4},
                 "operation": {
                     "type": "object",
                     "required": ["name"],

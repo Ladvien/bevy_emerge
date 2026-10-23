@@ -23,6 +23,13 @@ use serde_json::{Value, json};
 
 use crate::surface::Surface;
 
+/// **The slowest rate a sequence may ask for**, in frames a second: two, for a long slow operation.
+pub const MIN_FPS: u32 = 2;
+/// **The fastest rate a sequence may ask for**, in frames a second. Set from a measurement on a
+/// real editor (see the commit). A higher rate is refused, not clamped: a caller must never get
+/// frames at a rate it did not ask for.
+pub const MAX_FPS: u32 = 20;
+
 /// **How a capture sequence is asked for.**
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,7 +42,7 @@ pub struct SequenceParams {
     /// **How long the sequence runs**, in seconds.
     #[serde(default = "two_seconds")]
     pub seconds: f32,
-    /// **How many frames a second.** Four, or two for a long slow operation.
+    /// **How many frames a second.** Four by default; any rate from `MIN_FPS` to `MAX_FPS`.
     #[serde(default = "four_fps")]
     pub fps: u32,
     /// **The operation to apply, once frame 0 is in.** Optional: without it the sequence is the
@@ -166,10 +173,9 @@ impl Sequencer {
                 p.seconds
             ));
         }
-        if p.fps != 4 && p.fps != 2 {
+        if !(MIN_FPS..=MAX_FPS).contains(&p.fps) {
             return Err(format!(
-                "a sequence is captured at four frames a second, or two for a long slow operation; \
-                 `{}` is neither.",
+                "a sequence is captured between {MIN_FPS} and {MAX_FPS} frames a second; `{}` is outside that.",
                 p.fps
             ));
         }

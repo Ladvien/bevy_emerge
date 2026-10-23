@@ -839,8 +839,8 @@ impl Plugin for OpsBridgePlugin {
                  poll emerge/capture_sequence_status with it.",
             )
             .params("label: a snake_case name for the sequence. out_dir: the absolute directory the \
-                     frames are written to. seconds: how long the sequence runs. fps: 4, or 2 for a \
-                     long slow operation. operation: an optional operation to apply once frame 0 is \
+                     frames are written to. seconds: how long the sequence runs. fps: 4 by default; any \
+                     whole rate from 2 to 20 a second, and a higher rate costs frame time while recording. operation: an optional operation to apply once frame 0 is \
                      in.")
             .example(json!({
                 "label": "fill_preview",
