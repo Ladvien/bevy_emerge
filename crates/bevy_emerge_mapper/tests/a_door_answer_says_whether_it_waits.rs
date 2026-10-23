@@ -69,10 +69,11 @@ fn a_dirty_map_asked_to_leave_is_answered_as_waiting_for_the_person() {
     let mut app = editor("door_bri_waits");
     app.world_mut().resource_mut::<OpenMap>().map.note = Some("an edit that is not saved".to_owned());
     let answer = open_door(&mut app, "kit");
+    assert_eq!(answer["outcome"], json!("waiting"), "{answer}");
     assert_eq!(
-        answer["outcome"],
-        json!("waiting for the person: the map has unsaved changes"),
-        "{answer}"
+        answer["waiting_on"],
+        json!("the map has unsaved changes"),
+        "the answer says what the person is being asked about: {answer}"
     );
     assert_eq!(
         app.world().resource::<EditorState>().door_request.as_ref().map(|r| r.door),
@@ -88,7 +89,7 @@ fn a_door_asked_for_while_the_leaving_question_is_up_is_refused() {
     let answer = open_door(&mut app, "kit");
     assert_eq!(answer["outcome"], json!("refused"), "{answer}");
     assert!(
-        answer["refusal"].as_str().unwrap_or_default().contains("leaving question"),
+        answer["refusal"].as_str().unwrap_or_default().contains("\"Leave this map?\""),
         "the refusal names the question the person must answer first: {answer}"
     );
     assert!(
