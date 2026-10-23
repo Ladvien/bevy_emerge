@@ -527,7 +527,7 @@ fn operation_apply(
         operation_id,
         ..
     }) = &applied
-        && ops::find(&p.operation).is_some_and(|op| op.undo() != ops::Undo::None)
+        && op.undo() != ops::Undo::None
         && let Some(state) = state.as_mut()
     {
         state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
