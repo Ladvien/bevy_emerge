@@ -522,6 +522,14 @@ fn operation_apply(
     {
         crate::editor::apply_armed(state, project, outcome.after.as_ref());
     }
+    // **An agent's door is crossed by the editor in the next frame (`door_open`)**, the same crossing
+    // the keys make. It is stored here and carried out by `editor::apply_pending_door`, because the
+    // leaving question may need the author's answer first.
+    if let (Ok(ops::Applied::Done { outcome, .. }), Some(state)) = (&applied, state.as_deref_mut())
+        && p.operation == "door_open"
+    {
+        crate::editor::request_door(state, outcome.after.as_ref());
+    }
     // **The agent's change joins the person's one undo history (B-019).** Logged here, so Cmd+Z
     // takes back the newest change whoever made it, not the newest the person made by hand. An
     // operation that changes no document (`Undo::None`, such as arming a piece) has nothing to take

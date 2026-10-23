@@ -4384,25 +4384,37 @@ fn spawn_tiles_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
 ///
 /// `1` is this door's first panel, not the binary's — so on the Kit door `1` is Meshes. Everything
 /// reachable by mouse is reachable by keyboard (`docs/ui.md` §4.2), and the strip is what both read.
-fn tab_shortcuts(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    live: Res<crate::keys::Live>,
-    project: Res<Project>,
-    door: Res<Door>,
+fn tab_shortcuts(world: &mut World) {
+    let Some(door) = world.get_resource::<Door>().copied() else {
+        return;
+    };
+    // **The slot that was pressed**, read here and acted on below, so the `World` borrow ends first.
+    let want = {
+        let keyboard = world.resource::<ButtonInput<KeyCode>>();
+        let live = *world.resource::<crate::keys::Live>();
+        door.tabs().iter().enumerate().find_map(|(i, &want)| {
+            let action = Action::tab_slot(i)?;
+            keys::just_pressed(keyboard, live, action).then_some(want)
+        })
+    };
+    if let Some(want) = want {
+        crate::editor::open_door(world, door, Some(want));
+    }
+}
+
+/// **Enter a tab for the operation that asked for it** (`door_open` with a tab). It is the same entry
+/// as the slot key and the chip click, so the scan-on-arrival and the receipt clearing happen once.
+pub fn go_to_tab(
+    In(want): In<Mode>,
+    project: Option<Res<Project>>,
     mut mode: ResMut<Mode>,
     mut state: ResMut<ImportState>,
-    // Cleared when leaving the Tiles tab — see `enter_tab`.
     mut build: ResMut<crate::build::Build>,
 ) {
-    for (i, &want) in door.tabs().iter().enumerate() {
-        let Some(action) = Action::tab_slot(i) else {
-            continue;
-        };
-        if keys::just_pressed(&keyboard, *live, action) {
-            enter_tab(want, &project, &mut mode, &mut state, &mut build);
-            return;
-        }
-    }
+    let Some(project) = project else {
+        return;
+    };
+    enter_tab(want, &project, &mut mode, &mut state, &mut build);
 }
 
 /// **Go to a panel** — the one step, so the key and the click cannot come to mean different things.

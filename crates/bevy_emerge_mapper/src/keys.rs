@@ -890,6 +890,9 @@ impl Action {
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::RenameMap => Some("map_rename"),
             Action::Remove => Some("placement_remove"),
+            Action::SwitchDoor | Action::TabSlot1 | Action::TabSlot2 | Action::TabSlot3 => {
+                Some("door_open")
+            }
             _ => None,
         }
     }

@@ -247,6 +247,9 @@ pub struct EditorState {
     /// editor, and a question about discarding work must not be answerable by reflex. That is the
     /// same rule the chooser's delete prompt follows, where `Y` agrees and `Enter` does not.
     pub leaving: bool,
+    /// **A door an operation asked for, waiting to be crossed to.** `door_open` sets it, from the keys
+    /// and from an agent alike. It is taken by the crossing, or held while the leaving question is up.
+    pub door_request: Option<DoorRequest>,
 }
 
 impl EditorState {
@@ -1091,6 +1094,7 @@ impl Default for EditorState {
             refused_redo: 0,
             tool: Tool::default(),
             leaving: false,
+            door_request: None,
         }
     }
 }
@@ -1507,6 +1511,12 @@ impl Plugin for EditorPlugin {
                 PreUpdate,
                 answer_the_switch_prompt.run_if(in_state(crate::screen::Screen::Editor)),
             )
+            // **A door an agent asked for (`door_open` over BRP)** is crossed in the frame after the
+            // request, when the editor is not asking a question.
+            .add_systems(
+                PreUpdate,
+                apply_pending_door.run_if(in_state(crate::screen::Screen::Editor)),
+            )
             .add_systems(
                 OnEnter(crate::screen::Screen::Editor),
                 (
@@ -1912,34 +1922,9 @@ fn switch_door(world: &mut World) {
         crate::tiles::Door::Map => crate::tiles::Door::Kit,
         _ => crate::tiles::Door::Map,
     };
-    // **The unsaved question, and it is the menu's question.** Leaving the Map door leaves the
-    // map; the map may differ from disk. The Kit door has no map, so the question only arises on
-    // the way out of the Map door — and on the way *into* it, the map that is already open is the
-    // one the author is coming back to.
-    let dirty = world.get_resource::<OpenMap>().is_some_and(|o| o.dirty());
-    if dirty {
-        world.resource_mut::<EditorState>().leaving = true;
-        world.resource_mut::<crate::confirm::Confirm>().ask(
-            crate::confirm::Asked::SwitchDoor,
-            "Leave this map?",
-            "It has unsaved edits. Leaving saves them first.",
-            "Save and go",
-            "Stay",
-        );
-        return;
-    }
-    // **The crossing itself.** It takes the project out of the world, so it is an exclusive
-    // system — and it is where the refusal happens, before anything is torn down.
-    match crate::screen::cross(world, to) {
-        Ok(()) => world
-            .resource_mut::<EditorState>()
-            .status
-            .note(format!("the {} door", to.label().to_lowercase())),
-        Err(e) => world
-            .resource_mut::<EditorState>()
-            .status
-            .problem(format!("cannot cross: {e}")),
-    }
+    // **The crossing is the operation's**, so the key and the agent take one path. `open_door` runs
+    // `door_open`, asks the leaving question when the map is unsaved, and crosses.
+    open_door(world, to, None);
 }
 
 /// **Answer the leaving question, and nothing else.**
@@ -1999,6 +1984,9 @@ fn answer_the_switch_prompt(world: &mut World) {
     else {
         return;
     };
+    // **The request waits in `door_request` while the question is up**, so it is taken here whatever
+    // the answer: a decline drops it, and an agreed save crosses to it.
+    let request = world.resource_mut::<EditorState>().door_request.take();
     world.resource_mut::<EditorState>().leaving = false;
     if !agreed {
         world
@@ -2016,8 +2004,8 @@ fn answer_the_switch_prompt(world: &mut World) {
     let saved = match world.remove_resource::<OpenMap>() {
         Some(mut open) => {
             let project = world.remove_resource::<Project>();
-            let result = match project {
-                Some(ref p) => open.save(p),
+            let result = match &project {
+                Some(p) => open.save(p),
                 None => Ok(()),
             };
             // **The project goes back first**, and the map second — so a failure leaves the editor
@@ -2046,18 +2034,153 @@ fn answer_the_switch_prompt(world: &mut World) {
     if !saved {
         return;
     }
-    let Some(door) = world.get_resource::<crate::tiles::Door>().copied() else {
+    if let Some(request) = request {
+        enter_door(world, request);
+    }
+}
+
+/// **A door an operation asked for, waiting to be crossed to.**
+///
+/// `door_open` answers with a door and, optionally, a tab. The keys reach the crossing through
+/// [`open_door`] at once; an agent's request over BRP is stored in [`EditorState::door_request`] and
+/// crossed in the next frame by [`apply_pending_door`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct DoorRequest {
+    pub door: crate::tiles::Door,
+    pub tab: Option<crate::tiles::Mode>,
+}
+
+/// **Take the door an operation answered with.** While the leaving question is up, the answer to it
+/// owns the next crossing, so a second request is refused rather than queued behind it.
+pub fn request_door(state: &mut EditorState, after: Option<&serde_json::Value>) {
+    if state.leaving {
+        state
+            .status
+            .problem("a door is already waiting on the leaving question".to_owned());
+        return;
+    }
+    let Some(after) = after else {
         return;
     };
-    let to = match door {
-        crate::tiles::Door::Map => crate::tiles::Door::Kit,
-        _ => crate::tiles::Door::Map,
+    let door = after
+        .get("door")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|d| {
+            crate::tiles::Door::ALL
+                .into_iter()
+                .find(|x| x.label().eq_ignore_ascii_case(d))
+        });
+    let tab = after
+        .get("tab")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|t| {
+            crate::tiles::Mode::ALL
+                .iter()
+                .copied()
+                .find(|m| m.label().eq_ignore_ascii_case(t))
+        });
+    if let Some(door) = door {
+        state.door_request = Some(DoorRequest { door, tab });
+    }
+}
+
+/// **Open a door through the registered `door_open` operation.** The keys and the tab shortcuts call
+/// this, so a key and an agent get the same answer about what may be opened.
+pub fn open_door(world: &mut World, door: crate::tiles::Door, tab: Option<crate::tiles::Mode>) {
+    let params = serde_json::json!({
+        "door": door.label().to_lowercase(),
+        "tab": tab.map(|m| m.label().to_lowercase()),
+    });
+    let project = world.remove_resource::<Project>();
+    let open = world.remove_resource::<OpenMap>();
+    let mut ctx = crate::ops::Ctx {
+        project,
+        open,
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
     };
-    if let Err(e) = crate::screen::cross(world, to) {
-        world
-            .resource_mut::<EditorState>()
-            .status
-            .problem(format!("cannot cross: {e}"));
+    let applied = crate::ops::dispatch(&mut ctx, "door_open", &params);
+    if let Some(p) = ctx.project {
+        world.insert_resource(p);
+    }
+    if let Some(o) = ctx.open {
+        world.insert_resource(o);
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            request_door(
+                &mut world.resource_mut::<EditorState>(),
+                outcome.after.as_ref(),
+            );
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            world.resource_mut::<EditorState>().status.problem(e.0);
+        }
+    }
+    apply_pending_door(world);
+}
+
+/// **Carry out the door an agent asked for**, when the editor is not asking a question.
+fn apply_pending_door(world: &mut World) {
+    let pending = world
+        .get_resource::<EditorState>()
+        .is_some_and(|s| s.door_request.is_some() && !s.leaving);
+    if pending {
+        apply_door_request(world);
+    }
+}
+
+/// **Cross to the requested door, or ask the leaving question first** when the map is unsaved.
+fn apply_door_request(world: &mut World) {
+    let Some(request) = world.resource_mut::<EditorState>().door_request.take() else {
+        return;
+    };
+    let Some(current) = world.get_resource::<crate::tiles::Door>().copied() else {
+        return;
+    };
+    let dirty = world.get_resource::<OpenMap>().is_some_and(|o| o.dirty());
+    if request.door != current && dirty {
+        // **The request waits for the answer**, and the leaving question owns the next frame.
+        world.resource_mut::<EditorState>().door_request = Some(request);
+        world.resource_mut::<EditorState>().leaving = true;
+        world.resource_mut::<crate::confirm::Confirm>().ask(
+            crate::confirm::Asked::SwitchDoor,
+            "Leave this map?",
+            "It has unsaved edits. Leaving saves them first.",
+            "Save and go",
+            "Stay",
+        );
+        return;
+    }
+    enter_door(world, request);
+}
+
+/// **Cross to a door and enter the tab it was asked for.** A refused crossing stops here, so a tab is
+/// never entered on a door the author did not reach.
+fn enter_door(world: &mut World, request: DoorRequest) {
+    if world.get_resource::<crate::tiles::Door>().copied() != Some(request.door) {
+        match crate::screen::cross(world, request.door) {
+            Ok(()) => world
+                .resource_mut::<EditorState>()
+                .status
+                .note(format!("the {} door", request.door.label().to_lowercase())),
+            Err(e) => {
+                world
+                    .resource_mut::<EditorState>()
+                    .status
+                    .problem(format!("cannot cross: {e}"));
+                return;
+            }
+        }
+    }
+    if let Some(tab) = request.tab {
+        use bevy::ecs::system::RunSystemOnce;
+        if let Err(e) = world.run_system_once_with(crate::tiles::go_to_tab, tab) {
+            world
+                .resource_mut::<EditorState>()
+                .status
+                .problem(format!("cannot enter that tab: {e}"));
+        }
     }
 }
 

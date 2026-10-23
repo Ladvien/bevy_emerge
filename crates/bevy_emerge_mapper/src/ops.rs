@@ -350,6 +350,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(stamp_remove::StampRemove),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
+        Box::new(door_open::DoorOpen),
     ]
 }
 
@@ -1691,6 +1692,160 @@ pub mod brush_arm {
             let summary = match plan["armed"].as_str() {
                 Some(id) => format!("armed {id}"),
                 None => "put the brush down".to_owned(),
+            };
+            Ok(Outcome {
+                summary,
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(plan),
+            })
+        }
+    }
+}
+
+/// **Open a door, or a panel of one (cycle 8, item 1).**
+///
+/// **The answer is the target; the editor does the crossing.** The keys and an agent's request reach
+/// the same operation, so a door is crossed by one path whoever asks. `door` is `kit`, `map` or
+/// `rigs`, and `tab`, when given, is a panel that door shows. Nothing changes on disk: the answer is
+/// read by [`crate::editor::request_door`], and the crossing is run by `editor::apply_door_request`.
+///
+/// **The kit is not a parameter.** A project opens with one kit, and no operation switches kits, so a
+/// request that named one would have nothing to switch to.
+pub mod door_open {
+    use super::*;
+    use crate::tiles::{Door, Mode};
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// `kit`, `map` or `rigs`.
+        pub door: String,
+        /// A panel that door shows, by its label (e.g. `meshes`). Absent opens the door on its first
+        /// panel.
+        #[serde(default)]
+        pub tab: Option<String>,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            let doors: Vec<String> = Door::ALL.iter().map(|d| d.label().to_lowercase()).collect();
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["door"],
+                "properties": {
+                    "door": {
+                        "type": "string",
+                        "enum": doors,
+                        "description": "The door to cross to. kit makes reusable content; map builds the level; rigs is the rig bench."
+                    },
+                    "tab": {
+                        "type": "string",
+                        "description": "A panel that door shows, e.g. meshes. Absent opens the door on its first panel."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "this is not a door to open: {e}. The fields are `door` and `tab`, and nothing else."
+                ))
+            })
+        }
+    }
+
+    pub struct DoorOpen;
+
+    impl Operation for DoorOpen {
+        fn name(&self) -> &'static str {
+            "door_open"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(door) = Door::ALL
+                .into_iter()
+                .find(|d| d.label().eq_ignore_ascii_case(&p.door))
+            else {
+                let names: Vec<String> = Door::ALL.iter().map(|d| d.label().to_lowercase()).collect();
+                return Err(Refusal::new(format!(
+                    "`{}` is not a door. The doors are {}.",
+                    p.door,
+                    names.join(", ")
+                )));
+            };
+            let tab = match p.tab.as_deref() {
+                None => None,
+                Some(name) => {
+                    let Some(mode) = Mode::ALL
+                        .iter()
+                        .copied()
+                        .find(|m| m.label().eq_ignore_ascii_case(name))
+                    else {
+                        let all: Vec<String> =
+                            Mode::ALL.iter().map(|m| m.label().to_lowercase()).collect();
+                        return Err(Refusal::new(format!(
+                            "`{name}` is not a panel. The panels are {}.",
+                            all.join(", ")
+                        )));
+                    };
+                    if !door.tabs().contains(&mode) {
+                        let shown: Vec<String> =
+                            door.tabs().iter().map(|m| m.label().to_lowercase()).collect();
+                        return Err(Refusal::new(format!(
+                            "the {} door does not show `{name}`. It shows {}.",
+                            door.label().to_lowercase(),
+                            shown.join(", ")
+                        )));
+                    }
+                    Some(mode)
+                }
+            };
+            // **The Map door needs a map to show:** with no map open it would have nothing to cross onto,
+            // and the crossing would be a silent no-op.
+            let map_open = ctx.open.is_some()
+                || ctx
+                    .project
+                    .as_ref()
+                    .and_then(|project| project.open_map_name.as_ref())
+                    .is_some();
+            if door == Door::Map && !map_open {
+                return Err(Refusal::new(
+                    "the Map door needs a map, and no map is open. Open a map first, then the Map door \
+                     has something to show.",
+                ));
+            }
+            Ok(json!({
+                "door": door.label().to_lowercase(),
+                "tab": tab.map(|m| m.label().to_lowercase()),
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let door = plan["door"].as_str().unwrap_or("");
+            let summary = match plan["tab"].as_str() {
+                Some(tab) => format!("opened the {door} door on {tab}"),
+                None => format!("opened the {door} door"),
             };
             Ok(Outcome {
                 summary,
