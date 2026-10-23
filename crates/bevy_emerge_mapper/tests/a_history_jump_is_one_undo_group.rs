@@ -7,7 +7,8 @@
 
 use bevy::prelude::*;
 use bevy_emerge_mapper::editor::{
-    EditorState, jump_for_test, place_for_test, plant_stale_move_for_test, undo_for_test,
+    EditorState, HistorySlot, jump_for_test, place_for_test, plant_stale_move_for_test,
+    redo_for_test, undo_for_test,
 };
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
@@ -186,4 +187,81 @@ fn the_list_says_who_made_each_change() {
         rows[0].agent,
         "a group with an agent's part is labelled agent: {rows:?}"
     );
+}
+
+/// **A click on a history row is the jump, and is one group (E-018 option C).** The row is the
+/// `Pointer<Click>` the mouse sends, delivered to the row entity the inspector spawned, so this goes
+/// through the same observer a click does. The keyboard route to the same row is k presses of Cmd+Z,
+/// which `a_jump_back_over_three_edits_is_one_group` already covers through `jump_for_test`.
+#[test]
+fn clicking_a_history_row_jumps_there_as_one_group() {
+    use bevy::camera::{ImageRenderTarget, NormalizedRenderTarget};
+    use bevy::picking::backend::HitData;
+    use bevy::picking::events::{Pointer, PointerClick};
+    use bevy::picking::pointer::{Location, PointerButton, PointerId};
+
+    let mut app = booted("jumpclick");
+    for x in [1.5, 2.5, 3.5] {
+        place_for_test(app.world_mut(), "tile_a", (x, 0.5));
+        app.update();
+    }
+    assert_eq!(pieces(&app), 4);
+
+    // The row that jumps to position 1: the one spawned for offset -2 from the current position.
+    let row = {
+        let world = app.world_mut();
+        let mut rows = world.query::<(Entity, &HistorySlot)>();
+        rows.iter(world)
+            .find(|(_, slot)| slot.position == Some(1))
+            .map(|(entity, _)| entity)
+            .expect("a history row for position 1 is on screen")
+    };
+
+    app.world_mut().trigger(PointerClick {
+        entity: row,
+        pointer: Pointer::new(
+            PointerId::Mouse,
+            Location {
+                target: NormalizedRenderTarget::Image(ImageRenderTarget {
+                    handle: Default::default(),
+                    scale_factor: 1.0,
+                }),
+                position: Vec2::ZERO,
+            },
+        ),
+        button: PointerButton::Primary,
+        hit: HitData {
+            camera: Entity::PLACEHOLDER,
+            depth: 0.0,
+            position: None,
+            normal: None,
+            extra: None,
+        },
+        duration: std::time::Duration::ZERO,
+        count: 1,
+    });
+    app.update();
+
+    assert_eq!(
+        state(&app).undo_depth(),
+        1,
+        "the map is as it was at position 1"
+    );
+    assert_eq!(pieces(&app), 2, "the fixture's piece and the first placed");
+
+    // One redo brings back all three edits: the jump was one group, not three.
+    redo_for_test(app.world_mut());
+    app.update();
+    assert_eq!(
+        state(&app).undo_depth(),
+        2,
+        "the first change, then the one group the redo put back"
+    );
+    assert_eq!(pieces(&app), 4, "one redo restores the whole jump");
+
+    // And one undo takes the whole group back: the jump was one group, not three.
+    undo_for_test(app.world_mut());
+    app.update();
+    assert_eq!(state(&app).undo_depth(), 1);
+    assert_eq!(pieces(&app), 2, "one undo removes the whole group");
 }

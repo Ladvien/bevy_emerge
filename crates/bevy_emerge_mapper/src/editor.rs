@@ -1584,7 +1584,7 @@ impl Plugin for EditorPlugin {
                         apply_proposal.in_set(keys::Phase::Act).after(keys),
                         draw_proposal,
                     ),
-                    refresh_status,
+                    (refresh_status, refresh_history),
                     // Nested as a pair — the tuple is at its twenty-system cap, and these two are
                     // one rule: the list the arrows rearm must be the list on screen.
                     (
@@ -2157,6 +2157,12 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Hint,
                     Field::Edges,
                 ] {
+                    // **The history list sits under REDO and above the hint (E-018).** Its rows are
+                    // fixed in number, so the block keeps one height whatever the history holds, and
+                    // a hint appearing below it cannot move the pair above.
+                    if field == Field::Hint {
+                        history_block(s);
+                    }
                     let mut spawned = s.spawn(Node {
                         flex_direction: FlexDirection::Row,
                         // The receipt starts under the row above it, not floating mid-box when it
@@ -3608,6 +3614,143 @@ fn stack_row(next: Option<String>, depth: usize) -> (String, Color) {
         Some(phrase) if depth > 1 => (format!("{phrase} (+{})", depth - 1), TEXT),
         Some(phrase) => (phrase, TEXT),
         None => ("nothing".to_owned(), DIM),
+    }
+}
+
+/// **How many history rows show on each side of the current position (E-018).** The list is
+/// `2 * HISTORY_EACH_WAY + 1` rows, always, so it never changes height and the rows below stay put.
+const HISTORY_EACH_WAY: isize = 3;
+
+/// **One row of the history list (E-018 option C).** `offset` is the row's distance from the
+/// current position, fixed at spawn. `refresh_history` writes the rest each time the history
+/// changes. A click jumps to `position` as one undo group (`jump`). The keyboard route to the same
+/// row is `|offset|` presses of Cmd+Z (rows behind) or Cmd+Shift+Z (rows ahead); see
+/// `docs/guide/placing-and-undo.md`.
+#[derive(Component)]
+pub struct HistorySlot {
+    pub offset: isize,
+    /// The history position this row jumps to; `None` when the row is spare.
+    pub position: Option<usize>,
+    /// The row for the position the stacks are at now. A click on it does nothing.
+    pub current: bool,
+}
+
+/// The text of one history row.
+#[derive(Component)]
+struct HistoryText;
+
+/// **The history list under REDO (E-018).** Rows run from the redo side at the top to the undo side
+/// at the bottom.
+fn history_block(s: &mut ChildSpawnerCommands) {
+    for offset in (-HISTORY_EACH_WAY..=HISTORY_EACH_WAY).rev() {
+        s.spawn(Node {
+            // The row's line height, so an empty row holds the place a full one does.
+            min_height: Val::Px(crate::chrome::BODY_LINE_H.ceil()),
+            ..default()
+        })
+        .with_children(|wrap| {
+            let mut row = crate::chrome::quiet_row(
+                wrap,
+                false,
+                HistorySlot {
+                    offset,
+                    position: None,
+                    current: false,
+                },
+            );
+            row.observe(history_row_clicked);
+            row.with_children(|line| {
+                crate::chrome::row_value(line, "", TEXT, HistoryText);
+            });
+        });
+    }
+}
+
+/// What a history row needs to jump: the same resources the keyboard's undo system takes.
+#[derive(bevy::ecs::system::SystemParam)]
+struct HistoryJump<'w, 's> {
+    commands: Commands<'w, 's>,
+    assets: Res<'w, AssetServer>,
+    project: ResMut<'w, Project>,
+    open: ResMut<'w, OpenMap>,
+    state: ResMut<'w, EditorState>,
+    placed: Query<'w, 's, (Entity, &'static Placement)>,
+}
+
+/// **A click on a history row jumps there, as one group (E-018).** Refused while the leaving
+/// question is up, as the undo chord is: a jump edits the map the question is asking about.
+fn history_row_clicked(
+    click: On<bevy::picking::events::PointerClick>,
+    slots: Query<&HistorySlot>,
+    mut jump_to: HistoryJump,
+) {
+    let Ok(slot) = slots.get(click.entity) else {
+        return;
+    };
+    if jump_to.state.leaving || slot.current {
+        return;
+    }
+    let Some(position) = slot.position else {
+        return;
+    };
+    let j = &mut jump_to;
+    jump(
+        &mut j.commands,
+        &j.assets,
+        &mut j.project,
+        &mut j.open,
+        &mut j.state,
+        &j.placed,
+        position,
+    );
+}
+
+/// **The history list's text (E-018).** Runs on the same change as the UNDO and REDO rows. Each row
+/// reads the history as it stands now, so a click means the row's current position.
+fn refresh_history(
+    state: Res<EditorState>,
+    open: Res<OpenMap>,
+    mut slots: Query<(&mut HistorySlot, &Children)>,
+    mut texts: Query<(&mut Text, &mut TextColor), With<HistoryText>>,
+) {
+    if !state.is_changed() && !open.is_changed() {
+        return;
+    }
+    let depth = state.undo_depth();
+    let rows = state.history();
+    for (mut slot, children) in &mut slots {
+        let position = usize::try_from(depth as isize + slot.offset)
+            .ok()
+            .filter(|&p| p <= rows.len());
+        slot.position = position;
+        slot.current = position == Some(depth);
+        let (want, tint) = match position {
+            None => (String::new(), TEXT),
+            Some(p) => {
+                let (what, who) = if p == 0 {
+                    ("before the first change".to_owned(), "")
+                } else {
+                    let row = &rows[p - 1];
+                    (row.label.clone(), if row.agent { "agent" } else { "you" })
+                };
+                let now = if slot.current { "now: " } else { "" };
+                let who = if who.is_empty() {
+                    String::new()
+                } else {
+                    format!("  \u{b7} {who}")
+                };
+                let tint = if p > depth { DIM } else { TEXT };
+                (format!("{now}{what}{who}"), tint)
+            }
+        };
+        for child in children.iter() {
+            if let Ok((mut text, mut colour)) = texts.get_mut(child) {
+                if text.0 != want {
+                    text.0 = want.clone();
+                }
+                colour.0 = tint;
+            }
+        }
     }
 }
 
