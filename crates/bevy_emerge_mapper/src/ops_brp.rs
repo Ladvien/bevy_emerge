@@ -364,6 +364,13 @@ fn editor_state(
             "undo_depth": s.undo_depth(),
             "redo_next": undo_map.and_then(|m| s.redo_next(m)),
             "redo_depth": s.redo_depth(),
+            // **What a caller needs to read a waiting door (cycle 8, gap 3).** The question on screen and
+            // the door it would cross to, so a waiting door is not invisible to the agent that asked.
+            "leaving": s.leaving,
+            "door_waiting": s.door_request.map(|r| json!({
+                "door": r.door.label(),
+                "tab": r.tab.map(|m| m.label()),
+            })),
         })
     });
     Ok(json!({
@@ -605,6 +612,7 @@ fn operation_apply(
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
     mut state: Option<ResMut<crate::editor::EditorState>>,
+    confirm: Option<Res<crate::confirm::Confirm>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -617,20 +625,24 @@ fn operation_apply(
                 .join(", ")
         ));
     };
-    // **A door asked for while the leaving question is up is refused before anything is planned.** The
-    // person's answer to that question owns the next crossing, and the editor would refuse a second
-    // request only after this answer had already said "applied". Refused here, as the editor refuses it,
-    // and nothing is written or logged.
-    if p.operation == "door_open" && state.as_deref().is_some_and(|s| s.leaving) {
-        let refusal = "a door is already waiting on the leaving question. The person answers it first, then the door can be asked for again.";
-        if let Some(state) = state.as_mut() {
-            state.problem_agent_refusal(&p.operation, refusal);
+    // **A door is refused before anything is planned when the editor cannot cross to it now (gaps 6,
+    // 10 and 11).** A question on screen, a leaving question, or a door already waiting owns the next
+    // frame. The refusal is the editor's own sentence, and nothing is written or logged.
+    if p.operation == "door_open" {
+        let asking = confirm.as_deref().is_some_and(|c| c.is_open());
+        if let Some(why) = state
+            .as_deref()
+            .and_then(|s| crate::editor::door_refusal(s, asking))
+        {
+            if let Some(state) = state.as_mut() {
+                state.problem_agent_refusal(&p.operation, why);
+            }
+            return Ok(json!({
+                "operation": p.operation,
+                "outcome": "refused",
+                "refusal": why,
+            }));
         }
-        return Ok(json!({
-            "operation": p.operation,
-            "outcome": "refused",
-            "refusal": refusal,
-        }));
     }
     // **A preview is the plan, and nothing else.**
     //
@@ -720,15 +732,18 @@ fn operation_apply(
             operation_id,
             entry,
         }) => {
-            // **A door the editor will ask about is not yet open (cycle 8).** The request is accepted, and
-            // the answer names what it waits on, so nobody reads "applied" as "the door is open".
-            let answer = match outcome.after.as_ref().and_then(|after| after["waiting"].as_str()) {
-                Some(why) if p.operation == "door_open" => format!("waiting for the person: {why}"),
-                _ => "applied".to_owned(),
-            };
+            // **A door the editor will ask about is not yet open (cycle 8, gap 4).** The outcome is a
+            // stable word, `waiting`, and `waiting_on` names what it waits for, so nobody reads "applied"
+            // as "the door is open" and a caller can branch on the word.
+            let waiting = outcome
+                .after
+                .as_ref()
+                .and_then(|after| after["waiting"].as_str())
+                .filter(|_| p.operation == "door_open");
             Ok(json!({
                 "operation": p.operation,
-                "outcome": answer,
+                "outcome": if waiting.is_some() { "waiting" } else { "applied" },
+                "waiting_on": waiting,
                 "summary": outcome.summary,
                 "affected": outcome.affected,
                 "saved": outcome.saved,

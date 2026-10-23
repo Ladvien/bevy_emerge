@@ -2050,13 +2050,29 @@ pub struct DoorRequest {
     pub tab: Option<crate::tiles::Mode>,
 }
 
-/// **Take the door an operation answered with.** While the leaving question is up, the answer to it
-/// owns the next crossing, so a second request is refused rather than queued behind it.
+/// **The words for a door that cannot be crossed to yet.** The keys and the agent get the same
+/// sentence, so a person and an agent read the same reason.
+pub const LEAVING_QUESTION_REFUSAL: &str = "the editor is asking the person a question first (\"Leave this map?\"). The person answers it, then the door can be asked for again.";
+/// **A door is already waiting.** The editor crosses to it first; a second request would replace it.
+pub const DOOR_ALREADY_WAITING_REFUSAL: &str = "another door is already waiting to be crossed to. The editor crosses to it first, then this door can be asked for.";
+
+/// **Why a door may not be asked for right now, or `None` when it may.** `asking` is whether any
+/// question is on screen, the leaving question or another.
+pub fn door_refusal(state: &EditorState, asking: bool) -> Option<&'static str> {
+    if asking || state.leaving {
+        Some(LEAVING_QUESTION_REFUSAL)
+    } else if state.door_request.is_some() {
+        Some(DOOR_ALREADY_WAITING_REFUSAL)
+    } else {
+        None
+    }
+}
+
+/// **Take the door an operation answered with.** A request the editor cannot take is refused with its
+/// reason, and nothing is stored over the request already waiting.
 pub fn request_door(state: &mut EditorState, after: Option<&serde_json::Value>) {
-    if state.leaving {
-        state
-            .status
-            .problem("a door is already waiting on the leaving question".to_owned());
+    if let Some(why) = door_refusal(state, false) {
+        state.status.problem(why.to_owned());
         return;
     }
     let Some(after) = after else {
@@ -2118,10 +2134,15 @@ pub fn open_door(world: &mut World, door: crate::tiles::Door, tab: Option<crate:
 
 /// **Carry out the door an agent asked for**, when the editor is not asking a question.
 fn apply_pending_door(world: &mut World) {
+    // **A question on screen owns the frame (gap 6).** A crossing taken under any question acts on an
+    // answer the person has not given, so the stored door waits until the question is answered.
+    let asking = world
+        .get_resource::<crate::confirm::Confirm>()
+        .is_some_and(|c| c.is_open());
     let pending = world
         .get_resource::<EditorState>()
         .is_some_and(|s| s.door_request.is_some() && !s.leaving);
-    if pending {
+    if pending && !asking {
         apply_door_request(world);
     }
 }

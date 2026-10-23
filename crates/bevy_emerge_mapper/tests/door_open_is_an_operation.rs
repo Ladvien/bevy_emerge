@@ -334,3 +334,38 @@ fn a_click_on_a_tab_chip_writes_the_same_log_line_a_key_press_does() {
         "the click wrote one door_open line, as a key press does"
     );
 }
+
+/// **A second door cannot be stored over the first (cycle 8, item 10).** The first request waits for the
+/// next frame. Storing a second one over it drops the first, and the agent that asked for the first is
+/// answered "applied" for a door it never reaches.
+#[test]
+fn a_second_door_request_while_one_waits_is_refused_and_the_first_stays() {
+    let mut state = EditorState::default();
+    bevy_emerge_mapper::editor::request_door(&mut state, Some(&json!({"door": "kit"})));
+    let first = state.door_request;
+    assert!(first.is_some(), "the first request must be stored");
+    bevy_emerge_mapper::editor::request_door(&mut state, Some(&json!({"door": "map"})));
+    assert!(
+        state.door_request == first,
+        "a second request must not replace the first one waiting"
+    );
+    assert!(
+        !state.status.problems().is_empty(),
+        "the refused second request must say so in the journal"
+    );
+}
+
+/// **A door asked for while the editor asks a question is refused (cycle 8, item 6).** The question
+/// owns the next frame, so a crossing taken under it would act on an answer the person has not given.
+#[test]
+fn a_door_is_refused_while_the_editor_is_asking_a_question() {
+    let state = EditorState::default();
+    assert!(
+        bevy_emerge_mapper::editor::door_refusal(&state, true).is_some(),
+        "a door must be refused while a question is on screen"
+    );
+    assert!(
+        bevy_emerge_mapper::editor::door_refusal(&state, false).is_none(),
+        "a door with nothing waiting and no question is allowed"
+    );
+}
