@@ -144,3 +144,32 @@ fn the_palette_click_and_the_operation_leave_the_same_state() {
         "both paths leave the same tool"
     );
 }
+
+/// **An arm that could not be logged and changed nothing says so.** The editor took the arm back
+/// before the refusal, and the refusal must not say the change is still in place when there was no
+/// change to keep.
+#[test]
+fn an_arm_that_cannot_be_logged_says_nothing_was_changed() {
+    let mut app = editor("arm_unlogged");
+    let before = armed(&app);
+    let log = {
+        let project = app.world().resource::<Project>();
+        ops::oplog_path(project)
+    };
+    // A folder where the log file goes: every append is refused.
+    let _ = std::fs::remove_file(&log);
+    std::fs::create_dir_all(&log).expect("the log path is made a folder");
+
+    let answer = arm(&mut app, "site/gate");
+    let text = answer.to_string();
+    assert!(
+        text.contains("nothing was changed"),
+        "an arm that changed nothing must say so: {answer}"
+    );
+    assert!(
+        !text.contains("still in place"),
+        "there is no change to keep in place: {answer}"
+    );
+    assert_eq!(armed(&app), before, "the held piece is unchanged");
+    let _ = std::fs::remove_dir_all(&log);
+}

@@ -459,6 +459,13 @@ fn dispatch_as(
 /// the refusal says the change is still in place rather than claiming it was undone.
 fn take_back(ctx: &mut Ctx, op: &dyn Operation, outcome: &Outcome, log_error: String) -> Refusal {
     let Some(inverse) = outcome.inverse.as_ref() else {
+        // **An operation that changed nothing has nothing to keep in place.** Saying "still in
+        // place" would tell the author a change exists on the map when none does.
+        if !outcome.saved && outcome.affected == 0 {
+            return Refusal::new(format!(
+                "the operation could not be logged, so nothing was changed: {log_error}"
+            ));
+        }
         return Refusal::new(format!(
             "the operation was applied but could not be logged, and it records no inverse to take \
              it back, so the change is still in place: {log_error}"
