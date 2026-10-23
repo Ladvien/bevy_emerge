@@ -160,6 +160,50 @@ fn cmd_z_after_a_resize_takes_back_the_resize_and_not_an_older_edit() {
     );
 }
 
+/// **Cmd+Z on a run writes the map it took back, so the watcher has nothing older to adopt.**
+///
+/// B-044. `Undo::Added` changed the in-memory map and never saved it, so the file on disk kept the
+/// run. The 250 ms file watcher then read that stale file as an outside edit and put the run back
+/// after the undo. The file and the editor must agree the moment Cmd+Z lands, and they must still
+/// agree after the watcher has had a chance to poll.
+#[test]
+fn cmd_z_on_a_run_writes_the_map_so_the_watcher_has_nothing_to_adopt() {
+    let mut app = editor("undorunwrite");
+    let start = map(&app);
+    bevy_emerge_mapper::editor::run_for_test(app.world_mut(), "fence", (0.0, 0.0), (8.0, 0.0));
+    app.update();
+    assert!(
+        map(&app).placements.len() > start.placements.len(),
+        "the run laid nothing, so there is nothing to undo"
+    );
+
+    // **The run reaches the file only through a later save.** A resize and its Cmd+Z write the map
+    // with the run still in it, so the file holds the run when the run is taken back (the B-044 order).
+    resize(&mut app, 'y', "44");
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert!(
+        map(&app).placements.len() > start.placements.len() && map(&app).bounds.1 == start.bounds.1,
+        "Cmd+Z after the resize must take back only the resize and keep the run"
+    );
+
+    chord(&mut app, KeyCode::KeyZ, false);
+    assert_eq!(
+        on_disk(&app),
+        map(&app),
+        "Cmd+Z took the run back in memory, but the file still holds it"
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    for _ in 0..3 {
+        app.update();
+    }
+    assert_eq!(
+        map(&app).placements.len(),
+        start.placements.len(),
+        "the watcher read the stale file and put the undone run back"
+    );
+}
+
 /// **Cmd+Z and an agent's undo are one history.** If the agent already took the resize back, Cmd+Z
 /// does not take it back twice, and says so where the author looks.
 #[test]

@@ -7971,6 +7971,7 @@ fn apply(
                     commands.entity(entity).despawn();
                 }
             }
+            persist(open, project, state);
             state
                 .status
                 .note(format!("undid {} placement(s)", gone.len()));
@@ -7996,6 +7997,7 @@ fn apply(
             // replays exactly the `(at, on)` pairs the move displaced, rather than recomputing where
             // things "should" go and hoping the two agree.
             bevy_emerge_core::stack::restore_moved(&mut open.map, &moved);
+            persist(open, project, state);
             let ids: Vec<String> = moved
                 .was
                 .iter()
@@ -8055,6 +8057,7 @@ fn apply(
                 open.map.placements.insert(at, *p);
                 at_indices.push(at);
             }
+            persist(open, project, state);
             let at_indices_for_inverse = at_indices.clone();
             match heights(project, &*open) {
                 Ok(ys) => {
@@ -8483,6 +8486,16 @@ fn apply(
         }
     };
     Reversal::Done(inverse)
+}
+
+/// **A change to the map is written before the next frame reads the file.** The file watcher treats
+/// a file that differs from memory as an outside edit (B-044), so an undo that changes the map and
+/// leaves the file behind is an undo the watcher can take back. A failed write stays loud: the
+/// change stays in memory and the author is told the file does not match it.
+fn persist(open: &mut OpenMap, project: &Project, state: &mut EditorState) {
+    if let Err(e) = open.save(project) {
+        state.status.problem(format!("changed, but not written: {e}"));
+    }
 }
 
 /// Pin or unpin the placement nearest the cursor.

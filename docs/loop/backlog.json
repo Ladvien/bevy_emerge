@@ -418,7 +418,9 @@
         "no_workaround": true,
         "evidence": "Cycle 7 judgment 2 of 3: blocks no, common yes, no workaround yes (red CI on main line, not a user-facing defect)."
       },
-      "status": "open",
+      "status": "fixed",
+      "fixed_in": "loop/2026-10-23-b044 (PR after #34)",
+      "root_cause": "Undo of Undo::Added, Undo::Moved and the put-back path in editor.rs apply() changed open.map in memory and never wrote the file. The 250 ms file watcher then read the stale file as an outside edit and adopted it, putting the undone run back. Under CPU oversubscription the watcher's poll lands between the undo and the next save, which is why only loaded runs failed. Fix: apply() persists the map after each of those changes (a failed write goes to Status::problem). Regression test one_undo_takes_back_the_newest_change::cmd_z_on_a_run_writes_the_map_so_the_watcher_has_nothing_to_adopt fails before on macOS too ('Cmd+Z took the run back in memory, but the file still holds it') and passes after. Found by the C9Linux state trace on big.",
       "evidence": "crates/bevy_emerge_mapper/tests/one_undo_takes_back_the_newest_change.rs::cmd_z_after_a_resize_takes_back_the_resize_and_not_an_older_edit fails :138 (left 4, right 0) and :145 (left 8, right 4). CI red on ab5ebf8 (run 39926254825); green on f36ee00 (39906306802) and b99c056 (39935647016). Stress: f36ee00 44/120, ab5ebf8 67/320, single-process 0/300 (8 concurrent xvfb-run workers pinned to taskset -c 0,1). Ruled out: duplicate Undo/Redo handlers, Placement marker split, key-context race, time-based repeat. Suspect: apply for Undo::Added/Undo::Moved (editor.rs ~7726-7813) via undo()/redo(). Next: log undo_len/redo_len and placement count under stress. Evidence: local://c7-linux-notes.md (not in repo). Report: docs/loop/iterations/2026-10-23-cycle7-e89e86f.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
