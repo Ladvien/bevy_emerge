@@ -132,7 +132,6 @@ The MCP server gives an agent the same typed operations a person uses, including
 
 Known gaps:
 
-- `emerge_state` does not list each pin.
 - Renaming a map does not rewrite other references to it by name.
 
 ## Documentation
