@@ -82,8 +82,9 @@ pub const TOOLS: &[ToolDoc] = &[
                        pieces it has, what is armed, what is selected, which door and tab are open, \
                        and what the editor last said and what has gone wrong. The editor section also \
                        names the next undo and redo (undo_next, redo_next) and how many are stacked \
-                       (undo_depth, redo_depth). The map section names each pinned placement by id and \
-                       reason (pinned; pinned_total is the full count). Returns that summary as JSON, \
+                       (undo_depth, redo_depth). The map section names up to 50 pinned placements \
+                       by id and reason (pinned). pinned_total is the full count; past 50, pass \
+                       pinned_from (from pinned_next) to read the rest. Returns that summary as JSON, \
                        and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
                        that it landed.",
@@ -245,7 +246,13 @@ pub fn schemas() -> Value {
                 "dry_run": {"type": "boolean", "default": false},
             },
         },
-        "emerge_state": {"type": "object", "additionalProperties": false},
+        "emerge_state": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "pinned_from": {"type": "integer", "minimum": 0, "default": 0, "description": "Where the pinned list starts, in map order. 0 is the first pin."}
+            }
+        },
         "emerge_capture_still": {
             "type": "object",
             "additionalProperties": false,
