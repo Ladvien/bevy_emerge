@@ -95,6 +95,8 @@ Goal: put a piece on the grid, then take it back.
 
 Review: the inspector's UNDO line names the step that Cmd+Z takes back, and the history list under REDO shows the recent changes. Clicking a row jumps to just after that change, and repeated Cmd+Z goes back the same way. The [placing and undo guide](docs/guide/placing-and-undo.md) has the details.
 
+![Arms the gate house from the list, clicks the ground to place it, then Cmd+Z takes it back](docs/media/place-and-undo.gif)
+
 ### Snip a region for an agent
 
 Goal: show an agent a region and get one change back that you can undo.
@@ -110,7 +112,7 @@ Review: after Enter the status line confirms the snip. The GIF at the top shows 
 
 Goal: bring the whole map back into view after you have zoomed in on part of it.
 
-![Starts zoomed in on one corner; Home frames the whole map](docs/media/frame-the-map.gif)
+![Starts zoomed in on the middle of the town; an agent frames the town with emerge_frame_view](docs/media/frame-the-map.gif)
 
 1. Press Home. On a Mac laptop without a Home key, press Fn+←.
 

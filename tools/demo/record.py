@@ -177,6 +177,8 @@ def run_chunks(storyboard, server, project, port, timeline, errors):
                     keep()
             if "refused" in answer:
                 raise RuntimeError(f"chunk {i} refused: {answer['refused']}")
+            if answer.get("status") != "done":
+                raise RuntimeError(f"chunk {i} did not finish capturing: {json.dumps(answer)}")
             with timeline.lock:
                 timeline.chunks.append({
                     "index": i, "label": args["label"], "start": round(wall, 3),
