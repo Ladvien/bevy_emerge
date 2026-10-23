@@ -1837,10 +1837,11 @@ pub mod label_set {
         let (summary, after) = match req {
             Request::Set { axis, tokens, .. } => {
                 let tokens = checked(vocab_for(&project.vocab, axis), axis, tokens)?;
-                if axis == "effects" {
-                    if let Some(refusal) = derived_effect_refusal(&project.vocab, id, &d.kind, &tokens) {
-                        return Err(refusal);
-                    }
+                if axis == "effects"
+                    && let Some(refusal) =
+                        derived_effect_refusal(&project.vocab, id, &d.kind, &tokens)
+                {
+                    return Err(refusal);
                 }
                 let by = match source {
                     Source::Human => By::Human,
