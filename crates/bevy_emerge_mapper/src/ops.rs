@@ -1763,6 +1763,95 @@ pub mod door_open {
 
     pub struct DoorOpen;
 
+    /// **The answer to a door request, validated.** `plan` and `commit` share it.
+    ///
+    /// `read_map` is the Map door's read. `plan` does it, so a map that will not open is refused
+    /// before the answer says "applied". `commit` does not read it again: `dispatch_as` has just
+    /// planned, and the crossing reads the map once more. The same file was parsed three times per
+    /// request before this (cycle 8, gap 12).
+    fn door_answer(
+        ctx: &Ctx,
+        params: &serde_json::Value,
+        read_map: bool,
+    ) -> Result<serde_json::Value, Refusal> {
+        let p = Params::parse(params)?;
+        let Some(door) = Door::ALL
+            .into_iter()
+            .find(|d| d.label().eq_ignore_ascii_case(&p.door))
+        else {
+            let names: Vec<String> = Door::ALL.iter().map(|d| d.label().to_lowercase()).collect();
+            return Err(Refusal::new(format!(
+                "`{}` is not a door. The doors are {}.",
+                p.door,
+                names.join(", ")
+            )));
+        };
+        let tab = match p.tab.as_deref() {
+            None => None,
+            Some(name) => {
+                let Some(mode) = Mode::ALL
+                    .iter()
+                    .copied()
+                    .find(|m| m.label().eq_ignore_ascii_case(name))
+                else {
+                    let all: Vec<String> =
+                        Mode::ALL.iter().map(|m| m.label().to_lowercase()).collect();
+                    return Err(Refusal::new(format!(
+                        "`{name}` is not a panel. The panels are {}.",
+                        all.join(", ")
+                    )));
+                };
+                if !door.tabs().contains(&mode) {
+                    let shown: Vec<String> =
+                        door.tabs().iter().map(|m| m.label().to_lowercase()).collect();
+                    return Err(Refusal::new(format!(
+                        "the {} door does not show `{name}`. It shows {}.",
+                        door.label().to_lowercase(),
+                        shown.join(", ")
+                    )));
+                }
+                Some(mode)
+            }
+        };
+        // **The Map door needs a map to show:** with no map open it would have nothing to cross onto,
+        // and the crossing would be a silent no-op.
+        let map_open = ctx.open.is_some()
+            || ctx
+                .project
+                .as_ref()
+                .and_then(|project| project.open_map_name.as_ref())
+                .is_some();
+        if door == Door::Map && !map_open {
+            return Err(Refusal::new(
+                "the Map door needs a map, and no map is open. Open a map first, then the Map door \
+                 has something to show.",
+            ));
+        }
+        // **The Map door crosses onto the map on disk, and a map that will not open cannot be crossed
+        // to.** The crossing reads it through this same `OpenMap::open`, so the read happens here, before
+        // the answer says "applied". It writes nothing.
+        if read_map
+            && door == Door::Map
+            && ctx.open.is_none()
+            && let Some(project) = ctx.project.as_ref()
+            && let Some(name) = project.open_map_name.as_deref()
+        {
+            crate::project::OpenMap::open(project, name).map_err(Refusal::new)?;
+        }
+        // **Leaving a map with unsaved edits is the person's question.** The request is accepted and
+        // the answer names what it waits on: the editor asks the leaving question, and this operation
+        // cannot answer it for them.
+        let waiting = door != Door::Map && ctx.open.as_ref().is_some_and(|open| open.dirty());
+        let mut answer = json!({
+            "door": door.label().to_lowercase(),
+            "tab": tab.map(|m| m.label().to_lowercase()),
+        });
+        if waiting {
+            answer["waiting"] = json!("the map has unsaved changes");
+        }
+        Ok(answer)
+    }
+
     impl Operation for DoorOpen {
         fn name(&self) -> &'static str {
             "door_open"
@@ -1781,85 +1870,11 @@ pub mod door_open {
             ctx: &Ctx,
             params: &serde_json::Value,
         ) -> Result<serde_json::Value, Refusal> {
-            let p = Params::parse(params)?;
-            let Some(door) = Door::ALL
-                .into_iter()
-                .find(|d| d.label().eq_ignore_ascii_case(&p.door))
-            else {
-                let names: Vec<String> = Door::ALL.iter().map(|d| d.label().to_lowercase()).collect();
-                return Err(Refusal::new(format!(
-                    "`{}` is not a door. The doors are {}.",
-                    p.door,
-                    names.join(", ")
-                )));
-            };
-            let tab = match p.tab.as_deref() {
-                None => None,
-                Some(name) => {
-                    let Some(mode) = Mode::ALL
-                        .iter()
-                        .copied()
-                        .find(|m| m.label().eq_ignore_ascii_case(name))
-                    else {
-                        let all: Vec<String> =
-                            Mode::ALL.iter().map(|m| m.label().to_lowercase()).collect();
-                        return Err(Refusal::new(format!(
-                            "`{name}` is not a panel. The panels are {}.",
-                            all.join(", ")
-                        )));
-                    };
-                    if !door.tabs().contains(&mode) {
-                        let shown: Vec<String> =
-                            door.tabs().iter().map(|m| m.label().to_lowercase()).collect();
-                        return Err(Refusal::new(format!(
-                            "the {} door does not show `{name}`. It shows {}.",
-                            door.label().to_lowercase(),
-                            shown.join(", ")
-                        )));
-                    }
-                    Some(mode)
-                }
-            };
-            // **The Map door needs a map to show:** with no map open it would have nothing to cross onto,
-            // and the crossing would be a silent no-op.
-            let map_open = ctx.open.is_some()
-                || ctx
-                    .project
-                    .as_ref()
-                    .and_then(|project| project.open_map_name.as_ref())
-                    .is_some();
-            if door == Door::Map && !map_open {
-                return Err(Refusal::new(
-                    "the Map door needs a map, and no map is open. Open a map first, then the Map door \
-                     has something to show.",
-                ));
-            }
-            // **The Map door crosses onto the map on disk, and a map that will not open cannot be crossed
-            // to.** The crossing reads it through this same `OpenMap::open`, so the read happens here, before
-            // the answer says "applied". It writes nothing.
-            if door == Door::Map
-                && ctx.open.is_none()
-                && let Some(project) = ctx.project.as_ref()
-                && let Some(name) = project.open_map_name.as_deref()
-            {
-                crate::project::OpenMap::open(project, name).map_err(Refusal::new)?;
-            }
-            // **Leaving a map with unsaved edits is the person's question.** The request is accepted and
-            // the answer names what it waits on: the editor asks the leaving question, and this operation
-            // cannot answer it for them.
-            let waiting = door != Door::Map && ctx.open.as_ref().is_some_and(|open| open.dirty());
-            let mut answer = json!({
-                "door": door.label().to_lowercase(),
-                "tab": tab.map(|m| m.label().to_lowercase()),
-            });
-            if waiting {
-                answer["waiting"] = json!("the map has unsaved changes");
-            }
-            Ok(answer)
+            door_answer(ctx, params, true)
         }
 
         fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
-            let plan = self.plan(ctx, params)?;
+            let plan = door_answer(ctx, params, false)?;
             let door = plan["door"].as_str().unwrap_or("");
             let target = match plan["tab"].as_str() {
                 Some(tab) => format!("the {door} door on {tab}"),
