@@ -53,8 +53,13 @@ fn camera_sizes(app: &mut bevy::prelude::App) -> Vec<(isize, bool, (u32, u32))> 
 }
 
 fn main() {
-    let root = std::path::Path::new("/Users/ladvien/sanctuary");
-    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let Some(root) = std::env::args().nth(1) else {
+        eprintln!("usage: cargo run -p bevy_emerge_mapper --example probe_surface_resize -- <project-root>");
+        eprintln!();
+        eprintln!("  <project-root>  a directory containing `assets/`, which the probe loads");
+        std::process::exit(2);
+    };
+    let root = std::fs::canonicalize(&root).unwrap_or_else(|_| std::path::PathBuf::from(&root));
 
     // **The startup path, with a window** — the one the ui_audit says crashes. The window is a
     // *component* on an entity, not a real one: `winit` refuses a second `EventLoop` in a
