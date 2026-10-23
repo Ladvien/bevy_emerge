@@ -376,6 +376,59 @@ fn editor_state(
     }))
 }
 
+/// **The parameters of `emerge/pieces`.** `pieces_from` is the page to read, counted in library
+/// order; `model_only` leaves out the pieces that name no mesh (the flat footprint markers).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PiecesParams {
+    /// The first piece to name, counted in library order. `0` is the start of the list.
+    pub pieces_from: usize,
+    /// Only the pieces that name a mesh. A flat piece with no mesh is a footprint, not a model.
+    pub model_only: bool,
+}
+
+/// **`emerge/pieces` — the library's pieces, a page at a time.**
+///
+/// **A read.** The same paging as `emerge/state`'s `descriptor_ids`: a capped page, the true
+/// `total` so a reader can tell a full list from a cut one, and `pieces_next` for the next page.
+/// Each row carries the fields a piece is chosen by: its id, the mesh it is drawn with, and its
+/// kinds, effects and looks.
+fn editor_pieces(In(params): In<PiecesParams>, loaded: Loaded) -> Result<Value, String> {
+    const PIECE_CAP: usize = 50;
+    let Some(project) = loaded.project else {
+        return Ok(json!({"total": 0, "pieces": [], "pieces_next": null}));
+    };
+    let rows = || {
+        project
+            .library
+            .descriptors
+            .iter()
+            .filter(|d| !params.model_only || d.mesh.is_some())
+    };
+    let total = rows().count();
+    let from = params.pieces_from;
+    let pieces: Vec<Value> = rows()
+        .skip(from)
+        .take(PIECE_CAP)
+        .map(|d| {
+            json!({
+                "id": d.id,
+                "mesh": d.mesh,
+                "kind": d.kind,
+                "effects": d.effects,
+                "look": d.look,
+            })
+        })
+        .collect();
+    let pieces_next = (from.saturating_add(PIECE_CAP) < total).then(|| from + PIECE_CAP);
+    Ok(json!({
+        "total": total,
+        "pieces": pieces,
+        "pieces_next": pieces_next,
+        "how_to_read_more": pieces_next.map(|n| format!("pass pieces_from={n} to read the rest")),
+    }))
+}
+
 /// **`emerge/capture_sequence_start` — begin a capture sequence.**
 ///
 /// **A refusal, and not a note** — the sequence is an agent's request, and a request that cannot
@@ -914,6 +967,19 @@ impl Plugin for OpsBridgePlugin {
             )
             .example(json!({})),
             editor_state,
+        );
+
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/pieces",
+                "The library's pieces, a page at a time: each row's id, the mesh it is drawn \
+                 with, and its kinds, effects and looks. pieces_from is the page to read; \
+                 model_only leaves out the flat pieces that name no mesh. total is the true count \
+                 and pieces_next says where the next page starts. A read.",
+            )
+            .params("pieces_from: the first piece to name, in library order (default 0). model_only: true to leave out the pieces with no mesh (default false).")
+            .example(json!({"model_only": true})),
+            editor_pieces,
         );
 
         app.add_debug_command(

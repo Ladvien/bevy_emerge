@@ -227,6 +227,7 @@ fn the_capture_and_state_tools_say_what_they_do() {
         ("emerge_capture_still", false, false, false),
         ("emerge_capture_sequence", false, true, false),
         ("emerge_list_snips", true, false, true),
+        ("emerge_list_pieces", true, false, true),
     ];
     let mut missing = Vec::new();
     for (name, read_only, destructive, idempotent) in expected {

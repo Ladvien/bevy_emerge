@@ -94,6 +94,18 @@ pub const TOOLS: &[ToolDoc] = &[
         idempotent: true,
     },
     ToolDoc {
+        name: "emerge_list_pieces",
+        description: "The library's pieces, a page at a time. Each row carries the piece's id, the \
+                       mesh it is drawn with (null for a flat footprint marker), and its kind, \
+                       effects and looks. total is the true count. A page holds 50 rows; past 50, \
+                       pass pieces_from (from pieces_next) to read the rest. model_only: true leaves \
+                       out the flat pieces that name no mesh. Returns that page as JSON, and changes \
+                       nothing.",
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+    },
+    ToolDoc {
         name: "emerge_capture_still",
         description: "A picture of the editor as it is now -- the world and the interface, because \
                        the editor draws both into one image -- plus a state summary of the same \
@@ -254,6 +266,14 @@ pub fn schemas() -> Value {
             "additionalProperties": false,
             "properties": {
                 "pinned_from": {"type": "integer", "minimum": 0, "default": 0, "description": "Where the pinned list starts, in map order. 0 is the first pin."}
+            }
+        },
+        "emerge_list_pieces": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "pieces_from": {"type": "integer", "minimum": 0, "default": 0, "description": "Where the page starts, in library order. 0 is the first piece."},
+                "model_only": {"type": "boolean", "default": false, "description": "true leaves out the flat pieces that name no mesh."}
             }
         },
         "emerge_capture_still": {

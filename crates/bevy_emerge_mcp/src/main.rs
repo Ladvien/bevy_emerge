@@ -231,6 +231,20 @@ pub struct StateParams {
     pub pinned_from: usize,
 }
 
+/// **The parameters of `emerge_list_pieces`.**
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PiecesParams {
+    /// **Where the page starts**, counted in library order. `0` is the first piece. When there are
+    /// more than 50 pieces, the answer's `pieces_next` names the value to pass for the next page.
+    #[serde(default)]
+    pub pieces_from: usize,
+    /// **`true` leaves out the pieces that name no mesh** (the flat footprint markers such as roads
+    /// and fields), so the list is only the pieces that are drawn with a model.
+    #[serde(default)]
+    pub model_only: bool,
+}
+
 /// **Fifty entries, which is a screenful.**
 fn fifty() -> usize {
     50
@@ -528,6 +542,44 @@ impl Emerge {
         match self
             .editor
             .call("emerge/state", json!({"pinned_from": p.pinned_from}))
+            .await
+        {
+            Ok(v) => Ok(CallToolResult::structured(v)),
+            Err(e) => Ok(refusal(&e)),
+        }
+    }
+
+    /// **`emerge_list_pieces` — the library's pieces, a page at a time.**
+    ///
+    /// **A read.** `emerge_state` names the first page of ids; this is the list itself, with the
+    /// mesh each piece is drawn with and its kinds, effects and looks, so an agent can choose a piece
+    /// by what it is and what it looks like, not by its id alone.
+    #[tool(
+        name = "emerge_list_pieces",
+        description = "The library's pieces, a page at a time. Each row carries the piece's id, the \
+                       mesh it is drawn with (null for a flat footprint marker), and its kind, \
+                       effects and looks. total is the true count. A page holds 50 rows; past 50, \
+                       pass pieces_from (from pieces_next) to read the rest. model_only: true leaves \
+                       out the flat pieces that name no mesh. Returns that page as JSON, and changes \
+                       nothing.",
+        annotations(
+            title = "List the library's pieces",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn list_pieces(
+        &self,
+        Parameters(p): Parameters<PiecesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self
+            .editor
+            .call(
+                "emerge/pieces",
+                json!({"pieces_from": p.pieces_from, "model_only": p.model_only}),
+            )
             .await
         {
             Ok(v) => Ok(CallToolResult::structured(v)),

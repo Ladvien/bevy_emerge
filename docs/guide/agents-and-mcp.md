@@ -37,6 +37,7 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 | `emerge_apply_operation` | Applies one operation (`operation`, `parameters`). |
 | `emerge_undo_operation` | Undoes an operation, including one an agent applied. |
 | `emerge_state` | Reads the editor's current state. |
+| `emerge_list_pieces` | Reads the library's pieces a page at a time: each id, its mesh, and its kind, effects and looks (`pieces_from`, `model_only`). Read-only. |
 | `emerge_capture_still` | Captures one frame of the editor. |
 | `emerge_snip` | Cuts a rectangle of the editor's picture, in window pixels, and returns it as an image. |
 | `emerge_capture_sequence` | Captures frames over time (`label`, `seconds`, `fps`). |
@@ -55,6 +56,8 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 `map_rename` renames the open map. The file moves with the name at once, and a name another map in the project already has is refused before anything is written. If the old file cannot be removed, the rename is refused and nothing changes: the new file is taken back and the map keeps its old name. If that take-back also fails, the map follows the new file and the refusal says so. **N** on the Map door dispatches the same operation, so a rename by an agent and a rename by a person are one kind of change, and Cmd+Z takes either back. An agent undoes a rename with `emerge_undo_operation`, which puts the old name back.
 
 `brush_arm {descriptor}` arms a piece as the brush, the same as clicking its row in the palette or walking the palette with the arrow keys, which dispatch the same operation. It changes no map data, so it is logged but not undoable: `emerge_undo_operation` with its id says there is nothing to take back. `descriptor: null` puts the brush down, as Esc does. A piece the open map's bash hides is refused, naming the bash. An unknown id is refused with the closest library ids. `emerge_state` lists the library's ids in `descriptor_ids`, 50 at a time; `descriptor_ids_next` gives the `descriptors_from` for the next page.
+
+`emerge_list_pieces` lists the pieces themselves, 50 at a time, in library order: `total` is the full count, and past 50 `pieces_next` gives the `pieces_from` for the next page. `model_only: true` leaves out the flat footprint markers (a road, a field) that name no mesh, so the list is only what is drawn with a model.
 
 ## Snips the person took
 
