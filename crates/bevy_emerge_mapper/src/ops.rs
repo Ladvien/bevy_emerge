@@ -1764,12 +1764,37 @@ pub mod label_set {
         let effects_before = d.effects.clone();
         *list_of(d, axis) = tokens;
         crate::labels::stamp_by(d, axis_of(axis), by);
-        if axis == "kind" {
+        if axis == "kind" || axis == "effects" {
             crate::labels::settle_implied_effects(d, vocab);
             if d.effects != effects_before {
                 crate::labels::stamp_by(d, Axis::Effects, by);
             }
         }
+    }
+
+    /// **A derived effect belongs to the kind that implies it, and a write that says otherwise is
+    /// refused.** The next kind write would settle it away, so keeping it on a piece whose kind
+    /// does not imply it is a claim the library cannot keep. Refused, not settled away: the author
+    /// asked for it, and the answer has to say why nothing was written.
+    fn derived_effect_refusal(
+        vocab: &Vocabularies,
+        id: &str,
+        kind: &[String],
+        tokens: &[String],
+    ) -> Option<Refusal> {
+        let implied = vocab.implied_effects(kind);
+        let token = tokens
+            .iter()
+            .find(|t| crate::labels::is_derived(vocab, t) && !implied.contains(t))?;
+        let of = if kind.is_empty() {
+            "has no kind".to_string()
+        } else {
+            format!("is `{}`", kind.join("`, `"))
+        };
+        Some(Refusal::new(format!(
+            "`{token}` is an effect a kind implies, and `{id}` {of}, which does not imply it, so \
+             nothing was set. Set a kind that implies `{token}`, or leave the effect off."
+        )))
     }
 
     /// **The edit, computed on a copy of the measured library.** Nothing is written here; the
@@ -1812,6 +1837,11 @@ pub mod label_set {
         let (summary, after) = match req {
             Request::Set { axis, tokens, .. } => {
                 let tokens = checked(vocab_for(&project.vocab, axis), axis, tokens)?;
+                if axis == "effects" {
+                    if let Some(refusal) = derived_effect_refusal(&project.vocab, id, &d.kind, &tokens) {
+                        return Err(refusal);
+                    }
+                }
                 let by = match source {
                     Source::Human => By::Human,
                     Source::Agent => By::Agent,

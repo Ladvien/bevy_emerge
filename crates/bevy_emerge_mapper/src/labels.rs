@@ -1432,13 +1432,7 @@ pub(crate) fn settled_effects(
     vocab: &bevy_emerge_core::vocab::Vocabularies,
 ) -> Vec<String> {
     let want = vocab.implied_effects(kind);
-    let derived = |e: &str| {
-        vocab
-            .kind
-            .tokens
-            .iter()
-            .any(|t| t.implies.iter().any(|i| i == e))
-    };
+    let derived = |e: &str| is_derived(vocab, e);
     let mut out: Vec<String> = effects
         .iter()
         .filter(|e| !derived(e) || want.contains(e))
@@ -1453,6 +1447,13 @@ pub(crate) fn settled_effects(
     // the library shows real changes only (`tiles::on_tag_chip`'s rule).
     out.sort_by_key(|t| vocab.effects.names().position(|n| n == t).unwrap_or(usize::MAX));
     out
+}
+
+/// **Whether some kind implies this effect** — the derived half of `effects`, the tokens
+/// [`settle_implied_effects`] owns. A write of one of these onto a kind that does not imply it is
+/// refused in `ops::label_set`, because the next settle would drop it.
+pub(crate) fn is_derived(vocab: &bevy_emerge_core::vocab::Vocabularies, effect: &str) -> bool {
+    vocab.kind.tokens.iter().any(|t| t.implies.iter().any(|i| i == effect))
 }
 
 pub fn apply_fields(
