@@ -586,6 +586,15 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
             .and_then(|m| m.as_str())
             .map(str::to_owned)
     };
+    // **The piece a library change set**, named by the `id` its recorded state carries. A map's
+    // changes have no piece, and a library change shares a scope only with its own piece.
+    let piece_of = |l: &Entry| {
+        l.after
+            .as_ref()
+            .and_then(|a| a.get("id"))
+            .and_then(|i| i.as_str())
+            .map(str::to_owned)
+    };
     let chain_map = |c: &str| map_of(&lines[newest[c]]);
     let chain: &str = match target {
         None => {
@@ -633,19 +642,29 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
             here.unwrap_or("none")
         )));
     }
-    // **Guard 1: a newer change to the same map, logged, still in effect.**
+    // **Guard 1: a newer change in the same scope, logged, still in effect.** A map's changes share
+    // the map, and a library change shares only its piece, so two label sets on different pieces
+    // never refuse each other (cycle 9 gap 3).
+    let same_scope = |other: &Entry| {
+        map_of(other) == line_map && (line_map.is_some() || piece_of(other) == piece_of(line))
+    };
+    let changed = match line_map {
+        Some(_) => "the map".to_owned(),
+        None => format!("`{}`", piece_of(line).unwrap_or_else(|| "the library".to_owned())),
+    };
     if let Some(blocker) = in_effect
         .iter()
-        .filter(|c| **c != chain && newest[*c] > newest[chain] && chain_map(c) == line_map)
+        .filter(|c| **c != chain && newest[*c] > newest[chain] && same_scope(&lines[newest[*c]]))
         .map(|c| &lines[newest[c]])
         .max_by_key(|l| l.seq)
     {
         return Err(Refusal::new(format!(
-            "`{}` ({} by {:?}) changed the map after `{}`, so putting the old values back would \
+            "`{}` ({} by {:?}) changed {} after `{}`, so putting the old values back would \
              overwrite it. Undo `{}` first, or leave `{}` as it is.",
             blocker.operation_id,
             blocker.op,
             blocker.source,
+            changed,
             line.operation_id,
             blocker.operation_id,
             line.operation_id
@@ -668,12 +687,12 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
         if let Some(later) = lines[newest[chain] + 1..]
             .iter()
             .rev()
-            .find(|l| map_of(l) == line_map)
+            .find(|l| same_scope(l))
         {
             return Err(Refusal::new(format!(
-                "`{}` ({} by {:?}) changed the map after `{}`, so putting the old values back \
+                "`{}` ({} by {:?}) changed {} after `{}`, so putting the old values back \
                  would overwrite it. Take `{}` back, or put it back, first.",
-                later.operation_id, later.op, later.source, line.operation_id, later.operation_id
+                later.operation_id, later.op, later.source, changed, line.operation_id, later.operation_id
             )));
         }
         let differs: Vec<String> = match (left.as_object(), now.as_object()) {
