@@ -291,6 +291,21 @@ impl Fixture {
         self
     }
 
+    /// **A descriptor of a stated height**, for a test about what stands in a frame. [`Self::descriptor`]
+    /// writes a 0.5 m piece; this states the number, so a test can put a tall piece on the map.
+    pub fn tall_descriptor(mut self, id: &str, pack: &str, h: f32) -> Fixture {
+        self = self.descriptor(id, pack);
+        if let Some(last) = self.descriptors.last_mut() {
+            let was = "height: Some(0.5)";
+            assert!(
+                last.contains(was),
+                "the fixture's descriptor shape changed under this helper"
+            );
+            *last = last.replace(was, &format!("height: Some({h})"));
+        }
+        self
+    }
+
     /// **A flat piece with NO mesh**, drawn as a footprint marker — the shape of the shipped
     /// `town/road` and `town/field`: `mesh: None`, a stated footprint, a 0.05 m height, and no
     /// `y_offset`. Two of these placed over one another are the case where their top faces are
