@@ -833,20 +833,32 @@ pub struct HistoryRow {
 impl Undo {
     /// **The short name of an entry for the history list (E-018).** Counts, not piece names: an entry
     /// further down names a map that no longer stands, so naming pieces here would name the wrong ones.
+    /// It names the change the entry stands for, on either side of an undo; `phrase` names what Cmd+Z will do.
     fn kind(&self, redo: bool) -> String {
         let again = if redo { " again" } else { "" };
+        // Undo side: the entry undoes the change, so the verb names the change it reverses. Redo side:
+        // applying the entry is the change, so the verb names what applying it does. One change has one
+        // label, whichever side of the undo it sits on.
         match self {
-            Undo::Added { count } => format!("remove {count}{again}"),
-            Undo::RemovedMany { items } => format!("restore {}{again}", items.len()),
+            Undo::Added { count } if redo => format!("remove {count}{again}"),
+            Undo::Added { count } => format!("place {count}"),
+            Undo::RemovedMany { items } if redo => format!("place {}{again}", items.len()),
+            Undo::RemovedMany { items } => format!("remove {}", items.len()),
+            Undo::RemoveAt { indices } if redo => format!("remove {}{again}", indices.len()),
+            Undo::RemoveAt { indices } => format!("place {}", indices.len()),
             Undo::Moved { moved } => format!("move {}{again}", moved.was.len()),
-            Undo::RemoveAt { indices } => format!("remove {}{again}", indices.len()),
             Undo::Turned { .. } => format!("turn{again}"),
             Undo::Lifted { .. } => format!("lift{again}"),
             Undo::Tipped { .. } => format!("tip{again}"),
             Undo::Group { ops } => format!("{} changes{again}", ops.len()),
-            Undo::Stamped { count } => format!("remove {count} stamps{again}"),
-            Undo::UnstampedMany { items } => format!("restore {} stamps{again}", items.len()),
-            Undo::UnstampAt { indices } => format!("remove {} stamps{again}", indices.len()),
+            Undo::Stamped { count } if redo => format!("remove {count} stamps{again}"),
+            Undo::Stamped { count } => format!("stamp {count}"),
+            Undo::UnstampedMany { items } if redo => format!("stamp {}{again}", items.len()),
+            Undo::UnstampedMany { items } => format!("remove {} stamps", items.len()),
+            Undo::UnstampAt { indices } if redo => {
+                format!("remove {} stamps{again}", indices.len())
+            }
+            Undo::UnstampAt { indices } => format!("stamp {}", indices.len()),
             Undo::MovedStamp { .. } => format!("move a stamp{again}"),
             Undo::Pin { .. } => format!("pin{again}"),
             Undo::Settings { .. } => format!("settings{again}"),

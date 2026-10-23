@@ -265,3 +265,24 @@ fn clicking_a_history_row_jumps_there_as_one_group() {
     assert_eq!(state(&app).undo_depth(), 1);
     assert_eq!(pieces(&app), 2, "one undo removes the whole group");
 }
+
+/// **A history row names the change it stands for, on both sides of the undo.** A placement is
+/// "place 1" while it is on the undo stack, and "place 1 again" once undone, because the row is the
+/// same change either way. Before this, the undo side said "remove 1", which is what Cmd+Z does, so
+/// one change had opposite labels on the two sides of the undo.
+#[test]
+fn a_native_row_names_the_change_on_both_sides_of_undo() {
+    let mut app = booted("rowlabel");
+    place_for_test(app.world_mut(), "tile_a", (1.5, 0.5));
+    app.update();
+    let rows = state(&app).history();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].label, "place 1");
+    assert!(!rows[0].agent);
+
+    undo_for_test(app.world_mut());
+    app.update();
+    let rows = state(&app).history();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].label, "place 1 again");
+}
