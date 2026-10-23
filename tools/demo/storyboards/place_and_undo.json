@@ -2,15 +2,17 @@
   "name": "place_and_undo",
   "fps": 15,
   "scale": 2,
-  "width": 960,
-  "crop": [0, 64, 960, 690],
-  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [45, 185, 85, 215]}}}],
+  "width": 600,
+  "crop": [470, 64, 950, 690],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-30, -40, 60, 10]}}}],
   "chunks": [{"seconds": 6}],
   "steps": [
-    {"at": 0.4, "caption": "person: the barrel brush is armed; click the ground"},
-    {"at": 0.8, "click": [710, 380]},
-    {"at": 1.4, "clear_cursor": true},
-    {"at": 2.6, "caption": "person: ⌘Z takes the barrel back"},
-    {"at": 3.2, "key": "KeyZ", "mods": ["SuperLeft"]}
+    {"at": 0.4, "caption": "person: arms a house composition in the list"},
+    {"at": 0.6, "click": [154, 581]},
+    {"at": 1.2, "caption": "person: click the ground to stamp it"},
+    {"at": 1.4, "click": [760, 470]},
+    {"at": 2.2, "clear_cursor": true},
+    {"at": 3.2, "caption": "person: ⌘Z takes the house back"},
+    {"at": 3.8, "key": "KeyZ", "mods": ["SuperLeft"]}
   ]
 }

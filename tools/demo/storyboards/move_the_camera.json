@@ -2,9 +2,9 @@
   "name": "move_the_camera",
   "fps": 15,
   "scale": 2,
-  "width": 960,
-  "crop": [0, 64, 960, 690],
-  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-150, -110, 150, 110]}}}],
+  "width": 600,
+  "crop": [470, 64, 950, 690],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-30, -40, 60, 10]}}}],
   "chunks": [{"seconds": 6}],
   "steps": [
     {"at": 0.4, "caption": "person: hold D to pan right"},
