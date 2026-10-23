@@ -136,9 +136,9 @@ Goal: see which pieces a model labelled, and read the labels on one piece.
 
 1. Press = to cross to the kit door. It opens on the Meshes tab.
 2. Press → to move into the piece list, then ↓ and Shift+↓ to walk down it.
-3. Read the INSPECTOR's labels row. It leads with how sure the model was, then names the model file and the date the labels were made.
+3. Read the INSPECTOR's labels row. While a model still owns an axis, it leads with how sure the model was, then names the model file and the date the model made its labels. An axis an agent or a person set is named by its axis instead.
 
-Review: the labels row reads like `confidence high · <model file> · <date>`, and wraps inside the panel when the model's name is long. Model labels show in the unchecked colour until a person confirms each axis. An agent finds the same pieces with `emerge_list_pieces`: `unlabelled` lists the pieces nobody has labelled, `by_model` lists the pieces a model or an agent labelled and no person has confirmed, and `confidence` narrows that list. The [kit guide](docs/guide/kit-meshes-tiles-compositions.md) covers the labels row in full.
+Review: the labels row reads like `confidence high · <model file> · <date>` while a model owns an axis, names an agent's axes as `agent set <axes>` and a person's as `by hand set <axes>`, and wraps inside the panel when the model's name is long. Model labels, and labels an agent set, show in the unchecked colour until a person confirms each axis. An agent finds the same pieces with `emerge_list_pieces`: `unlabelled` lists the pieces nobody has labelled, `by_model` lists the pieces a model or an agent labelled and no person has confirmed, and `confidence` narrows that list. The [kit guide](docs/guide/kit-meshes-tiles-compositions.md) covers the labels row in full.
 
 If it doesn't work: if = does nothing, a question may be on screen. Answer it, then press = again. If the map has unsaved edits, the editor asks before it leaves for the kit door, so choose Save and go or Stay.
 

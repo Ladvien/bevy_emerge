@@ -1597,6 +1597,11 @@ pub(crate) fn stamp_by(
         at: today.clone(),
         ..Default::default()
     });
+    // A record written before `model_at` existed keeps the model's date only in `at`. Pin it
+    // before `at` moves, or this write's date would be read as the model's.
+    if record.model.is_some() && record.model_at.is_none() {
+        record.model_at = Some(record.at.clone());
+    }
     record.at = today;
     record.by.set(axis, by);
 }

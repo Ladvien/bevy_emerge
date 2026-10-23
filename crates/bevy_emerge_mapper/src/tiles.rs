@@ -9496,29 +9496,58 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                     // scans for is the part a long model name cannot push past the panel's edge. A
                     // hand-written record carries no confidence, so it has none to show.
                     let sure = l.confidence.map(|c| format!("confidence {c}"));
-                    let model_date = l.model_date().unwrap_or(&l.at);
+                    // **Who wrote each axis, by name.** A model's name and date belong only to the axes
+                    // it still owns. An agent's or a person's write is named by its axis and carries no
+                    // date: the record's `at` is the latest write of any source, and it cannot say which
+                    // source that was.
+                    const AXES: [(bevy_emerge_core::descriptor::Axis, &str); 6] = [
+                        (bevy_emerge_core::descriptor::Axis::Kind, "kind"),
+                        (bevy_emerge_core::descriptor::Axis::Effects, "effects"),
+                        (bevy_emerge_core::descriptor::Axis::Look, "look"),
+                        (bevy_emerge_core::descriptor::Axis::Surfaces, "surfaces"),
+                        (bevy_emerge_core::descriptor::Axis::Mount, "mount"),
+                        (bevy_emerge_core::descriptor::Axis::Note, "note"),
+                    ];
+                    let named = |by: bevy_emerge_core::descriptor::By| {
+                        AXES.iter()
+                            .filter(|(axis, _)| l.by.get(*axis) == Some(by))
+                            .map(|(_, name)| *name)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
                     // The row's parts, in reading order, joined with the one separator the row uses.
                     let joined = |parts: &[Option<String>]| {
                         parts.iter().flatten().map(String::as_str).collect::<Vec<_>>().join(" · ")
                     };
-                    match &l.model {
-                        // **Some axis is still a model's and nobody has confirmed it**: the unchecked
-                        // colour, with the model's own date. A later touch by a person is said beside
-                        // it, so the one date on the row is never mistaken for the other.
-                        Some(m) if l.by.any_unconfirmed() => {
-                            let touched = (model_date != l.at).then(|| format!("touched {}", l.at));
-                            let short = crate::labels::model_short(m).to_owned();
-                            (
-                                joined(&[sure, Some(short), Some(model_date.to_owned()), touched]),
-                                crate::chrome::UNCHECKED,
-                            )
-                        }
+                    if !l.by.any_unconfirmed() {
                         // **Every axis is confirmed**: the row says when a person checked it.
-                        Some(m) => {
-                            let short = crate::labels::model_short(m).to_owned();
-                            (joined(&[sure, Some(short), Some(format!("checked {}", l.at))]), TEXT)
+                        match &l.model {
+                            Some(m) => {
+                                let short = crate::labels::model_short(m).to_owned();
+                                (joined(&[sure, Some(short), Some(format!("checked {}", l.at))]), TEXT)
+                            }
+                            None => (joined(&[Some("by hand".to_owned()), Some(l.at.clone())]), TEXT),
                         }
-                        None => (joined(&[sure, Some("by hand".to_owned()), Some(l.at.clone())]), TEXT),
+                    } else {
+                        // **Some axis is unconfirmed**: the unchecked colour. The model's name and date
+                        // appear only while the model still owns an axis, then the agent's and the
+                        // person's axes follow, each named with its own verb.
+                        let model_axes = named(bevy_emerge_core::descriptor::By::Model);
+                        let agent_axes = named(bevy_emerge_core::descriptor::By::Agent);
+                        let human_axes = named(bevy_emerge_core::descriptor::By::Human);
+                        let mut parts: Vec<Option<String>> = Vec::new();
+                        if let (Some(m), false) = (&l.model, model_axes.is_empty()) {
+                            parts.push(sure);
+                            parts.push(Some(crate::labels::model_short(m).to_owned()));
+                            parts.push(Some(l.model_date().unwrap_or(&l.at).to_owned()));
+                        }
+                        if !agent_axes.is_empty() {
+                            parts.push(Some(format!("agent set {agent_axes}")));
+                        }
+                        if !human_axes.is_empty() {
+                            parts.push(Some(format!("by hand set {human_axes}")));
+                        }
+                        (joined(&parts), crate::chrome::UNCHECKED)
                     }
                 }
             };
