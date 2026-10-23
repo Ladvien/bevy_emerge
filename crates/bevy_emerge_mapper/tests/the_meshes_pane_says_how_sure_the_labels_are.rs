@@ -15,8 +15,10 @@
 //!   part a long model name cannot push out of the panel.
 //! - **The row is unchecked iff some axis is still a model's**, by the same predicate that
 //!   `emerge_list_pieces` `by_model` asks.
-//! - **The date is the model's labelling date** while a model axis is open, and the row says when a
-//!   person touched it since. Once every axis is confirmed, the row says `checked <date>` instead.
+//! - **The date is the model's labelling date** while a model axis is open. A date is given only for
+//!   a writer the record can name: a model's date, never an agent's or a person's, because `at` holds
+//!   the most recent write by anyone and the row cannot say which writer that was. Once every axis is
+//!   confirmed, the row says `checked <date>` instead.
 
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
@@ -100,7 +102,7 @@ fn labels_row(app: &mut App) -> Option<(String, Color)> {
     let world = app.world_mut();
     let mut q = world.query::<(&Text, &TextColor)>();
     q.iter(world)
-        .find(|(t, _)| t.0.contains("confidence ") || t.0.starts_with("by hand"))
+        .find(|(t, _)| t.0.contains("confidence ") || t.0.starts_with("by hand") || t.0.starts_with("agent set"))
         .map(|(t, c)| (t.0.clone(), c.0))
 }
 
@@ -148,10 +150,10 @@ fn a_record_a_person_confirmed_in_full_is_not_drawn_unchecked() {
     );
 }
 
-/// **While a model axis is open, the row gives the model's date**, and says when a person touched
-/// the record since, so the one date on the row cannot be mistaken for the other.
+/// **While a model axis is open, the row gives the model's date and names who wrote each other
+/// axis.** A person's or an agent's write carries no date of its own on the row.
 #[test]
-fn an_open_model_axis_keeps_the_models_date_and_says_when_a_person_touched_it() {
+fn an_open_model_axis_keeps_the_models_date_and_names_who_wrote_the_rest() {
     let mut app = open(fixtures::Fixture::new("labels_mixed").labelled_by(
         "fence",
         "alpha",
@@ -159,7 +161,7 @@ fn an_open_model_axis_keeps_the_models_date_and_says_when_a_person_touched_it() 
         r#"model: Some("gemma-x"), model_at: Some("2026-10-20"), at: "2026-10-21", confidence: Some(High)"#,
     ));
     let (text, ink) = labels_row(&mut app).expect("the labels row should be drawn");
-    assert_eq!(text, "confidence high · gemma-x · 2026-10-20 · touched 2026-10-21");
+    assert_eq!(text, "confidence high · gemma-x · 2026-10-20 · by hand set look");
     assert_eq!(ink, bevy_emerge_mapper::chrome::UNCHECKED);
 }
 
@@ -247,4 +249,79 @@ fn a_long_model_stem_wraps_inside_the_inspector_and_keeps_the_confidence_first()
         text, "confidence high · Ternary-Bonsai-2-27B-PTQ1_0 · 2026-10-20",
         "the confidence leads and the whole file stem is kept"
     );
+}
+
+/// **An agent's write on a legacy model record keeps the model's date and names the agent.**
+///
+/// A record written before `model_at` existed carries the model's date in `at` alone. The agent's
+/// write moved `at` to today, so the row read today as the model's date and never said an agent had
+/// written the axis. Failed before the fix: the row read `confidence high · gemma-x · <today>`.
+#[test]
+fn an_agent_write_on_a_legacy_model_record_keeps_the_models_date() {
+    let mut app = open(
+        fixtures::Fixture::new("labels_agent_legacy").look_tokens(&["worn"]).labelled_by(
+            "fence",
+            "alpha",
+            "(kind: Some(Model), look: Some(Model))",
+            r#"model: Some("gemma-x"), at: "2026-10-11", confidence: Some(High)"#,
+        ),
+    );
+    let answer = call(
+        &mut app,
+        "emerge/operation_apply",
+        json!({"operation": "label_set", "parameters": {"id": "fence", "axis": "look", "tokens": ["worn"]}, "dry_run": false}),
+    );
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let (text, ink) = labels_row(&mut app).expect("the labels row should be drawn");
+    assert_eq!(
+        text, "confidence high · gemma-x · 2026-10-11 · agent set look",
+        "the model still owns kind, so its date and name stay; the agent's look is named, not dated"
+    );
+    assert_eq!(ink, bevy_emerge_mapper::chrome::UNCHECKED);
+}
+
+/// **When the model wrote no axis still standing, the row names no model.** Failed before the fix:
+/// the row read `confidence high · gemma-x · <today>`, crediting the model for the agent's look.
+#[test]
+fn an_agent_write_that_leaves_no_model_axis_names_no_model() {
+    let mut app = open(
+        fixtures::Fixture::new("labels_agent_no_model_left").look_tokens(&["worn"]).labelled_by(
+            "fence",
+            "alpha",
+            "(look: Some(Model))",
+            r#"model: Some("gemma-x"), at: "2026-10-11", confidence: Some(High)"#,
+        ),
+    );
+    let answer = call(
+        &mut app,
+        "emerge/operation_apply",
+        json!({"operation": "label_set", "parameters": {"id": "fence", "axis": "look", "tokens": ["worn"]}, "dry_run": false}),
+    );
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let (text, ink) = labels_row(&mut app).expect("the labels row should be drawn");
+    assert_eq!(text, "agent set look", "no model axis is left, so no model is named");
+    assert_eq!(ink, bevy_emerge_mapper::chrome::UNCHECKED);
+}
+
+/// **An agent's write on a hand-labelled record is not called "by hand".** Failed before the fix: the
+/// row read `by hand · <today>`, crediting a person with the agent's write.
+#[test]
+fn an_agent_write_on_a_hand_labelled_record_is_not_called_by_hand() {
+    let mut app = open(
+        fixtures::Fixture::new("labels_agent_by_hand").look_tokens(&["worn"]).labelled_by(
+            "fence",
+            "alpha",
+            "(look: Some(Human))",
+            r#"at: "2026-10-11""#,
+        ),
+    );
+    let answer = call(
+        &mut app,
+        "emerge/operation_apply",
+        json!({"operation": "label_set", "parameters": {"id": "fence", "axis": "look", "tokens": ["worn"]}, "dry_run": false}),
+    );
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let (text, ink) = labels_row(&mut app).expect("the labels row should be drawn");
+    assert_eq!(text, "agent set look");
+    assert_eq!(ink, bevy_emerge_mapper::chrome::UNCHECKED);
 }

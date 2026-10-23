@@ -35,11 +35,11 @@ Label suggestions are offered rather than applied:
 
 ### The labels row
 
-The INSPECTOR's labels row says where a piece's labels came from and how sure that source was. For a model it reads `confidence high · <model file> · <date>`: the confidence (high, medium or low) first, then the model file's name without its folder or extension, then the date the labels were made. Labels a person set read `by hand · <date>`. A long row wraps inside the panel. The labels file keeps the model's full path; only the row shortens it.
+The INSPECTOR's labels row says where a piece's labels came from and how sure that source was. While a model still owns an axis, the row reads `confidence high · <model file> · <date>`: the confidence (high, medium or low) first, then the model file's name without its folder or extension, then the date the model made its labels. An axis an agent set reads `agent set <axes>`, and an axis a person set reads `by hand set <axes>`. Neither is dated, because the row cannot tell which write was the latest. Once every axis is confirmed, a person's labels read `by hand · <date>`, and a model's read `confidence high · <model file> · checked <date>`. A long row wraps inside the panel. The labels file keeps the model's full path; only the row shortens it.
 
-Labels a model suggested show in the unchecked colour until a person confirms each axis. A confirmed axis is drawn like the rest of the inspector.
+Labels a model suggested, and labels an agent set, show in the unchecked colour until a person confirms each axis. A confirmed axis is drawn like the rest of the inspector.
 
-An agent finds the same pieces without reading each one. `emerge_list_pieces` filters the list with `unlabelled` (no labels yet), `by_model` (labelled by a model), `confidence` (high, medium or low), `with_mesh` and `id_contains`. The reply counts every match, and it lists fifty at a time.
+An agent finds the same pieces without reading each one. `emerge_list_pieces` filters the list with `unlabelled` (no labels yet), `by_model` (labelled by a model or an agent, and not yet confirmed by a person), `confidence` (high, medium or low), `with_mesh` and `id_contains`. The reply counts every match, and it lists fifty at a time.
 
 The kit door opens with `=`, and it opens on this Meshes panel. An agent crosses to it with the `door_open` operation.
 

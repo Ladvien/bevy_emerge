@@ -3011,6 +3011,86 @@ pub fn apply_armed(state: &mut EditorState, project: &Project, after: Option<&se
     }
 }
 
+/// **The Meshes shelf's selection, as an operation answers it (E-044).** A click and `piece_select`
+/// both land here, so the answer names the piece and the shelf holds it as a click holds it: through
+/// `focus_on`, which keeps the highlight and the focused pack in step.
+pub fn apply_selected(import: &mut crate::tiles::ImportState, after: Option<&serde_json::Value>) {
+    let Some(id) = after
+        .and_then(|a| a.get("selected"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return;
+    };
+    import.focus_on(&crate::tiles::EditTarget::Library(id.to_string()));
+}
+
+/// **A click on a shelf row selects that piece (E-044).** It is the same operation an agent calls,
+/// so a click and an agent cannot disagree about what selecting a piece does. The note names the
+/// removal chord, because the row is where a person goes to remove a piece.
+pub fn select_piece(import: &mut crate::tiles::ImportState, project: &Project, id: &str) {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let params = serde_json::json!({"id": id});
+    match crate::ops::dispatch(&mut ctx, "piece_select", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            apply_selected(import, outcome.after.as_ref());
+            import.status.note(format!(
+                "`{id}` selected — {} removes it",
+                keys::chord(Action::RemoveTile)
+            ));
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => import.status.problem(e.0),
+    }
+}
+
+/// **Set one library piece's label axis through the operation** (E-042). The chip calls this for a
+/// piece in the library, so a person's light goes to the operation log and is undone with the rest.
+/// `Source::Human` stamps the label as a person's decision. Returns `true` when the write landed,
+/// so the caller records the change only then; a refusal goes to the status row.
+pub fn set_label(
+    import: &mut crate::tiles::ImportState,
+    project: &mut crate::project::Project,
+    id: &str,
+    axis: &str,
+    tokens: &[String],
+) -> bool {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let params = serde_json::json!({"id": id, "axis": axis, "tokens": tokens});
+    match crate::ops::dispatch(&mut ctx, "label_set", &params) {
+        Ok(crate::ops::Applied::Done { .. }) => {
+            if let Some(fresh) = ctx.project {
+                adopt_library(project, &fresh);
+            }
+            true
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            import.status.problem(e.0);
+            false
+        }
+    }
+}
+
+/// **Carry the library a label operation changed onto the live project.** Only the fields a
+/// library write touches move: the measured library and the layers the Map draws from it. A
+/// clone is not the live state, so without this the write would reach the file and not the screen.
+pub fn adopt_library(live: &mut crate::project::Project, fresh: &crate::project::Project) {
+    live.measured = fresh.measured.clone();
+    live.library = fresh.library.clone();
+    live.masks = fresh.masks.clone();
+    live.kits = fresh.kits.clone();
+    live.triangles = fresh.triangles.clone();
+    live.touched = fresh.touched.clone();
+}
+
 /// Grow or shrink one axis. Clamped at one cell rather than at zero: a map has to enclose something,
 /// and `Map::validate` refuses a non-positive extent — better to stop at the floor than to write a
 /// map the save will then reject.
@@ -8267,7 +8347,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
-            carry_rules(project, &mut ctx);
+            carry_changes(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8316,7 +8396,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
-            carry_rules(project, &mut ctx);
+            carry_changes(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8369,7 +8449,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
-            carry_rules(project, &mut ctx);
+            carry_changes(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8494,15 +8574,20 @@ fn set_pin(
     }
 }
 
-/// **Carry an operation's rules back into the project.** A rename rewrites `rules.ron`'s examples,
-/// and generate reads them from the Project resource, so the rules the operation changed must go
-/// back in. Only the rules change, and only when they did, so a change-detected resource is not
-/// marked changed by an operation that left the rules alone.
-fn carry_rules(project: &mut Project, ctx: &mut crate::ops::Ctx) {
-    if let Some(fresh) = ctx.project.take()
-        && project.rules != fresh.rules
-    {
-        project.rules = fresh.rules;
+/// **Carry an operation's changes back into the project.** A rename rewrites `rules.ron`'s examples,
+/// and generate reads them from the Project resource; a label write changes the measured library,
+/// which the Map draws from. Either must go back in, or the file and the screen disagree until the
+/// watcher re-opens the map. Each is compared first and written only when it changed, so a
+/// change-detected resource is not marked changed by an operation that left it alone (cycle 9 gap 2).
+pub(crate) fn carry_changes(project: &mut Project, ctx: &mut crate::ops::Ctx) {
+    let Some(fresh) = ctx.project.take() else {
+        return;
+    };
+    if project.rules != fresh.rules {
+        project.rules = fresh.rules.clone();
+    }
+    if project.measured != fresh.measured {
+        adopt_library(project, &fresh);
     }
 }
 
@@ -8538,7 +8623,7 @@ fn rename_map(
         *open = fresh;
     }
     if let Some(project) = project {
-        carry_rules(project, &mut ctx);
+        carry_changes(project, &mut ctx);
     }
     match outcome {
         Ok(crate::ops::Applied::Done {

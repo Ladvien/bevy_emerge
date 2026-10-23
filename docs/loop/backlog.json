@@ -440,32 +440,12 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-042",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "label_set: a human-stamped label op for agents (parity with the Labels row)",
-      "status": "open",
-      "evidence": "labels.rs stamp_human. Cycle 8 enhancement notes. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
       "id": "E-043",
       "kind": "enhancement",
       "area": "mcp",
       "title": "label_suggest and label_apply: VLM labelling over MCP, fixture-backed",
       "status": "open",
       "evidence": "Cycle 8 enhancement notes; needs VLM fixture. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
-      "id": "E-044",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "A select-a-piece operation (parity gap with the editor's selection)",
-      "status": "open",
-      "evidence": "Cycle 8 notes: parity gap. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -493,9 +473,59 @@
       "id": "E-047",
       "kind": "enhancement",
       "area": "mcp",
-      "title": "Review gaps 14, 15, 16 (docs.rs vs main.rs, confidence_word)",
+      "title": "Review gaps 14 and 16 (confidence wording, duplicate confidence_word)",
       "status": "open",
-      "evidence": "Gap 15: crates/bevy_emerge_mcp/src/docs.rs:279 vs main.rs:238. Gap 16: crates/bevy_emerge_mapper/src/ops_brp.rs:451 fn confidence_word. Gap 14: local://c8-review.md (not in repo).",
+      "evidence": "Gap 15 fixed in bfc538b: the only copy of the pieces_from wording in crates/bevy_emerge_mcp/src is docs.rs:279 (counted in the filtered list; 0 is the first match). Gap 16 open: crates/bevy_emerge_mapper/src/ops_brp.rs:462 fn confidence_word (cycle 8 cited :451; the line moved). Gap 14 open: confidence and at describe the record, not what is unchecked (local://c8-review.md, not in repo). Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-048",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "An agent's kit edit gives the person almost no visible feedback",
+      "status": "open",
+      "evidence": "Cycle 9 demo agent_corrects_a_label did not ship. The label change is 0.18-1.04% of the frame across crops A-E for label_set, and 0.39-1.28% for undo, against a 5% bar. Proposal: a receipt line naming the change (agent set barrel kind: container -> decor) and a brief highlight on the changed chip. Storyboard outside the repo: /tmp/cycle9/keep/agent_corrects_a_label.json. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-049",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "A chip click writes library.ron twice (review gap 9)",
+      "status": "open",
+      "evidence": "tiles.rs:6321-6324: set_label -> commit_measured writes the file, then persist(Library) writes the identical file again. Fix: state.status.say(Ok(said)) in that branch. Review note, not judged. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-050",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "The Meshes right-arrow seed selects without the operation; correct the walk keys' reason (review gap 10)",
+      "status": "open",
+      "evidence": "tiles.rs:6442: FocusLibrary still sets selected_library_id = Some(land) directly, with no log line. Fix: route the seed through select_piece. The walk keys PrevCandidate and NextCandidate stay unmigrated because they also walk the candidate list, which no operation covers; the stated reason was wrong. UNMIGRATED_MAX stays 119. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-051",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "Kit ops clone the whole Project per click, and a third Levenshtein copy exists (review gap 12)",
+      "status": "open",
+      "evidence": "editor.rs:3030-3036: each shelf click or arrow step clones Project and appends an oplog line; a chip click clones Project once and measured twice. Third Levenshtein copy at ops.rs:2278, next to brush_arm's (ops.rs ~1894) and core's private one. Fix: share brush_arm's ranking helper. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-052",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "by_model reads as model-only but also matches agent-written axes (review gap 13)",
+      "status": "open",
+      "evidence": "Every MCP description except gap 7's already says by_model matches agent-written axes, so this is naming only. Later alias: unconfirmed. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
     }

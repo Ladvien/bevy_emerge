@@ -1432,13 +1432,7 @@ pub(crate) fn settled_effects(
     vocab: &bevy_emerge_core::vocab::Vocabularies,
 ) -> Vec<String> {
     let want = vocab.implied_effects(kind);
-    let derived = |e: &str| {
-        vocab
-            .kind
-            .tokens
-            .iter()
-            .any(|t| t.implies.iter().any(|i| i == e))
-    };
+    let derived = |e: &str| is_derived(vocab, e);
     let mut out: Vec<String> = effects
         .iter()
         .filter(|e| !derived(e) || want.contains(e))
@@ -1453,6 +1447,13 @@ pub(crate) fn settled_effects(
     // the library shows real changes only (`tiles::on_tag_chip`'s rule).
     out.sort_by_key(|t| vocab.effects.names().position(|n| n == t).unwrap_or(usize::MAX));
     out
+}
+
+/// **Whether some kind implies this effect** — the derived half of `effects`, the tokens
+/// [`settle_implied_effects`] owns. A write of one of these onto a kind that does not imply it is
+/// refused in `ops::label_set`, because the next settle would drop it.
+pub(crate) fn is_derived(vocab: &bevy_emerge_core::vocab::Vocabularies, effect: &str) -> bool {
+    vocab.kind.tokens.iter().any(|t| t.implies.iter().any(|i| i == effect))
 }
 
 pub fn apply_fields(
@@ -1487,7 +1488,9 @@ pub fn apply_fields(
         origin.by = if was.model.as_deref() == Some(stamp.model.as_str()) {
             was.by
         } else {
-            let by_hand = |b: Option<By>| b.filter(|b| *b == By::Human);
+            // An agent's claim names no model, so a different model's arrival does not make it
+            // wrong: it carries forward with a person's, as the author's word.
+            let by_hand = |b: Option<By>| b.filter(|b| matches!(b, By::Human | By::Agent));
             AxisOrigin {
                 kind: by_hand(was.by.kind),
                 effects: by_hand(was.by.effects),
@@ -1577,15 +1580,31 @@ pub(crate) fn stamp_human(
     d: &mut bevy_emerge_core::descriptor::Descriptor,
     axis: bevy_emerge_core::descriptor::Axis,
 ) {
-    use bevy_emerge_core::descriptor::{By, LabelOrigin};
+    stamp_by(d, axis, bevy_emerge_core::descriptor::By::Human);
+}
+
+/// **Stamp one axis with the provenance of whoever wrote it** (E-042). A person writes `By::Human`
+/// and an agent writes `By::Agent`; the two are never folded together, because an agent's claim is
+/// unconfirmed until a person looks. `at` moves to today for either.
+pub(crate) fn stamp_by(
+    d: &mut bevy_emerge_core::descriptor::Descriptor,
+    axis: bevy_emerge_core::descriptor::Axis,
+    by: bevy_emerge_core::descriptor::By,
+) {
+    use bevy_emerge_core::descriptor::LabelOrigin;
 
     let today = date_today();
     let record = d.labels.get_or_insert_with(|| LabelOrigin {
         at: today.clone(),
         ..Default::default()
     });
+    // A record written before `model_at` existed keeps the model's date only in `at`. Pin it
+    // before `at` moves, or this write's date would be read as the model's.
+    if record.model.is_some() && record.model_at.is_none() {
+        record.model_at = Some(record.at.clone());
+    }
     record.at = today;
-    record.by.set(axis, By::Human);
+    record.by.set(axis, by);
 }
 
 /// **The model's name as a person reads it on a row**: its last path segment with the weight-file

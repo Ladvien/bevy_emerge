@@ -488,6 +488,12 @@ impl Project {
             .map(|k| k.namespace.as_str())
     }
 
+    /// **A piece another kit owns**, by that kit's namespace. `None` when this kit owns it, or
+    /// when no bound kit has it. The refusals use it to say whose piece it is.
+    pub fn other_kit_of(&self, id: &str) -> Option<&str> {
+        self.kit_of(id).filter(|ns| *ns != self.namespace)
+    }
+
     /// **Every map in this project that places `id`**, by name, in a stable order.
     ///
     /// # It used to ask the open map, which was the wrong map

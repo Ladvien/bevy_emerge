@@ -282,6 +282,10 @@ struct Operated<'w> {
     due: Option<ResMut<'w, crate::watch::Due>>,
     state: Option<ResMut<'w, crate::editor::EditorState>>,
     confirm: Option<Res<'w, crate::confirm::Confirm>>,
+    import: Option<ResMut<'w, crate::tiles::ImportState>>,
+    door: Option<Res<'w, crate::tiles::Door>>,
+    mode: Option<Res<'w, crate::tiles::Mode>>,
+    filters: Option<Res<'w, crate::filter::Filters>>,
 }
 
 /// **Take the frames that are due, and finish the run when the last one is in.**
@@ -342,12 +346,7 @@ fn drive_sequencer(
     if !run.applied && run.next >= 1 {
         run.applied = true;
         if let Some(op) = run.operation.clone() {
-            let mut ctx = crate::ops::Ctx {
-                project: operated.project.as_deref().cloned(),
-                open: operated.open.as_deref().cloned(),
-                source: crate::ops::Source::Agent,
-                session: crate::ops::session_id(),
-            };
+            let mut ctx = crate::ops_brp::take(&operated.project, &operated.open);
             // **Through the registry, and not around it.** The sequencer is a way of *when* an
             // operation happens, and it must not be a second way of *what* happens.
             // **A door is refused before its plan, as `emerge/operation_apply` refuses it (cycle 8).**
@@ -358,7 +357,21 @@ fn drive_sequencer(
             let door_refusal = (op.name == "door_open")
                 .then(|| operated.state.as_deref().and_then(|s| crate::editor::door_refusal(s, asking)))
                 .flatten();
-            let outcome = match door_refusal {
+            // **A piece is selected only from the Meshes shelf, as the shelf shows it (E-044)**: the
+            // refusal `emerge/operation_apply` gives, and a refusal changes nothing.
+            let piece_refusal = (op.name == "piece_select")
+                .then(|| {
+                    let id = op.parameters.get("id").and_then(Value::as_str).unwrap_or_default();
+                    crate::ops_brp::piece_select_refusal(
+                        operated.door.as_deref().copied(),
+                        operated.mode.as_deref().copied(),
+                        operated.project.as_deref(),
+                        operated.filters.as_deref(),
+                        id,
+                    )
+                })
+                .flatten();
+            let outcome = match door_refusal.map(str::to_string).or(piece_refusal) {
                 Some(why) => Ok(crate::ops::Applied::Refused(crate::ops::Refusal::new(why))),
                 None => crate::ops::dispatch(&mut ctx, &op.name, &op.parameters),
             };
@@ -371,16 +384,31 @@ fn drive_sequencer(
             {
                 due.map_replaced |= outcome.saved;
             }
+            // **A piece the sequence selects is the row a click would be (E-044)**, as the apply holds it.
+            if let (Ok(crate::ops::Applied::Done { outcome, .. }), Some(import)) =
+                (&outcome, operated.import.as_deref_mut())
+                && op.name == "piece_select"
+            {
+                crate::editor::apply_selected(import, outcome.after.as_ref());
+            }
             // **The agent's change joins the person's one undo history (B-019)**, as it does through
-            // `emerge/operation_apply`: a turn a sequence applies is an agent's turn.
+            // `emerge/operation_apply`: a turn a sequence applies is an agent's turn. An operation that
+            // changes no document (`Undo::None`) has nothing to take back, so it stays out (gap 4).
             if let Ok(crate::ops::Applied::Done {
                 outcome,
                 operation_id,
                 ..
             }) = &outcome
-                && let Some(state) = operated.state.as_mut()
+                && crate::ops::find(&op.name).is_some_and(|o| o.undo() != crate::ops::Undo::None)
             {
-                state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
+                let writes = crate::ops::find(&op.name).is_some_and(|o| o.writes_library());
+                crate::ops_brp::join_history(
+                    writes,
+                    operated.state.as_deref_mut(),
+                    operated.import.as_deref_mut(),
+                    operation_id,
+                    &outcome.summary,
+                );
             }
             // **A door the operation answered with is stored for the editor to cross (cycle 8).** The
             // BRP path stores it the same way, and `editor::apply_pending_door` carries it out in the
@@ -419,12 +447,9 @@ fn drive_sequencer(
                 }
                 Err(e) => json!({"outcome": "refused", "refusal": e.0}),
             });
-            // **The map goes back**, changed or not.
-            if let Some(fresh) = ctx.open.take()
-                && let Some(handle) = operated.open.as_deref_mut()
-            {
-                *handle = fresh;
-            }
+            // **The map and the library go back, changed or not** (gap 4). The same write-back
+            // `emerge/operation_apply` makes, so a label a sequence sets is on the screen the person sees.
+            crate::ops_brp::put_back(&mut operated.project, &mut operated.open, ctx);
         }
     }
 

@@ -148,7 +148,7 @@ fn context(
 /// **`ResMut::into_inner` hands back a borrow, not the value** — so the value is cloned out and
 /// the changed one is cloned back. **The clone is the price of the registry's `dyn`**, and it is
 /// paid once per operation rather than once per frame.
-fn take(
+pub(crate) fn take(
     project: &Option<ResMut<crate::project::Project>>,
     open: &Option<ResMut<crate::project::OpenMap>>,
 ) -> Ctx {
@@ -164,7 +164,7 @@ fn take(
 ///
 /// **The map, and the rules when an operation changed them.** Most operations read the library and
 /// write the file and leave the project alone; a rename is the one that rewrites `rules.ron`.
-fn put_back(
+pub(crate) fn put_back(
     project: &mut Option<ResMut<crate::project::Project>>,
     open: &mut Option<ResMut<crate::project::OpenMap>>,
     ctx: Ctx,
@@ -179,6 +179,16 @@ fn put_back(
         && let Some(handle) = project.as_deref_mut()
     {
         handle.rules = fresh;
+    }
+    // **The library too, when an operation changed it** (E-042). `commit_measured` writes the
+    // library and the layers the Map draws from it, so a label kept only in the clone would be on
+    // disk and not on screen. Compared first, for the reason the rules are: most operations change
+    // no library, and writing through `as_deref_mut` marks the resource changed.
+    if let Some(fresh) = ctx.project.as_ref()
+        && project.as_deref().is_some_and(|p| p.measured != fresh.measured)
+        && let Some(handle) = project.as_deref_mut()
+    {
+        crate::editor::adopt_library(handle, fresh);
     }
     if let Some(fresh) = ctx.open
         && let Some(handle) = open.as_deref_mut()
@@ -423,7 +433,7 @@ fn axis_values(d: &Descriptor) -> [(&'static str, Axis, Value); 6] {
 /// with every field `null` and no axes, so a row never changes shape with its provenance.
 ///
 /// Returns the provenance, whether the piece is unlabelled (no axis labelled), and whether any
-/// axis was written by the model and never confirmed by a person.
+/// axis was written by a model or an agent and never confirmed by a person.
 fn provenance(d: &Descriptor) -> (Value, bool, bool) {
     let mut axes = serde_json::Map::new();
     for (name, axis, value) in axis_values(d) {
@@ -433,10 +443,11 @@ fn provenance(d: &Descriptor) -> (Value, bool, bool) {
         let by = match by {
             By::Model => "model",
             By::Human => "human",
+            By::Agent => "agent",
         };
         axes.insert(name.to_owned(), json!({"value": value, "by": by}));
     }
-    let by_model = d.labels.as_ref().is_some_and(|l| l.by.any_by_model());
+    let by_model = d.labels.as_ref().is_some_and(|l| l.by.any_unconfirmed());
     let unlabelled = axes.is_empty();
     let (model, at, confidence) = match &d.labels {
         Some(l) => (l.model.clone(), Some(l.at.clone()), l.confidence.map(|c| c.to_string())),
@@ -605,12 +616,57 @@ fn operation_preview(
     }
 }
 
+/// **Why the Meshes shelf cannot select this piece now, or `None` when it can (E-044).**
+///
+/// The plan reads the library and nothing else. The door, the job and the shelf filter are editor
+/// state, so they are read here, where the editor's resources are in hand.
+pub(crate) fn piece_select_refusal(
+    door: Option<crate::tiles::Door>,
+    mode: Option<crate::tiles::Mode>,
+    project: Option<&crate::project::Project>,
+    filters: Option<&crate::filter::Filters>,
+    id: &str,
+) -> Option<String> {
+    use crate::tiles::{Door, Mode};
+    if door != Some(Door::Kit) || mode != Some(Mode::Meshes) {
+        return Some(
+            "the Meshes shelf is not on screen. Open the kit door on its meshes panel first (door_open with door kit and tab meshes), then select the piece."
+                .to_string(),
+        );
+    }
+    // No project is open: the plan refuses it with the editor's own sentence.
+    let (Some(project), Some(filters)) = (project, filters) else {
+        return None;
+    };
+    if !filters.keeps(crate::filter::Pane::Candidates, id) {
+        return Some(format!(
+            "the shelf filter hides `{id}`. Clear the filter, then select the piece."
+        ));
+    }
+    let known = project.library.descriptors.iter().any(|d| d.id == id);
+    if known && project.measured.get(id).is_none() {
+        if let Some(ns) = project.other_kit_of(id) {
+            return Some(format!(
+                "`{id}` belongs to kit `{ns}`, not the kit being authored (`{}`).",
+                project.namespace
+            ));
+        }
+        return Some(format!(
+            "`{id}` is not on the shelf, because it has no measurement yet."
+        ));
+    }
+    None
+}
+
 /// **`emerge/operation_apply` — run one operation.**
 ///
 /// **The one way an agent changes the editor.** It dispatches through
 /// [`crate::ops::dispatch`], which is the same function a key handler calls — so the two front
 /// ends cannot drift, and the log records the agent's work in the same file the human's work is
 /// recorded in.
+// Each resource is its own parameter, so an app without one still runs, and the ratchet tests that
+// read this signature see each one; a bundle would hide them from both.
+#[allow(clippy::too_many_arguments)]
 fn operation_apply(
     In(p): In<ApplyParams>,
     mut project: Option<ResMut<crate::project::Project>>,
@@ -618,6 +674,10 @@ fn operation_apply(
     mut due: Option<ResMut<crate::watch::Due>>,
     mut state: Option<ResMut<crate::editor::EditorState>>,
     confirm: Option<Res<crate::confirm::Confirm>>,
+    door: Option<Res<crate::tiles::Door>>,
+    mode: Option<Res<crate::tiles::Mode>>,
+    filters: Option<Res<crate::filter::Filters>>,
+    mut import: Option<ResMut<crate::tiles::ImportState>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -641,6 +701,28 @@ fn operation_apply(
         {
             if let Some(state) = state.as_mut() {
                 state.problem_agent_refusal(&p.operation, why);
+            }
+            return Ok(json!({
+                "operation": p.operation,
+                "outcome": "refused",
+                "refusal": why,
+            }));
+        }
+    }
+
+    // **A piece is selected only from the Meshes shelf, as the shelf shows it (E-044).** A refusal
+    // changes nothing and is logged nowhere, as a refused door is not.
+    if p.operation == "piece_select" {
+        let id = p.parameters.get("id").and_then(Value::as_str).unwrap_or_default();
+        if let Some(why) = piece_select_refusal(
+            door.as_deref().copied(),
+            mode.as_deref().copied(),
+            project.as_deref(),
+            filters.as_deref(),
+            id,
+        ) {
+            if let Some(state) = state.as_mut() {
+                state.problem_agent_refusal(&p.operation, &why);
             }
             return Ok(json!({
                 "operation": p.operation,
@@ -704,6 +786,15 @@ fn operation_apply(
     {
         crate::editor::request_door(state, outcome.after.as_ref());
     }
+
+    // **An agent's selection is the row a click would be (E-044).** The answer names the piece, and
+    // the Meshes shelf holds it as a click holds it.
+    if let (Ok(ops::Applied::Done { outcome, .. }), Some(import)) =
+        (&applied, import.as_deref_mut())
+        && p.operation == "piece_select"
+    {
+        crate::editor::apply_selected(import, outcome.after.as_ref());
+    }
     // **The agent's change joins the person's one undo history (B-019).** Logged here, so Cmd+Z
     // takes back the newest change whoever made it, not the newest the person made by hand. An
     // operation that changes no document (`Undo::None`, such as arming a piece) has nothing to take
@@ -714,9 +805,14 @@ fn operation_apply(
         ..
     }) = &applied
         && op.undo() != ops::Undo::None
-        && let Some(state) = state.as_mut()
     {
-        state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
+        join_history(
+            op.writes_library(),
+            state.as_deref_mut(),
+            import.as_deref_mut(),
+            operation_id,
+            &outcome.summary,
+        );
     }
 
     // **The person's receipt says what the agent did (B-020).** A refusal goes to the journal as a
@@ -785,6 +881,7 @@ fn operation_undo(
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
     mut state: Option<ResMut<crate::editor::EditorState>>,
+    mut import: Option<ResMut<crate::tiles::ImportState>>,
 ) -> Result<Value, String> {
     if p.dry_run {
         // **A preview reads the log and plans the inverse, and writes nothing.**
@@ -832,13 +929,23 @@ fn operation_undo(
     // **The change this undo took back leaves the person's history too (B-019)**, so the next Cmd+Z
     // reaches the newest change still in effect instead of one the log no longer holds. A put-back is
     // the opposite: the change is in effect again, so it is the newest change and joins the history.
-    if let Ok((plan, ops::Applied::Done { outcome, operation_id, .. })) = &undone
-        && let Some(state) = state.as_mut()
-    {
+    if let Ok((plan, ops::Applied::Done { outcome, operation_id, .. })) = &undone {
         if plan.restores {
-            state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
+            let writes = ops::find(&plan.line.op).is_some_and(|o| o.writes_library());
+            join_history(
+                writes,
+                state.as_deref_mut(),
+                import.as_deref_mut(),
+                operation_id,
+                &outcome.summary,
+            );
         } else {
-            state.forget_line(&plan.line.operation_id);
+            if let Some(state) = state.as_mut() {
+                state.forget_line(&plan.line.operation_id);
+            }
+            if let Some(import) = import.as_mut() {
+                import.forget_line(&plan.line.operation_id);
+            }
         }
     }
 
@@ -1088,7 +1195,7 @@ impl Plugin for OpsBridgePlugin {
                  is the page to read, counted in the filtered list; total is the true filtered \
                  count and pieces_next says where the next page starts. A read.",
             )
-            .params("pieces_from: the first piece to name in the filtered list (default 0). with_mesh: true to leave out pieces with no mesh (default false). unlabelled: true to keep only pieces no one has labelled (default false). by_model: true to keep pieces with an axis a model wrote and no person confirmed (default false). confidence: high, medium or low, keeps only that label confidence (default none). id_contains: keeps pieces whose id contains this text (default none).")
+            .params("pieces_from: the first piece to name in the filtered list (default 0). with_mesh: true to leave out pieces with no mesh (default false). unlabelled: true to keep only pieces no one has labelled (default false). by_model: true to keep pieces with an axis a model or an agent wrote and no person confirmed (default false). confidence: high, medium or low, keeps only that label confidence (default none). id_contains: keeps pieces whose id contains this text (default none).")
             .example(json!({"by_model": true, "confidence": "low"})),
             editor_pieces,
         );
@@ -1211,5 +1318,23 @@ impl Plugin for OpsBridgePlugin {
             .example(json!({"target": {"rect": [200.0, 100.0, 400.0, 300.0]}})),
             frame_view,
         );
+    }
+}
+
+/// **Which history a logged change joins (cycle 9 gap 1).** A library write joins the Meshes history,
+/// beside the person's Meshes edits, so one Cmd+Z there takes back the newest library change whoever
+/// made it. Every other change joins the Map history, as it always has. `TilesPlugin` inserts
+/// `ImportState`, so a library write falls back to the Map history only in an app built without it.
+pub(crate) fn join_history(
+    writes_library: bool,
+    state: Option<&mut crate::editor::EditorState>,
+    import: Option<&mut crate::tiles::ImportState>,
+    line: &str,
+    summary: &str,
+) {
+    match (writes_library, import, state) {
+        (true, Some(import), _) => import.record_logged(line.to_string(), summary.to_string()),
+        (_, _, Some(state)) => state.record_logged(line.to_string(), summary.to_string(), true),
+        _ => {}
     }
 }

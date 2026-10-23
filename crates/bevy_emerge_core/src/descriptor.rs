@@ -175,11 +175,15 @@ pub struct AxisOrigin {
 
 /// **Who wrote a value.**
 ///
-/// Two variants and not three. An `Import` for "the measuring pass put this here" was drafted and
-/// cut, because nothing in the importer writes any of these six fields — it measures size, extent
-/// and cells — so the variant would have had no writer, and a value no code path can produce is a
-/// stub wearing a schema's clothes. `None` already says *no record*, which is exactly and only what
-/// a manifest-generated descriptor means. Add the variant when something claims it.
+/// Three variants: the model, the person and the agent each claim a value, and the record keeps
+/// them apart. An `Import` for "the measuring pass put this here" was drafted and cut, because
+/// nothing in the importer writes any of these six fields — it measures size, extent and cells — so
+/// it would have had no writer. `None` already says *no record*, which is exactly and only what a
+/// manifest-generated descriptor means.
+///
+/// **Old readers.** A file without `Agent` parses everywhere. A `library.ron` that holds `Agent`
+/// (written by `label_set` from an agent) does not parse in a core older than the one that added
+/// the variant, so a consumer pinned to an older core must move with the editor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum By {
     /// A model proposed it and a person pressed apply. **Not the same as a person deciding it** —
@@ -187,6 +191,10 @@ pub enum By {
     Model,
     /// A person typed it, clicked it, or confirmed it in the editor.
     Human,
+    /// An agent wrote it through a registered operation (`label_set`). **Not a person's word**, so
+    /// it counts as unconfirmed, the same as a model's; and not a model's, so the record does not
+    /// claim a VLM said it.
+    Agent,
 }
 
 /// How sure a labeller said it was — display only, never a branch.
@@ -266,12 +274,13 @@ impl AxisOrigin {
         }
     }
 
-    /// **Whether a model wrote an axis that nobody has since confirmed.** The one predicate the
-    /// labels row and `emerge_list_pieces`' `by_model` both ask, so the two cannot disagree about
-    /// which pieces still await a person.
-    pub fn any_by_model(&self) -> bool {
+    /// **Whether a model or an agent wrote an axis that nobody has since confirmed.** The one
+    /// predicate the labels row and `emerge_list_pieces`' `by_model` both ask, so the two cannot
+    /// disagree about which pieces still await a person.
+    pub fn any_unconfirmed(&self) -> bool {
         [self.kind, self.effects, self.look, self.surfaces, self.mount, self.note]
-            .contains(&Some(By::Model))
+            .iter()
+            .any(|by| matches!(by, Some(By::Model | By::Agent)))
     }
 }
 

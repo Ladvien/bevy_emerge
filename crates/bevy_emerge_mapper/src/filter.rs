@@ -115,9 +115,9 @@ impl Filters {
         self.focus = Some(pane);
     }
 
-    /// Type one character into a box, for tests — the real path is `keys`, which reads the
-    /// message stream and cannot be driven without an `App`.
-    #[cfg(test)]
+    /// Type one character into a box, for a headless driver — the real path is `keys`, which reads
+    /// the message stream and cannot be driven without an `App`. The integration tests reach it
+    /// through the public crate, so it is not gated on `cfg(test)`.
     pub fn push_for_test(&mut self, pane: Pane, c: char) {
         self.text_mut(pane).push(c);
     }

@@ -255,10 +255,10 @@ pub struct ImportState {
     /// collision. `put_cursor` is the one writer, and it clears `focused_pack` on the way in and
     /// this on the way out, which is what keeps "one cursor" true.
     pub excluded_focused: bool,
-    /// **This tab's history**, most recent last. See [`Snapshot`].
-    pub undo: Vec<Snapshot>,
+    /// **This tab's history**, most recent last. See [`Step`].
+    pub undo: Vec<Step>,
     /// What has been undone here and can be put back. Cleared by any new edit on this tab.
-    pub redo: Vec<Snapshot>,
+    pub redo: Vec<Step>,
 }
 
 /// **Everything one Tiles-tab edit can change**, taken before it changes.
@@ -297,6 +297,17 @@ pub struct CursorMark {
 /// enough that it is not a limit anyone reaches by working normally.
 pub const TILE_HISTORY: usize = 64;
 
+/// **One step on the Meshes history.** A person's Meshes edit is a [`Snapshot`], restored whole. An
+/// agent's library write is a [`Step::Logged`]: the operation-log line that made it, undone through
+/// `ops::undo` the way the Map door undoes an agent's turn (cycle 9 gap 1). A snapshot restore can
+/// never erase a newer agent write, because that write is a step of its own and not part of a
+/// snapshot the person took before it.
+#[derive(Clone)]
+pub enum Step {
+    Snapshot(Snapshot),
+    Logged { line: String, phrase: String },
+}
+
 impl ImportState {
     /// The state as it stands, for the history.
     pub fn snapshot(&self, project: &Project) -> Snapshot {
@@ -317,11 +328,36 @@ impl ImportState {
     /// One place, so no edit site can forget the second half — the same rule `EditorState::record`
     /// follows on the map side, and for the same reason.
     pub fn record(&mut self, before: Snapshot) {
+        self.record_step(Step::Snapshot(before));
+    }
+
+    /// **Record a change an agent's operation made**, by its operation-log line (cycle 9 gap 1).
+    pub fn record_logged(&mut self, line: String, phrase: String) {
+        self.record_step(Step::Logged { line, phrase });
+    }
+
+    fn record_step(&mut self, step: Step) {
         if self.undo.len() >= TILE_HISTORY {
             self.undo.remove(0);
         }
-        self.undo.push(before);
+        self.undo.push(step);
         self.redo.clear();
+    }
+
+    /// Forget a logged step whose line is no longer in effect, on either stack.
+    pub fn forget_line(&mut self, line: &str) {
+        let gone = |s: &Step| matches!(s, Step::Logged { line: l, .. } if l == line);
+        self.undo.retain(|s| !gone(s));
+        self.redo.retain(|s| !gone(s));
+    }
+
+    /// Put an entry back on the undo stack (`undo`) or the redo stack, where it was taken from.
+    pub fn push_step(&mut self, undo: bool, step: Step) {
+        if undo {
+            self.undo.push(step);
+        } else {
+            self.redo.push(step);
+        }
     }
 }
 
@@ -1281,9 +1317,16 @@ fn tile_history_keys(
     } else {
         state.redo.pop()
     };
-    let Some(want) = taken else {
+    let Some(step) = taken else {
         state.status.note(format!("nothing to {verb} on this tab"));
         return;
+    };
+    let want = match step {
+        Step::Snapshot(want) => want,
+        Step::Logged { line, phrase } => {
+            replay_logged(back, verb, line, phrase, &mut project, &mut state);
+            return;
+        }
     };
 
     // **The map gets a vote.** `commit_measured` validates the library against itself and never
@@ -1318,11 +1361,7 @@ fn tile_history_keys(
             // A project whose maps cannot be read cannot answer this, and guessing "nobody places
             // it" is how a guard stops guarding. Refuse and say which file.
             Err(e) => {
-                if back {
-                    state.undo.push(want);
-                } else {
-                    state.redo.push(want);
-                }
+                state.push_step(back, Step::Snapshot(want));
                 state.status.problem(format!("cannot {verb}: {e}"));
                 return;
             }
@@ -1331,11 +1370,7 @@ fn tile_history_keys(
     if !missing.is_empty() {
         let named = missing.join("`, `");
         // Back where it came from — refusing must not also cost the entry.
-        if back {
-            state.undo.push(want);
-        } else {
-            state.redo.push(want);
-        }
+        state.push_step(back, Step::Snapshot(want));
         state.status.problem(format!(
             "cannot {verb}: `{named}` still places it — remove or undo those placements first"
         ));
@@ -1365,20 +1400,70 @@ fn tile_history_keys(
             state.focused_pack = want.cursor.pack;
             state.excluded_focused = want.cursor.excluded;
             if back {
-                state.redo.push(now);
+                state.push_step(false, Step::Snapshot(now));
                 state.status.note("undid the last tile edit".to_owned());
             } else {
-                state.undo.push(now);
+                state.push_step(true, Step::Snapshot(now));
                 state.status.note("put the tile edit back".to_owned());
             }
         }
         Err(e) => {
-            if back {
-                state.undo.push(want);
-            } else {
-                state.redo.push(want);
-            }
+            state.push_step(back, Step::Snapshot(want));
             state.status.problem(format!("could not {verb}: {e}"));
+        }
+    }
+}
+
+/// **Undo or redo one logged change, as the Map door undoes an agent's turn (cycle 9 gap 1).**
+///
+/// The change is taken back by its operation-log line through `ops::undo`, so the log stays true: the
+/// line is no longer in effect, and `emerge_undo_operation` cannot be asked for it twice. The reversal
+/// is itself logged, and the entry it leaves on the other stack names that line, so redo is the same
+/// operation on the other side. A refusal puts the entry back, where the author looks.
+fn replay_logged(
+    back: bool,
+    verb: &str,
+    line: String,
+    phrase: String,
+    project: &mut Project,
+    state: &mut ImportState,
+) {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    match crate::ops::undo(&mut ctx, Some(&line)) {
+        Ok((
+            _,
+            crate::ops::Applied::Done {
+                outcome,
+                operation_id,
+                ..
+            },
+        )) => {
+            if let Some(fresh) = ctx.project.take() {
+                crate::editor::adopt_library(project, &fresh);
+            }
+            state.push_step(
+                !back,
+                Step::Logged {
+                    line: operation_id,
+                    phrase,
+                },
+            );
+            state.status.note(outcome.summary);
+        }
+        Ok((_, crate::ops::Applied::Refused(e))) | Err(e) => {
+            state.push_step(
+                back,
+                Step::Logged {
+                    line,
+                    phrase: phrase.clone(),
+                },
+            );
+            state.status.problem(format!("cannot {verb} {phrase}: {}", e.0));
         }
     }
 }
@@ -3199,7 +3284,7 @@ fn write_library(project: &mut Project) -> Result<std::path::PathBuf, String> {
 /// therefore byte-identical to what was already there, the change vanished, and the status line
 /// reported success: *"added `crate_b` — it is in the palette now"* about a palette that never gained
 /// it. A derived layer is not a place to keep anything; this is the only door to the one that is.
-fn commit_measured(
+pub(crate) fn commit_measured(
     project: &mut Project,
     measured: bevy_emerge_core::library::Library,
 ) -> Result<std::path::PathBuf, String> {
@@ -4711,6 +4796,39 @@ mod pack_fold_tests {
             mesh: Some(format!("{pack}/{id}.glb")),
             ..Descriptor::default()
         }
+    }
+
+    /// **A Map-door reversal that changed the library lands in the live project** (cycle 9 gap 2).
+    ///
+    /// The reversal runs `ops::undo` on a clone, and `carry_changes` used to move only the rules back.
+    /// A label write in the clone then left the live `measured` library stale until the watcher
+    /// re-opened the map about 250 ms later, so the Map drew the old look in the meantime.
+    #[test]
+    fn a_map_undo_that_changes_the_library_updates_the_live_project() {
+        let mut live = kit_holding(&["wall"]);
+        let mut fresh = live.clone();
+        for d in fresh.measured.descriptors.iter_mut().filter(|d| d.id == "wall") {
+            d.look = vec!["worn".to_owned()];
+        }
+        let mut ctx = crate::ops::Ctx {
+            project: Some(fresh),
+            open: None,
+            source: crate::ops::Source::Human,
+            session: crate::ops::session_id(),
+        };
+        crate::editor::carry_changes(&mut live, &mut ctx);
+        let look = live
+            .measured
+            .descriptors
+            .iter()
+            .find(|d| d.id == "wall")
+            .map(|d| d.look.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            look,
+            vec!["worn".to_owned()],
+            "the live library kept the pre-undo look, so the Map would draw a stale piece"
+        );
     }
 
     /// **A synthetic project — no files, no meshes, no shipped corpus.**
@@ -6306,6 +6424,25 @@ fn toggle_tag(axis: Axis, token_ix: usize, project: &mut Project, state: &mut Im
     let Some((d, where_to)) = state.editing_mut(&mut project.measured) else {
         return;
     };
+    // **A library entry goes through the operation** (E-042). The chip names one token, so the axis's
+    // whole new list is the old one with that token toggled. `label_set` sorts it and stamps it as a
+    // person's decision, and the write is logged, so it can be undone with the rest.
+    if where_to == Persist::Library {
+        let id = d.id.clone();
+        let mut next = axis.list(d).clone();
+        match next.iter().position(|t| *t == token) {
+            Some(i) => {
+                next.remove(i);
+            }
+            None => next.push(token.clone()),
+        }
+        if crate::editor::set_label(state, project, &id, wire_axis(axis), &next) {
+            state.record(history_before);
+            let said = format!("{} tags updated", axis.label().to_lowercase());
+            state.status.say(persist(project, where_to, said));
+        }
+        return;
+    }
     let list = axis.list(d);
     match list.iter().position(|t| *t == token) {
         Some(i) => {
@@ -6335,6 +6472,16 @@ fn toggle_tag(axis: Axis, token_ix: usize, project: &mut Project, state: &mut Im
     let said = format!("{} tags updated", axis.label().to_lowercase());
     state.record(history_before);
     state.status.say(persist(project, where_to, said));
+}
+
+/// **The name an operation's `axis` field uses for one token axis** (E-042).
+fn wire_axis(axis: Axis) -> &'static str {
+    match axis {
+        Axis::Kind => "kind",
+        Axis::Effects => "effects",
+        Axis::Look => "look",
+        Axis::Surfaces => "surfaces",
+    }
 }
 
 // **No `Res<Build>` any more.** This system used to read `build.placing` to decide whether the arrows
@@ -6475,11 +6622,15 @@ fn move_selection(
                 // nothing — no note, no move — until the box was cleared. Land on the row the
                 // cursor would land on, same shape as the seed arm below, and keep walking.
                 if let Some(land) = library_landing(&ids, &cursor) {
-                    state.status.note(format!(
-                        "`{land}` selected — {} removes it",
-                        crate::keys::binding(Action::RemoveTile).chord
-                    ));
-                    state.selected_library_id = Some(land);
+                    if tiles_tab {
+                        state.status.note(format!(
+                            "`{land}` selected — {} removes it",
+                            crate::keys::binding(Action::RemoveTile).chord
+                        ));
+                        state.selected_library_id = Some(land);
+                    } else {
+                        crate::editor::select_piece(&mut state, &project, &land);
+                    }
                 }
                 return;
             };
@@ -6489,11 +6640,19 @@ fn move_selection(
                 at.saturating_sub(stride)
             };
             if let Some(next) = ids.get(want.min(ids.len().saturating_sub(1))) {
-                state.selected_library_id = Some(next.clone());
-                state.status.note(format!(
-                    "`{next}` selected — {} removes it",
-                    keys::binding(Action::RemoveTile).chord
-                ));
+                // **On the Meshes shelf the walk is a selection, so it is the operation** (E-044):
+                // `piece_select` writes the log line a row click and an agent write. The Tiles tab
+                // keeps the direct write, because `piece_select` is a Meshes-shelf operation and
+                // that tab's walk picks a tile's source, which no operation names yet.
+                if tiles_tab {
+                    state.selected_library_id = Some(next.clone());
+                    state.status.note(format!(
+                        "`{next}` selected — {} removes it",
+                        keys::binding(Action::RemoveTile).chord
+                    ));
+                } else {
+                    crate::editor::select_piece(&mut state, &project, next);
+                }
             }
         }
         None => {
@@ -7106,28 +7265,19 @@ fn on_library_click(
     activate: On<Activate>,
     rows: Query<&LibraryRow>,
     state: Option<ResMut<ImportState>>,
+    project: Option<Res<Project>>,
 ) {
     // **`Option`, because this is a GLOBAL observer** — it fires for any `Activate` anywhere in
     // the application, and in Bevy 0.19 a missing resource panics at param validation rather
     // than skipping. See [`on_cell_verb`] for the whole argument; the ratchet is
     // `every_resource_says_what_a_door_does_to_it.rs`.
-    let Some(mut state) = state else {
+    let (Some(mut state), Some(project)) = (state, project) else {
         return;
     };
+    // **A click is the operation an agent calls (E-044).** The highlight, the focused pack and the
+    // note are written in one place, `editor::select_piece`, so the two cannot drift apart.
     if let Ok(row) = rows.get(activate.entity) {
-        state.selected_library_id = Some(row.0.clone());
-        // The heading cursor is part of the same cursor; leaving it set is two highlights.
-        state.focused_pack = None;
-        // **The chord comes from the census.** It was `"Del removes it"` by hand, while every
-        // keyboard path on this tab formats `keys::binding(Action::RemoveTile).chord` — and
-        // `REMOVE_NAME` is `"Delete"` on macOS, so the click and the arrow named the same key two
-        // different ways (the audit's M14). `keys.rs`: *"nothing else in this crate is allowed to
-        // name a `KeyCode` for an action"*.
-        state.status.note(format!(
-            "`{}` selected — {} removes it",
-            row.0,
-            keys::chord(Action::RemoveTile)
-        ));
+        crate::editor::select_piece(&mut state, &project, &row.0);
     }
 }
 
@@ -9464,29 +9614,58 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                     // scans for is the part a long model name cannot push past the panel's edge. A
                     // hand-written record carries no confidence, so it has none to show.
                     let sure = l.confidence.map(|c| format!("confidence {c}"));
-                    let model_date = l.model_date().unwrap_or(&l.at);
+                    // **Who wrote each axis, by name.** A model's name and date belong only to the axes
+                    // it still owns. An agent's or a person's write is named by its axis and carries no
+                    // date: the record's `at` is the latest write of any source, and it cannot say which
+                    // source that was.
+                    const AXES: [(bevy_emerge_core::descriptor::Axis, &str); 6] = [
+                        (bevy_emerge_core::descriptor::Axis::Kind, "kind"),
+                        (bevy_emerge_core::descriptor::Axis::Effects, "effects"),
+                        (bevy_emerge_core::descriptor::Axis::Look, "look"),
+                        (bevy_emerge_core::descriptor::Axis::Surfaces, "surfaces"),
+                        (bevy_emerge_core::descriptor::Axis::Mount, "mount"),
+                        (bevy_emerge_core::descriptor::Axis::Note, "note"),
+                    ];
+                    let named = |by: bevy_emerge_core::descriptor::By| {
+                        AXES.iter()
+                            .filter(|(axis, _)| l.by.get(*axis) == Some(by))
+                            .map(|(_, name)| *name)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
                     // The row's parts, in reading order, joined with the one separator the row uses.
                     let joined = |parts: &[Option<String>]| {
                         parts.iter().flatten().map(String::as_str).collect::<Vec<_>>().join(" · ")
                     };
-                    match &l.model {
-                        // **Some axis is still a model's and nobody has confirmed it**: the unchecked
-                        // colour, with the model's own date. A later touch by a person is said beside
-                        // it, so the one date on the row is never mistaken for the other.
-                        Some(m) if l.by.any_by_model() => {
-                            let touched = (model_date != l.at).then(|| format!("touched {}", l.at));
-                            let short = crate::labels::model_short(m).to_owned();
-                            (
-                                joined(&[sure, Some(short), Some(model_date.to_owned()), touched]),
-                                crate::chrome::UNCHECKED,
-                            )
-                        }
+                    if !l.by.any_unconfirmed() {
                         // **Every axis is confirmed**: the row says when a person checked it.
-                        Some(m) => {
-                            let short = crate::labels::model_short(m).to_owned();
-                            (joined(&[sure, Some(short), Some(format!("checked {}", l.at))]), TEXT)
+                        match &l.model {
+                            Some(m) => {
+                                let short = crate::labels::model_short(m).to_owned();
+                                (joined(&[sure, Some(short), Some(format!("checked {}", l.at))]), TEXT)
+                            }
+                            None => (joined(&[Some("by hand".to_owned()), Some(l.at.clone())]), TEXT),
                         }
-                        None => (joined(&[sure, Some("by hand".to_owned()), Some(l.at.clone())]), TEXT),
+                    } else {
+                        // **Some axis is unconfirmed**: the unchecked colour. The model's name and date
+                        // appear only while the model still owns an axis, then the agent's and the
+                        // person's axes follow, each named with its own verb.
+                        let model_axes = named(bevy_emerge_core::descriptor::By::Model);
+                        let agent_axes = named(bevy_emerge_core::descriptor::By::Agent);
+                        let human_axes = named(bevy_emerge_core::descriptor::By::Human);
+                        let mut parts: Vec<Option<String>> = Vec::new();
+                        if let (Some(m), false) = (&l.model, model_axes.is_empty()) {
+                            parts.push(sure);
+                            parts.push(Some(crate::labels::model_short(m).to_owned()));
+                            parts.push(Some(l.model_date().unwrap_or(&l.at).to_owned()));
+                        }
+                        if !agent_axes.is_empty() {
+                            parts.push(Some(format!("agent set {agent_axes}")));
+                        }
+                        if !human_axes.is_empty() {
+                            parts.push(Some(format!("by hand set {human_axes}")));
+                        }
+                        (joined(&parts), crate::chrome::UNCHECKED)
                     }
                 }
             };
