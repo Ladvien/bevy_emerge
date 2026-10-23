@@ -2753,7 +2753,7 @@ fn walk_palette(
     let Some(id) = project.library.descriptors.get(next).map(|d| d.id.clone()) else {
         return;
     };
-    arm_piece(&mut state, &project, &id);
+    arm_piece(&mut state, &project, Some(&*open), &id);
 }
 
 /// One observer for the whole palette. `Activate` carries the entity, so the index lives on the row
@@ -2776,6 +2776,7 @@ fn on_row_click(
     project: Option<Res<Project>>,
     state: Option<ResMut<EditorState>>,
     filters: Option<ResMut<crate::filter::Filters>>,
+    open: Option<Res<crate::project::OpenMap>>,
 ) {
     let Ok(row) = rows.get(activate.entity) else {
         return;
@@ -2792,7 +2793,7 @@ fn on_row_click(
         return;
     };
     // **The click is the `brush_arm` operation**, the one an agent calls. See [`arm_piece`].
-    arm_piece(&mut state, &project, &d.id);
+    arm_piece(&mut state, &project, open.as_deref(), &d.id);
 }
 
 /// **Arm a piece from the library**, through the operation `brush_arm` — the one an agent calls.
@@ -2805,11 +2806,18 @@ fn on_row_click(
 /// done deleting or moving, and a tool is otherwise only escapable by a key — which a borderless
 /// fullscreen window can have taken from it before Bevy ever sees it. A refusal puts the tool back and
 /// says why in `Status::problem`.
-pub fn arm_piece(state: &mut EditorState, project: &Project, descriptor: &str) {
+/// **The open map is what the palette filters by**, so the arm refuses a piece the map's bash hides
+/// (gap 5). `None` only when no map is open, and then there is no bash to honour.
+pub fn arm_piece(
+    state: &mut EditorState,
+    project: &Project,
+    open: Option<&crate::project::OpenMap>,
+    descriptor: &str,
+) {
     let was = std::mem::take(&mut state.tool);
     let mut ctx = crate::ops::Ctx {
         project: Some(project.clone()),
-        open: None,
+        open: open.cloned(),
         source: crate::ops::Source::Human,
         session: crate::ops::session_id(),
     };

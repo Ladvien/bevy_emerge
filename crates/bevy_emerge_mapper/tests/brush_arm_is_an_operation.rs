@@ -122,6 +122,37 @@ fn an_unknown_piece_is_refused_and_nothing_changes() {
     assert_eq!(log_lines(&app), before_log, "a refused arm writes no log line");
 }
 
+/// **A piece from a kit the map's bash hides is refused by name** (gap 5). The palette cannot show
+/// it, so an agent could arm a piece a person could not find, and the armed brush would sit on a
+/// piece the map's own palette had put out of reach.
+#[test]
+fn an_agent_cannot_arm_a_piece_from_a_kit_the_maps_bash_hides() {
+    let root = fixtures::Fixture::new("arm_hidden_kit")
+        .kit("site", "ozea", &["site/wall"])
+        .kit("furn", "pack", &["furn/chair"])
+        .bash("only_furniture", &["furn"])
+        .build("m");
+    let mut app = open(root);
+    app.world_mut().resource_mut::<OpenMap>().map.bash = Some("only_furniture".to_owned());
+    app.update();
+    let before_log = log_lines(&app);
+    let before_brush = armed(&app);
+
+    let refused = arm(&mut app, "site/wall");
+    assert_eq!(refused["outcome"], "refused", "{refused}");
+    let why = refused["refusal"].as_str().unwrap_or_default();
+    assert!(
+        why.contains("only_furniture") && why.contains("site"),
+        "the refusal names the bash and the kit it leaves out: {why}"
+    );
+    assert_eq!(armed(&app), before_brush, "a refused arm leaves the brush alone");
+    assert_eq!(log_lines(&app), before_log, "a refused arm is not logged");
+
+    let ok = arm(&mut app, "furn/chair");
+    assert_eq!(ok["outcome"], "applied", "{ok}");
+    assert_eq!(armed(&app).as_deref(), Some("furn/chair"));
+}
+
 /// **A refusal names the pieces that exist (gap 2).** "The palette lists the library's pieces" sent
 /// an agent to a palette it cannot read: `emerge_state` gave the count of descriptors and no ids. The
 /// refusal now lists the closest ids and the total, so the agent can retry with a real one.
@@ -146,8 +177,9 @@ fn the_palette_click_and_the_operation_leave_the_same_state() {
     let mut by_click = editor("arm_click");
     {
         let project = by_click.world().resource::<Project>().clone();
+        let open = by_click.world().resource::<OpenMap>().clone();
         let mut state = by_click.world_mut().resource_mut::<EditorState>();
-        arm_piece(&mut state, &project, "site/wall");
+        arm_piece(&mut state, &project, Some(&open), "site/wall");
     }
 
     let mut by_op = editor("arm_op");
@@ -306,8 +338,9 @@ fn an_arm_from_the_remove_tool_switches_to_placing_and_says_so() {
     app.world_mut().resource_mut::<EditorState>().tool = Tool::Remove;
     {
         let project = app.world().resource::<Project>().clone();
+        let open = app.world().resource::<OpenMap>().clone();
         let mut state = app.world_mut().resource_mut::<EditorState>();
-        arm_piece(&mut state, &project, "site/wall");
+        arm_piece(&mut state, &project, Some(&open), "site/wall");
     }
     let state = app.world().resource::<EditorState>();
     assert_eq!(state.tool, Tool::Place, "arming returns to placing");
@@ -327,8 +360,9 @@ fn a_refused_arm_from_the_remove_tool_keeps_the_remove_tool() {
     app.world_mut().resource_mut::<EditorState>().tool = Tool::Remove;
     {
         let project = app.world().resource::<Project>().clone();
+        let open = app.world().resource::<OpenMap>().clone();
         let mut state = app.world_mut().resource_mut::<EditorState>();
-        arm_piece(&mut state, &project, "site/no_such_piece");
+        arm_piece(&mut state, &project, Some(&open), "site/no_such_piece");
     }
     let state = app.world().resource::<EditorState>();
     assert_eq!(state.tool, Tool::Remove, "a refused arm puts the tool back");
@@ -358,8 +392,9 @@ fn the_palette_click_and_the_operation_agree_on_the_tool_from_remove() {
     by_click.world_mut().resource_mut::<EditorState>().tool = Tool::Remove;
     {
         let project = by_click.world().resource::<Project>().clone();
+        let open = by_click.world().resource::<OpenMap>().clone();
         let mut state = by_click.world_mut().resource_mut::<EditorState>();
-        arm_piece(&mut state, &project, "site/wall");
+        arm_piece(&mut state, &project, Some(&open), "site/wall");
     }
 
     let mut by_op = editor("tool_op");

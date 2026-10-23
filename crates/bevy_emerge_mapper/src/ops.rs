@@ -1668,6 +1668,20 @@ pub mod brush_arm {
                     ids.len()
                 )));
             }
+            // **A piece from a kit the map's bash leaves out is refused** (gap 5). The palette filters
+            // by the same `palette_namespaces` rule, so an agent armed a piece a person could not
+            // see. Without an open map there is no bash to apply, so nothing is refused.
+            if let Some(open) = ctx.open.as_ref()
+                && let Some(kit) = project.kit_of(&descriptor)
+                && let Some(bash) = open.map.bash.as_deref()
+                && !open.palette_namespaces(project).contains(kit)
+            {
+                return Err(Refusal::new(format!(
+                    "`{descriptor}` is in kit `{kit}`, which this map's bash `{bash}` leaves out, so \
+                     nothing was armed. The palette does not offer it either. Name a piece from a kit \
+                     `{bash}` includes, or change the bash."
+                )));
+            }
             Ok(json!({"armed": descriptor}))
         }
 
