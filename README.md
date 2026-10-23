@@ -132,13 +132,13 @@ Review: tap A and D to pan left and right. The [framing and camera guide](docs/g
 
 Goal: see which pieces a model labelled, and read the labels on one piece.
 
-![The editor crosses to the kit door's Meshes tab, the arrow keys walk down the piece list, and the INSPECTOR labels row names the model file and the date](docs/media/review-labels.gif)
+![An agent lists the pieces a model labelled and opens the kit door; the arrow keys walk down the piece list, and the INSPECTOR labels row leads with the confidence, then the model file and the date](docs/media/review-labels.gif)
 
 1. Press = to cross to the kit door. It opens on the Meshes tab.
 2. Press → to move into the piece list, then ↓ and Shift+↓ to walk down it.
-3. Read the INSPECTOR's labels row. It names the model file the labels came from and the date they were made.
+3. Read the INSPECTOR's labels row. It leads with how sure the model was, then names the model file and the date the labels were made.
 
-Review: the labels row shows the model's file, the date, and the confidence (high, medium or low). For a long model name the row runs past the panel's edge, so the end of it can be cut off. Model labels show in the unchecked colour until a person confirms each axis. An agent finds the same pieces with `emerge_list_pieces`: `unlabelled` lists the pieces nobody has labelled, `by_model` lists the pieces a model labelled, and `confidence` narrows that list. The [kit guide](docs/guide/kit-meshes-tiles-compositions.md) covers the labels row in full.
+Review: the labels row reads like `confidence high · <model file> · <date>`, and wraps inside the panel when the model's name is long. Model labels show in the unchecked colour until a person confirms each axis. An agent finds the same pieces with `emerge_list_pieces`: `unlabelled` lists the pieces nobody has labelled, `by_model` lists the pieces a model labelled, and `confidence` narrows that list. The [kit guide](docs/guide/kit-meshes-tiles-compositions.md) covers the labels row in full.
 
 If it doesn't work: if = does nothing, a question may be on screen. Answer it, then press = again. If the map has unsaved edits, the editor asks before it leaves for the kit door, so choose Save and go or Stay.
 

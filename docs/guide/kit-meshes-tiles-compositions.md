@@ -35,7 +35,7 @@ Label suggestions are offered rather than applied:
 
 ### The labels row
 
-The INSPECTOR shows each piece's labels on one row. It names where the labels came from: a model file, or `by hand` for labels a person set. It then gives the date they were made and the confidence (high, medium or low). A long model file name runs past the panel's edge, and the end of the row is cut off there.
+The INSPECTOR's labels row says where a piece's labels came from and how sure that source was. For a model it reads `confidence high · <model file> · <date>`: the confidence (high, medium or low) first, then the model file's name without its folder or extension, then the date the labels were made. Labels a person set read `by hand · <date>`. A long row wraps inside the panel. The labels file keeps the model's full path; only the row shortens it.
 
 Labels a model suggested show in the unchecked colour until a person confirms each axis. A confirmed axis is drawn like the rest of the inspector.
 
