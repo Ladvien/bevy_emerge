@@ -810,6 +810,26 @@
       "evidence": "Cycle 6: Home on town gives scene 32.2% on both attempts (bar 40%); the town_block Home probe gives 36.9%. The whole 300x1120 m map fills about a third of the crop. Options: a landscape crop for a long, thin map. Moving the 40% bar is the developer's call. Report: docs/loop/iterations/2026-10-23-cycle6-f34d8f4.md | Cycle 7 (900c8cf, f93ea8e): frame-the-map on town_block, crop fitted to the Home view: scene min 56.2%, Home change 58.7%, longest static 1.13 s, 0.37 MB. Whole-town Home framing (300x1120 m) at 32.2% is NOT covered. Report: docs/loop/iterations/2026-10-23-cycle7-e89e86f.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-042",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "label_set: a human-stamped label op for agents (parity with the Labels row)",
+      "status": "fixed",
+      "evidence": "Fixed in 46b88f8: label_set sets one axis's tokens through the vocabulary gate; a new core variant By::Agent marks agent writes and By::Human a person's; Model and Agent axes count as unconfirmed (descriptor.rs:279). The chip click dispatches it (5b91906, b2b8289). Undo restores the record exactly. Bug fixed while proving it: e49b39a (after an agent write the labels row credited the model with today's date; the_meshes_pane_says_how_sure_the_labels_are, 4 of 8 failed before). Review gaps fixed: 1 (c4edbd6, blocker), 2 (ddc46be), 3 (c7c670a), 6 (24465b9). Sanctuary: 0 callsites, 1,141 passed / 0 failed. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-044",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "A select-a-piece operation (parity gap with the editor's selection)",
+      "status": "fixed",
+      "evidence": "Fixed in dbfc9c3: piece_select is an operation with Undo::None. It refuses outside the kit door's Meshes panel, for a filter-hidden or unmeasured piece, and for another kit's piece (naming that kit). A shelf row click, the arrow walk (5b91906) and agents select through it. Review gaps fixed: 4 (c4f6190, the sequencer runs the same checks) and 5 (d7df337). The right-arrow seed still selects directly: E-050. Stills: docs/loop/iterations/assets/2026-10-23-cycle9/piece-select.png. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
     }
   ]
 }
