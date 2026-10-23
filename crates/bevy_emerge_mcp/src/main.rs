@@ -1124,9 +1124,10 @@ fn base64_encode(bytes: &[u8]) -> String {
 /// `sequencer.rs`: the editor fails a run whose frame does not land within it.
 const LANDING_TIMEOUT_S: f32 = 5.0;
 
-/// **How long the caller waits for a sequence to finish.** The editor asks for one frame at a time
-/// and fails the run on a frame that misses the landing timeout, so a run takes at most one landing
-/// wait per frame. The sequence's own length and a margin for the last readback are added on top.
+/// **How long the caller waits for a sequence to finish.** The editor asks for at most one new frame
+/// per update, up to four in flight, and fails the run on a frame that misses the landing timeout. A
+/// run therefore takes at most one landing wait per frame, which still bounds it with frames overlapping.
+/// The sequence's own length and a margin for the last readback are added on top.
 fn sequence_wait(seconds: f32, expected_frames: u32) -> std::time::Duration {
     std::time::Duration::from_secs_f32(seconds + 10.0 + expected_frames as f32 * LANDING_TIMEOUT_S)
 }
