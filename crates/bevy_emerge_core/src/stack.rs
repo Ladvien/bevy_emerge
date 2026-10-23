@@ -386,14 +386,20 @@ pub fn placement_at<'a>(
     let host = host_under(map, library, y, d, probe);
     if needs_surface(d).is_some() && host.is_none() {
         let class = needs_surface(d).unwrap_or("");
-        return Err(format!(
-            "`{}` goes on a `{class}` surface — there is none here. Put it on something that offers \
-             one.",
-            d.id
-        ));
+        return Err(no_surface_sentence(d, class));
     }
     let at = datum(map, d, host.map(|(_, top)| top), &d.id)?;
     Ok((at, host.map(|(p, _)| p)))
+}
+
+/// The refusal for a piece that needs a surface and finds none under its probe. It is one function so
+/// the ghost can recognise this exact refusal, and not every datum error on a piece with a surface.
+pub fn no_surface_sentence(d: &Descriptor, class: &str) -> String {
+    format!(
+        "`{}` goes on a `{class}` surface — there is none here. Put it on something that offers \
+         one.",
+        d.id
+    )
 }
 
 /// **How deep two footprints must interpenetrate before they are "overlapping"**, metres.

@@ -436,23 +436,43 @@ fn dispatch_as(
         inverse: outcome.inverse.clone(),
         after: outcome.after.clone(),
     };
-    // **A log that could not be written is a refusal, not a silent loss.**
+    // **A log that could not be written is a refusal, and the change does not stay.**
     //
-    // The log is the source of truth, so an operation applied without a record of it is an
-    // operation that happened and cannot be told about — and an agent that cannot cite what it
-    // did cannot present it. **So a failed append fails the operation**, and the caller is told
-    // why.
-    append(ctx, &entry).map_err(|e| {
-        Refusal::new(format!(
-            "the operation was applied but the log could not be written, so it cannot be reported \
-             or undone: {e}"
-        ))
-    })?;
+    // The log is the source of truth. An operation applied without a record of it is an operation
+    // that happened and cannot be told about or undone, so a failed append takes the change back
+    // through its recorded inverse and says so. The take-back itself is not logged: nothing the
+    // log should describe happened. See [`take_back`].
+    append(ctx, &entry).map_err(|e| take_back(ctx, &*op, &outcome, e))?;
     Ok(Applied::Done {
         outcome,
         operation_id: entry.operation_id.clone(),
         entry: Box::new(entry),
     })
+}
+
+/// **A change whose log line cannot be written is taken back, or the refusal says it stayed.**
+///
+/// The change is already in the map and the file when the append fails. Its recorded inverse is
+/// the put-back, so it is committed through the same operation, with no log line. The refusal
+/// then says the change was taken back. When there is no inverse, or the take-back itself fails,
+/// the refusal says the change is still in place rather than claiming it was undone.
+fn take_back(ctx: &mut Ctx, op: &dyn Operation, outcome: &Outcome, log_error: String) -> Refusal {
+    let Some(inverse) = outcome.inverse.as_ref() else {
+        return Refusal::new(format!(
+            "the operation was applied but could not be logged, and it records no inverse to take \
+             it back, so the change is still in place: {log_error}"
+        ));
+    };
+    match op.commit(ctx, inverse) {
+        Ok(_) => Refusal::new(format!(
+            "the operation could not be logged, so it was taken back and nothing was changed: \
+             {log_error}"
+        )),
+        Err(Refusal(why)) => Refusal::new(format!(
+            "the operation was applied but could not be logged, and taking it back failed, so the \
+             change is still in place: {log_error}. Taking it back said: {why}"
+        )),
+    }
 }
 
 /// **What an undo resolved to**: the change being taken back or put back, the log line whose
@@ -2142,6 +2162,59 @@ pub mod map_rename {
         Ok(name)
     }
 
+    /// **The rules a rename rewrites**: every `example` that names `was` becomes `name`, in the
+    /// file's own text, so its comments survive. `Ok(None)` when no rule names the map.
+    ///
+    /// **The rewrite is checked before anything is written.** The number of `example: "was"`
+    /// strings must equal the rules that name it, and the new text must parse to the in-memory
+    /// rules with that one name changed. A rewrite that misses a rule is the dangling example this
+    /// operation exists to prevent, so a mismatch is a refusal, not a best effort.
+    fn rules_renamed(
+        project: &crate::project::Project,
+        was: &str,
+        name: &str,
+    ) -> Result<Option<(String, String)>, Refusal> {
+        let named = project.rules.blocks.iter().filter(|b| b.example == was).count();
+        if named == 0 {
+            return Ok(None);
+        }
+        let file = project.project_dir.join(bevy_emerge_core::rules::FILE);
+        let refuse = |why: String| {
+            Refusal::new(format!("the map was not renamed, and nothing was written: {why}"))
+        };
+        let old = std::fs::read_to_string(&file)
+            .map_err(|e| refuse(format!("{}: {e}", file.display())))?;
+        let needle = format!("example: \"{was}\"");
+        if old.matches(&needle).count() != named {
+            return Err(refuse(format!(
+                "{} names `{was}` in a form this rename cannot rewrite; change its example by hand first",
+                file.display()
+            )));
+        }
+        let new = old.replace(&needle, &format!("example: \"{name}\""));
+        let parsed = bevy_emerge_core::rules::Rules::parse(&new)
+            .map_err(|e| refuse(format!("{}: {e}", file.display())))?;
+        let expected = project
+            .rules
+            .blocks
+            .iter()
+            .map(|b| if b.example == was { name } else { b.example.as_str() });
+        if !parsed.blocks.iter().map(|b| b.example.as_str()).eq(expected) {
+            return Err(refuse(format!(
+                "the rewrite of {} does not match the rules the editor holds",
+                file.display()
+            )));
+        }
+        Ok(Some((old, new)))
+    }
+
+    /// **The in-memory rules follow the rename**, so generate reads the example the file now names.
+    fn set_example(project: &mut crate::project::Project, was: &str, name: &str) {
+        for block in project.rules.blocks.iter_mut().filter(|b| b.example == was) {
+            block.example = name.to_owned();
+        }
+    }
+
     /// **A map's name, changed.**
     pub struct MapRename;
 
@@ -2202,35 +2275,68 @@ pub mod map_rename {
                 ));
             };
             let was = open.map.name.clone();
-            open.map.name = name.clone();
-            let Some(project) = ctx.project.as_ref() else {
+            let Some(project) = ctx.project.as_mut() else {
                 // **The map goes back before the refusal**, as the settings commit does: a
                 // refusal that dropped it would leave the editor holding nothing.
-                open.map.name = was;
                 ctx.open = Some(open);
                 return Err(Refusal::new("no project is open."));
             };
-            // **The save is the map's own gate.** It moves the file and removes the old one, and
-            // it refuses a taken name rather than replacing it.
-            if let Err(e) = open.save(project) {
-                // **The write landed; only the old file's removal failed.** Save has moved the map's
-                // path to the new file, so the name stays with it, and the refusal tells the author
-                // which file to delete. Putting the old name back here would leave a name no file holds.
-                if open.map_path == project.maps_dir.join(map_file_name(&name)) {
+            // **The rules are part of the rename.** A rule names the map its grammar is learned
+            // from, so a rename that moved the file and left that name behind would leave the block
+            // unreadable. The rules file is written first; a refusal here changes nothing.
+            let rules = match rules_renamed(project, &was, &name) {
+                Ok(rules) => rules,
+                Err(refusal) => {
                     ctx.open = Some(open);
-                    return Err(Refusal::new(e));
+                    return Err(refusal);
                 }
-                open.map.name = was;
+            };
+            let file = project.project_dir.join(bevy_emerge_core::rules::FILE);
+            if let Some((_, new)) = &rules
+                && let Err(e) = bevy_emerge_core::ron_surgery::save_atomic(&file, new)
+            {
                 ctx.open = Some(open);
                 return Err(Refusal::new(format!(
                     "the map was not renamed, and nothing was written: {e}"
                 )));
             }
-            let summary = format!("renamed `{was}` to `{name}`, and the file moved with it");
-            ctx.open = Some(open);
+            // **The save is the map's own gate.** It moves the file and removes the old one, and
+            // it refuses a taken name rather than replacing it.
+            open.map.name = name.clone();
+            if let Err(e) = open.save(project) {
+                // **The write landed; only the old file's removal failed.** Save has moved the map's
+                // path to the new file, so the name stays with it, and the refusal tells the author
+                // which file to delete. Putting the old name back here would leave a name no file holds.
+                if open.map_path == project.maps_dir.join(map_file_name(&name)) {
+                    set_example(project, &was, &name);
+                    ctx.open = Some(open);
+                    return Err(Refusal::new(e));
+                }
+                // **The map did not move, so the rules go back too.** If that restore itself fails,
+                // the refusal says so: the rules file then names the new map, and the author must fix it.
+                let mut message = format!("the map was not renamed, and nothing was written: {e}");
+                if let Some((old, _)) = &rules
+                    && let Err(restore) = bevy_emerge_core::ron_surgery::save_atomic(&file, old)
+                {
+                    message.push_str(&format!(
+                        "; {} could not be put back ({restore}), and it now names `{name}`, so change its example by hand",
+                        file.display()
+                    ));
+                }
+                open.map.name = was;
+                ctx.open = Some(open);
+                return Err(Refusal::new(message));
+            }
+            set_example(project, &was, &name);
+            let summary = if rules.is_some() {
+                format!("renamed `{was}` to `{name}`, and the file moved with it; the rules' example follows")
+            } else {
+                format!("renamed `{was}` to `{name}`, and the file moved with it")
+            };
             // **The inverse is the name it replaced**, and undo takes the same path: a rename back,
-            // refused if that name is taken by now.
+            // refused if that name is taken by now. The rules follow it back the same way.
             let inverse = json!({"name": was});
+            ctx.open = Some(open);
             let after = ctx.open.as_ref().map(settings_of);
             Ok(Outcome {
                 summary,

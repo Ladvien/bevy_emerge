@@ -619,6 +619,133 @@
       },
       "status": "fixed",
       "evidence": "Fixed in 3b3c8ff (cycle 4, report 0286624): the test builds its own temporary project through fixtures::Fixture, as the other mapper tests do; assertions unchanged (1536x864, 800x600). Failing before on Linux (xvfb-run, big): 'kits.ron: No such file or directory' at line 226, 1 passed / 1 failed, exit 101. Passing after: Linux 2 passed, macOS 2 passed. The probe example probe_surface_resize hardcoded the same path; fixed in 0286624."
+    },
+
+    {
+      "id": "B-012",
+      "kind": "bug",
+      "area": "chrome",
+      "title": "The receipt sits in UNDER's value column, so it reads as the value of UNDER",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "docs/loop/iterations/assets/2026-10-21-15be05c/window-after.png: 'size back: map is 300 x 26 x 1120 m...' directly under the empty UNDER label"
+      },
+      "status": "fixed",
+      "evidence": "Fixed in cycle 5 (9c6de9f): the LAST row is labelled, so the receipt is not read as UNDER's value. The label survived the redesign (376eca7). Failing before: the_receipt_row_is_labelled_so_it_is_not_taken_for_under (no drawn text read 'LAST'). Before still: assets/2026-10-23-cycle5/B-013-before.png (an unlabelled blank row under UNDER). Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "B-013",
+      "kind": "bug",
+      "area": "chrome",
+      "title": "The hint row (Field::Hint) is zero tall when empty, so a hint pushes EDGES, MAP SIZE and the lists down",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "editor.rs ghost: state.hint set while a surface/mounted piece is armed over floor it cannot stand on, cleared where it fits; same shape as B-009 (reviewer, 2026-10-21)"
+      },
+      "status": "fixed",
+      "evidence": "Fixed in cycle 5. The hint takes the receipt's slot while it speaks and the receipt returns when it clears (376eca7). cbf3423's clip was rejected by Main: it cut receipts past two lines and broke B-009. Failing before on cbf3423: a_long_receipt_is_drawn_whole, the_receipt_returns_when_the_hint_clears. The surface hint is shortened to 'goes on a <class> surface — none here' (dea4fb4; failing before: 3.64 body lines in a two-line slot, MAP SIZE pushed 16.0 px). Not taken live: no MCP tool sets state.hint. Residual: long ghost hints (stack.rs ~236, about six lines) still grow the LAST row and move UNDO; Main's call. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-028",
+      "kind": "bug",
+      "area": "ops",
+      "title": "An agent turn that is saved but cannot be logged leaves the screen and the file disagreeing",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Found by code review of the yaw branch 2026-10-22, by reading, not reproduced. ops.rs dispatch_as commits the change (the file is saved) and then appends the oplog line; if the append fails it returns Err 'the operation was applied but the log could not be written', with the map and file already changed. placement_set_yaw's set_yaw then returns false with no Undo::Turned and no respawn, and ops_brp.rs operation_apply and sequencer.rs drive_sequencer set map_replaced only on Ok(Done), so the picture keeps the old facing while the file has the new one. Fixing it changes the commit-then-append order for every operation, so it is a design decision, not a one-line patch."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in cycle 5 (f8df272), in the sweep though the triad is 0 of 3. take_back() in ops.rs commits the recorded inverse through op.commit when the log line cannot be written; the refusal says 'taken back and nothing was changed', or 'still in place' when there is no inverse or the take-back fails. Failing before: a_change_whose_log_line_cannot_be_written_is_taken_back (injected unwritable log; the rename stayed). Passing after: the test; one_undo_takes_back_the_newest_change (5); a_map_can_be_renamed_through_the_registry (7); ops:: lib (4). Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-029",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A renamed map keeps a rules.ron example that points at a file the rename no longer creates",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Judgment: 0 of 3 (blocks no, common no: only maps whose rules.ron has an example; workaround: edit rules.ron)."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in cycle 5 (0a78a5e; lint a4658ba), in the sweep though the triad is 0 of 3. Cause: map_rename never touched BlockRules.example, and Ctx cloned Project. Failing before: a_rename_carries_the_rules_example_with_it (rules.ron still named the old map: left 'm', right 'n'). Passing after: rename_carries (2); the rename tests (7, 1, 5, 2). Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "B-031",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "A snip's placement list does not name the members of a stamped piece that lie under the rectangle",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Judgment: 1 of 3 (common only). The agent can still read the full placement list for the map; the snip record just omits stamp members."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in cycle 5 (054f985): the snip record lists the stamped rows it covers. Failing before: a_snip_over_a_stamp_lists_its_rows_under_the_stamp (a snip over room@1 recorded []). Passing after: bevy_emerge_snip snip:: (5); a_person_snips_an_area_of_the_editor. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-034",
+      "kind": "enhancement",
+      "area": "chrome",
+      "title": "The frame's doc says Pickable::IGNORE throughout; say that a row's children need it too",
+      "status": "fixed",
+      "evidence": "Fixed in cycle 5 (1c25b17, doc only): chrome.rs says every descendant of a row carries Pickable::IGNORE, since Hovered is true for a descendant too. Verified in chrome.rs. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-035",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "check.py: static runs must not count caption and cursor overlay frames; MCP view changes must count as change moments",
+      "status": "fixed",
+      "evidence": "Fixed in cycle 5 (83bdf63, ee0f774): a frozen tail beyond FINAL_HOLD_S (1.5 s) counts as a static run; MCP emerge_frame_view counts as a change moment; CHANGE_WINDOW_S = 0.2 (a matching window, not a bar). Synthetic: frozen 5.5 s caption-only, old PASS to new FAIL (static 3.90 s); control PASS. Tests: tools/demo/test_check.py (+72 lines). Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-036",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "record.py: chunk 0 of hero runs about 9.8 s instead of 6 s, so captions move out of time",
+      "status": "fixed",
+      "evidence": "Largely fixed in cycle 5 (47f1099, 2b1c8f1, fe7f397, 834854e): MCP events are stamped at call start; steps are timed from each chunk's real start; events snap to the first captured frame. Worst delta for change-causing events 0.139 s (bound 0.2 s). Not fixed: the chunk overrun (agent_removes_then_undo chunk 0 planned 3 s, captured 5.356 s); cause not established. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "B-040",
+      "kind": "bug",
+      "area": "capture",
+      "title": "The capture sequencer waits for each PNG before the next frame is asked for, so readback latency sets the capture rate",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Derived in cycle 5: common yes (under load); blocks no; no workaround no (a lower frame rate is the workaround). 1 of 3, not must-fix."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in cycle 5 (9b94ac7): at most one new capture per update, up to MAX_IN_FLIGHT = 4 in flight, each on its own entity. Relaxes B-038's one-in-flight cap (disclosed). Failing before: a_due_frame_is_requested_while_the_one_before_is_still_out; a_burst_of_due_frames_is_asked_for_one_per_update. Passing after: a_capture_sequence_takes_one_frame_at_a_time (3). Live, idle, 3 s runs: 15 fps achieved 15.07 before, 15.09-15.25 after; 8 fps 8.03 before, 7.98 after; no idle gain. Under load (10-25) the video agent saw about 6.5 fps at a 15 fps plan; not measured against this commit. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
     }
   ]
 }

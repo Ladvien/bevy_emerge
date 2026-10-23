@@ -94,7 +94,13 @@ pub struct Sequencer {
 /// say so rather than hang.
 const CAPTURE_TIMEOUT_S: f32 = 5.0;
 
-/// **The capture on its way to disk**: the frame it is for, when it was asked for, and the
+/// **How many captures may be on their way to disk at once.** Bevy's duplicate check is per
+/// extraction frame, not per run: one screenshot per render target per frame, and a capture that is
+/// already reading back is not counted against a new one. So the sequencer asks for one new frame per
+/// update and lets the earlier PNGs land behind it. The cap bounds how many readbacks are pending.
+const MAX_IN_FLIGHT: usize = 4;
+
+/// **A capture on its way to disk**: the frame it is for, when it was asked for, and the
 /// screenshot entity carrying it. A timeout must despawn that entity, or its readback can still land.
 struct InFlight {
     index: u32,
@@ -125,8 +131,8 @@ struct Run {
     asked: Vec<Frame>,
     /// **The frames whose PNG has landed.** The run is finished when this has caught up.
     written: Vec<String>,
-    /// **The capture on its way to disk**, if one is. One at a time: see `drive_sequencer`.
-    in_flight: Option<InFlight>,
+    /// **The captures on their way to disk**, at most `MAX_IN_FLIGHT`. See `drive_sequencer`.
+    in_flight: Vec<InFlight>,
 }
 
 /// **One frame, written.**
@@ -211,7 +217,7 @@ impl Sequencer {
             operation_result: None,
             asked: Vec::new(),
             written: Vec::new(),
-            in_flight: None,
+            in_flight: Vec::new(),
         });
         Ok(id)
     }
@@ -306,14 +312,18 @@ fn drive_sequencer(
 
     // **A capture that never lands ends the run with its reason**, rather than leaving the run
     // waiting for a PNG that is not coming.
-    if let Some(flight) = run.in_flight.as_ref()
-        && now - flight.since > CAPTURE_TIMEOUT_S
+    if let Some(stale) = run
+        .in_flight
+        .iter()
+        .find(|f| now - f.since > CAPTURE_TIMEOUT_S)
     {
-        let (entity, index) = (flight.entity, flight.index);
-        // **The timed-out capture is despawned with the run.** Its entity carries the `save_to_disk`
-        // observer, so left alive, a readback that lands after the run has failed would write a PNG
-        // into that run's directory.
-        commands.entity(entity).try_despawn();
+        let index = stale.index;
+        // **Every capture still out is despawned with the run.** Each entity carries the
+        // `save_to_disk` observer, so left alive, a readback that lands after the run has failed
+        // would write a PNG into that run's directory.
+        for flight in &run.in_flight {
+            commands.entity(flight.entity).try_despawn();
+        }
         let error = format!(
             "frame {index} did not land within {CAPTURE_TIMEOUT_S} s, so the run stopped rather than wait for it"
         );
@@ -412,12 +422,10 @@ fn drive_sequencer(
             });
             continue;
         };
-        // **One capture in flight at a time.** Bevy keeps one screenshot per render target per
-        // frame: a second one requested while the first is pending is despawned without ever
-        // writing a PNG ("Duplicate render target"), and its observer never fires, so the run
-        // waited for a frame that could never land (B-038). A due frame waits here until the one
-        // before it has landed.
-        if run.in_flight.is_some() {
+        // **Up to `MAX_IN_FLIGHT` captures are on their way to disk.** A due frame waits only when
+        // the cap is reached, not for the PNG before it: the old gate held each frame until the
+        // previous readback landed, so the readback's latency set the capture rate (B-040).
+        if run.in_flight.len() >= MAX_IN_FLIGHT {
             break;
         }
         run.next += 1;
@@ -453,14 +461,12 @@ fn drive_sequencer(
                         return;
                     }
                     run.written.push(written_path.clone());
-                    if run.in_flight.as_ref().is_some_and(|f| f.index == index) {
-                        run.in_flight = None;
-                    }
+                    run.in_flight.retain(|f| f.index != index);
                 },
             )
             .id();
-        // **The capture in flight is this frame**, until its PNG lands (see the top of the loop).
-        run.in_flight = Some(InFlight { index, since: now, entity: shot });
+        // **The capture is in flight until its PNG lands.**
+        run.in_flight.push(InFlight { index, since: now, entity: shot });
         // **The frame is counted when it is ASKED for**, and the run is finished when it is
         // WRITTEN. The two are different moments — the readback lands a frame or two after the
         // spawn — and a run that finished on the ask would report itself done while its last
@@ -472,6 +478,9 @@ fn drive_sequencer(
             actual_t_s: actual,
             path: out.to_string_lossy().into_owned(),
         });
+        // **One new screenshot per update.** Bevy's duplicate check is per frame, so a second spawn
+        // in this update would be despawned without a PNG. The next due frame waits for the next update.
+        break;
     }
 
     // **The run is finished when every frame has been WRITTEN**, and not when they were asked

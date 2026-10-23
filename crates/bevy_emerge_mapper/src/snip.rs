@@ -27,7 +27,7 @@ use bevy::window::{PrimaryWindow, Window};
 use bevy_emerge_snip::{CameraView, PlacedIn, SnipRecord, write_snip};
 
 use crate::chrome;
-use crate::editor::{EditorState, Placement};
+use crate::editor::{EditorState, Placement, StampedPiece};
 use crate::keys::{self, Action, Live, Phase};
 use crate::project::{OpenMap, Project};
 use crate::sequencer::CanRender;
@@ -239,6 +239,42 @@ pub fn snip_note_keys(
     }
 }
 
+/// Every placement, and every stamped row, whose viewport point is inside `rect`, as a snip lists
+/// them. A stamped row is listed under its row id with the stamp it belongs to, because the stamp
+/// is what an agent acts on (`stamp_remove` takes it).
+pub fn placements_under(
+    rect: [f32; 4],
+    cam: &Camera,
+    cam_tf: &GlobalTransform,
+    placed: &Query<(&Placement, &GlobalTransform)>,
+    stamped: &Query<(&StampedPiece, &GlobalTransform)>,
+) -> Vec<PlacedIn> {
+    let inside = |at: Vec3| {
+        cam.world_to_viewport(cam_tf, at)
+            .is_ok_and(|p| under(rect, p))
+    };
+    let mut out = Vec::new();
+    for (placement, tf) in placed {
+        if inside(tf.translation()) {
+            out.push(PlacedIn {
+                id: placement.0.clone(),
+                world: tf.translation().to_array(),
+                stamp: None,
+            });
+        }
+    }
+    for (piece, tf) in stamped {
+        if inside(tf.translation()) {
+            out.push(PlacedIn {
+                id: piece.row.clone(),
+                world: tf.translation().to_array(),
+                stamp: Some(piece.stamp.clone()),
+            });
+        }
+    }
+    out
+}
+
 /// Takes a confirmed snip, gathers its metadata from the editor as it stands, and asks the
 /// window for a picture. The file is written when the readback lands, by the observer.
 ///
@@ -254,6 +290,7 @@ pub fn snip_commit(
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     placed: Query<(&Placement, &GlobalTransform)>,
+    stamped: Query<(&StampedPiece, &GlobalTransform)>,
     mut commands: Commands,
 ) {
     let Some(pending) = snip.confirmed.take() else {
@@ -302,17 +339,7 @@ pub fn snip_commit(
             forward: cam_tf.forward().as_vec3().to_array(),
         });
         cursor_world = cursor_ground(Some(pending.release), cam, cam_tf).map(|v| v.to_array());
-        for (placement, tf) in &placed {
-            let Ok(at) = cam.world_to_viewport(cam_tf, tf.translation()) else {
-                continue;
-            };
-            if under(r, at) {
-                placements.push(PlacedIn {
-                    id: placement.0.clone(),
-                    world: tf.translation().to_array(),
-                });
-            }
-        }
+        placements = placements_under(r, cam, cam_tf, &placed, &stamped);
     }
 
     let record = SnipRecord {

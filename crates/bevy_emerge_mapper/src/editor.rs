@@ -96,6 +96,21 @@ pub fn ground_drop(project: &Project,
     -deepest + BOUNDS_FILL_CLEARANCE
 }
 
+/// **The ghost's hint over bare floor, short enough for the INSPECTOR's LAST slot.**
+///
+/// A surface piece's refusal is the core's sentence, which runs to three body lines in a slot two lines
+/// tall, and the slot's extra height then moves MAP SIZE down under the pointer. The ghost writes the
+/// short sentence for that one refusal, with the piece's id left out so it fits two lines. Every other
+/// refusal (a datum error, or a piece that has its surface) passes through unchanged.
+pub fn ghost_hint(d: &bevy_emerge_core::descriptor::Descriptor, refusal: &str) -> String {
+    match bevy_emerge_core::stack::needs_surface(d) {
+        Some(class) if refusal == bevy_emerge_core::stack::no_surface_sentence(d, class) => {
+            format!("goes on a `{class}` surface — none here")
+        }
+        _ => refusal.to_owned(),
+    }
+}
+
 /// The removal marker. Red because it is the one destructive tool here, and translucent because the
 /// thing it covers is the thing being asked about — an opaque marker would hide the answer.
 const REMOVE_TINT: Color = Color::srgba(0.86, 0.20, 0.16, 0.38); // CHROME-OK: world ink — a translucent tool tint over geometry, not panel text
@@ -1273,6 +1288,11 @@ struct StatusBlock;
 /// push the blocks below it down. Two covers 165 of the 174 receipt sites (B-009).
 const RECEIPT_LINES: f32 = 2.0;
 
+/// The receipt row's label. It reads `LAST` while the receipt speaks and `HINT` while a hint does,
+/// so the words in the slot always name what they are.
+#[derive(Component)]
+struct ReceiptLabel;
+
 /// The live cost readout. In the chrome bar, in a reserved column — see [`COST_COL`], and
 /// `the_triangle_count_does_not_shove_the_maps_name` for what happens without one. `pub` so that
 /// test can drive it.
@@ -1294,15 +1314,9 @@ enum Field {
     Undo,
     /// **What Cmd+Shift+Z will put back**, named the same way. An empty history reads `nothing`.
     Redo,
-    /// The last thing that happened — the only line that is prose.
+    /// The last thing that happened — the only line that is prose. While a hint is set it takes this
+    /// slot instead (B-013), labelled `HINT`, and the receipt returns when the hint clears.
     Last,
-    /// **What the cursor is telling you right now**, as opposed to what just happened.
-    ///
-    /// Its own line because the ghost writes it EVERY FRAME while a surface piece hovers over bare
-    /// floor, and sharing [`Self::Last`] meant every message an action produced was erased before it
-    /// could be read. Two different questions — "what did I just do" and "why can't I place this" —
-    /// so two lines.
-    Hint,
     /// **What the piece-verbs would act on**, and the chord that opens it for editing.
     ///
     /// The readout the panel was missing. `BRUSH` says what a click would *place*; nothing said what
@@ -1344,8 +1358,7 @@ impl Field {
             Field::Under => "UNDER",
             Field::Undo => "UNDO",
             Field::Redo => "REDO",
-            Field::Last => "",
-            Field::Hint => "",
+            Field::Last => "LAST",
         }
     }
 }
@@ -2156,23 +2169,20 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Yaw,
                     Field::Map,
                     Field::Under,
+                    // **The hint is the receipt's second line** (B-013), not a row of its own. The
+                    // receipt's row already reserves two lines, so a hint takes a line that is
+                    // there and nothing below it moves while no hint shows.
                     Field::Last,
-                    // **After the receipt, not above it.** The receipt has no label of its own, so
-                    // whatever row sits above it lends it one: with UNDO/REDO above, "map is 300 x
-                    // 44 ..." read as REDO's value. Here the pair reads as what happened (the
-                    // receipt) and then what Cmd+Z / Cmd+Shift+Z would do about it.
+                    // **After the receipt, not above it.** The receipt carries its own LAST label now,
+                    // so it no longer needs the row above to lend it one. The pair still reads as what
+                    // happened (the receipt) and then what Cmd+Z / Cmd+Shift+Z would do about it.
                     Field::Undo,
                     Field::Redo,
-                    // **Below the pair, not above it.** A hint comes and goes with the cursor, and a
-                    // row spawned above UNDO moved UNDO whenever one appeared (UNDO's top was 289 with
-                    // a hint and 273 without). Below the pair, a hint cannot move what the author reads.
-                    Field::Hint,
                     Field::Edges,
                 ] {
-                    // **The history list sits under REDO and above the hint (E-018).** Its rows are
-                    // fixed in number, so the block keeps one height whatever the history holds, and
-                    // a hint appearing below it cannot move the pair above.
-                    if field == Field::Hint {
+                    // **The history list sits under REDO and above EDGES (E-018).** Its rows are
+                    // fixed in number, so the block keeps one height whatever the history holds.
+                    if field == Field::Edges {
                         history_block(s);
                     }
                     let mut spawned = s.spawn(Node {
@@ -2205,11 +2215,31 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                         spawned.insert(crate::chrome::Control(id));
                     }
                     spawned.with_children(|row| {
-                        // `COL_LABEL`: these hold an ordinary word (`brush`, `under`, `edges`). It
-                        // was a bare 62 — one of the six unnamed label columns the audit counted,
-                        // which is why no two panels in this editor lined their values up (F8).
-                        crate::chrome::row_label(row, crate::chrome::COL_LABEL, field.label());
-                        crate::chrome::row_value(row, "", TEXT, field);
+                        if field == Field::Last {
+                            // **The hint takes the receipt's slot while it speaks** (B-013). The label
+                            // is the one that changes with it: `LAST` for a receipt, `HINT` for a hint.
+                            crate::chrome::row_label_with(
+                                row,
+                                crate::chrome::COL_LABEL,
+                                field.label(),
+                                ReceiptLabel,
+                            );
+                            row.spawn(Node {
+                                flex_direction: FlexDirection::Column,
+                                flex_grow: 1.0,
+                                min_width: Val::Px(0.0),
+                                ..default()
+                            })
+                            .with_children(|col| {
+                                crate::chrome::row_value(col, "", TEXT, Field::Last);
+                            });
+                        } else {
+                            // `COL_LABEL`: these hold an ordinary word (`brush`, `under`, `edges`). It
+                            // was a bare 62 — one of the six unnamed label columns the audit counted,
+                            // which is why no two panels in this editor lined their values up (F8).
+                            crate::chrome::row_label(row, crate::chrome::COL_LABEL, field.label());
+                            crate::chrome::row_value(row, "", TEXT, field);
+                        }
                     });
                 }
             });
@@ -3802,7 +3832,8 @@ fn refresh_status(
     faults: Res<EdgeFaults>,
     state: Res<EditorState>,
     under: Res<UnderCursor>,
-    mut fields: Query<(&Field, &mut Text, &mut TextColor)>,
+    mut fields: Query<(&Field, &mut Text, &mut TextColor), Without<ReceiptLabel>>,
+    mut labels: Query<&mut Text, With<ReceiptLabel>>,
 ) {
     // `none` covers both "nothing armed" and "the armed index no longer exists", which read the same
     // to an author and want the same word.
@@ -3811,6 +3842,14 @@ fn refresh_status(
         .and_then(|ix| project.library.descriptors.get(ix))
         .map(|d| d.id.as_str())
         .unwrap_or("none");
+
+    // **The label follows the words in the slot** (B-013): `HINT` while a hint speaks, `LAST` otherwise.
+    let label = if state.hint.is_empty() { "LAST" } else { "HINT" };
+    for mut text in &mut labels {
+        if text.0 != label {
+            text.0 = label.to_owned();
+        }
+    }
 
     for (field, mut text, mut colour) in &mut fields {
         // **The undo rows are only read when the history or the map changed**, and once when they
@@ -3903,13 +3942,14 @@ fn refresh_status(
                 },
                 if open.dirty() { ACCENT } else { TEXT },
             ),
-            // A refusal has to read differently from a success, or "NOT SAVED" scrolls past as if it
-            // were a receipt.
-            Field::Hint => (state.hint.clone(), ACCENT),
             // **What the next Cmd+Z and Cmd+Shift+Z will do**, named from the two stacks. See
             // [`stack_row`].
             Field::Undo => stack_row(state.undo_next(&open.map), state.undo_depth()),
             Field::Redo => stack_row(state.redo_next(&open.map), state.redo_depth()),
+            // **The hint takes the receipt's slot while it speaks** (B-013), in the refusal colour: a
+            // refusal has to read differently from a success, or "NOT SAVED" scrolls past as if it were a
+            // receipt. The receipt comes back when the hint clears.
+            Field::Last if !state.hint.is_empty() => (state.hint.clone(), ACCENT),
             // **The receipt only, and never coloured by guessing.** This read
             // `status.starts_with("NOT SAVED")`, which made exactly one refusal red and left every
             // other one — `stamp refused:`, `is not a number of metres`, every `cannot draw it:` —
@@ -4140,7 +4180,7 @@ fn rename_keys(
     mut events: MessageReader<KeyboardInput>,
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<keys::Live>,
-    project: Option<Res<Project>>,
+    mut project: Option<ResMut<Project>>,
 
     mut open: ResMut<OpenMap>,
     mut state: ResMut<EditorState>,
@@ -4176,7 +4216,7 @@ fn rename_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = state.renaming.take().unwrap_or_default();
-                rename_map(project.as_deref(), &mut open, &mut state, &raw);
+                rename_map(project.as_deref_mut(), &mut open, &mut state, &raw);
             }
             Key::Escape => {
                 state.renaming = None;
@@ -6491,7 +6531,13 @@ fn redraw_stamps(
                     parent
                 }
             };
-            commands.entity(e).insert((StampedPiece, ChildOf(parent)));
+            commands.entity(e).insert((
+                StampedPiece {
+                    stamp: stamp_id.clone(),
+                    row: p.id.clone(),
+                },
+                ChildOf(parent),
+            ));
             if p.paint != 0 {
                 commands.entity(e).insert(bevy_emerge::Paint(p.paint));
             }
@@ -6513,10 +6559,16 @@ fn redraw_stamps(
     );
 }
 
-/// A drawn row belonging to a stamp. Carries no id: the stamp list is the truth and this is a
-/// picture of it, rebuilt whole.
+/// A drawn row belonging to a stamp. It names the stamp it is drawn for and the row it expands, so
+/// a snip can list it with an id an agent can act on (`stamp_remove` takes the stamp's id). Still
+/// not a [`Placement`]: the stamp list is the truth and this is a picture of it, rebuilt whole.
 #[derive(Component)]
-struct StampedPiece;
+pub struct StampedPiece {
+    /// The [`Stamped::id`] this row is drawn for.
+    pub stamp: String,
+    /// The expanded row's id, as the picture names it.
+    pub row: String,
+}
 
 /// **The stamp as one thing** — a parent entity per [`Stamped`] row, with the pieces it expands to
 /// as children.
@@ -8015,6 +8067,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
+            carry_rules(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8063,6 +8116,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
+            carry_rules(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8115,6 +8169,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
+            carry_rules(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8239,10 +8294,27 @@ fn set_pin(
     }
 }
 
+/// **Carry an operation's rules back into the project.** A rename rewrites `rules.ron`'s examples,
+/// and generate reads them from the Project resource, so the rules the operation changed must go
+/// back in. Only the rules change, and only when they did, so a change-detected resource is not
+/// marked changed by an operation that left the rules alone.
+fn carry_rules(project: &mut Project, ctx: &mut crate::ops::Ctx) {
+    if let Some(fresh) = ctx.project.take()
+        && project.rules != fresh.rules
+    {
+        project.rules = fresh.rules;
+    }
+}
+
 /// **Rename the open map through the registry**, the way the size field resizes it. The N key's Enter
 /// comes here, so the name rule (snake case, not empty, no other map holds it) and the move of the file
 /// live in `map_rename`, and the receipt says where the file went.
-fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorState, raw: &str) {
+fn rename_map(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    raw: &str,
+) {
     // **The same name is nothing to do.** The operation would refuse it as a problem, but the author
     // asked for no change, so the answer is the Escape answer.
     if bevy_emerge_core::naming::to_snake_case(raw) == open.map.name {
@@ -8250,7 +8322,7 @@ fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorS
         return;
     }
     let mut ctx = crate::ops::Ctx {
-        project: project.cloned(),
+        project: project.as_ref().map(|p| (**p).clone()),
         open: Some(std::mem::replace(
             open,
             OpenMap::new(
@@ -8264,6 +8336,9 @@ fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorS
     let outcome = crate::ops::dispatch(&mut ctx, "map_rename", &serde_json::json!({"name": raw}));
     if let Some(fresh) = ctx.open.take() {
         *open = fresh;
+    }
+    if let Some(project) = project {
+        carry_rules(project, &mut ctx);
     }
     match outcome {
         Ok(crate::ops::Applied::Done {
@@ -11524,7 +11599,7 @@ fn flood_from_cursor(
         // **And this one was measured invisible.** The flood refused; the INSPECTOR's `Field::Last`
         // row was empty in a capture; and the author had no way to know the fill had not happened.
         // The ghost's refusal for the same piece — the same fact, from the same piece — was plainly
-        // visible in the amber `Field::Hint` row, because the ghost writes a different field.
+        // visible in the amber hint line of the receipt row, because the ghost writes a different field.
         Err(e) => {
             state.status.problem(e);
             return;
@@ -11765,8 +11840,9 @@ fn drive_ghost(
             // surface piece armed, and `ResMut` marks the resource changed on every mutable deref —
             // `rebuild_palette` watches `resource_changed::<EditorState>`, so an unconditional write
             // here would tear down and rebuild the whole palette at frame rate.
-            if state.hint != e {
-                state.hint = e;
+            let hint = ghost_hint(d, &e);
+            if state.hint != hint {
+                state.hint = hint;
             }
             return;
         }

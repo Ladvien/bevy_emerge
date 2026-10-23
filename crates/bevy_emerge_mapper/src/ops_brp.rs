@@ -161,9 +161,24 @@ fn take(
 
 /// **Put the operation's map back into the editor's own resource.**
 ///
-/// **Only the map.** The project is the editor's, and the operation does not change it — the
-/// operation reads the library and writes the file.
-fn put_back(open: &mut Option<ResMut<crate::project::OpenMap>>, ctx: Ctx) {
+/// **The map, and the rules when an operation changed them.** Most operations read the library and
+/// write the file and leave the project alone; a rename is the one that rewrites `rules.ron`.
+fn put_back(
+    project: &mut Option<ResMut<crate::project::Project>>,
+    open: &mut Option<ResMut<crate::project::OpenMap>>,
+    ctx: Ctx,
+) {
+    // **The rules too, and only when they changed.** A rename rewrites `rules.ron`'s examples, and
+    // the editor reads the rules it generates from out of the Project resource, so a change that
+    // stayed in the clone would leave the next generate reading a map the rename had removed. The
+    // comparison comes first: writing through `as_deref_mut` marks the resource changed, and most
+    // operations change no rules.
+    if let Some(fresh) = ctx.project.as_ref().map(|p| p.rules.clone())
+        && project.as_deref().is_some_and(|p| p.rules != fresh)
+        && let Some(handle) = project.as_deref_mut()
+    {
+        handle.rules = fresh;
+    }
     if let Some(fresh) = ctx.open
         && let Some(handle) = open.as_deref_mut()
     {
@@ -416,7 +431,7 @@ fn operation_preview(
 /// recorded in.
 fn operation_apply(
     In(p): In<ApplyParams>,
-    project: Option<ResMut<crate::project::Project>>,
+    mut project: Option<ResMut<crate::project::Project>>,
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
     mut state: Option<ResMut<crate::editor::EditorState>>,
@@ -464,7 +479,7 @@ fn operation_apply(
     let applied = ops::dispatch(&mut ctx, &p.operation, &p.parameters);
     // **The map goes back either way** — changed, refused, or not — so the editor's own state is
     // never left holding a half-applied edit.
-    put_back(&mut open, ctx);
+    put_back(&mut project, &mut open, ctx);
     // **The screen is redrawn when the write-back saved.** The watcher adopts a file whose
     // contents already match the open map and does nothing, so nothing else would tell the
     // screen; a piece the agent turned stayed where it was until the editor was reopened.
@@ -534,7 +549,7 @@ fn operation_apply(
 /// editor's own resources and puts the map back, exactly as `emerge/operation_apply` does.
 fn operation_undo(
     In(p): In<UndoParams>,
-    project: Option<ResMut<crate::project::Project>>,
+    mut project: Option<ResMut<crate::project::Project>>,
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
     mut state: Option<ResMut<crate::editor::EditorState>>,
@@ -577,7 +592,7 @@ fn operation_undo(
         None => ops::undo(&mut ctx, p.operation_id.as_deref()),
     };
     // **The map goes back either way**, so a refused undo leaves the editor holding what it held.
-    put_back(&mut open, ctx);
+    put_back(&mut project, &mut open, ctx);
     // **Redrawn for the same reason as `operation_apply`:** the watcher ignores the write-back.
     if let (Some(due), Ok((_, ops::Applied::Done { outcome, .. }))) = (due.as_mut(), &undone) {
         due.map_replaced |= outcome.saved;

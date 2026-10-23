@@ -1,19 +1,17 @@
-//! **A capture sequence asks for one frame at a time, and a frame that never lands ends the run.**
+//! **A capture sequence asks for at most one new frame per update, and a frame that never lands ends the run.**
 //!
-//! The regression test for B-038: `emerge_capture_sequence` at 15 fps dropped frames with
-//! "Duplicate render target" and never reported done.
+//! The regression test for B-038 and B-040. B-038: `emerge_capture_sequence` at 15 fps dropped frames
+//! with "Duplicate render target" and never reported done. B-040: the sequencer waited for each PNG
+//! before asking for the next frame, so the readback's latency set the capture rate.
 //!
 //! # What is being proved
 //!
-//! **Bevy takes at most one screenshot per render target per frame.** A second screenshot
-//! requested for the same target in the same frame is despawned without its observer firing, so
-//! its PNG is never written. The sequencer's frames all go to the same surface image, so a
-//! sequencer that spawns every frame that has come due in one update loses every frame after the
-//! first. The run then waits for a `written` count that can never be reached, and never finishes.
-//!
-//! **So the sequencer holds one capture in flight.** A due frame waits until the previous PNG has
-//! landed. And a capture that never lands is a refusal with a reason after a bounded wait, not a
-//! run that waits forever.
+//! **Bevy's duplicate check is per frame.** Two screenshots requested for the same render target
+//! in the same frame collide: the second is despawned without its observer firing, so its PNG is
+//! never written. The sequencer's frames all go to the same surface image, so it spawns at most one
+//! new screenshot per update, and holds up to `MAX_IN_FLIGHT` while the earlier PNGs land. The run
+//! waits for every PNG to land before it finishes. A capture that never lands is a refusal with a
+//! reason after a bounded wait, not a run that waits forever.
 //!
 //! # How the test runs without a GPU
 //!
@@ -87,10 +85,12 @@ fn params(label: &str, seconds: f32, fps: u32) -> SequenceParams {
     }
 }
 
-/// **A jump of a second makes fifteen frames due at once.** The sequencer must still ask for one.
+/// **A jump of a second makes fifteen frames due at once.** The sequencer asks for one new
+/// screenshot per update, and holds up to four while their PNGs are on their way.
 #[test]
-fn a_burst_of_due_frames_is_asked_for_one_at_a_time() {
-    let mut app = rendering_editor("one_at_a_time", Duration::from_secs(1));
+fn a_burst_of_due_frames_is_asked_for_one_per_update() {
+    const CAP: usize = 4;
+    let mut app = rendering_editor("one_per_update", Duration::from_secs(1));
     for _ in 0..2 {
         app.update();
     }
@@ -100,17 +100,47 @@ fn a_burst_of_due_frames_is_asked_for_one_at_a_time() {
             .start(&params("burst", 2.0, 15), 0.0)
             .expect("the sequence starts");
     }
-    // **Exactly one, not at most one.** `<= 1` also passes when nothing is spawned at all, so the
-    // first update must have put frame 0 in flight, and it must stay there: four seconds is under
-    // the five-second landing timeout, so no frame lands and none is replaced.
-    for _ in 0..4 {
+    // **Exactly one more per update, until the cap.** Four seconds is under the five-second
+    // landing timeout, so no frame lands and none is replaced. Bevy's duplicate check is per
+    // extraction frame: one new screenshot per update cannot collide with another.
+    for update in 1..=4usize {
         app.update();
         let n = in_flight(&mut app);
         assert_eq!(
-            n, 1,
-            "{n} screenshots are in flight, and the sequence must hold exactly one: Bevy keeps one \
-             per render target per frame, so a second is despawned without a PNG (\"Duplicate \
-             render target\")"
+            n,
+            update.min(CAP),
+            "after update {update}, {n} screenshots are in flight: the sequence asks for one new \
+             one per update and holds up to {CAP} while their PNGs land"
+        );
+    }
+}
+
+/// **A due frame is asked for on the update after the one before it, while that one is still out.**
+///
+/// The regression test for B-040. At 15 fps the sequencer asked for a frame and then waited for its
+/// PNG before asking for the next, so a frame's readback latency set the rate: the capture ran at
+/// the speed of one readback, not the speed asked for. Here the clock advances four frames' worth
+/// per second exactly (a 250 ms step at 4 fps), so one frame falls due on every update, and nothing
+/// lands (headless), so every frame is still out when the next is due.
+#[test]
+fn a_due_frame_is_requested_while_the_one_before_is_still_out() {
+    let mut app = rendering_editor("pipelined", Duration::from_millis(250));
+    for _ in 0..2 {
+        app.update();
+    }
+    {
+        let mut sequencer = app.world_mut().resource_mut::<Sequencer>();
+        sequencer
+            .start(&params("pipelined", 2.0, 4), 0.0)
+            .expect("the sequence starts");
+    }
+    for update in 1..=4usize {
+        app.update();
+        let n = in_flight(&mut app);
+        assert_eq!(
+            n, update,
+            "after update {update}, {n} frames are out: a frame due on this update must be asked \
+             for now, not after the earlier PNG lands"
         );
     }
 }

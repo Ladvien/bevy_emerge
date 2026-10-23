@@ -803,11 +803,14 @@ pub fn panel_root<'a>(
 ///
 /// # What the frame must not carry
 ///
-/// **No `Hovered`, and `Pickable::IGNORE` throughout.** `view::over_ui` and `view::drive` both ask
-/// "is the pointer on the interface" by looking for a true `Hovered`, and a frame node carrying one
-/// would answer yes for the entire window — the map would stop taking clicks and the wheel would
-/// stop zooming, everywhere, with nothing to point at. `Hovered` belongs on the panels, which is
-/// where [`panel_root`] puts it.
+/// **No `Hovered`, and `Pickable::IGNORE` throughout: on the frame and on every node inside it.**
+/// `view::over_ui` and `view::drive` both ask "is the pointer on the interface" by looking for a
+/// true `Hovered`, and `Hovered` is true for an entity
+/// *or any descendant*. So one pickable child inside a non-hoverable row (a label, a value, a
+/// glyph) turns that row's `Hovered` on, and the frame's with it, and the answer is yes for the
+/// entire window: the map would stop taking clicks and the wheel would stop zooming, everywhere,
+/// with nothing to point at. `Hovered` belongs on the panels, which is where [`panel_root`] puts
+/// it, and on the one node a row exposes as a button (`Pickable::default()` with `Hovered`).
 #[derive(Resource)]
 pub struct Frame {
     pub root: Entity,
@@ -1955,6 +1958,16 @@ pub fn list_heading(parent: &mut ChildSpawnerCommands, text: &str) {
 /// that does not fit push its own value right instead of painting on it. Short labels line up at
 /// exactly the column, which is the whole point, and no call site changes.
 pub fn row_label(row: &mut ChildSpawnerCommands, width: f32, label: &str) {
+    row_label_with(row, width, label, ());
+}
+
+/// [`row_label`] with a marker on its label, for a label that changes while the row is on screen.
+pub fn row_label_with(
+    row: &mut ChildSpawnerCommands,
+    width: f32,
+    label: &str,
+    marker: impl Bundle,
+) -> Entity {
     row.spawn((
         Node {
             min_width: Val::Px(width),
@@ -1984,7 +1997,9 @@ pub fn row_label(row: &mut ChildSpawnerCommands, width: f32, label: &str) {
         TextColor(LABEL),
         font(text::LABEL),
         TextLayout::new(Justify::Left, LineBreak::NoWrap),
-    ));
+        marker,
+    ))
+    .id()
 }
 
 /// **The value beside a [`row_label`]** — 11 px, one step louder than its label, which is the
