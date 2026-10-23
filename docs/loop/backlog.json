@@ -141,38 +141,6 @@
     {
       "last_failure": "",
       "first_seen": "2026-10-21",
-      "id": "B-012",
-      "kind": "bug",
-      "area": "chrome",
-      "status": "open",
-      "title": "The receipt sits in UNDER's value column, so it reads as the value of UNDER",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "docs/loop/iterations/assets/2026-10-21-15be05c/window-after.png: 'size back: map is 300 x 26 x 1120 m...' directly under the empty UNDER label"
-      },
-      "evidence": "Not must-fix (one yes: the text says what it is). A label or its own block would end the ambiguity."
-    },
-    {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
-      "id": "B-013",
-      "kind": "bug",
-      "area": "chrome",
-      "status": "open",
-      "title": "The hint row (Field::Hint) is zero tall when empty, so a hint pushes EDGES, MAP SIZE and the lists down",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "editor.rs ghost: state.hint set while a surface/mounted piece is armed over floor it cannot stand on, cleared where it fits; same shape as B-009 (reviewer, 2026-10-21)"
-      },
-      "evidence": "Not must-fix (needs a surface or mounted piece armed). Fold into one reserved status slot with the receipt rather than reserving a second blank row."
-    },
-    {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
       "id": "E-014",
       "kind": "enhancement",
       "area": "mcp",
@@ -281,22 +249,6 @@
       "first_seen": "2026-10-22"
     },
     {
-      "id": "E-028",
-      "kind": "bug",
-      "area": "ops",
-      "title": "An agent turn that is saved but cannot be logged leaves the screen and the file disagreeing",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "Found by code review of the yaw branch 2026-10-22, by reading, not reproduced. ops.rs dispatch_as commits the change (the file is saved) and then appends the oplog line; if the append fails it returns Err 'the operation was applied but the log could not be written', with the map and file already changed. placement_set_yaw's set_yaw then returns false with no Undo::Turned and no respawn, and ops_brp.rs operation_apply and sequencer.rs drive_sequencer set map_replaced only on Ok(Done), so the picture keeps the old facing while the file has the new one. Fixing it changes the commit-then-append order for every operation, so it is a design decision, not a one-line patch."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops.rs dispatch_as (append after commit); crates/bevy_emerge_mapper/src/editor.rs set_yaw; crates/bevy_emerge_mapper/src/ops_brp.rs operation_apply; crates/bevy_emerge_mapper/src/sequencer.rs drive_sequencer",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
       "id": "B-021",
       "kind": "bug",
       "area": "editor",
@@ -350,22 +302,6 @@
       "first_seen": "2026-10-22"
     },
     {
-      "id": "B-029",
-      "kind": "bug",
-      "area": "editor",
-      "title": "A renamed map keeps a rules.ron example that points at a file the rename no longer creates",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "Judgment: 0 of 3 (blocks no, common no: only maps whose rules.ron has an example; workaround: edit rules.ron)."
-      },
-      "status": "open",
-      "evidence": "Reviewer gap 12, 2026-10-22 snip iteration. crates/bevy_emerge_mapper/src/editor.rs:10502 and 10621 keep the example path after map_rename.",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
       "id": "B-030",
       "kind": "bug",
       "area": "editor",
@@ -378,22 +314,6 @@
       },
       "status": "open",
       "evidence": "Reviewer gap 13, 2026-10-22 snip iteration. crates/bevy_emerge_mapper/src/ops.rs:531-580 keys the oplog by map name.",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
-      "id": "B-031",
-      "kind": "bug",
-      "area": "mcp",
-      "title": "A snip's placement list does not name the members of a stamped piece that lie under the rectangle",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "Judgment: 1 of 3 (common only). The agent can still read the full placement list for the map; the snip record just omits stamp members."
-      },
-      "status": "open",
-      "evidence": "Reviewer gap 16, 2026-10-22 snip iteration. The snip record lists placements but not StampedPiece stamp members (crates/bevy_emerge_mapper/src/snip.rs).",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
@@ -419,37 +339,71 @@
       "area": "docs",
       "title": "README demos show each change: re-shoot the five clips so every change is visible at README size",
       "status": "open",
-      "evidence": "Cycle 2 (99c764c): the re-shoot failed tools/demo/check.py on every clip, so the README keeps cycle 1's GIFs. Bars: scene >= 40% of frame, change >= 5% per change moment, static <= 1.5 s, size cap. Measured: hero attempt A scene 75.2%, agent 34.2%, undo 33.9%, static 0.93 s, 0.45 MB, numbers pass but the house is off-crop; hero attempt B scene 87.7%, agent 3.2%, undo 3.0%; place_and_undo scene 90.4%, place 0.8%, undo 1.1%, static 2.0 s; agent_removes_then_undo scene 92.4%, agent 4.1%, undo 4.3%, static 2.1 s; frame_the_map scene 30.8%, Home 85.2%, static 1.27 s; move_the_camera scene 29.5%, static 0.67 s, 3.89 MB. Leads: the crop is not centred on the view centre (the editor reports focus for block_3_1 at (18.29, -18.29), but the house is off-centre in frame 0); the MIN_ZOOM floor keeps small targets far (the barrel is a 2 px dot); pick large pieces; the camera pan leaves the town. The tooling (tools/demo record.py, render.py, check.py, storyboards) ships in 9064805 and 99c764c. Cycle 3 (52d7f84), check.py with the corrected crop [470, 64, 950, 690]: frame_the_map FAIL, static run 1.67 s (limit 1.5), home change 77.66%, size 0.90 MB; move_the_camera FAIL, scene 17.1% (need >= 40%), size 26.77 MB (limit 3.0 MB), static 0.53 s; place_and_undo FAIL, undo change 0.36% (need >= 5%). hero and agent_removes_then_undo not recorded: the sequencer drops screenshots (B-038). Storyboards and record.py on loop/2026-10-23-video (f8942d3), merged in 446334b. Cycle 4 (0286624): place_and_undo PASS on attempt 2 and SHIPPED (README; docs/media/place-and-undo.gif, 8.7 s): scene min 91.2%, place 5.38% at 1.10 s, undo 5.17% at 2.22 s, static 1.13 s, 0.28 MB. Not shipped: frame_the_map PASS on attempt 2 but f21-f150 identical (about 8.6 s), an agent framing rather than the Home key; check.py gap, E-035. agent_removes_then_undo PASS only on attempt 3 (over the two-attempt budget), recording discarded: scene 91.7%, agent 6.16% at 0.07 s, undo 7.22% at 1.41 s, static 0.20 s, 0.49 MB. move_the_camera FAIL twice: attempt 2 scene 57.8%, static 0.70 s, 3.20 MB (limit 3.0). hero FAIL on attempt 1, not retried: scene 91.3%, agent 3.68% at 9.90 s, undo 0.23%, static 4.73 s, 0.67 MB; chunk 0 ran about 9.8 s, not 6 s (E-036). 1 of 5 clips shipped; 4 open.",
+      "evidence": "Cycle 2 (99c764c): the re-shoot failed tools/demo/check.py on every clip, so the README keeps cycle 1's GIFs. Bars: scene >= 40% of frame, change >= 5% per change moment, static <= 1.5 s, size cap. Measured: hero attempt A scene 75.2%, agent 34.2%, undo 33.9%, static 0.93 s, 0.45 MB, numbers pass but the house is off-crop; hero attempt B scene 87.7%, agent 3.2%, undo 3.0%; place_and_undo scene 90.4%, place 0.8%, undo 1.1%, static 2.0 s; agent_removes_then_undo scene 92.4%, agent 4.1%, undo 4.3%, static 2.1 s; frame_the_map scene 30.8%, Home 85.2%, static 1.27 s; move_the_camera scene 29.5%, static 0.67 s, 3.89 MB. Leads: the crop is not centred on the view centre (the editor reports focus for block_3_1 at (18.29, -18.29), but the house is off-centre in frame 0); the MIN_ZOOM floor keeps small targets far (the barrel is a 2 px dot); pick large pieces; the camera pan leaves the town. The tooling (tools/demo record.py, render.py, check.py, storyboards) ships in 9064805 and 99c764c. Cycle 3 (52d7f84), check.py with the corrected crop [470, 64, 950, 690]: frame_the_map FAIL, static run 1.67 s (limit 1.5), home change 77.66%, size 0.90 MB; move_the_camera FAIL, scene 17.1% (need >= 40%), size 26.77 MB (limit 3.0 MB), static 0.53 s; place_and_undo FAIL, undo change 0.36% (need >= 5%). hero and agent_removes_then_undo not recorded: the sequencer drops screenshots (B-038). Storyboards and record.py on loop/2026-10-23-video (f8942d3), merged in 446334b. Cycle 4 (0286624): place_and_undo PASS on attempt 2 and SHIPPED (README; docs/media/place-and-undo.gif, 8.7 s): scene min 91.2%, place 5.38% at 1.10 s, undo 5.17% at 2.22 s, static 1.13 s, 0.28 MB. Not shipped: frame_the_map PASS on attempt 2 but f21-f150 identical (about 8.6 s), an agent framing rather than the Home key; check.py gap, E-035. agent_removes_then_undo PASS only on attempt 3 (over the two-attempt budget), recording discarded: scene 91.7%, agent 6.16% at 0.07 s, undo 7.22% at 1.41 s, static 0.20 s, 0.49 MB. move_the_camera FAIL twice: attempt 2 scene 57.8%, static 0.70 s, 3.20 MB (limit 3.0). hero FAIL on attempt 1, not retried: scene 91.3%, agent 3.68% at 9.90 s, undo 0.23%, static 4.73 s, 0.67 MB; chunk 0 ran about 9.8 s, not 6 s (E-036). 1 of 5 clips shipped; 4 open. Cycle 5 (ca6d1ef): place_and_undo re-shot and shipped (8a3e462: scene 80.7%, place 22.54%, undo 22.38%, static 1.33 s, 0.30 MB). frame_the_map shipped in fc5063a and reverted in f75ce09 (agent framing on a 300x240 m rect; the map is 300x1120 m). move_the_camera FAIL x2 (scene min 34.6%, 19.6%); hero FAIL x2 (static 3.12 s); agent_removes_then_undo FAIL x2 (static 3.75-3.88 s). Still 1 of 5 shipped. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
     {
-      "last_failure": "",
-      "first_seen": "2026-10-23",
-      "id": "E-034",
-      "kind": "enhancement",
-      "area": "chrome",
-      "title": "The frame's doc says Pickable::IGNORE throughout; say that a row's children need it too",
-      "status": "open",
-      "evidence": "Cycle 3 (52d7f84) reviewer note on chrome.rs: an unignored child is hit, and a hit on a child marks its row Hovered through the descendant. The history row's text is IGNORE from spawn for this reason, but the 'What the frame must not carry' doc in crates/bevy_emerge_mapper/src/chrome.rs says only that the frame itself carries no Hovered. Small doc change: every descendant of a row that must not be hovered is IGNORE."
-    },
-    {
-      "id": "E-035",
-      "kind": "enhancement",
-      "area": "docs",
-      "title": "check.py: static runs must not count caption and cursor overlay frames; MCP view changes must count as change moments",
-      "status": "open",
-      "evidence": "Cycle 4 (0286624): frame_the_map passed check.py on attempt 2 (scene min 50.8%, static 1.07 s, 0.37 MB) but f21-f150 are visually identical (about 8.6 s); the static measure counts frames with the caption and cursor overlays, so the hold reads as 1.07 s. It shows an agent framing (emerge_frame_view), not the Home key, so the GIF was reverted (4c00dd2) and the README keeps the cycle 1 Home GIF. Also: an MCP view change is not a change moment, so frame_the_map's framing change (26.4% of pixels at about 0.7 s) was measured by hand; its caption lands at 0.81 s. Next: static runs on raw frame diffs; MCP view changes as change moments; then re-check frame_the_map and agent_removes_then_undo.",
+      "id": "B-041",
+      "kind": "bug",
+      "area": "editor",
+      "title": "Removing ground block block_3_1 leaves the gate house on it translucent; undo makes it solid",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Not judged: unconfirmed. Set when reproduced."
+      },
+      "status": "unconfirmed",
+      "evidence": "Seen in cycle 5, agent_removes_then_undo (town), attempts A and B. Evidence: docs/loop/iterations/assets/2026-10-23-cycle5/B-041-arn-cmp.png (left: block present, house solid; right: after removal, the block's footprint is a dark grid and the house is drawn translucent). Not reproduced headless. Ghost or preview translucency is fade_ghost at crates/bevy_emerge_mapper/src/editor.rs ~12379; the cause is not established. Next: reproduce on a fresh editor, with a BRP capture after the removal.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-036",
+      "id": "E-037",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "No operation arms a brush piece, so an agent cannot arm one and the hint state cannot be captured over MCP",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Not judged: unconfirmed. Set when reproduced."
+      },
+      "status": "open",
+      "evidence": "Cycle 5 (358d69c): no operation arms a brush piece. An agent cannot arm one, and the surface hint cannot be put up for a capture, so B-013's live layout is not taken. A parity gap with the person's arm-from-list. Next: a design decision for Main: an operation that arms, or a harness-only hook.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-038",
       "kind": "enhancement",
       "area": "docs",
-      "title": "record.py: chunk 0 of hero runs about 9.8 s instead of 6 s, so captions move out of time",
+      "title": "The remaining demo clips need short holds, small pans, a larger snip rect, and the Home key for frame_the_map",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Not judged: unconfirmed. Set when reproduced."
+      },
       "status": "open",
-      "evidence": "Cycle 4 (0286624): hero attempt 1 failed (scene 91.3%, agent change 3.68% at 9.90 s, undo 0.23%, static 4.73 s, 0.67 MB). Chunk 0 ran about 9.8 s, not 6 s. Not retried. Next: find why the chunk overruns (capture timing; the one-in-flight wait from B-038 is a candidate, not confirmed), then re-record hero.",
+      "evidence": "Cycle 5 video runs: move_the_camera FAIL x2 (scene min 34.6% and 19.6%; the pan leaves the map). hero FAIL x2 (static 3.12 s; snip drag change 0.38%). agent_removes_then_undo FAIL x2 (static 3.75-3.88 s; the removal holds the full 3 s chunk). frame_the_map reverted in f75ce09 (agent framing, not Home). Next: holds of 1.5 s or less between moments, pans of 0.2 s or less per key, a larger snip rect, and the Home key step for frame_the_map. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "B-042",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "emerge_list_snips right after Enter returns 0 snips, because the save lands about 0.3 s later",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Not judged: unconfirmed. Set when reproduced."
+      },
+      "status": "unconfirmed",
+      "evidence": "Cycle 5 hero attempt A: the list ran at 5.85 s and read 0 snips; snip-1792743557643.json was written 0.3 s after Enter (03:19:17). Attempt B listed 1 snip at 6.5 s. Open question: does the snip tool say a save may be pending? It returned 0 with no note.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     }
