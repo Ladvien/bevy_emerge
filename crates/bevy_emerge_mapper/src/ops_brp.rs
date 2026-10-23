@@ -328,7 +328,11 @@ fn editor_state(
             "descriptor_ids_next": descriptor_ids_next,
             "how_to_read_more_ids": descriptor_ids_next
                 .map(|n| format!("pass descriptors_from={n} to read the rest")),
-            "compositions": p.compositions.compositions.len(),
+            "compositions": bevy_emerge_core::census::of_catalog(
+                &p.library,
+                &p.compositions.compositions
+            )
+            .compositions,
             "kits": p.kits.len(),
         })
     });
