@@ -3676,6 +3676,8 @@ fn history_block(s: &mut ChildSpawnerCommands) {
                 },
             );
             row.observe(history_row_clicked);
+            // A spare or current row is not a pointer target: `refresh_history` sets this on each change.
+            row.insert(bevy::picking::Pickable::default());
             row.with_children(|line| {
                 line.spawn((
                     Text::new(""),
@@ -3686,6 +3688,8 @@ fn history_block(s: &mut ChildSpawnerCommands) {
                         bevy::text::LineBreak::NoWrap,
                     ),
                     HistoryText,
+                    // Ignored, so the pointer hits the row and not its text (see `refresh_history`).
+                    bevy::picking::Pickable::IGNORE,
                 ));
             });
         });
@@ -3736,7 +3740,7 @@ fn history_row_clicked(
 fn refresh_history(
     state: Res<EditorState>,
     open: Res<OpenMap>,
-    mut slots: Query<(&mut HistorySlot, &Children)>,
+    mut slots: Query<(&mut HistorySlot, &Children, &mut bevy::picking::Pickable)>,
     mut texts: Query<(&mut Text, &mut TextColor), With<HistoryText>>,
 ) {
     if !state.is_changed() && !open.is_changed() {
@@ -3744,12 +3748,24 @@ fn refresh_history(
     }
     let depth = state.undo_depth();
     let rows = state.history();
-    for (mut slot, children) in &mut slots {
+    for (mut slot, children, mut pickable) in &mut slots {
         let position = usize::try_from(depth as isize + slot.offset)
             .ok()
             .filter(|&p| p <= rows.len());
         slot.position = position;
         slot.current = position == Some(depth);
+        // **A spare or current row is not a pointer target** (the click observer refuses it), so it
+        // must not light up on hover either. `Hovered` is read from the pointer's hit, and an ignored
+        // entity is never hit, so the row goes non-pickable here and stays pickable when it is live.
+        let target = slot.position.is_some() && !slot.current;
+        let pick = if target {
+            bevy::picking::Pickable::default()
+        } else {
+            bevy::picking::Pickable::IGNORE
+        };
+        if *pickable != pick {
+            *pickable = pick;
+        }
         let (want, tint) = match position {
             None => (String::new(), TEXT),
             Some(p) => {

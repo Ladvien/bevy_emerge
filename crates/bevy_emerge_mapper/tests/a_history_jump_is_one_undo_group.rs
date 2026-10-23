@@ -250,7 +250,7 @@ fn clicking_a_history_row_jumps_there_as_one_group() {
     );
     assert_eq!(pieces(&app), 2, "the fixture's piece and the first placed");
 
-    // One redo brings back all three edits: the jump was one group, not three.
+    // One redo brings back both edits the jump took back: the jump was one group, not two.
     redo_for_test(app.world_mut());
     app.update();
     assert_eq!(
@@ -260,11 +260,56 @@ fn clicking_a_history_row_jumps_there_as_one_group() {
     );
     assert_eq!(pieces(&app), 4, "one redo restores the whole jump");
 
-    // And one undo takes the whole group back: the jump was one group, not three.
+    // And one undo takes the whole group back: the jump was one group, not two.
     undo_for_test(app.world_mut());
     app.update();
     assert_eq!(state(&app).undo_depth(), 1);
     assert_eq!(pieces(&app), 2, "one undo removes the whole group");
+}
+
+/// **A row that is not a click target does not take the pointer (E-018).** A spare row (no position)
+/// and the current row are refused by the click observer, so they must not light up on hover either:
+/// the hover state is read from the pointer's hit, and an entity with `Pickable::IGNORE` is never hit.
+/// A live row keeps its pickable state so it still takes the click. The row's text is ignored too,
+/// because an unignored child is hit and marks the row hovered through its descendant.
+#[test]
+fn a_spare_or_current_row_is_not_a_pointer_target() {
+    use bevy::picking::Pickable;
+    let mut app = booted("rowpick");
+    place_for_test(app.world_mut(), "tile_a", (1.5, 0.5));
+    app.update();
+    let rows: Vec<_> = {
+        let world = app.world_mut();
+        world
+            .query::<(&HistorySlot, Option<&Pickable>, &Children)>()
+            .iter(world)
+            .map(|(slot, pick, children)| {
+                (
+                    slot.offset,
+                    slot.position,
+                    slot.current,
+                    pick.is_none_or(|p| p.is_hoverable),
+                    children.iter().collect::<Vec<Entity>>(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(rows.len(), 7, "the list has 2N+1 rows: {rows:?}");
+    let world = app.world();
+    for (offset, position, current, hoverable, children) in rows {
+        let target = position.is_some() && !current;
+        assert_eq!(
+            hoverable, target,
+            "row at offset {offset} (position {position:?}, current {current}) is a pointer target"
+        );
+        for child in children {
+            assert_eq!(
+                world.get::<Pickable>(child).copied(),
+                Some(Pickable::IGNORE),
+                "the text under the row at offset {offset} must not be a hit of its own"
+            );
+        }
+    }
 }
 
 /// **A history row names the change it stands for, on both sides of the undo.** A placement is
