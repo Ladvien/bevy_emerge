@@ -64,6 +64,9 @@ The tools are listed in [MCP tools](docs/mcp-tools.md).
 ## What you can do
 
 - **Build a map.** Place pieces, fill areas, and undo a placement. See [building maps](docs/guide/building-maps.md).
+
+  ![The whole editor window on the Map door: the PLACE list is walked to the gate house, R turns it before it is placed, two clicks place two gate houses, X and a click remove one, and Cmd+Z puts it back; the inspector names each step](docs/media/build-a-map.gif)
+
 - **Make kits and labels.** Bring in meshes, group them into kits, and label each piece. See [kits and labels](docs/guide/kits-and-labels.md).
 - **Work with an agent.** Let an agent turn and remove pieces, and frame and capture the map, while you watch and snip problems. See [agents](docs/guide/agents.md).
 - **Use the data files.** Read and edit the files a game loads. See [data files](docs/guide/data-files.md).
