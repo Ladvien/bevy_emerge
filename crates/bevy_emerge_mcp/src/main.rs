@@ -772,7 +772,7 @@ impl Emerge {
                        the later frames are what it did. The frames are written to a directory and \
                        their paths are in the answer. The editor takes the frames, so the timing \
                        does not depend on this server's round trips. The rate is two to fifteen frames a second. A frame is asked for only once the one before it is written, so a stalled \
-                       editor delays the frames after it rather than losing them; a frame that does not land within five seconds ends the run with a reason, and the status is done only when every frame is written.",
+                       editor delays the frames after it rather than losing them; a frame that does not land within five seconds ends the run with a reason, and the status is done only when every frame is written. The call waits for the run to end, for at most the sequence's length plus five seconds a frame and a margin.",
         annotations(
             title = "Capture a sequence of the editor",
             read_only_hint = false,
@@ -814,10 +814,10 @@ impl Emerge {
             Err(e) => return Ok(refusal(&e)),
         };
         let id = started.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
-        // **Poll for the end.** The editor answers when the frames are in, and the wait is bounded
-        // by the sequence's own length plus a margin for the last readback.
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs_f32(p.seconds + 10.0);
+        // **Poll for the end.** The editor answers when the frames are in; the wait covers every
+        // frame, not only the sequence's length.
+        let expected_frames = (p.seconds * p.fps as f32) as u32;
+        let deadline = std::time::Instant::now() + sequence_wait(p.seconds, expected_frames);
         let status = loop {
             let answer = match self
                 .editor
@@ -1120,6 +1120,17 @@ fn base64_encode(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
+/// **The landing timeout, per frame.** A copy of `CAPTURE_TIMEOUT_S` in `bevy_emerge_mapper`'s
+/// `sequencer.rs`: the editor fails a run whose frame does not land within it.
+const LANDING_TIMEOUT_S: f32 = 5.0;
+
+/// **How long the caller waits for a sequence to finish.** The editor asks for one frame at a time
+/// and fails the run on a frame that misses the landing timeout, so a run takes at most one landing
+/// wait per frame. The sequence's own length and a margin for the last readback are added on top.
+fn sequence_wait(seconds: f32, expected_frames: u32) -> std::time::Duration {
+    std::time::Duration::from_secs_f32(seconds + 10.0 + expected_frames as f32 * LANDING_TIMEOUT_S)
+}
+
 #[cfg(test)]
 mod capture_label_tests {
     use super::is_capture_label;
@@ -1148,5 +1159,28 @@ mod capture_label_tests {
         ] {
             assert!(!is_capture_label(label), "`{label}` should be refused");
         }
+    }
+}
+
+#[cfg(test)]
+mod sequence_wait_tests {
+    use super::sequence_wait;
+    use std::time::Duration;
+
+    /// **A slow run must not outlast its own wait.** Ten seconds at fifteen frames a second is
+    /// 150 frames, and each may take up to a landing timeout of five seconds. The wait used to be the
+    /// sequence's length plus ten seconds, 20 s here: a run still going at that point came back as
+    /// "running" with no pictures, and the editor refused a new sequence until the run ended.
+    #[test]
+    fn the_wait_covers_every_frame_of_the_longest_run() {
+        let wait = sequence_wait(10.0, 150);
+        assert!(
+            wait >= Duration::from_secs(150 * 5),
+            "a 150-frame run can take a five-second landing per frame, but the caller waits only {wait:?}"
+        );
+        assert!(
+            sequence_wait(10.0, 150) > sequence_wait(10.0, 40),
+            "the wait must grow with the frames it has to cover"
+        );
     }
 }
