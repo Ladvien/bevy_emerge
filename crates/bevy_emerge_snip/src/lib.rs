@@ -191,6 +191,10 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// skips it and [`read_pending`] lists it.
 pub const PENDING_PREFIX: &str = "pending-";
 
+/// **How long a pending record may wait for its picture before it reads as abandoned.** The
+/// readback lands a frame or more after the confirm, so ten seconds is far past any live save.
+pub const PENDING_ABANDONED_AFTER_MS: u64 = 10_000;
+
 /// **Record a confirmed snip before its picture is taken.** The editor's readback lands a frame or
 /// more after the confirm, so without this record a read in between finds nothing at all.
 /// `create_new` means a record already there is refused rather than replaced.
@@ -209,36 +213,67 @@ pub fn clear_pending(dir: &Path, stem: &str) {
     let _ = std::fs::remove_file(dir.join(format!("{PENDING_PREFIX}{stem}.json")));
 }
 
-/// **The snips confirmed but not yet written, newest first.** Each record's stem is the one its
-/// picture will be given. A folder that does not exist has none.
-pub fn read_pending(dir: &Path) -> Vec<SnipRecord> {
+/// **Remove every pending record in `dir`, and return how many.** Run once when a project opens: a
+/// record present then was left by an editor that ended before its picture landed, so nothing is
+/// still waiting on it. A folder that does not exist has none.
+pub fn clear_all_pending(dir: &Path) -> usize {
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
+        return 0;
     };
-    let mut records: Vec<SnipRecord> = entries
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                return None;
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(PENDING_PREFIX)
+            && name.ends_with(".json")
+            && std::fs::remove_file(entry.path()).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// **The snips confirmed but not yet written, newest first, and the pending files that could not be
+/// read.** Each record's stem is the one its picture will be given. A folder that does not exist has
+/// none. A file that will not parse is named in the second list rather than hiding the rest, as
+/// [`read_snips`] does.
+pub fn read_pending(dir: &Path) -> (Vec<SnipRecord>, Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (Vec::new(), Vec::new());
+    };
+    let mut records = Vec::new();
+    let mut problems = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.strip_prefix(PENDING_PREFIX))
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let read = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| serde_json::from_str::<SnipRecord>(&text).map_err(|e| e.to_string()));
+        match read {
+            Ok(mut record) => {
+                record.stem = stem;
+                records.push(record);
             }
-            let stem = path
-                .file_stem()?
-                .to_str()?
-                .strip_prefix(PENDING_PREFIX)?
-                .to_string();
-            let text = std::fs::read_to_string(&path).ok()?;
-            let mut record: SnipRecord = serde_json::from_str(&text).ok()?;
-            record.stem = stem;
-            Some(record)
-        })
-        .collect();
+            Err(e) => problems.push(format!("{} is not a snip record: {e}", path.display())),
+        }
+    }
     records.sort_by(|a, b| {
         b.taken_at_ms
             .cmp(&a.taken_at_ms)
             .then_with(|| b.stem.cmp(&a.stem))
     });
-    records
+    (records, problems)
 }
 
 /// **Read every snip in `dir`, newest first.** A file that is not a snip record is named in the
@@ -413,7 +448,7 @@ mod written {
         let (records, problems) = read_snips(&dir);
         assert!(records.is_empty(), "a pending snip is not yet a snip: {records:?}");
         assert!(problems.is_empty(), "a pending snip is not a problem: {problems:?}");
-        let pending = read_pending(&dir);
+        let (pending, _) = read_pending(&dir);
         assert_eq!(pending.len(), 1, "the pending snip is listed");
         assert_eq!(pending[0].stem, "snip-7");
         assert_eq!(pending[0].note, "the gate is too narrow");
@@ -421,9 +456,44 @@ mod written {
         write_snip(&dir, "snip-7", picture(), [0, 0, 16, 10], rec.clone())
             .expect("the picture lands");
         clear_pending(&dir, "snip-7");
-        assert!(read_pending(&dir).is_empty(), "the picture landed, so nothing is pending");
+        assert!(read_pending(&dir).0.is_empty(), "the picture landed, so nothing is pending");
         let (records, _) = read_snips(&dir);
         assert_eq!(records.len(), 1, "the finished snip is listed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A pending file that will not parse is named, not dropped.** A crash mid-write leaves one
+    /// of these, and before the fix it was in neither list.
+    #[test]
+    fn a_broken_pending_record_is_named_and_the_rest_still_list() {
+        let dir = fresh_dir("broken_pending");
+        let mut rec = record(8, "kept");
+        rec.stem = "snip-8".into();
+        write_pending(&dir, &rec).expect("the pending record is written");
+        std::fs::write(dir.join("pending-snip-9.json"), "{ half a record")
+            .expect("the broken record is written");
+        let (pending, problems) = read_pending(&dir);
+        assert_eq!(pending.len(), 1, "the readable pending snip is still listed");
+        assert!(
+            problems.iter().any(|p| p.contains("pending-snip-9.json")),
+            "the broken pending record is named nowhere: {problems:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The startup sweep removes every pending record and keeps the finished snips.**
+    #[test]
+    fn the_startup_sweep_clears_pending_records_and_keeps_snips() {
+        let dir = fresh_dir("sweep");
+        let mut stale = record(10, "stale");
+        stale.stem = "snip-10".into();
+        write_pending(&dir, &stale).expect("the pending record is written");
+        write_snip(&dir, "snip-11", picture(), [0, 0, 16, 10], record(11, "kept"))
+            .expect("the finished snip is written");
+        assert_eq!(clear_all_pending(&dir), 1, "one pending record was left");
+        assert!(read_pending(&dir).0.is_empty(), "the stale record is gone");
+        let (records, _) = read_snips(&dir);
+        assert_eq!(records.len(), 1, "the finished snip is kept");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

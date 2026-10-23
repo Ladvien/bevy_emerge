@@ -718,15 +718,36 @@ impl Emerge {
             Err(e) => return Ok(refusal(&e)),
         };
         let (records, mut not_snips) = bevy_emerge_snip::read_snips(&dir);
-        let pending: Vec<Value> = bevy_emerge_snip::read_pending(&dir)
+        let (open, pending_problems) = bevy_emerge_snip::read_pending(&dir);
+        not_snips.extend(pending_problems);
+        // **A snip that already has its picture is finished, not pending.** Between the picture's
+        // write and the pending record's removal, one stem is in both lists.
+        let open: Vec<_> = open
+            .into_iter()
+            .filter(|r| !records.iter().any(|done| done.stem == r.stem))
+            .collect();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let pending_total = open.len();
+        let pending: Vec<Value> = open
             .iter()
+            .take(p.limit)
             .map(|r| {
+                let age_ms = now.saturating_sub(r.taken_at_ms);
+                let status = if age_ms > bevy_emerge_snip::PENDING_ABANDONED_AFTER_MS {
+                    format!(
+                        "abandoned: no picture after {} s, so it is not in snips. The editor quit or the capture was lost; take the snip again.",
+                        age_ms / 1000
+                    )
+                } else {
+                    "being saved: the picture has not landed yet, so it is not in snips".to_string()
+                };
                 let mut entry = serde_json::to_value(r).unwrap_or(Value::Null);
                 if let Value::Object(map) = &mut entry {
-                    map.insert(
-                        "status".to_string(),
-                        json!("being saved: the picture has not landed yet, so it is not in snips"),
-                    );
+                    map.insert("status".to_string(), json!(status));
+                    map.insert("age_ms".to_string(), json!(age_ms));
                 }
                 entry
             })
@@ -766,6 +787,7 @@ impl Emerge {
             "shown": shown.len(),
             "snips": shown,
             "pending": pending,
+            "pending_total": pending_total,
             "not_snips": not_snips,
         });
         content.push(rmcp::model::ContentBlock::text(

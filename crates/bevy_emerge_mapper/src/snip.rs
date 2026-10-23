@@ -482,6 +482,21 @@ fn snip_gates_picking(
     }
 }
 
+/// **Clears the pending records an earlier editor left, once a project is open.** A record present
+/// on the first frame with a project was written by an editor that ended before its picture landed,
+/// so no readback is still waiting on it. It runs on a frame with a project, not at plugin build,
+/// because the project is a resource the editor may not have yet.
+fn sweep_stale_pending(project: Option<Res<Project>>, mut swept: Local<bool>) {
+    if *swept {
+        return;
+    }
+    let Some(project) = project else {
+        return;
+    };
+    bevy_emerge_snip::clear_all_pending(&project.root.join(SNIP_DIR));
+    *swept = true;
+}
+
 /// Registers the snip. Its own plugin so the editor's `Update` tuple stays under Bevy's cap.
 pub struct SnipPlugin;
 
@@ -502,7 +517,8 @@ impl Plugin for SnipPlugin {
                     .after(snip_commit)
                     .after(snip_note_keys),
             )
-            .add_systems(Update, snip_gates_picking);
+            .add_systems(Update, snip_gates_picking)
+            .add_systems(Update, sweep_stale_pending);
     }
 }
 
