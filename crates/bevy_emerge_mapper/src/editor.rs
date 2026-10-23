@@ -168,13 +168,13 @@ pub struct EditorState {
     /// Advanced on every solve, so pressing `G` twice offers a different arrangement rather than the
     /// same one — a generator that cannot be asked again is one you have to undo to disagree with.
     seed: u64,
-    /// A pin waiting for its reason: the placement index, and what has been typed so far.
+    /// A pin waiting for its reason: the placement id, and what has been typed so far.
     ///
     /// `Placed::owned_because` is *a reason, never a bool*, on the schema's own argument: a bool lets
     /// "I could not be bothered" and "this is the cell block's only entrance" look identical in a
     /// diff. A canned reason supplied by the editor would be that bool wearing a sentence, so pinning
     /// asks.
-    pub pinning: Option<(String, String)>,
+    pinning: Option<(String, String)>,
     /// **The name being typed for a group being captured**, or `None`.
     ///
     /// `pinning`'s shape and for the same reason: a group's name is the author's, and a canned one
