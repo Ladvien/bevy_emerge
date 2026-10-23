@@ -799,9 +799,14 @@ fn operation_apply(
         ..
     }) = &applied
         && op.undo() != ops::Undo::None
-        && let Some(state) = state.as_mut()
     {
-        state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
+        join_history(
+            op.writes_library(),
+            state.as_deref_mut(),
+            import.as_deref_mut(),
+            operation_id,
+            &outcome.summary,
+        );
     }
 
     // **The person's receipt says what the agent did (B-020).** A refusal goes to the journal as a
@@ -870,6 +875,7 @@ fn operation_undo(
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
     mut state: Option<ResMut<crate::editor::EditorState>>,
+    mut import: Option<ResMut<crate::tiles::ImportState>>,
 ) -> Result<Value, String> {
     if p.dry_run {
         // **A preview reads the log and plans the inverse, and writes nothing.**
@@ -917,13 +923,23 @@ fn operation_undo(
     // **The change this undo took back leaves the person's history too (B-019)**, so the next Cmd+Z
     // reaches the newest change still in effect instead of one the log no longer holds. A put-back is
     // the opposite: the change is in effect again, so it is the newest change and joins the history.
-    if let Ok((plan, ops::Applied::Done { outcome, operation_id, .. })) = &undone
-        && let Some(state) = state.as_mut()
-    {
+    if let Ok((plan, ops::Applied::Done { outcome, operation_id, .. })) = &undone {
         if plan.restores {
-            state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
+            let writes = ops::find(&plan.line.op).is_some_and(|o| o.writes_library());
+            join_history(
+                writes,
+                state.as_deref_mut(),
+                import.as_deref_mut(),
+                operation_id,
+                &outcome.summary,
+            );
         } else {
-            state.forget_line(&plan.line.operation_id);
+            if let Some(state) = state.as_mut() {
+                state.forget_line(&plan.line.operation_id);
+            }
+            if let Some(import) = import.as_mut() {
+                import.forget_line(&plan.line.operation_id);
+            }
         }
     }
 
@@ -1296,5 +1312,23 @@ impl Plugin for OpsBridgePlugin {
             .example(json!({"target": {"rect": [200.0, 100.0, 400.0, 300.0]}})),
             frame_view,
         );
+    }
+}
+
+/// **Which history a logged change joins (cycle 9 gap 1).** A library write joins the Meshes history,
+/// beside the person's Meshes edits, so one Cmd+Z there takes back the newest library change whoever
+/// made it. Every other change joins the Map history, as it always has. `TilesPlugin` inserts
+/// `ImportState`, so a library write falls back to the Map history only in an app built without it.
+pub(crate) fn join_history(
+    writes_library: bool,
+    state: Option<&mut crate::editor::EditorState>,
+    import: Option<&mut crate::tiles::ImportState>,
+    line: &str,
+    summary: &str,
+) {
+    match (writes_library, import, state) {
+        (true, Some(import), _) => import.record_logged(line.to_string(), summary.to_string()),
+        (_, _, Some(state)) => state.record_logged(line.to_string(), summary.to_string(), true),
+        _ => {}
     }
 }

@@ -255,10 +255,10 @@ pub struct ImportState {
     /// collision. `put_cursor` is the one writer, and it clears `focused_pack` on the way in and
     /// this on the way out, which is what keeps "one cursor" true.
     pub excluded_focused: bool,
-    /// **This tab's history**, most recent last. See [`Snapshot`].
-    pub undo: Vec<Snapshot>,
+    /// **This tab's history**, most recent last. See [`Step`].
+    pub undo: Vec<Step>,
     /// What has been undone here and can be put back. Cleared by any new edit on this tab.
-    pub redo: Vec<Snapshot>,
+    pub redo: Vec<Step>,
 }
 
 /// **Everything one Tiles-tab edit can change**, taken before it changes.
@@ -297,6 +297,17 @@ pub struct CursorMark {
 /// enough that it is not a limit anyone reaches by working normally.
 pub const TILE_HISTORY: usize = 64;
 
+/// **One step on the Meshes history.** A person's Meshes edit is a [`Snapshot`], restored whole. An
+/// agent's library write is a [`Step::Logged`]: the operation-log line that made it, undone through
+/// `ops::undo` the way the Map door undoes an agent's turn (cycle 9 gap 1). A snapshot restore can
+/// never erase a newer agent write, because that write is a step of its own and not part of a
+/// snapshot the person took before it.
+#[derive(Clone)]
+pub enum Step {
+    Snapshot(Snapshot),
+    Logged { line: String, phrase: String },
+}
+
 impl ImportState {
     /// The state as it stands, for the history.
     pub fn snapshot(&self, project: &Project) -> Snapshot {
@@ -317,11 +328,36 @@ impl ImportState {
     /// One place, so no edit site can forget the second half — the same rule `EditorState::record`
     /// follows on the map side, and for the same reason.
     pub fn record(&mut self, before: Snapshot) {
+        self.record_step(Step::Snapshot(before));
+    }
+
+    /// **Record a change an agent's operation made**, by its operation-log line (cycle 9 gap 1).
+    pub fn record_logged(&mut self, line: String, phrase: String) {
+        self.record_step(Step::Logged { line, phrase });
+    }
+
+    fn record_step(&mut self, step: Step) {
         if self.undo.len() >= TILE_HISTORY {
             self.undo.remove(0);
         }
-        self.undo.push(before);
+        self.undo.push(step);
         self.redo.clear();
+    }
+
+    /// Forget a logged step whose line is no longer in effect, on either stack.
+    pub fn forget_line(&mut self, line: &str) {
+        let gone = |s: &Step| matches!(s, Step::Logged { line: l, .. } if l == line);
+        self.undo.retain(|s| !gone(s));
+        self.redo.retain(|s| !gone(s));
+    }
+
+    /// Put an entry back on the undo stack (`undo`) or the redo stack, where it was taken from.
+    pub fn push_step(&mut self, undo: bool, step: Step) {
+        if undo {
+            self.undo.push(step);
+        } else {
+            self.redo.push(step);
+        }
     }
 }
 
@@ -1281,9 +1317,16 @@ fn tile_history_keys(
     } else {
         state.redo.pop()
     };
-    let Some(want) = taken else {
+    let Some(step) = taken else {
         state.status.note(format!("nothing to {verb} on this tab"));
         return;
+    };
+    let want = match step {
+        Step::Snapshot(want) => want,
+        Step::Logged { line, phrase } => {
+            replay_logged(back, verb, line, phrase, &mut project, &mut state);
+            return;
+        }
     };
 
     // **The map gets a vote.** `commit_measured` validates the library against itself and never
@@ -1318,11 +1361,7 @@ fn tile_history_keys(
             // A project whose maps cannot be read cannot answer this, and guessing "nobody places
             // it" is how a guard stops guarding. Refuse and say which file.
             Err(e) => {
-                if back {
-                    state.undo.push(want);
-                } else {
-                    state.redo.push(want);
-                }
+                state.push_step(back, Step::Snapshot(want));
                 state.status.problem(format!("cannot {verb}: {e}"));
                 return;
             }
@@ -1331,11 +1370,7 @@ fn tile_history_keys(
     if !missing.is_empty() {
         let named = missing.join("`, `");
         // Back where it came from — refusing must not also cost the entry.
-        if back {
-            state.undo.push(want);
-        } else {
-            state.redo.push(want);
-        }
+        state.push_step(back, Step::Snapshot(want));
         state.status.problem(format!(
             "cannot {verb}: `{named}` still places it — remove or undo those placements first"
         ));
@@ -1365,20 +1400,70 @@ fn tile_history_keys(
             state.focused_pack = want.cursor.pack;
             state.excluded_focused = want.cursor.excluded;
             if back {
-                state.redo.push(now);
+                state.push_step(false, Step::Snapshot(now));
                 state.status.note("undid the last tile edit".to_owned());
             } else {
-                state.undo.push(now);
+                state.push_step(true, Step::Snapshot(now));
                 state.status.note("put the tile edit back".to_owned());
             }
         }
         Err(e) => {
-            if back {
-                state.undo.push(want);
-            } else {
-                state.redo.push(want);
-            }
+            state.push_step(back, Step::Snapshot(want));
             state.status.problem(format!("could not {verb}: {e}"));
+        }
+    }
+}
+
+/// **Undo or redo one logged change, as the Map door undoes an agent's turn (cycle 9 gap 1).**
+///
+/// The change is taken back by its operation-log line through `ops::undo`, so the log stays true: the
+/// line is no longer in effect, and `emerge_undo_operation` cannot be asked for it twice. The reversal
+/// is itself logged, and the entry it leaves on the other stack names that line, so redo is the same
+/// operation on the other side. A refusal puts the entry back, where the author looks.
+fn replay_logged(
+    back: bool,
+    verb: &str,
+    line: String,
+    phrase: String,
+    project: &mut Project,
+    state: &mut ImportState,
+) {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    match crate::ops::undo(&mut ctx, Some(&line)) {
+        Ok((
+            _,
+            crate::ops::Applied::Done {
+                outcome,
+                operation_id,
+                ..
+            },
+        )) => {
+            if let Some(fresh) = ctx.project.take() {
+                crate::editor::adopt_library(project, &fresh);
+            }
+            state.push_step(
+                !back,
+                Step::Logged {
+                    line: operation_id,
+                    phrase,
+                },
+            );
+            state.status.note(outcome.summary);
+        }
+        Ok((_, crate::ops::Applied::Refused(e))) | Err(e) => {
+            state.push_step(
+                back,
+                Step::Logged {
+                    line,
+                    phrase: phrase.clone(),
+                },
+            );
+            state.status.problem(format!("cannot {verb} {phrase}: {}", e.0));
         }
     }
 }

@@ -282,6 +282,7 @@ struct Operated<'w> {
     due: Option<ResMut<'w, crate::watch::Due>>,
     state: Option<ResMut<'w, crate::editor::EditorState>>,
     confirm: Option<Res<'w, crate::confirm::Confirm>>,
+    import: Option<ResMut<'w, crate::tiles::ImportState>>,
 }
 
 /// **Take the frames that are due, and finish the run when the last one is in.**
@@ -378,9 +379,15 @@ fn drive_sequencer(
                 operation_id,
                 ..
             }) = &outcome
-                && let Some(state) = operated.state.as_mut()
             {
-                state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
+                let writes = crate::ops::find(&op.name).is_some_and(|o| o.writes_library());
+                crate::ops_brp::join_history(
+                    writes,
+                    operated.state.as_deref_mut(),
+                    operated.import.as_deref_mut(),
+                    operation_id,
+                    &outcome.summary,
+                );
             }
             // **A door the operation answered with is stored for the editor to cross (cycle 8).** The
             // BRP path stores it the same way, and `editor::apply_pending_door` carries it out in the

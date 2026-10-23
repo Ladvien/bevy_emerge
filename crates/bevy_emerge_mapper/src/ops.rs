@@ -335,6 +335,13 @@ pub trait Operation: 'static {
     fn only_as_undo(&self, _params: &serde_json::Value) -> bool {
         false
     }
+
+    /// **Whether this operation writes the library** (`measured`, the Meshes door's data). Its logged
+    /// change joins the Meshes history, so one Cmd+Z there takes back the newest library change,
+    /// whoever made it (cycle 9 gap 1). `false` unless it does.
+    fn writes_library(&self) -> bool {
+        false
+    }
 }
 
 /// **Every operation the editor knows, in one list.**
@@ -1776,6 +1783,10 @@ pub mod label_set {
 
         fn undo(&self) -> Undo {
             Undo::Inverse
+        }
+
+        fn writes_library(&self) -> bool {
+            true
         }
 
         fn schema(&self) -> serde_json::Value {
