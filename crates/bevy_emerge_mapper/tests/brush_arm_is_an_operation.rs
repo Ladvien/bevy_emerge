@@ -6,10 +6,10 @@
 //! agent's request goes, and assert on the editor's own state and on the log.
 
 use bevy::prelude::*;
-use bevy_emerge_mapper::editor::{EditorState, arm_piece};
+use bevy_emerge_mapper::editor::{EditorState, Tool, arm_piece};
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::ops;
-use bevy_emerge_mapper::project::Project;
+use bevy_emerge_mapper::project::{OpenMap, Project};
 
 mod fixtures;
 
@@ -18,6 +18,20 @@ fn editor(name: &str) -> App {
         .descriptor("site/wall", "alpha")
         .descriptor("site/gate", "beta")
         .build("m");
+    open(root)
+}
+
+/// The same library with one wall already on the map, so an undo has a removal to take back.
+fn editor_with_a_wall(name: &str) -> App {
+    let root = fixtures::Fixture::new(name)
+        .descriptor("site/wall", "alpha")
+        .descriptor("site/gate", "beta")
+        .place("site/wall", (1.0, 1.0))
+        .build("m");
+    open(root)
+}
+
+fn open(root: std::path::PathBuf) -> App {
     let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
     app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
     app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
@@ -25,6 +39,10 @@ fn editor(name: &str) -> App {
         app.update();
     }
     app
+}
+
+fn placement_ids(app: &App) -> Vec<String> {
+    app.world().resource::<OpenMap>().map.placements.iter().map(|p| p.id.clone()).collect()
 }
 
 /// **Through the registered method**, as an agent's request goes.
@@ -253,4 +271,104 @@ fn a_missing_descriptor_is_refused_and_the_brush_stays() {
     );
     assert_eq!(answer["outcome"], "refused", "{answer}");
     assert_eq!(armed(&app).as_deref(), Some("site/gate"));
+}
+
+/// **An undo after an arm takes back the change before it, and skips the arm.** The arm is in the log
+/// and changes no map, so the undo the person asks for must reach the removal.
+#[test]
+fn an_undo_after_an_arm_takes_back_the_removal_and_not_the_arm() {
+    let mut app = editor_with_a_wall("arm_then_undo");
+    let before = placement_ids(&app);
+    assert!(before.iter().any(|id| id == "site/wall@0"), "the fixture holds the wall: {before:?}");
+
+    let removed = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({"operation": "placement_remove", "parameters": {"id": "site/wall@0"}, "dry_run": false}),
+    );
+    assert_eq!(removed["outcome"], "applied", "{removed}");
+    assert!(!placement_ids(&app).iter().any(|id| id == "site/wall@0"));
+
+    let answer = arm(&mut app, "site/gate");
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+
+    let undone = call(&mut app, "emerge/operation_undo", serde_json::json!({"dry_run": false}));
+    assert_eq!(undone["outcome"], "applied", "{undone}");
+    assert_eq!(placement_ids(&app), before, "the undo puts the removed wall back");
+    assert_eq!(armed(&app).as_deref(), Some("site/gate"), "the undo leaves the brush as the arm set it");
+}
+
+/// **Arming from the remove tool switches to placing and says what it turned off.** The note is the
+/// person's only sign of that, so it must name the tool.
+#[test]
+fn an_arm_from_the_remove_tool_switches_to_placing_and_says_so() {
+    let mut app = editor("arm_from_remove");
+    app.world_mut().resource_mut::<EditorState>().tool = Tool::Remove;
+    {
+        let project = app.world().resource::<Project>().clone();
+        let mut state = app.world_mut().resource_mut::<EditorState>();
+        arm_piece(&mut state, &project, "site/wall");
+    }
+    let state = app.world().resource::<EditorState>();
+    assert_eq!(state.tool, Tool::Place, "arming returns to placing");
+    assert_eq!(armed(&app).as_deref(), Some("site/wall"));
+    assert_eq!(
+        state.status.note_text(),
+        "site/wall armed — removal mode off"
+    );
+}
+
+/// **A refused arm from the remove tool keeps the remove tool, and says why.**
+#[test]
+fn a_refused_arm_from_the_remove_tool_keeps_the_remove_tool() {
+    let mut app = editor("refused_from_remove");
+    arm(&mut app, "site/gate");
+    let before = armed(&app);
+    app.world_mut().resource_mut::<EditorState>().tool = Tool::Remove;
+    {
+        let project = app.world().resource::<Project>().clone();
+        let mut state = app.world_mut().resource_mut::<EditorState>();
+        arm_piece(&mut state, &project, "site/no_such_piece");
+    }
+    let state = app.world().resource::<EditorState>();
+    assert_eq!(state.tool, Tool::Remove, "a refused arm puts the tool back");
+    assert_eq!(armed(&app), before, "a refused arm leaves the brush as it was");
+    assert!(
+        state.status.problem_text().contains("site/no_such_piece"),
+        "the refusal names the piece: {}",
+        state.status.problem_text()
+    );
+}
+
+/// **Each applied arm writes exactly one log line.** The log is what emerge_read_oplog and undo read.
+#[test]
+fn each_applied_arm_writes_exactly_one_log_line() {
+    let mut app = editor("one_line_each");
+    let before = log_lines(&app);
+    assert_eq!(arm(&mut app, "site/wall")["outcome"], "applied");
+    assert_eq!(arm(&mut app, "site/gate")["outcome"], "applied");
+    assert_eq!(log_lines(&app), before + 2, "one line per applied arm, no more");
+}
+
+/// **The palette click and the operation leave the same tool, from the remove tool too.** The
+/// earlier parity test started both on the place tool, where a tool mismatch cannot show.
+#[test]
+fn the_palette_click_and_the_operation_agree_on_the_tool_from_remove() {
+    let mut by_click = editor("tool_click");
+    by_click.world_mut().resource_mut::<EditorState>().tool = Tool::Remove;
+    {
+        let project = by_click.world().resource::<Project>().clone();
+        let mut state = by_click.world_mut().resource_mut::<EditorState>();
+        arm_piece(&mut state, &project, "site/wall");
+    }
+
+    let mut by_op = editor("tool_op");
+    by_op.world_mut().resource_mut::<EditorState>().tool = Tool::Remove;
+    let answer = arm(&mut by_op, "site/wall");
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+
+    let click_tool = by_click.world().resource::<EditorState>().tool;
+    let op_tool = by_op.world().resource::<EditorState>().tool;
+    assert_eq!(click_tool, op_tool, "both paths leave the same tool");
+    assert_eq!(op_tool, Tool::Place);
 }
