@@ -104,6 +104,22 @@ fn an_unknown_piece_is_refused_and_nothing_changes() {
     assert_eq!(log_lines(&app), before_log, "a refused arm writes no log line");
 }
 
+/// **A refusal names the pieces that exist (gap 2).** "The palette lists the library's pieces" sent
+/// an agent to a palette it cannot read: `emerge_state` gave the count of descriptors and no ids. The
+/// refusal now lists the closest ids and the total, so the agent can retry with a real one.
+#[test]
+fn a_refusal_names_the_pieces_an_agent_can_arm() {
+    let mut app = editor("arm_names");
+    let answer = arm(&mut app, "site/wal");
+    assert_eq!(answer["outcome"], "refused", "{answer}");
+    let why = answer["refusal"].as_str().unwrap_or_default();
+    assert!(
+        why.contains("site/wall") && why.contains("site/gate"),
+        "the refusal lists the library's ids so the agent can retry: {why}"
+    );
+    assert!(why.contains("2"), "the refusal states how many pieces the library holds: {why}");
+}
+
 #[test]
 fn the_palette_click_and_the_operation_leave_the_same_state() {
     // The palette path calls `arm_piece`, which dispatches `brush_arm` and applies its outcome.

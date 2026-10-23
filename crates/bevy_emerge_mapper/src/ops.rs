@@ -1523,6 +1523,25 @@ pub mod brush_arm {
         pub descriptor: String,
     }
 
+    /// How many ids a refusal lists. The closest first, so a typo's intended piece is among them.
+    const LISTED_ON_REFUSAL: usize = 20;
+
+    /// Levenshtein distance, two rows at a time. The ranking needs no more than this, so no crate.
+    fn distance(a: &str, b: &str) -> usize {
+        let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+        let mut prev: Vec<usize> = (0..=b.len()).collect();
+        let mut cur = vec![0usize; b.len() + 1];
+        for (i, ca) in a.iter().enumerate() {
+            cur[0] = i + 1;
+            for (j, cb) in b.iter().enumerate() {
+                let sub = prev[j] + usize::from(ca != cb);
+                cur[j + 1] = sub.min(prev[j + 1] + 1).min(cur[j] + 1);
+            }
+            std::mem::swap(&mut prev, &mut cur);
+        }
+        prev[b.len()]
+    }
+
     impl Params {
         /// **The JSON schema**, which is what an agent reads.
         pub fn schema() -> serde_json::Value {
@@ -1578,10 +1597,32 @@ pub mod brush_arm {
                 ));
             };
             if !project.library.descriptors.iter().any(|d| d.id == p.descriptor) {
+                // **The refusal names what exists** (gap 2): an agent cannot retry with an id it cannot
+                // see, and "the palette lists the pieces" sent it to a palette it has no tool to read.
+                let mut ids: Vec<&str> = project
+                    .library
+                    .descriptors
+                    .iter()
+                    .map(|d| d.id.as_str())
+                    .collect();
+                if ids.is_empty() {
+                    return Err(Refusal::new(format!(
+                        "`{}` is not in the library, and the library holds no pieces, so nothing was armed.",
+                        p.descriptor
+                    )));
+                }
+                ids.sort_by_key(|id| (distance(id, &p.descriptor), id.to_string()));
+                let shown = ids
+                    .iter()
+                    .take(LISTED_ON_REFUSAL)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 return Err(Refusal::new(format!(
-                    "`{}` is not in the library, so nothing was armed. The palette lists the \
-                     library's pieces.",
-                    p.descriptor
+                    "`{}` is not in the library, so nothing was armed. The library holds {} pieces; \
+                     the closest are: {shown}.",
+                    p.descriptor,
+                    ids.len()
                 )));
             }
             Ok(json!({"armed": p.descriptor}))

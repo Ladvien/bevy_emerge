@@ -225,6 +225,8 @@ struct Loaded<'w> {
 pub struct StateParams {
     /// The first owned placement to name, counted in map order. `0` is the start of the list.
     pub pinned_from: usize,
+    /// The first library id to name, counted in library order. `0` is the start of the list.
+    pub descriptors_from: usize,
 }
 
 /// **`emerge/state` — what the editor is holding right now.**
@@ -273,6 +275,22 @@ fn editor_state(
     });
     let pinned_next = (pinned_from.saturating_add(PINNED_CAP) < pinned_total)
         .then(|| pinned_from + PINNED_CAP);
+    // **The library's ids, a page at a time** (C6 gap 2). A refusal names the closest ids, and this is
+    // the whole list an agent can read, capped the way the pins are so a state dump stays a summary.
+    const DESCRIPTOR_CAP: usize = 50;
+    let descriptors_total = project.as_ref().map_or(0, |p| p.library.descriptors.len());
+    let descriptors_from = params.descriptors_from;
+    let descriptor_ids: Vec<String> = project.as_ref().map_or_else(Vec::new, |p| {
+        p.library
+            .descriptors
+            .iter()
+            .skip(descriptors_from)
+            .take(DESCRIPTOR_CAP)
+            .map(|d| d.id.clone())
+            .collect()
+    });
+    let descriptor_ids_next = (descriptors_from.saturating_add(DESCRIPTOR_CAP) < descriptors_total)
+        .then(|| descriptors_from + DESCRIPTOR_CAP);
     // **The map, and what is in it.**
     let map = open.as_ref().map(|o| {
         json!({
@@ -304,6 +322,12 @@ fn editor_state(
             "root": p.root.to_string_lossy(),
             "kit": p.namespace,
             "descriptors": p.library.descriptors.len(),
+            // **The ids themselves, a page at a time.** The count alone left an agent that had been
+            // refused with no list to choose from.
+            "descriptor_ids": descriptor_ids,
+            "descriptor_ids_next": descriptor_ids_next,
+            "how_to_read_more_ids": descriptor_ids_next
+                .map(|n| format!("pass descriptors_from={n} to read the rest")),
             "compositions": p.compositions.compositions.len(),
             "kits": p.kits.len(),
         })
