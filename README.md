@@ -122,11 +122,11 @@ If it doesn't work: if Home frames one piece instead of the whole map, a piece i
 
 ### Move the camera
 
-Goal: pan across the town.
+Goal: pan left and right over the abbey.
 
-![The camera pans left and right across the town](docs/media/move-the-camera.gif)
+![The camera pans left and right over the abbey and the town wall, one tap of A or D at a time](docs/media/move-the-camera.gif)
 
-Review: hold A and D to pan left and right. The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing and the camera in full.
+Review: tap A and D to pan left and right. The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing and the camera in full.
 
 ## Agents
 
