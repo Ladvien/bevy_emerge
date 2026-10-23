@@ -419,25 +419,9 @@
       "area": "docs",
       "title": "README demos show each change: re-shoot the five clips so every change is visible at README size",
       "status": "open",
-      "evidence": "Cycle 2 (99c764c): the re-shoot failed tools/demo/check.py on every clip, so the README keeps cycle 1's GIFs. Bars: scene >= 40% of frame, change >= 5% per change moment, static <= 1.5 s, size cap. Measured: hero attempt A scene 75.2%, agent 34.2%, undo 33.9%, static 0.93 s, 0.45 MB, numbers pass but the house is off-crop; hero attempt B scene 87.7%, agent 3.2%, undo 3.0%; place_and_undo scene 90.4%, place 0.8%, undo 1.1%, static 2.0 s; agent_removes_then_undo scene 92.4%, agent 4.1%, undo 4.3%, static 2.1 s; frame_the_map scene 30.8%, Home 85.2%, static 1.27 s; move_the_camera scene 29.5%, static 0.67 s, 3.89 MB. Leads: the crop is not centred on the view centre (the editor reports focus for block_3_1 at (18.29, -18.29), but the house is off-centre in frame 0); the MIN_ZOOM floor keeps small targets far (the barrel is a 2 px dot); pick large pieces; the camera pan leaves the town. The tooling (tools/demo record.py, render.py, check.py, storyboards) ships in 9064805 and 99c764c. Cycle 3 (52d7f84), check.py with the corrected crop [470, 64, 950, 690]: frame_the_map FAIL, static run 1.67 s (limit 1.5), home change 77.66%, size 0.90 MB; move_the_camera FAIL, scene 17.1% (need >= 40%), size 26.77 MB (limit 3.0 MB), static 0.53 s; place_and_undo FAIL, undo change 0.36% (need >= 5%). hero and agent_removes_then_undo not recorded: the sequencer drops screenshots (B-038). Storyboards and record.py on loop/2026-10-23-video (f8942d3), unmerged.",
+      "evidence": "Cycle 2 (99c764c): the re-shoot failed tools/demo/check.py on every clip, so the README keeps cycle 1's GIFs. Bars: scene >= 40% of frame, change >= 5% per change moment, static <= 1.5 s, size cap. Measured: hero attempt A scene 75.2%, agent 34.2%, undo 33.9%, static 0.93 s, 0.45 MB, numbers pass but the house is off-crop; hero attempt B scene 87.7%, agent 3.2%, undo 3.0%; place_and_undo scene 90.4%, place 0.8%, undo 1.1%, static 2.0 s; agent_removes_then_undo scene 92.4%, agent 4.1%, undo 4.3%, static 2.1 s; frame_the_map scene 30.8%, Home 85.2%, static 1.27 s; move_the_camera scene 29.5%, static 0.67 s, 3.89 MB. Leads: the crop is not centred on the view centre (the editor reports focus for block_3_1 at (18.29, -18.29), but the house is off-centre in frame 0); the MIN_ZOOM floor keeps small targets far (the barrel is a 2 px dot); pick large pieces; the camera pan leaves the town. The tooling (tools/demo record.py, render.py, check.py, storyboards) ships in 9064805 and 99c764c. Cycle 3 (52d7f84), check.py with the corrected crop [470, 64, 950, 690]: frame_the_map FAIL, static run 1.67 s (limit 1.5), home change 77.66%, size 0.90 MB; move_the_camera FAIL, scene 17.1% (need >= 40%), size 26.77 MB (limit 3.0 MB), static 0.53 s; place_and_undo FAIL, undo change 0.36% (need >= 5%). hero and agent_removes_then_undo not recorded: the sequencer drops screenshots (B-038). Storyboards and record.py on loop/2026-10-23-video (f8942d3), merged in 446334b. Cycle 4 (0286624): place_and_undo PASS on attempt 2 and SHIPPED (README; docs/media/place-and-undo.gif, 8.7 s): scene min 91.2%, place 5.38% at 1.10 s, undo 5.17% at 2.22 s, static 1.13 s, 0.28 MB. Not shipped: frame_the_map PASS on attempt 2 but f21-f150 identical (about 8.6 s), an agent framing rather than the Home key; check.py gap, E-035. agent_removes_then_undo PASS only on attempt 3 (over the two-attempt budget), recording discarded: scene 91.7%, agent 6.16% at 0.07 s, undo 7.22% at 1.41 s, static 0.20 s, 0.49 MB. move_the_camera FAIL twice: attempt 2 scene 57.8%, static 0.70 s, 3.20 MB (limit 3.0). hero FAIL on attempt 1, not retried: scene 91.3%, agent 3.68% at 9.90 s, undo 0.23%, static 4.73 s, 0.67 MB; chunk 0 ran about 9.8 s, not 6 s (E-036). 1 of 5 clips shipped; 4 open.",
       "last_failure": "",
       "first_seen": "2026-10-22"
-    },
-    {
-      "last_failure": "",
-      "first_seen": "2026-10-23",
-      "id": "B-038",
-      "kind": "bug",
-      "area": "capture",
-      "title": "The capture sequencer drops a screenshot ('Duplicate render target') and then never reports done",
-      "must_fix": {
-        "blocks": true,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "Blocks any recording above 4 fps (the default 4 fps is unaffected). Blocks the video track's hero and agent_removes_then_undo clips, which cannot be recorded at all."
-      },
-      "status": "open",
-      "evidence": "Cycle 3 (52d7f84): the video track recorded at 15 fps; the editor logged 'Duplicate render target for screenshot, skipping' and the run never reported done. Code: crates/bevy_emerge_mapper/src/sequencer.rs counts a run's written frames only in the ScreenshotCaptured observer, so a skipped screenshot never fires it and the run never reaches its total. The same warning is in /tmp/emerge_live/editor_fps.log (8 times, in the fps30 and fps40 probes) and editor_demo.log (once). B-036 (a 20 fps hang, seen once) is folded in: the same wait, the same missing callback, but not reproduced as the same cause. Next: on a fresh editor, make a screenshot skip and check that the run reports the dropped frame and finishes; then record at 15 fps; then repeat B-036's 15 and 20 fps runs."
     },
     {
       "last_failure": "",
@@ -448,6 +432,26 @@
       "title": "The frame's doc says Pickable::IGNORE throughout; say that a row's children need it too",
       "status": "open",
       "evidence": "Cycle 3 (52d7f84) reviewer note on chrome.rs: an unignored child is hit, and a hit on a child marks its row Hovered through the descendant. The history row's text is IGNORE from spawn for this reason, but the 'What the frame must not carry' doc in crates/bevy_emerge_mapper/src/chrome.rs says only that the frame itself carries no Hovered. Small doc change: every descendant of a row that must not be hovered is IGNORE."
+    },
+    {
+      "id": "E-035",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "check.py: static runs must not count caption and cursor overlay frames; MCP view changes must count as change moments",
+      "status": "open",
+      "evidence": "Cycle 4 (0286624): frame_the_map passed check.py on attempt 2 (scene min 50.8%, static 1.07 s, 0.37 MB) but f21-f150 are visually identical (about 8.6 s); the static measure counts frames with the caption and cursor overlays, so the hold reads as 1.07 s. It shows an agent framing (emerge_frame_view), not the Home key, so the GIF was reverted (4c00dd2) and the README keeps the cycle 1 Home GIF. Also: an MCP view change is not a change moment, so frame_the_map's framing change (26.4% of pixels at about 0.7 s) was measured by hand; its caption lands at 0.81 s. Next: static runs on raw frame diffs; MCP view changes as change moments; then re-check frame_the_map and agent_removes_then_undo.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-036",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "record.py: chunk 0 of hero runs about 9.8 s instead of 6 s, so captions move out of time",
+      "status": "open",
+      "evidence": "Cycle 4 (0286624): hero attempt 1 failed (scene 91.3%, agent change 3.68% at 9.90 s, undo 0.23%, static 4.73 s, 0.67 MB). Chunk 0 ran about 9.8 s, not 6 s. Not retried. Next: find why the chunk overruns (capture timing; the one-in-flight wait from B-038 is a candidate, not confirmed), then re-record hero.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
     }
   ]
 }
