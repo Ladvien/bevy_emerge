@@ -39,7 +39,7 @@ The INSPECTOR's labels row says where a piece's labels came from and how sure th
 
 Labels a model suggested show in the unchecked colour until a person confirms each axis. A confirmed axis is drawn like the rest of the inspector.
 
-An agent finds the same pieces without reading each one. `emerge_list_pieces` filters the list with `unlabelled` (no labels yet), `by_model` (labelled by a model), `confidence` (high, medium or low), `with_mesh` and `id_contains`. The reply counts every match, and it lists fifty at a time.
+An agent finds the same pieces without reading each one. `emerge_list_pieces` filters the list with `unlabelled` (no labels yet), `by_model` (labelled by a model or an agent, and not yet confirmed by a person), `confidence` (high, medium or low), `with_mesh` and `id_contains`. The reply counts every match, and it lists fifty at a time.
 
 The kit door opens with `=`, and it opens on this Meshes panel. An agent crosses to it with the `door_open` operation.
 

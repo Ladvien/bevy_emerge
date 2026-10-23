@@ -247,7 +247,7 @@ pub struct PiecesParams {
     /// labels none of its axes.
     #[serde(default)]
     pub unlabelled: bool,
-    /// **`true` keeps only the pieces with an axis a model wrote and no person has confirmed.**
+    /// **`true` keeps only the pieces with an axis a model or an agent wrote and no person has confirmed.**
     #[serde(default)]
     pub by_model: bool,
     /// **Keeps only the pieces whose label record says this confidence**: `high`, `medium` or `low`.

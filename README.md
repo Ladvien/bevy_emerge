@@ -138,7 +138,7 @@ Goal: see which pieces a model labelled, and read the labels on one piece.
 2. Press → to move into the piece list, then ↓ and Shift+↓ to walk down it.
 3. Read the INSPECTOR's labels row. It leads with how sure the model was, then names the model file and the date the labels were made.
 
-Review: the labels row reads like `confidence high · <model file> · <date>`, and wraps inside the panel when the model's name is long. Model labels show in the unchecked colour until a person confirms each axis. An agent finds the same pieces with `emerge_list_pieces`: `unlabelled` lists the pieces nobody has labelled, `by_model` lists the pieces a model labelled, and `confidence` narrows that list. The [kit guide](docs/guide/kit-meshes-tiles-compositions.md) covers the labels row in full.
+Review: the labels row reads like `confidence high · <model file> · <date>`, and wraps inside the panel when the model's name is long. Model labels show in the unchecked colour until a person confirms each axis. An agent finds the same pieces with `emerge_list_pieces`: `unlabelled` lists the pieces nobody has labelled, `by_model` lists the pieces a model or an agent labelled and no person has confirmed, and `confidence` narrows that list. The [kit guide](docs/guide/kit-meshes-tiles-compositions.md) covers the labels row in full.
 
 If it doesn't work: if = does nothing, a question may be on screen. Answer it, then press = again. If the map has unsaved edits, the editor asks before it leaves for the kit door, so choose Save and go or Stay.
 
@@ -148,7 +148,7 @@ The MCP server gives an agent the same typed operations a person uses, including
 
 ![An agent removes the abbey with placement_remove, the church disappears, then Cmd+Z puts it back](docs/media/agent-removes-then-undo.gif)
 
-An agent can cross to the kit door or the map door with `door_open`, and find pieces by their labels with `emerge_list_pieces`.
+An agent can cross to the kit door or the map door with `door_open`, select a kit piece with `piece_select`, write one label axis with `label_set`, and find pieces by their labels with `emerge_list_pieces`.
 
 Known gaps:
 

@@ -1170,7 +1170,7 @@ impl Plugin for OpsBridgePlugin {
                  is the page to read, counted in the filtered list; total is the true filtered \
                  count and pieces_next says where the next page starts. A read.",
             )
-            .params("pieces_from: the first piece to name in the filtered list (default 0). with_mesh: true to leave out pieces with no mesh (default false). unlabelled: true to keep only pieces no one has labelled (default false). by_model: true to keep pieces with an axis a model wrote and no person confirmed (default false). confidence: high, medium or low, keeps only that label confidence (default none). id_contains: keeps pieces whose id contains this text (default none).")
+            .params("pieces_from: the first piece to name in the filtered list (default 0). with_mesh: true to leave out pieces with no mesh (default false). unlabelled: true to keep only pieces no one has labelled (default false). by_model: true to keep pieces with an axis a model or an agent wrote and no person confirmed (default false). confidence: high, medium or low, keeps only that label confidence (default none). id_contains: keeps pieces whose id contains this text (default none).")
             .example(json!({"by_model": true, "confidence": "low"})),
             editor_pieces,
         );
