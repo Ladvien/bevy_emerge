@@ -3319,10 +3319,26 @@ pub fn resolve_frame(
                     "a rectangle needs finite numbers with x0 < x1 and z0 < z1, in map metres; got [{x0}, {z0}, {x1}, {z1}]"
                 ));
             }
-            let (map_c, map_s) = map_bounds(open);
             let o = open.map.origin;
-            let centre = Vec3::new(o.0 + (x0 + x1) * 0.5, map_c.y, o.2 + (z0 + z1) * 0.5);
-            let size = Vec3::new(x1 - x0, map_s.y, z1 - z0);
+            // A rectangle is ground: its footprint is the rectangle, and its height is what stands inside
+            // it. A tall piece elsewhere on the map must not raise the frame (cycle-3 item 1).
+            let ground = Vec3::new(o.0 + (x0 + x1) * 0.5, o.1, o.2 + (z0 + z1) * 0.5);
+            let plan = Vec3::new(x1 - x0, 0.0, z1 - z0);
+            let inside = (0..open.map.placements.len())
+                .filter_map(|i| placed_box(project, open, &ys, i))
+                .filter(|(c, s)| {
+                    c.x + s.x * 0.5 > o.0 + x0
+                        && c.x - s.x * 0.5 < o.0 + x1
+                        && c.z + s.z * 0.5 > o.2 + z0
+                        && c.z - s.z * 0.5 < o.2 + z1
+                });
+            let (centre, size) = match enclose(inside) {
+                Some((c, s)) => (
+                    Vec3::new(ground.x, c.y, ground.z),
+                    Vec3::new(plan.x, s.y, plan.z),
+                ),
+                None => (ground, plan),
+            };
             (
                 format!("the rectangle [{x0}, {z0}, {x1}, {z1}] m"),
                 centre,

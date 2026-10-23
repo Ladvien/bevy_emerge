@@ -250,9 +250,10 @@ fn an_agent_frames_a_rectangle_in_map_space() {
     app.update();
     let open = app.world().resource::<OpenMap>();
     let o = open.map.origin;
-    let (map_c, map_s) = bevy_emerge_mapper::editor::map_bounds(open);
-    let centre = Vec3::new(o.0 + 300.0, map_c.y, o.2 + 200.0);
-    let size = Vec3::new(200.0, map_s.y, 200.0);
+    // The rectangle's own ground: its footprint at the floor. What stands in it is the piece's height,
+    // not the map's (cycle-3 item 1).
+    let centre = Vec3::new(o.0 + 300.0, o.1, o.2 + 200.0);
+    let size = Vec3::new(200.0, 0.0, 200.0);
     let got = seen(&mut app, centre, size);
     assert!(
         got.inside,
