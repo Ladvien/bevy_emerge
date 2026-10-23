@@ -590,13 +590,24 @@ impl Fixture {
     /// A fully judged descriptor whose six fields were all written by `model` at `confidence`, a
     /// Rust variant name (`High`, `Medium` or `Low`). For tests that read the labels row.
     pub fn labelled_descriptor(self, id: &str, pack: &str, model: &str, confidence: &str) -> Fixture {
+        self.labelled_by(
+            id,
+            pack,
+            "(kind: Some(Model), effects: Some(Model), look: Some(Model))",
+            &format!(r#"model: Some("{model}"), at: "2026-10-20", confidence: Some({confidence})"#),
+        )
+    }
+
+    /// A library entry whose `labels` record is written verbatim: `by` is the per-axis author
+    /// (RON for an `AxisOrigin`) and `rest` is the record's remaining fields. For the tests that
+    /// need a human-confirmed axis or a record with no model, which `labelled_descriptor` cannot say.
+    pub fn labelled_by(self, id: &str, pack: &str, by: &str, rest: &str) -> Fixture {
         let mut f = self.descriptor(id, pack);
         if let Some(last) = f.descriptors.last_mut() {
             *last = last.replace(
                 "placement: ( rooms: [], group: None ),",
                 &format!(
-                    r#"placement: ( rooms: [], group: None ),
-            labels: Some((by: (kind: Some(Model), effects: Some(Model), look: Some(Model)), model: Some("{model}"), at: "2026-10-20", confidence: Some({confidence}))),"#
+                    "placement: ( rooms: [], group: None ),\n            labels: Some((by: {by}, {rest})),"
                 ),
             );
         }

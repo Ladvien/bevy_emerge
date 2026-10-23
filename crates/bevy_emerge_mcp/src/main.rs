@@ -231,18 +231,32 @@ pub struct StateParams {
     pub pinned_from: usize,
 }
 
-/// **The parameters of `emerge_list_pieces`.**
+/// **The parameters of `emerge_list_pieces`.** Every filter is optional and they combine.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PiecesParams {
-    /// **Where the page starts**, counted in library order. `0` is the first piece. When there are
-    /// more than 50 pieces, the answer's `pieces_next` names the value to pass for the next page.
+    /// **Where the page starts**, counted in the filtered list. `0` is the first piece. When there
+    /// are more than 50 pieces, the answer's `pieces_next` names the value to pass for the next page.
     #[serde(default)]
     pub pieces_from: usize,
     /// **`true` leaves out the pieces that name no mesh** (the flat footprint markers such as roads
     /// and fields), so the list is only the pieces that are drawn with a model.
     #[serde(default)]
-    pub model_only: bool,
+    pub with_mesh: bool,
+    /// **`true` keeps only the pieces no one has labelled**: no label record, or a record that
+    /// labels none of its axes.
+    #[serde(default)]
+    pub unlabelled: bool,
+    /// **`true` keeps only the pieces with an axis a model wrote and no person has confirmed.**
+    #[serde(default)]
+    pub by_model: bool,
+    /// **Keeps only the pieces whose label record says this confidence**: `high`, `medium` or `low`.
+    /// Any other word is refused.
+    #[serde(default)]
+    pub confidence: Option<String>,
+    /// **Keeps only the pieces whose id contains this text.**
+    #[serde(default)]
+    pub id_contains: Option<String>,
 }
 
 /// **Fifty entries, which is a screenful.**
@@ -557,10 +571,13 @@ impl Emerge {
     #[tool(
         name = "emerge_list_pieces",
         description = "The library's pieces, a page at a time. Each row carries the piece's id, the \
-                       mesh it is drawn with (null for a flat footprint marker), and its kind, \
-                       effects and looks. total is the true count. A page holds 50 rows; past 50, \
-                       pass pieces_from (from pieces_next) to read the rest. model_only: true leaves \
-                       out the flat pieces that name no mesh. Returns that page as JSON, and changes \
+                       mesh it is drawn with (null for a flat footprint marker), its kind, effects \
+                       and looks, and its labels: who labelled each axis (model or human), the \
+                       record's model, date and confidence. Filters combine: with_mesh, unlabelled, \
+                       by_model, confidence (high, medium or low), id_contains. total is the true \
+                       count after the filters. A page holds 50 rows; past 50, pass pieces_from \
+                       (from pieces_next) to read the rest, and how_to_narrow names the filters \
+                       when a filtered page is still capped. Returns that page as JSON, and changes \
                        nothing.",
         annotations(
             title = "List the library's pieces",
@@ -578,7 +595,14 @@ impl Emerge {
             .editor
             .call(
                 "emerge/pieces",
-                json!({"pieces_from": p.pieces_from, "model_only": p.model_only}),
+                json!({
+                    "pieces_from": p.pieces_from,
+                    "with_mesh": p.with_mesh,
+                    "unlabelled": p.unlabelled,
+                    "by_model": p.by_model,
+                    "confidence": p.confidence,
+                    "id_contains": p.id_contains,
+                }),
             )
             .await
         {

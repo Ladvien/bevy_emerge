@@ -58,7 +58,7 @@ What the editor is holding right now: the open map and its bounds, how many piec
 
 ### `emerge_list_pieces`
 
-The library's pieces, a page at a time. Each row carries the piece's id, the mesh it is drawn with (null for a flat footprint marker), and its kind, effects and looks. total is the true count. A page holds 50 rows; past 50, pass pieces_from (from pieces_next) to read the rest. model_only: true leaves out the flat pieces that name no mesh. Returns that page as JSON, and changes nothing.
+The library's pieces, a page at a time. Each row carries the piece's id, the mesh it is drawn with (null for a flat footprint marker), its kind, effects and looks, and its labels: who labelled each axis (model or human), the record's model, date and confidence. Filters combine: with_mesh, unlabelled, by_model, confidence (high, medium or low), id_contains. total is the true count after the filters. A page holds 50 rows; past 50, pass pieces_from (from pieces_next) to read the rest, and how_to_narrow names the filters when a filtered page is still capped. Returns that page as JSON, and changes nothing.
 
 | annotation | value |
 |---|---|

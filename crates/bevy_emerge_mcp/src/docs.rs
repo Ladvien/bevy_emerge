@@ -96,10 +96,13 @@ pub const TOOLS: &[ToolDoc] = &[
     ToolDoc {
         name: "emerge_list_pieces",
         description: "The library's pieces, a page at a time. Each row carries the piece's id, the \
-                       mesh it is drawn with (null for a flat footprint marker), and its kind, \
-                       effects and looks. total is the true count. A page holds 50 rows; past 50, \
-                       pass pieces_from (from pieces_next) to read the rest. model_only: true leaves \
-                       out the flat pieces that name no mesh. Returns that page as JSON, and changes \
+                       mesh it is drawn with (null for a flat footprint marker), its kind, effects \
+                       and looks, and its labels: who labelled each axis (model or human), the \
+                       record's model, date and confidence. Filters combine: with_mesh, unlabelled, \
+                       by_model, confidence (high, medium or low), id_contains. total is the true \
+                       count after the filters. A page holds 50 rows; past 50, pass pieces_from \
+                       (from pieces_next) to read the rest, and how_to_narrow names the filters \
+                       when a filtered page is still capped. Returns that page as JSON, and changes \
                        nothing.",
         read_only: true,
         destructive: false,
@@ -273,7 +276,11 @@ pub fn schemas() -> Value {
             "additionalProperties": false,
             "properties": {
                 "pieces_from": {"type": "integer", "minimum": 0, "default": 0, "description": "Where the page starts, in library order. 0 is the first piece."},
-                "model_only": {"type": "boolean", "default": false, "description": "true leaves out the flat pieces that name no mesh."}
+                "with_mesh": {"type": "boolean", "default": false, "description": "true leaves out the flat pieces that name no mesh."},
+                "unlabelled": {"type": "boolean", "default": false, "description": "true keeps only the pieces no one has labelled."},
+                "by_model": {"type": "boolean", "default": false, "description": "true keeps only the pieces with an axis a model wrote and no person has confirmed."},
+                "confidence": {"type": ["string", "null"], "enum": ["high", "medium", "low", null], "default": null, "description": "Keeps only the pieces whose label record says this confidence."},
+                "id_contains": {"type": ["string", "null"], "default": null, "description": "Keeps only the pieces whose id contains this text."}
             }
         },
         "emerge_capture_still": {

@@ -37,7 +37,7 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 | `emerge_apply_operation` | Applies one operation (`operation`, `parameters`). |
 | `emerge_undo_operation` | Undoes an operation, including one an agent applied. |
 | `emerge_state` | Reads the editor's current state. |
-| `emerge_list_pieces` | Reads the library's pieces a page at a time: each id, its mesh, and its kind, effects and looks (`pieces_from`, `model_only`). Read-only. |
+| `emerge_list_pieces` | Reads the library's pieces a page at a time: each id, its mesh, its kind, effects and looks, and who labelled each axis (`pieces_from`, `with_mesh`, `unlabelled`, `by_model`, `confidence`, `id_contains`). Read-only. |
 | `emerge_capture_still` | Captures one frame of the editor. |
 | `emerge_snip` | Cuts a rectangle of the editor's picture, in window pixels, and returns it as an image. |
 | `emerge_capture_sequence` | Captures frames over time (`label`, `seconds`, `fps`). |
@@ -57,7 +57,7 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 
 `brush_arm {descriptor}` arms a piece as the brush, the same as clicking its row in the palette or walking the palette with the arrow keys, which dispatch the same operation. It changes no map data, so it is logged but not undoable: `emerge_undo_operation` with its id says there is nothing to take back. `descriptor: null` puts the brush down, as Esc does. A piece the open map's bash hides is refused, naming the bash. An unknown id is refused with the closest library ids. `emerge_state` lists the library's ids in `descriptor_ids`, 50 at a time; `descriptor_ids_next` gives the `descriptors_from` for the next page.
 
-`emerge_list_pieces` lists the pieces themselves, 50 at a time, in library order: `total` is the full count, and past 50 `pieces_next` gives the `pieces_from` for the next page. `model_only: true` leaves out the flat footprint markers (a road, a field) that name no mesh, so the list is only what is drawn with a model.
+`emerge_list_pieces` lists the pieces themselves, 50 at a time, in library order: `total` is the full count after the filters, and past 50 `pieces_next` gives the `pieces_from` for the next page. Each row carries `labels`: the record's model, date and confidence, and the axes it labels with who wrote each one (`model` or `human`). `with_mesh: true` leaves out the flat footprint markers (a road, a field) that name no mesh. `unlabelled: true` keeps only the pieces no one has labelled, and `by_model: true` keeps the pieces with an axis a model wrote and no person has confirmed. `confidence` (`high`, `medium` or `low`) and `id_contains` narrow further, and every filter combines with the others. When a filtered page is still capped, `how_to_narrow` names the filters.
 
 ## Snips the person took
 

@@ -37,6 +37,7 @@ use bevy::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use bevy_emerge_core::descriptor::{Axis, By, Confidence, Descriptor};
 use crate::ops::{self, Ctx, Source};
 
 /// **The parameters of `emerge/operation_apply`.**
@@ -376,56 +377,144 @@ fn editor_state(
     }))
 }
 
-/// **The parameters of `emerge/pieces`.** `pieces_from` is the page to read, counted in library
-/// order; `model_only` leaves out the pieces that name no mesh (the flat footprint markers).
+/// **The parameters of `emerge/pieces`.** Every filter is optional, and they combine: a piece is
+/// named only if it passes all of them. `pieces_from` is the page to read, counted in the filtered
+/// list.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct PiecesParams {
-    /// The first piece to name, counted in library order. `0` is the start of the list.
+    /// The first piece to name, counted in the filtered list. `0` is the start of the list.
     pub pieces_from: usize,
     /// Only the pieces that name a mesh. A flat piece with no mesh is a footprint, not a model.
-    pub model_only: bool,
+    pub with_mesh: bool,
+    /// Only the pieces with no labelled axis: no label record at all, or a record that labels
+    /// none of its axes. `false` keeps every piece.
+    pub unlabelled: bool,
+    /// Only the pieces with at least one axis that a model wrote and no person has confirmed.
+    pub by_model: bool,
+    /// Only the pieces whose label record says exactly this confidence: `high`, `medium` or `low`.
+    pub confidence: Option<String>,
+    /// Only the pieces whose id contains this text.
+    pub id_contains: Option<String>,
+}
+
+/// The six axes a label record can cover, each with the value the descriptor names on it. The
+/// order is the schema's, so a row reads the same way every time.
+fn axis_values(d: &Descriptor) -> [(&'static str, Axis, Value); 6] {
+    [
+        ("kind", Axis::Kind, json!(d.kind)),
+        ("effects", Axis::Effects, json!(d.effects)),
+        ("look", Axis::Look, json!(d.look)),
+        ("surfaces", Axis::Surfaces, json!(d.offers.surfaces)),
+        ("mount", Axis::Mount, serde_json::to_value(&d.mount).unwrap_or(Value::Null)),
+        ("note", Axis::Note, json!(d.note)),
+    ]
+}
+
+/// **The label provenance of one piece**: the record's model, date and confidence, and each
+/// labelled axis with its value and who wrote it. A piece with no record reads the same shape,
+/// with every field `null` and no axes, so a row never changes shape with its provenance.
+///
+/// Returns the provenance, whether the piece is unlabelled (no axis labelled), and whether any
+/// axis was written by the model and never confirmed by a person.
+fn provenance(d: &Descriptor) -> (Value, bool, bool) {
+    let mut axes = serde_json::Map::new();
+    let mut by_model = false;
+    for (name, axis, value) in axis_values(d) {
+        let Some(by) = d.labels.as_ref().and_then(|l| l.by.get(axis)) else {
+            continue;
+        };
+        by_model |= by == By::Model;
+        let by = match by {
+            By::Model => "model",
+            By::Human => "human",
+        };
+        axes.insert(name.to_owned(), json!({"value": value, "by": by}));
+    }
+    let unlabelled = axes.is_empty();
+    let (model, at, confidence) = match &d.labels {
+        Some(l) => (l.model.clone(), Some(l.at.clone()), l.confidence.map(|c| c.to_string())),
+        None => (None, None, None),
+    };
+    let labels = json!({"model": model, "at": at, "confidence": confidence, "axes": axes});
+    (labels, unlabelled, by_model)
+}
+
+/// The three words a confidence filter accepts, as the label record writes them.
+fn confidence_word(word: &str) -> Result<Confidence, String> {
+    match word {
+        "high" => Ok(Confidence::High),
+        "medium" => Ok(Confidence::Medium),
+        "low" => Ok(Confidence::Low),
+        other => Err(format!("confidence is high, medium or low, not \"{other}\"")),
+    }
 }
 
 /// **`emerge/pieces` — the library's pieces, a page at a time.**
 ///
 /// **A read.** The same paging as `emerge/state`'s `descriptor_ids`: a capped page, the true
-/// `total` so a reader can tell a full list from a cut one, and `pieces_next` for the next page.
-/// Each row carries the fields a piece is chosen by: its id, the mesh it is drawn with, and its
-/// kinds, effects and looks.
+/// `total` for the filtered list so a reader can tell a full list from a cut one, and
+/// `pieces_next` for the next page. Each row carries the fields a piece is chosen by (its id, the
+/// mesh it is drawn with, and its kinds, effects and looks) and its label provenance: who labelled
+/// each axis, the record's model, date and confidence.
 fn editor_pieces(In(params): In<PiecesParams>, loaded: Loaded) -> Result<Value, String> {
     const PIECE_CAP: usize = 50;
+    let wanted = params.confidence.as_deref().map(confidence_word).transpose()?;
     let Some(project) = loaded.project else {
-        return Ok(json!({"total": 0, "pieces": [], "pieces_next": null}));
+        return Ok(json!({"total": 0, "pieces": [], "pieces_next": null, "how_to_narrow": null}));
     };
-    let rows = || {
-        project
-            .library
-            .descriptors
-            .iter()
-            .filter(|d| !params.model_only || d.mesh.is_some())
-    };
-    let total = rows().count();
+    let filtered: Vec<(&Descriptor, Value, bool)> = project
+        .library
+        .descriptors
+        .iter()
+        .filter_map(|d| {
+            let (labels, unlabelled, by_model) = provenance(d);
+            let passes = (!params.with_mesh || d.mesh.is_some())
+                && (!params.unlabelled || unlabelled)
+                && (!params.by_model || by_model)
+                && wanted.is_none_or(|w| d.labels.as_ref().and_then(|l| l.confidence) == Some(w))
+                && params.id_contains.as_deref().is_none_or(|text| d.id.contains(text));
+            passes.then_some((d, labels, unlabelled))
+        })
+        .collect();
+    let total = filtered.len();
     let from = params.pieces_from;
-    let pieces: Vec<Value> = rows()
+    let pieces: Vec<Value> = filtered
+        .iter()
         .skip(from)
         .take(PIECE_CAP)
-        .map(|d| {
+        .map(|(d, labels, unlabelled)| {
             json!({
                 "id": d.id,
                 "mesh": d.mesh,
                 "kind": d.kind,
                 "effects": d.effects,
                 "look": d.look,
+                "unlabelled": unlabelled,
+                "labels": labels,
             })
         })
         .collect();
     let pieces_next = (from.saturating_add(PIECE_CAP) < total).then(|| from + PIECE_CAP);
+    let filtered_by = params.with_mesh
+        || params.unlabelled
+        || params.by_model
+        || params.confidence.is_some()
+        || params.id_contains.is_some();
+    // **Named only on a filtered page**: an unfiltered page is narrowed by nothing, so it names no
+    // filter. The `how_to_read_more` sentence is the one that always applies.
+    let how_to_narrow = pieces_next.filter(|_| filtered_by).map(|n| {
+        format!(
+            "the list is capped at {PIECE_CAP} rows: narrow it with with_mesh, unlabelled, by_model, \
+             confidence or id_contains, or read the rest with pieces_from={n}"
+        )
+    });
     Ok(json!({
         "total": total,
         "pieces": pieces,
         "pieces_next": pieces_next,
         "how_to_read_more": pieces_next.map(|n| format!("pass pieces_from={n} to read the rest")),
+        "how_to_narrow": how_to_narrow,
     }))
 }
 
@@ -973,12 +1062,14 @@ impl Plugin for OpsBridgePlugin {
             DebugCommandInfo::new(
                 "emerge/pieces",
                 "The library's pieces, a page at a time: each row's id, the mesh it is drawn \
-                 with, and its kinds, effects and looks. pieces_from is the page to read; \
-                 model_only leaves out the flat pieces that name no mesh. total is the true count \
-                 and pieces_next says where the next page starts. A read.",
+                 with, its kinds, effects and looks, and its label provenance (who labelled each \
+                 axis, the record's model, date and confidence). Filters combine: with_mesh, \
+                 unlabelled, by_model, confidence (high, medium or low), id_contains. pieces_from \
+                 is the page to read, counted in the filtered list; total is the true filtered \
+                 count and pieces_next says where the next page starts. A read.",
             )
-            .params("pieces_from: the first piece to name, in library order (default 0). model_only: true to leave out the pieces with no mesh (default false).")
-            .example(json!({"model_only": true})),
+            .params("pieces_from: the first piece to name in the filtered list (default 0). with_mesh: true to leave out pieces with no mesh (default false). unlabelled: true to keep only pieces no one has labelled (default false). by_model: true to keep pieces with an axis a model wrote and no person confirmed (default false). confidence: high, medium or low, keeps only that label confidence (default none). id_contains: keeps pieces whose id contains this text (default none).")
+            .example(json!({"by_model": true, "confidence": "low"})),
             editor_pieces,
         );
 
