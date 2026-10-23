@@ -2,10 +2,10 @@
 """Numeric acceptance for a rendered demo GIF, measured from its own frames and events.json.
 
 Checks, each printed with its measured value:
-  * every change moment (agent op, click, ⌘Z, Home) changes >= 5% of the scene pixels
+  * every change moment (agent op, click, ⌘Z, Home, MCP view change) changes >= 5% of the scene pixels
     (per-channel diff > 24) between the frame just before it and the frame 0.5 s after it;
   * in every frame >= 40% of scene pixels are not near-black (max channel > 24);
-  * no run of frames longer than 1.5 s without motion before the final hold, where a frame
+  * no run of frames longer than 1.5 s without motion (the final hold counts only 1.5 s of its length), where a frame
     is "moving" when it differs from the previous frame on >= 0.5% of scene pixels;
   * file size <= --limit-mb.
 
@@ -23,13 +23,14 @@ CHANGE_DIFF = 24
 CHANGE_MIN = 0.05
 SCENE_MIN = 0.40
 STATIC_MAX_S = 1.5
+FINAL_HOLD_S = 1.5  # render.py's default --hold: the only frozen tail the GIF may end with
 MOTION_MIN = 0.005
 CAPTION_BAR = 56
 VIEWPORT_X = (470, 950)  # the 3D viewport's logical x range in the editor window (see storyboards' crop)
 
 
 def change_moments(rec):
-    """(kind, t) for agent ops, clicks, ⌘Z and Home, from the recorded chunks and events."""
+    """(kind, t) for agent ops, MCP view changes, clicks, ⌘Z and Home, from the recorded chunks and events."""
     moments = []
     for c in rec.get("chunks", []):
         if c.get("operation_result") is not None:
@@ -46,6 +47,8 @@ def change_moments(rec):
                 moments.append(("undo", e["t"]))
             elif "Home" in keys:
                 moments.append(("home", e["t"]))
+        elif e["type"] == "agent" and e.get("tool") == "emerge_frame_view":
+            moments.append(("view", e["t"]))
     return sorted(moments, key=lambda m: m[1])
 
 
@@ -87,7 +90,7 @@ def main():
         print(f"change {kind:6s} at {t:6.2f}s: {frac * 100:5.2f}% of scene pixels changed "
               f"(need >= {CHANGE_MIN * 100:.0f}%) {'PASS' if passed else 'FAIL'}")
 
-    # 3. Static runs before the final hold.
+    # 3. Static runs, with the final hold exempt only up to FINAL_HOLD_S.
     moving = [False] + [diff_fraction(i - 1, i) >= MOTION_MIN for i in range(1, n)]
     last_move = 0
     worst = 0.0
@@ -96,6 +99,8 @@ def main():
             worst = max(worst, (i - last_move) / fps)
             last_move = i
     tail = (n - 1 - last_move) / fps
+    # The final hold is exempt only up to FINAL_HOLD_S; a longer frozen tail is a static run too.
+    worst = max(worst, tail - FINAL_HOLD_S)
     static_ok = worst <= STATIC_MAX_S
     ok &= static_ok
     print(f"longest static run before the final hold: {worst:.2f}s "
