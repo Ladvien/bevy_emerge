@@ -1298,10 +1298,14 @@ enum Field {
     Last,
     /// **What the cursor is telling you right now**, as opposed to what just happened.
     ///
-    /// Its own line because the ghost writes it EVERY FRAME while a surface piece hovers over bare
-    /// floor, and sharing [`Self::Last`] meant every message an action produced was erased before it
-    /// could be read. Two different questions — "what did I just do" and "why can't I place this" —
-    /// so two lines.
+    /// Its own text because the ghost writes it EVERY FRAME while a surface piece hovers over bare
+    /// floor, and sharing [`Self::Last`]'s text meant every message an action produced was erased
+    /// before it could be read. Two different questions — "what did I just do" and "why can't I
+    /// place this" — so two lines.
+    ///
+    /// **The second line of the receipt's row** (B-013), not a row of its own. That row already
+    /// reserves two lines for the receipt, so a hint shows in room that is there and moves nothing
+    /// below it. A receipt that wraps to two lines, with a hint showing, grows the row by a line.
     Hint,
     /// **What the piece-verbs would act on**, and the chord that opens it for editing.
     ///
@@ -1344,8 +1348,8 @@ impl Field {
             Field::Under => "UNDER",
             Field::Undo => "UNDO",
             Field::Redo => "REDO",
-            Field::Last => "",
-            Field::Hint => "",
+            Field::Last => "LAST",
+            Field::Hint => "HINT",
         }
     }
 }
@@ -2156,23 +2160,20 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Yaw,
                     Field::Map,
                     Field::Under,
+                    // **The hint is the receipt's second line** (B-013), not a row of its own. The
+                    // receipt's row already reserves two lines, so a hint takes a line that is
+                    // there and nothing below it moves while no hint shows.
                     Field::Last,
-                    // **After the receipt, not above it.** The receipt has no label of its own, so
-                    // whatever row sits above it lends it one: with UNDO/REDO above, "map is 300 x
-                    // 44 ..." read as REDO's value. Here the pair reads as what happened (the
-                    // receipt) and then what Cmd+Z / Cmd+Shift+Z would do about it.
+                    // **After the receipt, not above it.** The receipt carries its own LAST label now,
+                    // so it no longer needs the row above to lend it one. The pair still reads as what
+                    // happened (the receipt) and then what Cmd+Z / Cmd+Shift+Z would do about it.
                     Field::Undo,
                     Field::Redo,
-                    // **Below the pair, not above it.** A hint comes and goes with the cursor, and a
-                    // row spawned above UNDO moved UNDO whenever one appeared (UNDO's top was 289 with
-                    // a hint and 273 without). Below the pair, a hint cannot move what the author reads.
-                    Field::Hint,
                     Field::Edges,
                 ] {
-                    // **The history list sits under REDO and above the hint (E-018).** Its rows are
-                    // fixed in number, so the block keeps one height whatever the history holds, and
-                    // a hint appearing below it cannot move the pair above.
-                    if field == Field::Hint {
+                    // **The history list sits under REDO and above EDGES (E-018).** Its rows are
+                    // fixed in number, so the block keeps one height whatever the history holds.
+                    if field == Field::Edges {
                         history_block(s);
                     }
                     let mut spawned = s.spawn(Node {
@@ -2205,11 +2206,38 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                         spawned.insert(crate::chrome::Control(id));
                     }
                     spawned.with_children(|row| {
-                        // `COL_LABEL`: these hold an ordinary word (`brush`, `under`, `edges`). It
-                        // was a bare 62 — one of the six unnamed label columns the audit counted,
-                        // which is why no two panels in this editor lined their values up (F8).
-                        crate::chrome::row_label(row, crate::chrome::COL_LABEL, field.label());
-                        crate::chrome::row_value(row, "", TEXT, field);
+                        if field == Field::Last {
+                            // The receipt and the hint are two lines in one row, and each line has its
+                            // label, so the hint is not taken for a second receipt.
+                            row.spawn(Node {
+                                flex_direction: FlexDirection::Column,
+                                ..default()
+                            })
+                            .with_children(|col| {
+                                crate::chrome::row_label(col, crate::chrome::COL_LABEL, field.label());
+                                crate::chrome::row_label(
+                                    col,
+                                    crate::chrome::COL_LABEL,
+                                    Field::Hint.label(),
+                                );
+                            });
+                            row.spawn(Node {
+                                flex_direction: FlexDirection::Column,
+                                flex_grow: 1.0,
+                                min_width: Val::Px(0.0),
+                                ..default()
+                            })
+                            .with_children(|col| {
+                                crate::chrome::row_value(col, "", TEXT, Field::Last);
+                                crate::chrome::row_value(col, "", TEXT, Field::Hint);
+                            });
+                        } else {
+                            // `COL_LABEL`: these hold an ordinary word (`brush`, `under`, `edges`). It
+                            // was a bare 62 — one of the six unnamed label columns the audit counted,
+                            // which is why no two panels in this editor lined their values up (F8).
+                            crate::chrome::row_label(row, crate::chrome::COL_LABEL, field.label());
+                            crate::chrome::row_value(row, "", TEXT, field);
+                        }
                     });
                 }
             });
