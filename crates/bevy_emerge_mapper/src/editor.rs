@@ -8347,7 +8347,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
-            carry_rules(project, &mut ctx);
+            carry_changes(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8396,7 +8396,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
-            carry_rules(project, &mut ctx);
+            carry_changes(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8449,7 +8449,7 @@ fn apply(
             if let Some(fresh) = ctx.open.take() {
                 *open = fresh;
             }
-            carry_rules(project, &mut ctx);
+            carry_changes(project, &mut ctx);
             match undone {
                 Ok((
                     _,
@@ -8574,15 +8574,20 @@ fn set_pin(
     }
 }
 
-/// **Carry an operation's rules back into the project.** A rename rewrites `rules.ron`'s examples,
-/// and generate reads them from the Project resource, so the rules the operation changed must go
-/// back in. Only the rules change, and only when they did, so a change-detected resource is not
-/// marked changed by an operation that left the rules alone.
-fn carry_rules(project: &mut Project, ctx: &mut crate::ops::Ctx) {
-    if let Some(fresh) = ctx.project.take()
-        && project.rules != fresh.rules
-    {
-        project.rules = fresh.rules;
+/// **Carry an operation's changes back into the project.** A rename rewrites `rules.ron`'s examples,
+/// and generate reads them from the Project resource; a label write changes the measured library,
+/// which the Map draws from. Either must go back in, or the file and the screen disagree until the
+/// watcher re-opens the map. Each is compared first and written only when it changed, so a
+/// change-detected resource is not marked changed by an operation that left it alone (cycle 9 gap 2).
+pub(crate) fn carry_changes(project: &mut Project, ctx: &mut crate::ops::Ctx) {
+    let Some(fresh) = ctx.project.take() else {
+        return;
+    };
+    if project.rules != fresh.rules {
+        project.rules = fresh.rules.clone();
+    }
+    if project.measured != fresh.measured {
+        adopt_library(project, &fresh);
     }
 }
 
@@ -8618,7 +8623,7 @@ fn rename_map(
         *open = fresh;
     }
     if let Some(project) = project {
-        carry_rules(project, &mut ctx);
+        carry_changes(project, &mut ctx);
     }
     match outcome {
         Ok(crate::ops::Applied::Done {

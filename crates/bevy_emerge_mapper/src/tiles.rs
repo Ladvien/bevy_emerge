@@ -4798,6 +4798,39 @@ mod pack_fold_tests {
         }
     }
 
+    /// **A Map-door reversal that changed the library lands in the live project** (cycle 9 gap 2).
+    ///
+    /// The reversal runs `ops::undo` on a clone, and `carry_changes` used to move only the rules back.
+    /// A label write in the clone then left the live `measured` library stale until the watcher
+    /// re-opened the map about 250 ms later, so the Map drew the old look in the meantime.
+    #[test]
+    fn a_map_undo_that_changes_the_library_updates_the_live_project() {
+        let mut live = kit_holding(&["wall"]);
+        let mut fresh = live.clone();
+        for d in fresh.measured.descriptors.iter_mut().filter(|d| d.id == "wall") {
+            d.look = vec!["worn".to_owned()];
+        }
+        let mut ctx = crate::ops::Ctx {
+            project: Some(fresh),
+            open: None,
+            source: crate::ops::Source::Human,
+            session: crate::ops::session_id(),
+        };
+        crate::editor::carry_changes(&mut live, &mut ctx);
+        let look = live
+            .measured
+            .descriptors
+            .iter()
+            .find(|d| d.id == "wall")
+            .map(|d| d.look.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            look,
+            vec!["worn".to_owned()],
+            "the live library kept the pre-undo look, so the Map would draw a stale piece"
+        );
+    }
+
     /// **A synthetic project — no files, no meshes, no shipped corpus.**
     ///
     /// A test that read the real `assets/` would fail the day somebody imports a kit, and importing
