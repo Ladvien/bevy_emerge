@@ -9466,9 +9466,21 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                         .confidence
                         .map(|c| format!(" · confidence {c}"))
                         .unwrap_or_default();
+                    let model_date = l.model_date().unwrap_or(&l.at);
                     match &l.model {
-                        // **A model wrote it and nobody has confirmed it**: the unchecked colour.
-                        Some(m) => (format!("{m} · {}{sure}", l.at), crate::chrome::UNCHECKED),
+                        // **Some axis is still a model's and nobody has confirmed it**: the unchecked
+                        // colour, with the model's own date. A later touch by a person is said beside
+                        // it, so the one date on the row is never mistaken for the other.
+                        Some(m) if l.by.any_by_model() => {
+                            let touched = if model_date == l.at {
+                                String::new()
+                            } else {
+                                format!(" · touched {}", l.at)
+                            };
+                            (format!("{m} · {model_date}{touched}{sure}"), crate::chrome::UNCHECKED)
+                        }
+                        // **Every axis is confirmed**: the row says when a person checked it.
+                        Some(m) => (format!("{m} · checked {}{sure}", l.at), TEXT),
                         None => (format!("by hand · {}{sure}", l.at), TEXT),
                     }
                 }

@@ -419,24 +419,24 @@ fn axis_values(d: &Descriptor) -> [(&'static str, Axis, Value); 6] {
 /// axis was written by the model and never confirmed by a person.
 fn provenance(d: &Descriptor) -> (Value, bool, bool) {
     let mut axes = serde_json::Map::new();
-    let mut by_model = false;
     for (name, axis, value) in axis_values(d) {
         let Some(by) = d.labels.as_ref().and_then(|l| l.by.get(axis)) else {
             continue;
         };
-        by_model |= by == By::Model;
         let by = match by {
             By::Model => "model",
             By::Human => "human",
         };
         axes.insert(name.to_owned(), json!({"value": value, "by": by}));
     }
+    let by_model = d.labels.as_ref().is_some_and(|l| l.by.any_by_model());
     let unlabelled = axes.is_empty();
     let (model, at, confidence) = match &d.labels {
         Some(l) => (l.model.clone(), Some(l.at.clone()), l.confidence.map(|c| c.to_string())),
         None => (None, None, None),
     };
-    let labels = json!({"model": model, "at": at, "confidence": confidence, "axes": axes});
+    let model_at = d.labels.as_ref().and_then(|l| l.model_date()).map(str::to_owned);
+    let labels = json!({"model": model, "model_at": model_at, "at": at, "confidence": confidence, "axes": axes});
     (labels, unlabelled, by_model)
 }
 
