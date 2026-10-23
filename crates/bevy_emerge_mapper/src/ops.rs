@@ -2292,13 +2292,13 @@ pub mod map_rename {
                 }
             };
             let file = project.project_dir.join(bevy_emerge_core::rules::FILE);
-            if let Some((_, new)) = &rules {
-                if let Err(e) = bevy_emerge_core::ron_surgery::save_atomic(&file, new) {
-                    ctx.open = Some(open);
-                    return Err(Refusal::new(format!(
-                        "the map was not renamed, and nothing was written: {e}"
-                    )));
-                }
+            if let Some((_, new)) = &rules
+                && let Err(e) = bevy_emerge_core::ron_surgery::save_atomic(&file, new)
+            {
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "the map was not renamed, and nothing was written: {e}"
+                )));
             }
             // **The save is the map's own gate.** It moves the file and removes the old one, and
             // it refuses a taken name rather than replacing it.
@@ -2315,13 +2315,13 @@ pub mod map_rename {
                 // **The map did not move, so the rules go back too.** If that restore itself fails,
                 // the refusal says so: the rules file then names the new map, and the author must fix it.
                 let mut message = format!("the map was not renamed, and nothing was written: {e}");
-                if let Some((old, _)) = &rules {
-                    if let Err(restore) = bevy_emerge_core::ron_surgery::save_atomic(&file, old) {
-                        message.push_str(&format!(
-                            "; {} could not be put back ({restore}), and it now names `{name}`, so change its example by hand",
-                            file.display()
-                        ));
-                    }
+                if let Some((old, _)) = &rules
+                    && let Err(restore) = bevy_emerge_core::ron_surgery::save_atomic(&file, old)
+                {
+                    message.push_str(&format!(
+                        "; {} could not be put back ({restore}), and it now names `{name}`, so change its example by hand",
+                        file.display()
+                    ));
                 }
                 open.map.name = was;
                 ctx.open = Some(open);
