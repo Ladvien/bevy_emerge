@@ -14,8 +14,11 @@
       "mcp": "emerge_frame_view",
       "args": {
         "target": {
-          "placements": [
-            "block_3_1"
+          "rect": [
+            29.6,
+            -59.9,
+            43.6,
+            -49.9
           ]
         }
       }
@@ -23,33 +26,30 @@
   ],
   "chunks": [
     {
-      "seconds": 3,
+      "seconds": 0.6,
       "operation": {
         "name": "placement_remove",
         "parameters": {
-          "id": "block_3_1"
+          "id": "abbey"
         }
       }
     },
     {
-      "seconds": 3
+      "seconds": 2.0
     }
   ],
   "steps": [
     {
       "at": 0.0,
-      "caption": "agent: placement_remove block_3_1"
+      "caption": "agent: placement_remove abbey"
     },
     {
-      "at": 3.0,
-      "caption": "person: ⌘Z takes the agent's change back"
-    },
-    {
-      "at": 3.6,
+      "at": 0.9,
       "key": "KeyZ",
       "mods": [
         "SuperLeft"
-      ]
+      ],
+      "caption": "person: ⌘Z takes the agent's change back"
     }
   ]
 }
