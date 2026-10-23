@@ -94,10 +94,12 @@ pub struct Sequencer {
 /// say so rather than hang.
 const CAPTURE_TIMEOUT_S: f32 = 5.0;
 
-/// **The capture on its way to disk**: the frame it is for, and when it was asked for.
+/// **The capture on its way to disk**: the frame it is for, when it was asked for, and the
+/// screenshot entity carrying it. A timeout must despawn that entity, or its readback can still land.
 struct InFlight {
     index: u32,
     since: f32,
+    entity: Entity,
 }
 
 /// **A run in flight.**
@@ -307,9 +309,13 @@ fn drive_sequencer(
     if let Some(flight) = run.in_flight.as_ref()
         && now - flight.since > CAPTURE_TIMEOUT_S
     {
+        let (entity, index) = (flight.entity, flight.index);
+        // **The timed-out capture is despawned with the run.** Its entity carries the `save_to_disk`
+        // observer, so left alive, a readback that lands after the run has failed would write a PNG
+        // into that run's directory.
+        commands.entity(entity).try_despawn();
         let error = format!(
-            "frame {} did not land within {CAPTURE_TIMEOUT_S} s, so the run stopped rather than wait for it",
-            flight.index
+            "frame {index} did not land within {CAPTURE_TIMEOUT_S} s, so the run stopped rather than wait for it"
         );
         finish_run(&mut sequencer, Some(error));
         return;
@@ -423,7 +429,7 @@ fn drive_sequencer(
         let out = path.clone();
         let written_path = out.to_string_lossy().into_owned();
         let run_id = run.id;
-        commands
+        let shot = commands
             .spawn(bevy::render::view::screenshot::Screenshot::image(handle))
             .observe(
                 // **Bevy's own writer, and not a hand-rolled encoder.** `save_to_disk` is the
@@ -451,9 +457,10 @@ fn drive_sequencer(
                         run.in_flight = None;
                     }
                 },
-            );
+            )
+            .id();
         // **The capture in flight is this frame**, until its PNG lands (see the top of the loop).
-        run.in_flight = Some(InFlight { index, since: now });
+        run.in_flight = Some(InFlight { index, since: now, entity: shot });
         // **The frame is counted when it is ASKED for**, and the run is finished when it is
         // WRITTEN. The two are different moments — the readback lands a frame or two after the
         // spawn — and a run that finished on the ask would report itself done while its last

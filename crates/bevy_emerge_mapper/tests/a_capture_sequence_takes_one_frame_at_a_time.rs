@@ -145,4 +145,11 @@ fn a_frame_that_never_lands_ends_the_run_with_a_reason() {
         reason.contains("did not land"),
         "the run failed without saying why the frame is missing: {status}"
     );
+    // **And the timed-out capture is gone too.** Its entity still holds a `save_to_disk` observer,
+    // so a readback that lands late would write a PNG into a run that has already failed.
+    assert_eq!(
+        in_flight(&mut app),
+        0,
+        "a timed-out capture is still alive, so its late readback could write into a failed run"
+    );
 }
