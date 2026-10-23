@@ -6,6 +6,7 @@
 //! row can be labelled as the agent's.
 
 use bevy::prelude::*;
+use bevy_emerge_mapper::chrome::BODY_LINE_H;
 use bevy_emerge_mapper::editor::{
     EditorState, HistorySlot, jump_for_test, place_for_test, plant_stale_move_for_test,
     redo_for_test, undo_for_test,
@@ -285,4 +286,57 @@ fn a_native_row_names_the_change_on_both_sides_of_undo() {
     let rows = state(&app).history();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].label, "place 1 again");
+}
+
+/// **A history row holds its inset and one line of text (E-018).** The row's wrapper clips to its own
+/// height, so anything of the row taller than that loses its far edge.
+///
+/// Failed before the fix: the wrapper was `BODY_LINE_H` tall, and the row's 3 px top inset plus its
+/// 13.2 px line is 16.2 px, so the wrapper that clips the row was 2.2 px short of it. The pre-fix
+/// live still showed no visible cut in the descenders; the shortfall is what the layout guarantees,
+/// so this asserts the layout's own lengths rather than drawn boxes (headless text measures shorter).
+#[test]
+fn a_history_row_holds_its_inset_and_one_line() {
+    let mut app = booted("rowclip");
+    place_for_test(app.world_mut(), "tile_a", (1.5, 0.5));
+    for _ in 0..3 {
+        app.update();
+    }
+
+    let world = app.world_mut();
+    let rows: Vec<Entity> = world
+        .query_filtered::<Entity, With<HistorySlot>>()
+        .iter(world)
+        .collect();
+    assert!(!rows.is_empty(), "no history row is in the world");
+    for row in rows {
+        let wrapper = world
+            .get::<ChildOf>(row)
+            .expect("a history row sits in a wrapper")
+            .parent();
+        let clip = px(
+            world
+                .get::<Node>(wrapper)
+                .expect("a wrapper has a node")
+                .height,
+            "wrapper height",
+        );
+        let pad = world.get::<Node>(row).expect("a row has a node").padding;
+        let inset = px(pad.top, "row top inset") + px(pad.bottom, "row bottom inset");
+        let need = inset + BODY_LINE_H;
+        assert!(
+            clip >= need - 0.01,
+            "a history row's wrapper clips to {clip} px, but the row needs {need} px: its {inset} px \
+             inset and a {BODY_LINE_H} px line"
+        );
+    }
+}
+
+/// **A layout length in logical pixels.** A history row's lengths are fixed px; anything else is a change
+/// to the row that this test has to be taught about, not a case to pass over.
+fn px(v: Val, what: &str) -> f32 {
+    match v {
+        Val::Px(p) => p,
+        other => panic!("{what} is {other:?}, not a fixed px length"),
+    }
 }

@@ -3658,9 +3658,10 @@ fn history_block(s: &mut ChildSpawnerCommands) {
         // **Exactly one line, clipped (E-018).** A label that wrapped grew its row, and every row
         // below it, MAP SIZE included, moved down: `a_receipt_does_not_move_the_panel` caught it.
         // So the row is one line tall, its text does not wrap, and what runs past the panel is
-        // clipped rather than pushing anything.
+        // clipped rather than pushing anything. The wrapper holds the row's own top and bottom inset
+        // as well as its line, or the line's far edge is cut.
         s.spawn(Node {
-            height: Val::Px(crate::chrome::BODY_LINE_H.ceil()),
+            height: Val::Px((crate::chrome::BODY_LINE_H + 2.0 * crate::chrome::GAP_TIGHT).ceil()),
             overflow: bevy::ui::Overflow::clip(),
             ..default()
         })
