@@ -438,8 +438,9 @@ impl Emerge {
     /// operation log. **`dry_run` previews instead**, and nothing is written.
     #[tool(
         name = "emerge_apply_operation",
-        description = "Run one of the editor's operations. Changes the open map, writes the data \
-                       file, and appends a line to the operation log. Set dry_run to true to see \
+        description = "Run one of the editor's operations. Changes the editor (most operations \
+                       change the open map and write its file; brush_arm only arms a piece) and \
+                       appends a line to the operation log. Set dry_run to true to see \
                        what would change without changing it. Returns the operation's id, which \
                        can be cited in a report to the developer, and the log's own record of it. \
                        The operation replaces the values it names rather than adding to them, \
@@ -691,8 +692,10 @@ impl Emerge {
                        position and the placements inside the rectangle. Each entry names its \
                        picture file, and the newest picture comes back as an image. It reads files \
                        the editor wrote, so it needs no editor running and changes nothing. Returns \
-                       how many snips there are, how many are shown, and each .json file in the \
-                       snips folder that is not a snip record or has no picture file, with the reason.",
+                       how many snips there are, how many are shown, the snips still being saved \
+                       (pending: confirmed in the editor, picture not yet written, so not yet in \
+                       the snips list) and each .json file in the snips folder that is not a snip \
+                       record or has no picture file, with the reason.",
         annotations(
             title = "List the snips the person took",
             read_only_hint = true,
@@ -716,6 +719,40 @@ impl Emerge {
             Err(e) => return Ok(refusal(&e)),
         };
         let (records, mut not_snips) = bevy_emerge_snip::read_snips(&dir);
+        let (open, pending_problems) = bevy_emerge_snip::read_pending(&dir);
+        not_snips.extend(pending_problems);
+        // **A snip that already has its picture is finished, not pending.** Between the picture's
+        // write and the pending record's removal, one stem is in both lists.
+        let open: Vec<_> = open
+            .into_iter()
+            .filter(|r| !records.iter().any(|done| done.stem == r.stem))
+            .collect();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let pending_total = open.len();
+        let pending: Vec<Value> = open
+            .iter()
+            .take(p.limit)
+            .map(|r| {
+                let age_ms = now.saturating_sub(r.taken_at_ms);
+                let status = if age_ms > bevy_emerge_snip::PENDING_ABANDONED_AFTER_MS {
+                    format!(
+                        "abandoned: no picture after {} s, so it is not in snips. The editor quit or the capture was lost; take the snip again.",
+                        age_ms / 1000
+                    )
+                } else {
+                    "being saved: the picture has not landed yet, so it is not in snips".to_string()
+                };
+                let mut entry = serde_json::to_value(r).unwrap_or(Value::Null);
+                if let Value::Object(map) = &mut entry {
+                    map.insert("status".to_string(), json!(status));
+                    map.insert("age_ms".to_string(), json!(age_ms));
+                }
+                entry
+            })
+            .collect();
         let mut content = Vec::new();
         if let Some(newest) = records.first() {
             let path = dir.join(format!("{}.png", newest.stem));
@@ -750,6 +787,8 @@ impl Emerge {
             "total": records.len(),
             "shown": shown.len(),
             "snips": shown,
+            "pending": pending,
+            "pending_total": pending_total,
             "not_snips": not_snips,
         });
         content.push(rmcp::model::ContentBlock::text(

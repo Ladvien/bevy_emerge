@@ -83,6 +83,9 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
     // own way of doing what `map_set_settings` does. It dispatches the operation.
     ("map_set_settings", "SizeField(Axis)"),
+    // **The palette click**, which arms a piece through `on_row_click`, which calls `arm_piece`
+    // and dispatches `brush_arm`.
+    ("brush_arm", "arm_piece("),
 ];
 
 /// **Every operation has a BRP command, and the editor running is what says so.**
@@ -271,8 +274,6 @@ const UNMIGRATED: &[Action] = &[
     Action::Shortcuts,
     Action::EditTile,
     Action::CycleTarget,
-    Action::PalettePrev,
-    Action::PaletteNext,
     Action::TipX,
     Action::TipZ,
     Action::LiftUp,
@@ -386,7 +387,8 @@ const UNMIGRATED: &[Action] = &[
 // 124 -> 125: `Snip`, paid by `RenameMap` -> `map_rename` (commit A).
 // 125 -> 124: `Remove` -> `placement_remove` (E-029): a stamp and a box dispatch `stamp_remove` and `placement_remove`.
 // 124 -> 125: `FrameView` (E-021), camera state with no document change, so no operation names it.
-const UNMIGRATED_MAX: usize = 125;
+// 125 -> 123: `PalettePrev` and `PaletteNext` -> `brush_arm` (gap 1): the arrow walk arms through the operation a click uses.
+const UNMIGRATED_MAX: usize = 123;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

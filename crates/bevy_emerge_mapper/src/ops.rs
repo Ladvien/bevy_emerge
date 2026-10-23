@@ -349,6 +349,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
         Box::new(map_rename::MapRename),
+        Box::new(brush_arm::BrushArm),
     ]
 }
 
@@ -454,10 +455,18 @@ fn dispatch_as(
 ///
 /// The change is already in the map and the file when the append fails. Its recorded inverse is
 /// the put-back, so it is committed through the same operation, with no log line. The refusal
-/// then says the change was taken back. When there is no inverse, or the take-back itself fails,
-/// the refusal says the change is still in place rather than claiming it was undone.
+/// then says the change was taken back. When there is no inverse, the refusal says either that
+/// nothing was changed (the operation changed nothing) or that the change is still in place, and
+/// it never claims the change was undone. A failed take-back also says the change is still in place.
 fn take_back(ctx: &mut Ctx, op: &dyn Operation, outcome: &Outcome, log_error: String) -> Refusal {
     let Some(inverse) = outcome.inverse.as_ref() else {
+        // **An operation that changed nothing has nothing to keep in place.** Saying "still in
+        // place" would tell the author a change exists on the map when none does.
+        if !outcome.saved && outcome.affected == 0 {
+            return Refusal::new(format!(
+                "the operation could not be logged, so nothing was changed: {log_error}"
+            ));
+        }
         return Refusal::new(format!(
             "the operation was applied but could not be logged, and it records no inverse to take \
              it back, so the change is still in place: {log_error}"
@@ -515,6 +524,9 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
     };
     let path = oplog_path(project);
     let text = std::fs::read_to_string(&path).unwrap_or_default();
+    // **A change that records no undo, by id and op name.** It stays out of the undo lines, so an
+    // undo of its id can say what it is rather than that it is not in the log.
+    let mut silent: HashMap<String, String> = HashMap::new();
     let mut lines = Vec::new();
     for (n, raw) in text
         .lines()
@@ -529,8 +541,13 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
                 path.display()
             ))
         })?;
+        let records_no_undo = find(&entry.op).is_some_and(|op| op.undo() == Undo::None);
         if entry.outcome == "applied" {
-            lines.push(entry);
+            if records_no_undo {
+                silent.insert(entry.operation_id.clone(), entry.op.clone());
+            } else {
+                lines.push(entry);
+            }
         }
     }
     // **Each line's chain, whether each chain is in effect, and each chain's newest line.**
@@ -575,6 +592,12 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
             chain
         }
         Some(id) => {
+            if let Some(op) = silent.get(id) {
+                return Err(Refusal::new(format!(
+                    "`{id}` is a {op} and changes nothing, so there is nothing to undo. \
+                     emerge_read_oplog lists the changes that can be undone."
+                )));
+            }
             let Some(chain) = chain_of.get(id).copied() else {
                 return Err(Refusal::new(format!(
                     "no operation `{id}` is in the log. emerge_read_oplog lists the ids."
@@ -1501,6 +1524,180 @@ pub mod placement_set_yaw {
                 saved,
                 inverse: Some(inverse),
                 after,
+            })
+        }
+    }
+}
+
+/// **Arm a piece, so the next placement puts it down.**
+///
+/// E-037: the palette click did this in the UI, so an agent could place pieces but could not choose
+/// one. Arming changes no map, so it records no undo: its `after` is the piece the editor now holds,
+/// and the editor applies it (`editor::arm_piece`, `editor::apply_armed`).
+pub mod brush_arm {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The library id of the piece to arm, as the palette names it, e.g. `site/wall`. `null`
+        /// puts the brush down, as Esc does for an armed piece.
+        #[serde(default, deserialize_with = "present")]
+        pub descriptor: Option<Option<String>>,
+    }
+
+    /// **Present, possibly null.** Serde's own `Option` reads an absent key as `None` too, so a
+    /// typo would look like a request to put the brush down. Here the outer `None` is an absent
+    /// key (refused) and the inner `None` is an explicit null (put down).
+    fn present<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <Option<String> as serde::Deserialize>::deserialize(d).map(Some)
+    }
+
+    /// How many ids a refusal lists. The closest first, so a typo's intended piece is among them.
+    const LISTED_ON_REFUSAL: usize = 20;
+
+    /// Levenshtein distance, two rows at a time. The ranking needs no more than this, so no crate.
+    fn distance(a: &str, b: &str) -> usize {
+        let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+        let mut prev: Vec<usize> = (0..=b.len()).collect();
+        let mut cur = vec![0usize; b.len() + 1];
+        for (i, ca) in a.iter().enumerate() {
+            cur[0] = i + 1;
+            for (j, cb) in b.iter().enumerate() {
+                let sub = prev[j] + usize::from(ca != cb);
+                cur[j + 1] = sub.min(prev[j + 1] + 1).min(cur[j] + 1);
+            }
+            std::mem::swap(&mut prev, &mut cur);
+        }
+        prev[b.len()]
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["descriptor"],
+                "properties": {
+                    "descriptor": {
+                        "type": ["string", "null"],
+                        "description": "The library id of the piece to arm, as the palette names it, e.g. `site/wall`. null puts the brush down."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "this is not a piece to arm: {e}. The one field is `descriptor`, and nothing else."
+                ))
+            })
+        }
+    }
+
+    /// **Arm one piece from the library.**
+    pub struct BrushArm;
+
+    impl Operation for BrushArm {
+        fn name(&self) -> &'static str {
+            "brush_arm"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        /// **A piece the library holds, or a refusal.** Nothing is armed by a refused request.
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let descriptor = match p.descriptor {
+                None => {
+                    return Err(Refusal::new(
+                        "this is not a piece to arm: `descriptor` is missing. Name a piece, or \
+                         give null to put the brush down.",
+                    ));
+                }
+                Some(None) => return Ok(json!({"armed": null})),
+                Some(Some(id)) => id,
+            };
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to arm a piece from.",
+                ));
+            };
+            if !project.library.descriptors.iter().any(|d| d.id == descriptor) {
+                // **The refusal names what exists** (gap 2): an agent cannot retry with an id it cannot
+                // see, and "the palette lists the pieces" sent it to a palette it has no tool to read.
+                let mut ids: Vec<&str> = project
+                    .library
+                    .descriptors
+                    .iter()
+                    .map(|d| d.id.as_str())
+                    .collect();
+                if ids.is_empty() {
+                    return Err(Refusal::new(format!(
+                        "`{}` is not in the library, and the library holds no pieces, so nothing was armed.",
+                        descriptor
+                    )));
+                }
+                ids.sort_by_key(|id| (distance(id, &descriptor), id.to_string()));
+                let shown = ids
+                    .iter()
+                    .take(LISTED_ON_REFUSAL)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(Refusal::new(format!(
+                    "`{}` is not in the library, so nothing was armed. The library holds {} pieces; \
+                     the closest are: {shown}.",
+                    descriptor,
+                    ids.len()
+                )));
+            }
+            // **A piece from a kit the map's bash leaves out is refused** (gap 5). The palette filters
+            // by the same `palette_namespaces` rule, so an agent armed a piece a person could not
+            // see. Without an open map there is no bash to apply, so nothing is refused.
+            if let Some(open) = ctx.open.as_ref()
+                && let Some(kit) = project.kit_of(&descriptor)
+                && let Some(bash) = open.map.bash.as_deref()
+                && !open.palette_namespaces(project).contains(kit)
+            {
+                return Err(Refusal::new(format!(
+                    "`{descriptor}` is in kit `{kit}`, which this map's bash `{bash}` leaves out, so \
+                     nothing was armed. The palette does not offer it either. Name a piece from a kit \
+                     `{bash}` includes, or change the bash."
+                )));
+            }
+            Ok(json!({"armed": descriptor}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let summary = match plan["armed"].as_str() {
+                Some(id) => format!("armed {id}"),
+                None => "put the brush down".to_owned(),
+            };
+            Ok(Outcome {
+                summary,
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(plan),
             })
         }
     }

@@ -50,8 +50,9 @@ pub const TOOLS: &[ToolDoc] = &[
     },
     ToolDoc {
         name: "emerge_apply_operation",
-        description: "Run one of the editor's operations. Changes the open map, writes the data file, and \
-                      appends a line to the operation log. Set dry_run to true to see what would change \
+        description: "Run one of the editor's operations. Changes the editor (most operations change the \
+                      open map and write its file; brush_arm only arms a piece) and appends a line to the \
+                      operation log. Set dry_run to true to see what would change \
                       without changing it. Returns the operation's id, which can be cited in a report to \
                       the developer, and the log's own record of it. The operation replaces the values it \
                       names rather than adding to them, so it is marked destructive. Take a change back \
@@ -126,9 +127,10 @@ pub const TOOLS: &[ToolDoc] = &[
                       position and the placements inside the rectangle. Each entry names its \
                       picture file, and the newest picture comes back as an image. It reads files \
                       the editor wrote, so it needs no editor running and changes nothing. Returns \
-                      how many snips there are, how many are shown, and each .json file in the \
-                      snips folder that is not a snip record or has no picture file, with the \
-                      reason.",
+                      how many snips there are, how many are shown, the snips still being saved \
+                      (pending: confirmed in the editor, picture not yet written, so not yet in \
+                      the snips list) and each .json file in the snips folder that is not a snip \
+                      record or has no picture file, with the reason.",
         read_only: true,
         destructive: false,
         idempotent: true,

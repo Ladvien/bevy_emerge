@@ -2747,17 +2747,13 @@ fn walk_palette(
     let Some(&next) = visible.get(want.min(visible.len().saturating_sub(1))) else {
         return;
     };
-    state.brush = Some(next);
-    // **Arming from the keyboard returns to placing**, for the reason `on_row_click` gives below:
-    // picking something to place is an unambiguous statement that you are done deleting or moving.
-    state.tool = Tool::Place;
-    let name = project
-        .library
-        .descriptors
-        .get(next)
-        .map(|d| d.id.clone())
-        .unwrap_or_else(|| "?".to_owned());
-    state.status.note(format!("`{name}` armed"));
+    // **The walk is the `brush_arm` operation, the same one a click is** (gap 1). It used to set the
+    // brush and the tool itself, so the log never heard of it. `arm_piece` dispatches the arm as the
+    // person, applies its answer, and returns to placing, exactly as a click does.
+    let Some(id) = project.library.descriptors.get(next).map(|d| d.id.clone()) else {
+        return;
+    };
+    arm_piece(&mut state, &project, Some(&*open), &id);
 }
 
 /// One observer for the whole palette. `Activate` carries the entity, so the index lives on the row
@@ -2780,6 +2776,7 @@ fn on_row_click(
     project: Option<Res<Project>>,
     state: Option<ResMut<EditorState>>,
     filters: Option<ResMut<crate::filter::Filters>>,
+    open: Option<Res<crate::project::OpenMap>>,
 ) {
     let Ok(row) = rows.get(activate.entity) else {
         return;
@@ -2787,27 +2784,77 @@ fn on_row_click(
     let (Some(project), Some(mut state), Some(mut filters)) = (project, state, filters) else {
         return;
     };
-    state.brush = Some(row.0);
-    // **Arming a piece returns to placing.** Picking something to place is an unambiguous statement
-    // that you are done deleting or moving, and a tool is otherwise only escapable by a key — which a
-    // borderless-fullscreen window can have taken from it before Bevy ever sees it. A mode you can
-    // enter with a click and only leave with a keystroke is a trap.
-    let was = std::mem::take(&mut state.tool);
-    // **And it takes the keyboard back from the filter box.**
-    //
-    // `filter::blur_on_world_click` already does this for a click on the world, for the reason the
-    // status doc records: `drive_place` is gated on `not_typing`, so leaving the box focused made
-    // *the most natural way to find a piece* — type a few letters — the way to break placing it, with
-    // no message. Clicking the row you just filtered for is the other half of that same click, and it
-    // did not blur. So the search that finds a piece could still be the search that stops you using
-    // it.
+    // **And it takes the keyboard back from the filter box.** `drive_place` is gated on `not_typing`,
+    // so leaving the box focused made *the most natural way to find a piece* — type a few letters —
+    // the way to break placing it, with no message. Clicking the row you filtered for blurs it, as a
+    // click on the world already does.
     filters.blur();
-    if let Some(d) = project.library.descriptors.get(row.0) {
-        state.status.note(if was == Tool::Place {
-            format!("{} armed", d.id)
-        } else {
-            format!("{} armed — {} off", d.id, was.label())
-        });
+    let Some(d) = project.library.descriptors.get(row.0) else {
+        return;
+    };
+    // **The click is the `brush_arm` operation**, the one an agent calls. See [`arm_piece`].
+    arm_piece(&mut state, &project, open.as_deref(), &d.id);
+}
+
+/// **Arm a piece from the library**, through the operation `brush_arm` — the one an agent calls.
+///
+/// **One path for both front ends.** The palette click used to set the brush itself, so the editor
+/// and an agent could hold different pieces with no record of either. Now the click dispatches the
+/// operation, and both front ends apply its answer through [`apply_armed`].
+///
+/// **Arming returns to placing.** Picking something to place is an unambiguous statement that you are
+/// done deleting or moving, and a tool is otherwise only escapable by a key — which a borderless
+/// fullscreen window can have taken from it before Bevy ever sees it. A refusal puts the tool back and
+/// says why in `Status::problem`.
+/// **The open map is what the palette filters by**, so the arm refuses a piece the map's bash hides
+/// (gap 5). `None` only when no map is open, and then there is no bash to honour.
+pub fn arm_piece(
+    state: &mut EditorState,
+    project: &Project,
+    open: Option<&crate::project::OpenMap>,
+    descriptor: &str,
+) {
+    let was = std::mem::take(&mut state.tool);
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: open.cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+    };
+    let params = serde_json::json!({"descriptor": descriptor});
+    match crate::ops::dispatch(&mut ctx, "brush_arm", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            apply_armed(state, project, outcome.after.as_ref());
+            state.status.note(if was == Tool::Place {
+                format!("{descriptor} armed")
+            } else {
+                format!("{descriptor} armed — {} off", was.label())
+            });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.tool = was;
+            state.status.problem(e.0);
+        }
+    }
+}
+
+/// **The brush an armed outcome names.** The library holds the piece by its index, so the id is
+/// resolved against the library here, once, for both front ends. Both call this with the operation's
+/// `after`: a name arms that piece, `null` puts the brush down (Esc's answer), and an outcome that
+/// names neither changes nothing.
+pub fn apply_armed(state: &mut EditorState, project: &Project, after: Option<&serde_json::Value>) {
+    match after.and_then(|a| a.get("armed")) {
+        Some(serde_json::Value::Null) => state.brush = None,
+        Some(armed) => {
+            let Some(id) = armed.as_str() else {
+                return;
+            };
+            if let Some(ix) = project.library.descriptors.iter().position(|d| d.id == id) {
+                state.brush = Some(ix);
+                state.tool = Tool::Place;
+            }
+        }
+        None => {}
     }
 }
 

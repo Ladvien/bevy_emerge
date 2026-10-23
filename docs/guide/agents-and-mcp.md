@@ -54,9 +54,13 @@ A refusal says why. For example, `placement_set_pin` refuses a pin with no reaso
 
 `map_rename` renames the open map. The file moves with the name at once, and a name another map in the project already has is refused before anything is written. If the old file cannot be removed, the rename is refused and nothing changes: the new file is taken back and the map keeps its old name. If that take-back also fails, the map follows the new file and the refusal says so. **N** on the Map door dispatches the same operation, so a rename by an agent and a rename by a person are one kind of change, and Cmd+Z takes either back. An agent undoes a rename with `emerge_undo_operation`, which puts the old name back.
 
+`brush_arm {descriptor}` arms a piece as the brush, the same as clicking its row in the palette or walking the palette with the arrow keys, which dispatch the same operation. It changes no map data, so it is logged but not undoable: `emerge_undo_operation` with its id says there is nothing to take back. `descriptor: null` puts the brush down, as Esc does. A piece the open map's bash hides is refused, naming the bash. An unknown id is refused with the closest library ids. `emerge_state` lists the library's ids in `descriptor_ids`, 50 at a time; `descriptor_ids_next` gives the `descriptors_from` for the next page.
+
 ## Snips the person took
 
 A person snips an area of the editor with `Cmd+\` and types a note (see [Keys](keys.md)). The editor writes two files for each snip into `target/loop/captures/snips/`: a PNG of the cut-out rectangle, and a JSON record that names it. The record holds the note, the map, the active tool, the rectangle in window and picture pixels, the camera's view, the cursor's world position, and the placements inside the rectangle. `emerge_list_snips` reads that folder, newest first, and returns the newest picture as an image. A file there that is not a snip record, or a record with no picture, is listed under `not_snips` with the reason, and does not stop the list. A snip changes no map data: it is not an operation, and it is not logged or undoable.
+
+The picture lands a frame or more after Enter. Until it does, the snip is listed under `pending` as "being saved", with its `age_ms`, and not under `snips`. A pending snip older than 10 seconds is listed as abandoned: the editor quit or the capture was lost, so take it again. When the editor opens a project, it clears every pending record an earlier editor left.
 
 ## Known gaps
 

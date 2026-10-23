@@ -762,6 +762,38 @@ fn a_snip_whose_picture_is_missing_is_named_and_the_list_still_answers() {
     );
 }
 
+/// **A snip confirmed in the editor and not yet written is listed as pending, not as nothing.**
+/// The picture lands a frame or more after the confirm, so an agent that lists straight after the
+/// Enter must see the snip, with a status that says it is still being saved.
+#[test]
+fn a_snip_still_being_saved_is_listed_as_pending() {
+    let (project, dir) = snips_folder("pending");
+    bevy_emerge_snip::write_pending(&dir, &record("snip-3000", now_ms(), "the gate is too narrow"))
+        .expect("the pending record is written");
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_snips", json!({}));
+    assert!(
+        answer["result"]["isError"].as_bool() != Some(true),
+        "{answer}"
+    );
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    assert_eq!(body["total"], 0, "a pending snip is not a finished one: {body}");
+    assert_eq!(body["pending"][0]["stem"], "snip-3000", "{body}");
+    assert_eq!(
+        body["pending"][0]["note"], "the gate is too narrow",
+        "{body}"
+    );
+    assert!(
+        body["pending"][0]["status"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("being saved"),
+        "a pending snip does not say it is still being saved: {body}"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
 /// **The picture is named by the record file's own name.** A record that names a stem with path
 /// separators must not send the picture outside the folder. Before the fix the stem inside the record
 /// was joined onto the folder, so the picture path pointed at `../../escape.png`.
@@ -797,4 +829,103 @@ fn a_record_cannot_send_the_picture_out_of_the_snips_folder() {
         picture_path.ends_with("/snip-4000.png") && !picture_path.contains(".."),
         "the picture left the snips folder or was renamed by the record: {picture_path}"
     );
+}
+
+/// **The clock now, in Unix milliseconds**, for a record that should read as fresh.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is after 1970")
+        .as_millis() as u64
+}
+
+/// **A pending record whose picture never landed is marked abandoned, not "being saved" forever.**
+/// The editor quit, or the screenshot was lost, before the readback; after ten seconds the record
+/// says so and carries its age.
+#[test]
+fn a_pending_snip_with_no_picture_after_ten_seconds_is_marked_abandoned() {
+    let (project, dir) = snips_folder("abandoned");
+    bevy_emerge_snip::write_pending(&dir, &record("snip-6000", now_ms() - 60_000, "stuck"))
+        .expect("the pending record is written");
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_snips", json!({}));
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    let status = body["pending"][0]["status"].as_str().unwrap_or_default();
+    assert!(
+        status.contains("abandoned"),
+        "a record a minute old still reads as being saved: {body}"
+    );
+    let age = body["pending"][0]["age_ms"].as_u64().unwrap_or_default();
+    assert!(age >= 60_000, "the age is missing or short: {body}");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// **A snip that already has its picture is not also listed as pending.** Between the snip's own
+/// write and the pending record's removal, a list showed it in both places.
+#[test]
+fn a_snip_that_has_its_picture_is_not_also_listed_as_pending() {
+    let (project, dir) = snips_folder("written_twice");
+    bevy_emerge_snip::write_snip(
+        &dir,
+        "snip-7000",
+        picture(),
+        [0, 0, 8, 8],
+        record("snip-7000", now_ms(), "done"),
+    )
+    .expect("the snip is written");
+    bevy_emerge_snip::write_pending(&dir, &record("snip-7000", now_ms(), "done"))
+        .expect("the pending record is written");
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_snips", json!({}));
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    assert_eq!(body["total"], 1, "{body}");
+    assert_eq!(
+        body["pending"].as_array().map(Vec::len),
+        Some(0),
+        "a finished snip is also listed as being saved: {body}"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// **The pending list is capped by `limit`, and the true count is named.** A burst of confirms
+/// must not be answered with every record in full.
+#[test]
+fn the_pending_list_is_capped_by_limit_and_names_its_total() {
+    let (project, dir) = snips_folder("pending_cap");
+    for n in 1..=3u64 {
+        bevy_emerge_snip::write_pending(
+            &dir,
+            &record(&format!("snip-{}", 8000 + n), now_ms(), "burst"),
+        )
+        .expect("the pending record is written");
+    }
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_snips", json!({"limit": 1}));
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    assert_eq!(body["pending"].as_array().map(Vec::len), Some(1), "{body}");
+    assert_eq!(body["pending_total"], 3, "{body}");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// **A pending record that will not parse is named in `not_snips`.** A crash mid-write leaves one
+/// of these, and before the fix it was in neither list.
+#[test]
+fn a_pending_record_that_does_not_parse_is_named() {
+    let (project, dir) = snips_folder("broken_pending");
+    std::fs::write(dir.join("pending-snip-9000.json"), "{ not a record")
+        .expect("the broken record is written");
+
+    let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_snips", json!({}));
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    let named = body["not_snips"]
+        .as_array()
+        .expect("not_snips is a list")
+        .iter()
+        .any(|p| p.as_str().unwrap_or_default().contains("pending-snip-9000.json"));
+    assert!(named, "the broken pending record is reported nowhere: {body}");
+    let _ = std::fs::remove_dir_all(&project);
 }

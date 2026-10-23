@@ -646,7 +646,7 @@
         "blocks": false,
         "common": false,
         "no_workaround": true,
-        "evidence": "editor.rs ghost: state.hint set while a surface/mounted piece is armed over floor it cannot stand on, cleared where it fits; same shape as B-009 (reviewer, 2026-10-21)"
+        "evidence": "editor.rs ghost: state.hint set while a surface/mounted piece is armed over floor it cannot stand on, cleared where it fits; same shape as B-009 (reviewer, 2026-10-21) Cycle 6 live stills (5f36e05): docs/loop/iterations/assets/2026-10-23-cycle6/B-013-after.png (hint in the LAST slot) and B-013-nohint.png (two-line receipt in the LAST slot), both taken through brush_arm dress_bar_bundle (E-037). UNDO at crop rows 372-388 in both; REDO 411-427. The live layout is now captured."
       },
       "status": "fixed",
       "evidence": "Fixed in cycle 5. The hint takes the receipt's slot while it speaks and the receipt returns when it clears (376eca7). cbf3423's clip was rejected by Main: it cut receipts past two lines and broke B-009. Failing before on cbf3423: a_long_receipt_is_drawn_whole, the_receipt_returns_when_the_hint_clears. The surface hint is shortened to 'goes on a <class> surface — none here' (dea4fb4; failing before: 3.64 body lines in a two-line slot, MAP SIZE pushed 16.0 px). Not taken live: no MCP tool sets state.hint. Residual: long ghost hints (stack.rs ~236, about six lines) still grow the LAST row and move UNDO; Main's call. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
@@ -744,6 +744,38 @@
       },
       "status": "fixed",
       "evidence": "Fixed in cycle 5 (9b94ac7): at most one new capture per update, up to MAX_IN_FLIGHT = 4 in flight, each on its own entity. Relaxes B-038's one-in-flight cap (disclosed). Failing before: a_due_frame_is_requested_while_the_one_before_is_still_out; a_burst_of_due_frames_is_asked_for_one_per_update. Passing after: a_capture_sequence_takes_one_frame_at_a_time (3). Live, idle, 3 s runs: 15 fps achieved 15.07 before, 15.09-15.25 after; 8 fps 8.03 before, 7.98 after; no idle gain. Under load (10-25) the video agent saw about 6.5 fps at a 15 fps plan; not measured against this commit. Report: docs/loop/iterations/2026-10-23-cycle5-ca6d1ef.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-037",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "No operation arms a brush piece, so an agent cannot arm one and the hint state cannot be captured over MCP",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "1 of 3 (common). Blocks no: the person's palette arm still works. Agents had no way to arm a piece."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in f030b70: brush_arm arms a piece with Undo::None (logged and receipted, not in Cmd+Z history); the palette click dispatches it through editor::arm_piece. Failing before: tests/brush_arm_is_an_operation.rs did not compile on ab5ebf8 (E0432, unresolved editor::arm_piece). The old binary's live answer ('brush_arm is not an operation this editor knows...') is in the cycle 6 report from Main's brief; the builder notes do not record it. Passing after: brush_arm_is_an_operation 3/3; operations_have_two_front_ends 8/8. Live (town): brush_arm town/torch applied, operation 0045-5657, undo depth unchanged. Review gaps fixed: 1 (7e630cc; UNMIGRATED_MAX 125 to 123), 2 (94e2e65), 4 (c39c987, abc4419), 5 (579ae45), 7 (2098e21), 8 (e6854d9), 11 (a6b1122), 12 (855bfa2). Report: docs/loop/iterations/2026-10-23-cycle6-f34d8f4.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "B-042",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "emerge_list_snips right after Enter returns 0 snips, because the save lands about 0.3 s later",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "1 of 3 (common): an agent that lists right after Enter sees 0 snips and reads it as a failure. Blocks no; workaround: list again."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in 315e184: confirm writes pending-<stem>.json synchronously; emerge_list_snips lists it under pending with status 'being saved' until the picture lands, then clears it. Failing before: an_agent_calls_the_server::a_snip_still_being_saved_is_listed_as_pending (line 782: left Null, right 'snip-3000'; total 0, no pending); compile red E0425 in bevy_emerge_snip. Passing after: bevy_emerge_snip 9/9; bevy_emerge_mcp 14/14; a_person_snips_an_area_of_the_editor 9/9. Review gaps fixed: 3 and 9 and 10 (9db260c), 6 (7f39d90, 96294cd: startup sweep), 13 (d6f62cf). The live race was not reproduced; shown in code only. Report: docs/loop/iterations/2026-10-23-cycle6-f34d8f4.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
     }
