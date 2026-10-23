@@ -9460,29 +9460,33 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
             let (labels_text, labels_ink) = match &d.labels {
                 None => ("not labelled".to_owned(), LABEL),
                 Some(l) => {
-                    // **How sure the model said it was**, read on the same row as who wrote it. A
+                    // **How sure the model said it was**, read first on the row, so the word a person
+                    // scans for is the part a long model name cannot push past the panel's edge. A
                     // hand-written record carries no confidence, so it has none to show.
-                    let sure = l
-                        .confidence
-                        .map(|c| format!(" · confidence {c}"))
-                        .unwrap_or_default();
+                    let sure = l.confidence.map(|c| format!("confidence {c}"));
                     let model_date = l.model_date().unwrap_or(&l.at);
+                    // The row's parts, in reading order, joined with the one separator the row uses.
+                    let joined = |parts: &[Option<String>]| {
+                        parts.iter().flatten().map(String::as_str).collect::<Vec<_>>().join(" · ")
+                    };
                     match &l.model {
                         // **Some axis is still a model's and nobody has confirmed it**: the unchecked
                         // colour, with the model's own date. A later touch by a person is said beside
                         // it, so the one date on the row is never mistaken for the other.
                         Some(m) if l.by.any_by_model() => {
-                            let touched = if model_date == l.at {
-                                String::new()
-                            } else {
-                                format!(" · touched {}", l.at)
-                            };
-                            let short = crate::labels::model_short(m);
-                            (format!("{short} · {model_date}{touched}{sure}"), crate::chrome::UNCHECKED)
+                            let touched = (model_date != l.at).then(|| format!("touched {}", l.at));
+                            let short = crate::labels::model_short(m).to_owned();
+                            (
+                                joined(&[sure, Some(short), Some(model_date.to_owned()), touched]),
+                                crate::chrome::UNCHECKED,
+                            )
                         }
                         // **Every axis is confirmed**: the row says when a person checked it.
-                        Some(m) => (format!("{} · checked {}{sure}", crate::labels::model_short(m), l.at), TEXT),
-                        None => (format!("by hand · {}{sure}", l.at), TEXT),
+                        Some(m) => {
+                            let short = crate::labels::model_short(m).to_owned();
+                            (joined(&[sure, Some(short), Some(format!("checked {}", l.at))]), TEXT)
+                        }
+                        None => (joined(&[sure, Some("by hand".to_owned()), Some(l.at.clone())]), TEXT),
                     }
                 }
             };
@@ -9494,23 +9498,9 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
             })
             .with_children(|row| {
                 crate::chrome::row_label(row, crate::chrome::COL_LABEL, "labels");
-                // **One line, clipped at the row's edge.** Bevy 0.20 has no text-overflow ellipsis, so
-                // a long model name is cut at the edge rather than wrapped onto a second line.
-                row.spawn(Node {
-                    flex_grow: 1.0,
-                    flex_shrink: 1.0,
-                    min_width: Val::Px(0.0),
-                    overflow: Overflow::clip_x(),
-                    ..default()
-                })
-                .with_children(|clip| {
-                    clip.spawn((
-                        Text::new(labels_text),
-                        TextColor(labels_ink),
-                        crate::chrome::font(crate::chrome::text::BODY),
-                        TextLayout::new(Justify::Left, LineBreak::NoWrap),
-                    ));
-                });
+                // **Wraps, like the mesh row above it.** The value used to be one no-wrap line clipped
+                // at the row's edge, so a long model stem cut the confidence word off the panel.
+                crate::chrome::row_value(row, labels_text, labels_ink, ());
             });
 
             // **How far up, for the two mounts that have an up.**

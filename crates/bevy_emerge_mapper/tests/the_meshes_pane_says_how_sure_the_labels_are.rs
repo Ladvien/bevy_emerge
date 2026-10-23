@@ -11,7 +11,8 @@
 //!
 //! # What is being proved
 //!
-//! - **The labels row reads the confidence as a word**, after the model name and the date.
+//! - **The labels row reads the confidence as a word**, first, so the word a person scans for is the
+//!   part a long model name cannot push out of the panel.
 //! - **The row is unchecked iff some axis is still a model's**, by the same predicate that
 //!   `emerge_list_pieces` `by_model` asks.
 //! - **The date is the model's labelling date** while a model axis is open, and the row says when a
@@ -99,7 +100,7 @@ fn labels_row(app: &mut App) -> Option<(String, Color)> {
     let world = app.world_mut();
     let mut q = world.query::<(&Text, &TextColor)>();
     q.iter(world)
-        .find(|(t, _)| t.0.contains("gemma-x") || t.0.contains("Qwen3-VL") || t.0.starts_with("by hand"))
+        .find(|(t, _)| t.0.contains("confidence ") || t.0.starts_with("by hand"))
         .map(|(t, c)| (t.0.clone(), c.0))
 }
 
@@ -110,8 +111,8 @@ fn the_labels_row_reads_the_confidence_as_a_word() {
     assert!(texts_before.iter().all(|(t, _, _)| !t.contains("confidence")));
     let (text, ink) = labels_row(&mut app).expect("the labels row should be drawn");
 
-    // The model name, the date, and the confidence as a word.
-    let want = "gemma-x · 2026-10-20 · confidence high";
+    // The confidence as a word first, then the model's file stem and the date.
+    let want = "confidence high · gemma-x · 2026-10-20";
     assert_eq!(text, want, "the labels row should read {want:?}");
 
     // **A machine wrote it, and nobody has confirmed it.** The labels row wears the same colour
@@ -137,7 +138,7 @@ fn a_record_a_person_confirmed_in_full_is_not_drawn_unchecked() {
     );
     let (text, ink) = labels_row(&mut app).expect("the labels row should be drawn");
     assert_eq!(
-        text, "gemma-x · checked 2026-10-21 · confidence high",
+        text, "confidence high · gemma-x · checked 2026-10-21",
         "every axis is confirmed, so the row says when a person checked it, not the model's date"
     );
     assert_eq!(
@@ -158,7 +159,7 @@ fn an_open_model_axis_keeps_the_models_date_and_says_when_a_person_touched_it() 
         r#"model: Some("gemma-x"), model_at: Some("2026-10-20"), at: "2026-10-21", confidence: Some(High)"#,
     ));
     let (text, ink) = labels_row(&mut app).expect("the labels row should be drawn");
-    assert_eq!(text, "gemma-x · 2026-10-20 · touched 2026-10-21 · confidence high");
+    assert_eq!(text, "confidence high · gemma-x · 2026-10-20 · touched 2026-10-21");
     assert_eq!(ink, bevy_emerge_mapper::chrome::UNCHECKED);
 }
 
@@ -173,5 +174,77 @@ fn the_labels_row_shows_the_models_file_stem_not_its_path() {
         r#"model: Some("/Users/me/models/Qwen3-VL-8B-Instruct-Q4_K_M.gguf"), at: "2026-10-20", confidence: Some(High)"#,
     ));
     let (text, _) = labels_row(&mut app).expect("the labels row should be drawn");
-    assert_eq!(text, "Qwen3-VL-8B-Instruct-Q4_K_M · 2026-10-20 · confidence high");
+    assert_eq!(text, "confidence high · Qwen3-VL-8B-Instruct-Q4_K_M · 2026-10-20");
+}
+
+/// **An entity's ancestors, nearest first.**
+fn ancestors(world: &World, mut e: Entity) -> Vec<Entity> {
+    let mut out = Vec::new();
+    while let Some(parent) = world.get::<ChildOf>(e).map(|c| c.parent()) {
+        out.push(parent);
+        e = parent;
+    }
+    out
+}
+
+/// **The labels row's laid-out box and the INSPECTOR panel's box, in physical pixels**, as
+/// `(left, right)` pairs, with the panel's padding already taken off its right edge.
+///
+/// The panel is the first `Ground` ancestor of the INSPECTOR title. The labels row must be inside it.
+fn labels_row_and_inspector_x(app: &mut App) -> ((f32, f32), (f32, f32)) {
+    let world = app.world_mut();
+    let find_text = |world: &mut World, want: &dyn Fn(&str) -> bool| {
+        let mut q = world.query::<(Entity, &Text)>();
+        q.iter(world).find(|(_, t)| want(&t.0)).map(|(e, _)| e)
+    };
+    let title = find_text(world, &|t| t == "INSPECTOR").expect("the INSPECTOR title is drawn");
+    let labels = find_text(world, &|t| t.contains("confidence ")).expect("the labels row is drawn");
+    let panel = ancestors(world, title)
+        .into_iter()
+        .find(|&a| world.get::<bevy_emerge_mapper::chrome::Ground>(a).is_some())
+        .expect("the INSPECTOR title sits in a panel");
+    assert!(
+        ancestors(world, labels).contains(&panel),
+        "the labels row is not inside the INSPECTOR panel"
+    );
+    let x_span = |e: Entity| {
+        let node = world.get::<ComputedNode>(e).expect("a laid-out node");
+        let tf = world.get::<UiGlobalTransform>(e).expect("a placed node");
+        let half = node.size().x / 2.0;
+        (tf.translation.x - half, tf.translation.x + half)
+    };
+    let (panel_left, panel_right) = x_span(panel);
+    let scale = 1.0 / world.get::<ComputedNode>(panel).expect("a laid-out panel").inverse_scale_factor();
+    let inset = bevy_emerge_mapper::chrome::PAD * scale;
+    let (left, right) = x_span(labels);
+    ((left, right), (panel_left + inset, panel_right - inset))
+}
+
+/// **A long model stem keeps the whole labels row inside the INSPECTOR, with the confidence first.**
+///
+/// The row's value was one no-wrap line clipped at the row's edge, so a model stored by its full
+/// path with a long file stem ran its end — the confidence word — past the panel's edge, where no
+/// one could read it. The row now wraps like the mesh row above it.
+///
+/// Failed before the fix: the labels row spanned x 97.0..557.0 px while the INSPECTOR's inner edge
+/// was at 455.6 px, so the row ran about 100 px past the panel and its end was clipped.
+#[test]
+fn a_long_model_stem_wraps_inside_the_inspector_and_keeps_the_confidence_first() {
+    let mut app = open(fixtures::Fixture::new("labels_long_stem").labelled_descriptor(
+        "fence",
+        "alpha",
+        "/home/ladvien/models/Ternary-Bonsai-2-27B-gguf/Ternary-Bonsai-2-27B-PTQ1_0.gguf",
+        "High",
+    ));
+    let (text, _) = labels_row(&mut app).expect("the labels row should be drawn");
+    drawn_texts(&mut app);
+    let ((left, right), (panel_left, panel_right)) = labels_row_and_inspector_x(&mut app);
+    assert!(
+        left >= panel_left && right <= panel_right,
+        "the labels row spans x {left:.1}..{right:.1} px, outside the INSPECTOR's x {panel_left:.1}..{panel_right:.1} px"
+    );
+    assert_eq!(
+        text, "confidence high · Ternary-Bonsai-2-27B-PTQ1_0 · 2026-10-20",
+        "the confidence leads and the whole file stem is kept"
+    );
 }
