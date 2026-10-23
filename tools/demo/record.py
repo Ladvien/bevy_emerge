@@ -129,6 +129,34 @@ class Injector:
         self.send(kind="Keyboard", key=key, action="Tap")
 
 
+def keep_awake(port, timeline):
+    """Return a stop function. An operation applied to an idle window can leave the last
+    readbacks unprocessed, so the sequence never reports done. A few pixels of cursor jitter
+    keeps the window redrawing. The jitter is not recorded: the cursor's place in the overlay
+    is the storyboard's own."""
+    stop = threading.Event()
+    cursors = [e for e in timeline.events if e.get("type") == "cursor"]
+    x, y = (cursors[-1]["x"], cursors[-1]["y"]) if cursors else (700, 470)
+    inj = Injector(port)
+
+    def jitter():
+        k = 0
+        while not stop.is_set():
+            inj.cursor(x + (k % 2) * 6, y)
+            k += 1
+            stop.wait(0.1)
+
+    thread = threading.Thread(target=jitter, daemon=True)
+    thread.start()
+
+    def done():
+        stop.set()
+        thread.join()
+        inj.cursor(x, y)
+
+    return done
+
+
 def run_chunks(storyboard, server, project, port, timeline, errors):
     """The editor's own captures, one per chunk, each started at its scheduled time."""
     client = McpClient(server, project, port, f"{storyboard['name']}_capture")
@@ -141,9 +169,16 @@ def run_chunks(storyboard, server, project, port, timeline, errors):
             if "operation" in chunk:
                 args["operation"] = chunk["operation"]
             wall = timeline.now()
-            answer = client.json_call("emerge_capture_sequence", args)
+            keep = keep_awake(port, timeline) if "operation" in chunk else None
+            try:
+                answer = client.json_call("emerge_capture_sequence", args)
+            finally:
+                if keep:
+                    keep()
             if "refused" in answer:
                 raise RuntimeError(f"chunk {i} refused: {answer['refused']}")
+            if answer.get("status") != "done":
+                raise RuntimeError(f"chunk {i} did not finish capturing: {json.dumps(answer)}")
             with timeline.lock:
                 timeline.chunks.append({
                     "index": i, "label": args["label"], "start": round(wall, 3),

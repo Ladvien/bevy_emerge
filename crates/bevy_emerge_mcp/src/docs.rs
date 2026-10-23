@@ -139,7 +139,8 @@ pub const TOOLS: &[ToolDoc] = &[
                        once the first frame is in -- so frame 0 is the state before the action and \
                        the later frames are what it did. The frames are written to a directory and \
                        their paths are in the answer. The editor takes the frames, so the timing \
-                       does not depend on this server's round trips. The rate is two to fifteen frames a second: on a real editor 8 and 15 held their frame interval, 20 did not.",
+                       does not depend on this server's round trips. The rate is two to fifteen frames a second. A frame is asked for only once the one before it is written, so a stalled \
+                       editor delays the frames after it rather than losing them; a frame that does not land within five seconds ends the run with a reason, and the status is done only when every frame is written. The call waits for the run to end, for at most the sequence's length plus five seconds a frame and a margin.",
         read_only: false,
         destructive: true,
         idempotent: false,

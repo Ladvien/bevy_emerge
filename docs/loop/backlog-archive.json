@@ -587,6 +587,38 @@
       "status": "merged",
       "title": "A 20 fps capture sequence hung once on a warm editor (not reproduced)",
       "evidence": "Merged into B-038 in cycle 3 (52d7f84): the same wait (a run never reports done when a screenshot is skipped), so B-038 carries it. The 20 fps hang itself is not re-observed, and the same cause is not reproduced; see B-038 for the next steps."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-23",
+      "id": "B-038",
+      "kind": "bug",
+      "area": "capture",
+      "title": "The capture sequencer drops a screenshot ('Duplicate render target') and then never reports done",
+      "must_fix": {
+        "blocks": true,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Blocks any recording above 4 fps (the default 4 fps is unaffected). Blocks the video track's hero and agent_removes_then_undo clips, which cannot be recorded at all."
+      },
+      "status": "fixed",
+      "evidence": "Cycle 3 (52d7f84): the video track recorded at 15 fps; the editor logged 'Duplicate render target for screenshot, skipping' and the run never reported done. B-036 (a 20 fps hang, seen once) was merged in. Fixed in dec28db (cycle 4, report 0286624): drive_sequencer asks for one frame at a time; a due frame waits until the previous PNG has landed; a capture that does not land within CAPTURE_TIMEOUT_S (5 s) ends the run with a reason and its screenshot is despawned (0aadfc9); the MCP wait covers one landing per frame (d7d149e); the served description matches the reference (2ab298d). Failing before: a_frame_that_never_lands_ends_the_run_with_a_reason ('status running, written 0') and a_burst_of_due_frames_is_asked_for_one_at_a_time (panicked). Passing after: 2 passed. Live with an injected 300 ms SIGSTOP at 0.5 s, 15 fps: HEAD 10 s run 147/150 frames, status running, 3 'Duplicate render target' lines; fixed 10 s 150/150, done, 0 lines. CAVEAT: the stall is injected; eight unstalled HEAD runs (3-10 s) did not reproduce the drop, so the organic cause is not confirmed."
+    },
+    {
+      "last_failure": "39883493701",
+      "first_seen": "2026-10-23",
+      "id": "B-039",
+      "kind": "bug",
+      "area": "ci",
+      "title": "The surface-and-camera test read the macOS-only /Users/ladvien/sanctuary path, so hosted Linux CI failed",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Hosted CI run 39883493701 (ubuntu-latest) failed a_headless_run_keeps_its_placeholder_and_resizes on main, so every PR's gate was red. The local gate was green, so there was no local workaround."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in 3b3c8ff (cycle 4, report 0286624): the test builds its own temporary project through fixtures::Fixture, as the other mapper tests do; assertions unchanged (1536x864, 800x600). Failing before on Linux (xvfb-run, big): 'kits.ron: No such file or directory' at line 226, 1 passed / 1 failed, exit 101. Passing after: Linux 2 passed, macOS 2 passed. The probe example probe_surface_resize hardcoded the same path; fixed in 0286624."
     }
   ]
 }

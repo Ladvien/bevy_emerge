@@ -95,6 +95,8 @@ Goal: put a piece on the grid, then take it back.
 
 Review: the inspector's UNDO line names the step that Cmd+Z takes back, and the history list under REDO shows the recent changes. Clicking a row jumps to just after that change, and repeated Cmd+Z goes back the same way. The [placing and undo guide](docs/guide/placing-and-undo.md) has the details.
 
+![Arms the gate house from the list, clicks the ground to place it, then Cmd+Z takes it back](docs/media/place-and-undo.gif)
+
 ### Snip a region for an agent
 
 Goal: show an agent a region and get one change back that you can undo.
@@ -132,7 +134,6 @@ The MCP server gives an agent the same typed operations a person uses, including
 
 Known gaps:
 
-- `emerge_state` does not list each pin.
 - Renaming a map does not rewrite other references to it by name.
 
 ## Documentation
