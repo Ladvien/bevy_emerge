@@ -257,6 +257,24 @@ impl EditorState {
         self.redo.len()
     }
 
+    /// **The whole history, oldest first (E-018)**, for the history list: the undo stack, then the
+    /// redo stack in the order redo would replay it. Row `n` is the entry at position `n`, and a
+    /// jump to position `n` leaves that entry applied.
+    pub fn history(&self) -> Vec<HistoryRow> {
+        let undone = self.redo.iter().rev().map(|op| (op, true));
+        self.undo
+            .iter()
+            .map(|op| (op, false))
+            .chain(undone)
+            .enumerate()
+            .map(|(i, (op, redo))| HistoryRow {
+                position: i + 1,
+                agent: op.by_agent(),
+                label: op.kind(redo),
+            })
+            .collect()
+    }
+
     /// **Record an edit**, and drop anything that was waiting to be redone.
     ///
     /// One place, so no edit site can forget the second half. A redo stack that survived a new edit
@@ -303,8 +321,12 @@ impl EditorState {
 
     /// **Record a change another front end made through the registry**, by its operation-log line, so
     /// it sits in the one history Cmd+Z walks (B-019). Clears redo like any edit.
-    pub(crate) fn record_logged(&mut self, line: String, phrase: String) {
-        self.record(Undo::Logged { line, phrase });
+    pub(crate) fn record_logged(&mut self, line: String, phrase: String, agent: bool) {
+        self.record(Undo::Logged {
+            line,
+            phrase,
+            agent,
+        });
     }
 
     /// **An agent's change, on the person's receipt (B-020).**
@@ -790,10 +812,57 @@ enum Undo {
     /// [`crate::ops::undo`], the function `emerge_undo_operation` reaches, so the two cannot disagree.
     /// `phrase` is the outcome's summary, captured when the change was made, so the INSPECTOR names it
     /// without reading the log.
-    Logged { line: String, phrase: String },
+    /// `agent` is `true` when an agent made the change, over BRP or the capture sequencer, so the
+    /// history list can say who.
+    Logged {
+        line: String,
+        phrase: String,
+        agent: bool,
+    },
+}
+
+/// **One row of the history list (E-018).** `position` is how many entries are applied when this row
+/// is the one the editor stands on, so a row is a jump target. `agent` says who made the change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryRow {
+    pub position: usize,
+    pub agent: bool,
+    pub label: String,
 }
 
 impl Undo {
+    /// **The short name of an entry for the history list (E-018).** Counts, not piece names: an entry
+    /// further down names a map that no longer stands, so naming pieces here would name the wrong ones.
+    fn kind(&self, redo: bool) -> String {
+        let again = if redo { " again" } else { "" };
+        match self {
+            Undo::Added { count } => format!("remove {count}{again}"),
+            Undo::RemovedMany { items } => format!("restore {}{again}", items.len()),
+            Undo::Moved { moved } => format!("move {}{again}", moved.was.len()),
+            Undo::RemoveAt { indices } => format!("remove {}{again}", indices.len()),
+            Undo::Turned { .. } => format!("turn{again}"),
+            Undo::Lifted { .. } => format!("lift{again}"),
+            Undo::Tipped { .. } => format!("tip{again}"),
+            Undo::Group { ops } => format!("{} changes{again}", ops.len()),
+            Undo::Stamped { count } => format!("remove {count} stamps{again}"),
+            Undo::UnstampedMany { items } => format!("restore {} stamps{again}", items.len()),
+            Undo::UnstampAt { indices } => format!("remove {} stamps{again}", indices.len()),
+            Undo::MovedStamp { .. } => format!("move a stamp{again}"),
+            Undo::Pin { .. } => format!("pin{again}"),
+            Undo::Settings { .. } => format!("settings{again}"),
+            Undo::Logged { phrase, .. } => phrase.clone(),
+        }
+    }
+
+    /// **Whether an agent made this change (E-018).** A group is an agent's if any part of it is.
+    fn by_agent(&self) -> bool {
+        match self {
+            Undo::Logged { agent, .. } => *agent,
+            Undo::Group { ops } => ops.iter().any(Undo::by_agent),
+            _ => false,
+        }
+    }
+
     /// **What applying this entry does, named in the author's words.** The INSPECTOR's UNDO and REDO
     /// rows and `emerge/state` both show this phrase, so the two cannot disagree. It reads the map as
     /// it is now and no file, and names only pieces the map holds: an entry that can no longer act
@@ -5500,6 +5569,7 @@ fn drive_removal(
         logged.push(Undo::Logged {
             line,
             phrase: summary,
+            agent: false,
         });
         n += ids.len();
     }
@@ -5514,6 +5584,7 @@ fn drive_removal(
         logged.push(Undo::Logged {
             line,
             phrase: summary,
+            agent: false,
         });
         m += 1;
     }
@@ -5563,7 +5634,7 @@ fn delete_stamp(id: &str, project: &Project, open: &mut OpenMap, state: &mut Edi
         "{summary} — the whole stamp, not a piece of it. {} puts it back",
         keys::chord_text(keys::binding(Action::Undo))
     ));
-    state.record_logged(line, summary);
+    state.record_logged(line, summary, false);
 }
 
 /// Bring up whatever the map already holds.
@@ -6375,6 +6446,31 @@ pub fn redo_for_test(world: &mut World) {
             },
         )
         .unwrap_or_else(|e| panic!("redo_for_test: {e}"));
+}
+
+/// **Jump the history to a position, for a test (E-018).** See [`jump`].
+pub fn jump_for_test(world: &mut World, position: usize) {
+    use bevy::ecs::system::RunSystemOnce;
+    world
+        .run_system_once(
+            move |mut commands: Commands,
+                  assets: Res<AssetServer>,
+                  mut project: ResMut<Project>,
+                  mut open: ResMut<OpenMap>,
+                  mut state: ResMut<EditorState>,
+                  placed: Query<(Entity, &Placement)>| {
+                jump(
+                    &mut commands,
+                    &assets,
+                    &mut project,
+                    &mut open,
+                    &mut state,
+                    &placed,
+                    position,
+                );
+            },
+        )
+        .unwrap_or_else(|e| panic!("jump_for_test: {e}"));
 }
 
 /// Plant an undo entry whose stamp is no longer on the map, so a test can drive a **stale** entry
@@ -7194,7 +7290,7 @@ fn delete_index(
         }
     }
     state.status.note(summary.clone());
-    state.record_logged(line, summary);
+    state.record_logged(line, summary, false);
 }
 
 /// Take back the last edit.
@@ -7249,6 +7345,71 @@ fn redo(
         }
         Reversal::Refused => state.refused_entry(kept, true),
         Reversal::Stranded => state.settle(),
+    }
+}
+
+/// **Move the history to a position in one step (E-018).** `position` is how many entries are
+/// applied: below the undo depth the newest entries are taken back, above it the next ones are given
+/// again.
+///
+/// **One jump is one group.** Each entry is applied as undo and redo apply it, so a refusal stops the
+/// jump where it is and says how far it got. The inverses that applied go on the other stack as ONE
+/// `Undo::Group`, so a single Cmd+Z reverses the whole jump. Redo replays the last one applied first,
+/// so the group is written in reverse.
+fn jump(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    project: &mut Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    placed: &Query<(Entity, &Placement)>,
+    position: usize,
+) {
+    let depth = state.undo.len();
+    let redo_side = position > depth;
+    let steps = position.abs_diff(depth);
+    let mut applied: Vec<Undo> = Vec::new();
+    for _ in 0..steps {
+        let op = if redo_side {
+            state.redo.pop()
+        } else {
+            state.undo.pop()
+        };
+        let Some(op) = op else { break };
+        let kept = op.clone();
+        match apply(commands, assets, project, &mut *open, state, placed, op) {
+            Reversal::Done(inverse) => {
+                state.settle();
+                applied.push(inverse);
+            }
+            Reversal::Refused => {
+                state.refused_entry(kept, redo_side);
+                state.status.problem(format!(
+                    "the jump stopped after {} of {} steps",
+                    applied.len(),
+                    steps
+                ));
+                break;
+            }
+            Reversal::Stranded => {
+                state.settle();
+                break;
+            }
+        }
+    }
+    if applied.is_empty() {
+        return;
+    }
+    applied.reverse();
+    let entry = if applied.len() == 1 {
+        applied.remove(0)
+    } else {
+        Undo::Group { ops: applied }
+    };
+    if redo_side {
+        state.undo.push(entry);
+    } else {
+        state.redo.push(entry);
     }
 }
 
@@ -7748,7 +7909,11 @@ fn apply(
         // turn the person made by key (B-019). The same registry undo as `Pin` and `Settings`, so
         // Cmd+Z and the agent's undo share one history. A refusal is a refusal, where the author looks:
         // the agent may have taken the change back, or the map may have moved outside the log.
-        Undo::Logged { line, phrase } => {
+        Undo::Logged {
+            line,
+            phrase,
+            agent,
+        } => {
             let mut ctx = crate::ops::Ctx {
                 project: Some(project.clone()),
                 open: Some(std::mem::replace(
@@ -7785,6 +7950,7 @@ fn apply(
                     Undo::Logged {
                         line: operation_id,
                         phrase,
+                        agent,
                     }
                 }
                 Ok((_, crate::ops::Applied::Refused(e))) | Err(e) => {
@@ -7929,6 +8095,7 @@ fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorS
             state.record(Undo::Logged {
                 line: operation_id,
                 phrase: format!("rename to `{}`", open.map.name),
+                agent: false,
             });
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
@@ -8087,7 +8254,7 @@ fn turn_under_cursor(
     };
     let (at, yaw, tip, descriptor, patch) =
         (p.at, p.yaw, p.tip, p.descriptor.clone(), p.patch.clone());
-    state.record_logged(line, summary);
+    state.record_logged(line, summary, false);
 
     for (entity, marker) in placed {
         if marker.0 == id {

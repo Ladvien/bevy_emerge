@@ -1,0 +1,189 @@
+//! **A jump to a history position is one undo group, and it says who made each change (E-018).**
+//!
+//! The history list lets the author move to any earlier point in one step. These drive the real
+//! `jump` through its test driver, and assert on the stacks, the map, and the list's rows. The
+//! agent's change goes through the registered BRP method, the way an agent's request goes, so the
+//! row can be labelled as the agent's.
+
+use bevy::prelude::*;
+use bevy_emerge_mapper::editor::{
+    EditorState, jump_for_test, place_for_test, plant_stale_move_for_test, undo_for_test,
+};
+use bevy_emerge_mapper::harness;
+use bevy_emerge_mapper::project::OpenMap;
+
+mod fixtures;
+
+use fixtures::Fixture;
+
+fn booted(name: &str) -> App {
+    let root = Fixture::new(name)
+        .descriptor("tile_a", "alpha")
+        .place("tile_a", (0.5, 0.5))
+        .build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..3 {
+        app.update();
+    }
+    app
+}
+
+fn pieces(app: &App) -> usize {
+    app.world().resource::<OpenMap>().map.placements.len()
+}
+
+fn state(app: &App) -> &EditorState {
+    app.world().resource::<EditorState>()
+}
+
+/// **Three edits, then one jump back over all of them**: one group on the redo stack, not three.
+#[test]
+fn a_jump_back_over_three_edits_is_one_group() {
+    let mut app = booted("jumpgroup");
+    for x in [1.5, 2.5, 3.5] {
+        place_for_test(app.world_mut(), "tile_a", (x, 0.5));
+        app.update();
+    }
+    assert_eq!(pieces(&app), 4, "the fixture's piece and the three placed");
+    assert_eq!(state(&app).undo_depth(), 3);
+
+    let rows = state(&app).history();
+    assert_eq!(rows.len(), 3, "one row per edit: {rows:?}");
+    assert_eq!(
+        rows.iter().map(|r| r.position).collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+
+    jump_for_test(app.world_mut(), 0);
+    app.update();
+    {
+        let s = state(&app);
+        assert_eq!(s.undo_depth(), 0, "the jump took all three back");
+        assert_eq!(
+            s.redo_depth(),
+            1,
+            "one jump is one group, so one redo entry"
+        );
+        assert_eq!(pieces(&app), 1, "only the fixture's piece is left");
+        let rows = s.history();
+        assert_eq!(rows.len(), 1, "the group is one row: {rows:?}");
+        assert!(
+            rows[0].label.contains("3 changes"),
+            "label: {}",
+            rows[0].label
+        );
+    }
+
+    jump_for_test(app.world_mut(), 1);
+    app.update();
+    assert_eq!(
+        state(&app).undo_depth(),
+        1,
+        "the group came back as one undo entry"
+    );
+    assert_eq!(pieces(&app), 4, "the jump forward gave all three back");
+
+    undo_for_test(app.world_mut());
+    app.update();
+    assert_eq!(pieces(&app), 1, "one Cmd+Z reverses the whole jump");
+    assert_eq!(state(&app).undo_depth(), 0);
+}
+
+/// **A refused entry stops the jump where it is and stays on its stack** (E-018).
+#[test]
+fn a_refused_entry_stops_the_jump_and_is_kept() {
+    let mut app = booted("jumpstop");
+    place_for_test(app.world_mut(), "tile_a", (1.5, 0.5));
+    app.update();
+    place_for_test(app.world_mut(), "tile_a", (2.5, 0.5));
+    app.update();
+    plant_stale_move_for_test(app.world_mut(), "ghost");
+    app.update();
+    assert_eq!(state(&app).undo_depth(), 3);
+    assert_eq!(pieces(&app), 3);
+
+    jump_for_test(app.world_mut(), 0);
+    app.update();
+    let s = state(&app);
+    assert_eq!(
+        s.undo_depth(),
+        3,
+        "the refused entry is kept and nothing beneath it moved"
+    );
+    assert_eq!(
+        s.redo_depth(),
+        0,
+        "nothing applied, so there is no group to redo"
+    );
+    assert_eq!(pieces(&app), 3, "the placements are where they were");
+    assert!(
+        s.status.problem_text().contains("stopped after 0 of 3"),
+        "the jump must say how far it got: {:?}",
+        s.status.problem_text()
+    );
+}
+
+/// The agent-side fixture, with the BRP bridge an agent's request goes through.
+fn agent_editor(name: &str) -> App {
+    let root = Fixture::new(name)
+        .descriptor("tile_a", "alpha")
+        .place("tile_a", (0.5, 0.5))
+        .build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
+    app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
+    for _ in 0..8 {
+        app.update();
+    }
+    app
+}
+
+/// **Through the registered method**, as an agent's request goes.
+fn call(app: &mut App, method: &str, params: serde_json::Value) -> serde_json::Value {
+    use bevy::remote::{RemoteMethodSystemId, RemoteMethods};
+    let Some(RemoteMethodSystemId::Instant(id)) =
+        app.world().resource::<RemoteMethods>().get(method).cloned()
+    else {
+        panic!("no method `{method}` is registered, so an agent cannot reach it");
+    };
+    app.world_mut()
+        .run_system_with(id, Some(params))
+        .unwrap_or_else(|e| panic!("{method}: {e:?}"))
+        .unwrap_or_else(|e| panic!("{method}: {e:?}"))
+}
+
+/// **A person's edit and an agent's edit are labelled as who made them**, and a jump over both is
+/// one row that names the agent, because one of its parts is the agent's.
+#[test]
+fn the_list_says_who_made_each_change() {
+    let mut app = agent_editor("jumpwho");
+    place_for_test(app.world_mut(), "tile_a", (1.5, 0.5));
+    app.update();
+    let answer = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({"operation": "map_set_settings", "parameters": {"axis": "y", "axis_value": 15.0}, "dry_run": false}),
+    );
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    app.update();
+
+    let rows = state(&app).history();
+    assert_eq!(rows.len(), 2, "rows: {rows:?}");
+    assert!(
+        !rows[0].agent,
+        "the person's placement is the person's: {rows:?}"
+    );
+    assert!(
+        rows[1].agent,
+        "the agent's settings change is the agent's: {rows:?}"
+    );
+
+    jump_for_test(app.world_mut(), 0);
+    app.update();
+    let rows = state(&app).history();
+    assert_eq!(rows.len(), 1, "one jump, one row: {rows:?}");
+    assert!(
+        rows[0].agent,
+        "a group with an agent's part is labelled agent: {rows:?}"
+    );
+}

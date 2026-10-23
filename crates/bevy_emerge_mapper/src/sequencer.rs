@@ -325,7 +325,7 @@ fn drive_sequencer(
             }) = &outcome
                 && let Some(state) = operated.state.as_mut()
             {
-                state.record_logged(operation_id.clone(), outcome.summary.clone());
+                state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
             }
             // **The person's receipt says what the sequence applied (B-020)**, as the apply does.
             if let Some(state) = operated.state.as_mut() {
