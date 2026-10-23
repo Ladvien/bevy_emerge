@@ -96,6 +96,21 @@ pub fn ground_drop(project: &Project,
     -deepest + BOUNDS_FILL_CLEARANCE
 }
 
+/// **The ghost's hint over bare floor, short enough for the INSPECTOR's LAST slot.**
+///
+/// A surface piece's refusal is the core's sentence, which runs to three body lines in a slot two lines
+/// tall, and the slot's extra height then moves MAP SIZE down under the pointer. The ghost writes the
+/// short sentence for that one refusal, with the piece's id left out so it fits two lines. Every other
+/// refusal (a datum error, or a piece that has its surface) passes through unchanged.
+pub fn ghost_hint(d: &bevy_emerge_core::descriptor::Descriptor, refusal: &str) -> String {
+    match bevy_emerge_core::stack::needs_surface(d) {
+        Some(class) if refusal == bevy_emerge_core::stack::no_surface_sentence(d, class) => {
+            format!("goes on a `{class}` surface — none here")
+        }
+        _ => refusal.to_owned(),
+    }
+}
+
 /// The removal marker. Red because it is the one destructive tool here, and translucent because the
 /// thing it covers is the thing being asked about — an opaque marker would hide the answer.
 const REMOVE_TINT: Color = Color::srgba(0.86, 0.20, 0.16, 0.38); // CHROME-OK: world ink — a translucent tool tint over geometry, not panel text
@@ -11825,8 +11840,9 @@ fn drive_ghost(
             // surface piece armed, and `ResMut` marks the resource changed on every mutable deref —
             // `rebuild_palette` watches `resource_changed::<EditorState>`, so an unconditional write
             // here would tear down and rebuild the whole palette at frame rate.
-            if state.hint != e {
-                state.hint = e;
+            let hint = ghost_hint(d, &e);
+            if state.hint != hint {
+                state.hint = hint;
             }
             return;
         }

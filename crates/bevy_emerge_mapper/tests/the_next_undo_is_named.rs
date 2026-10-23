@@ -12,13 +12,15 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy_emerge_mapper::editor::EditorState;
-use bevy_emerge_mapper::project::OpenMap;
+use bevy_emerge_mapper::project::{OpenMap, Project};
 
 mod fixtures;
 
 fn editor(tag: &str, id: &str) -> App {
     let root = fixtures::Fixture::new(tag)
         .sized_descriptor(id, "alpha", 2.064, 0.12)
+        .mounted_descriptor("market_stall_awning_with_lanterns", "alpha", "worktop")
+        .surface_descriptor("worktop_table", "alpha", "worktop")
         .build("m");
     let mut app = bevy_emerge_mapper::harness::build_headless(&root, "m", None)
         .unwrap_or_else(|e| panic!("{e}"));
@@ -29,6 +31,25 @@ fn editor(tag: &str, id: &str) -> App {
         app.update();
     }
     app
+}
+
+/// **The hint the ghost writes over bare floor for `id`.** The core's refusal for a surface piece
+/// with no surface under it, put through the editor's own `ghost_hint`.
+fn ghost_text(app: &App, id: &str) -> String {
+    let project = app.world().resource::<Project>();
+    let map = &app.world().resource::<OpenMap>().map;
+    let d = project
+        .library
+        .descriptors
+        .iter()
+        .find(|d| d.id == id)
+        .unwrap_or_else(|| panic!("no descriptor {id}"));
+    let ys = bevy_emerge_core::stack::resolve_y(map, &project.library).expect("heights resolve");
+    let refusal = match bevy_emerge_core::stack::placement_at(map, &project.library, &ys, d, (0.0, 0.0)) {
+        Err(e) => e,
+        Ok(_) => panic!("{id} found a surface at the origin; the fixture should have none"),
+    };
+    bevy_emerge_mapper::editor::ghost_hint(d, &refusal)
 }
 
 fn tap(app: &mut App, logical: Key, code: KeyCode) {
@@ -332,11 +353,11 @@ fn a_hint_or_a_receipt_does_not_move_the_undo_row() {
     let mut app = editor("nextundomove", "fence");
     let still = top_of(&drawn_texts(&mut app), "UNDO");
 
-    let hint = "a fence needs a surface under it";
+    let hint = ghost_text(&app, "market_stall_awning_with_lanterns");
     app.world_mut().resource_mut::<EditorState>().hint = hint.to_owned();
     let hinted = drawn_texts(&mut app);
     assert!(
-        hinted.iter().any(|(t, _, _)| t == hint),
+        hinted.iter().any(|(t, _, _)| *t == hint),
         "the hint did not draw, so the test drives nothing; drawn: {hinted:?}"
     );
     assert_eq!(

@@ -15,12 +15,16 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy_emerge_mapper::editor::EditorState;
+use bevy_emerge_mapper::chrome::BODY_LINE_H;
+use bevy_emerge_mapper::project::{OpenMap, Project};
 
 mod fixtures;
 
 fn editor(tag: &str) -> App {
     let root = fixtures::Fixture::new(tag)
         .sized_descriptor("fence", "alpha", 2.064, 0.12)
+        .mounted_descriptor("market_stall_awning_with_lanterns", "alpha", "worktop")
+        .surface_descriptor("worktop_table", "alpha", "worktop")
         .build("m");
     let mut app = bevy_emerge_mapper::harness::build_headless(&root, "m", None)
         .unwrap_or_else(|e| panic!("{e}"));
@@ -102,6 +106,26 @@ fn top_of(texts: &[(String, f32, f32)], want: &str) -> f32 {
         .unwrap_or_else(|| panic!("no drawn text reads {want:?}; drawn: {texts:?}"))
 }
 
+/// **The hint the ghost writes over bare floor for `id`.** The core's refusal for a surface piece
+/// with no surface under it, put through the editor's own `ghost_hint`, so a test that sets the hint
+/// sets the one the ghost would write.
+fn ghost_text(app: &App, id: &str) -> String {
+    let project = app.world().resource::<Project>();
+    let map = &app.world().resource::<OpenMap>().map;
+    let d = project
+        .library
+        .descriptors
+        .iter()
+        .find(|d| d.id == id)
+        .unwrap_or_else(|| panic!("no descriptor {id}"));
+    let ys = bevy_emerge_core::stack::resolve_y(map, &project.library).expect("heights resolve");
+    let refusal = match bevy_emerge_core::stack::placement_at(map, &project.library, &ys, d, (0.0, 0.0)) {
+        Err(e) => e,
+        Ok(_) => panic!("{id} found a surface at the origin; the fixture should have none"),
+    };
+    bevy_emerge_mapper::editor::ghost_hint(d, &refusal)
+}
+
 /// **A hint leaves MAP SIZE where it was.**
 ///
 /// Failed before the fix: with the hint set, the hint row grew from zero and MAP SIZE moved down by
@@ -112,12 +136,12 @@ fn a_hint_does_not_push_map_size_down() {
     let before = drawn_texts(&mut app);
     let heading = top_of(&before, "MAP SIZE  (m)");
 
-    let hint = "a surface piece cannot stand on this floor";
+    let hint = ghost_text(&app, "market_stall_awning_with_lanterns");
     app.world_mut().resource_mut::<EditorState>().hint = hint.to_owned();
     let after = drawn_texts(&mut app);
 
     assert!(
-        after.iter().any(|(t, _, _)| t.contains("cannot stand on this floor")),
+        after.iter().any(|(t, _, _)| *t == hint),
         "the hint is not drawn, so this test is not about a hint that is there; drawn: {after:?}"
     );
     let moved = top_of(&after, "MAP SIZE  (m)") - heading;
@@ -221,11 +245,11 @@ fn the_receipt_returns_when_the_hint_clears() {
         "the receipt is not drawn before the hint, so the test drives nothing; drawn: {receipted:?}"
     );
 
-    let hint = "a surface piece cannot stand on this floor";
+    let hint = ghost_text(&app, "market_stall_awning_with_lanterns");
     app.world_mut().resource_mut::<EditorState>().hint = hint.to_owned();
     let hinted = drawn_texts(&mut app);
     assert!(
-        hinted.iter().any(|(t, _, _)| t == hint),
+        hinted.iter().any(|(t, _, _)| *t == hint),
         "the hint is not drawn; drawn: {hinted:?}"
     );
     assert!(
@@ -240,7 +264,30 @@ fn the_receipt_returns_when_the_hint_clears() {
         "the receipt did not come back when the hint cleared; drawn: {cleared:?}"
     );
     assert!(
-        !cleared.iter().any(|(t, _, _)| t == hint),
+        !cleared.iter().any(|(t, _, _)| *t == hint),
         "the hint is still drawn after it cleared; drawn: {cleared:?}"
+    );
+}
+
+/// **A surface piece's hint fits the two body lines the LAST slot holds.** The core's refusal names
+/// the piece and its class in a sentence that ran to three lines, and the slot is two (B-009), so the
+/// hint the ghost writes is the short sentence and this holds it to two lines.
+///
+/// Failed before the fix: `ghost_hint` passed the refusal through, which the layout drew three body
+/// lines tall.
+#[test]
+fn a_surface_hint_fits_the_two_lines_the_slot_holds() {
+    let mut app = editor("hintlines");
+    let hint = ghost_text(&app, "market_stall_awning_with_lanterns");
+    app.world_mut().resource_mut::<EditorState>().hint = hint.clone();
+    let drawn = drawn_texts(&mut app);
+    let (_, _, height) = drawn
+        .iter()
+        .find(|(t, _, _)| *t == hint)
+        .unwrap_or_else(|| panic!("the hint is not drawn; drawn: {drawn:?}"));
+    let lines = height / BODY_LINE_H;
+    assert!(
+        lines <= 2.01,
+        "the hint is {lines:.2} body lines tall ({height} px); the LAST slot holds two; hint: {hint:?}"
     );
 }
