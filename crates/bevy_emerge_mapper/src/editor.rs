@@ -3643,9 +3643,13 @@ struct HistoryText;
 /// at the bottom.
 fn history_block(s: &mut ChildSpawnerCommands) {
     for offset in (-HISTORY_EACH_WAY..=HISTORY_EACH_WAY).rev() {
+        // **Exactly one line, clipped (E-018).** A label that wrapped grew its row, and every row
+        // below it, MAP SIZE included, moved down: `a_receipt_does_not_move_the_panel` caught it.
+        // So the row is one line tall, its text does not wrap, and what runs past the panel is
+        // clipped rather than pushing anything.
         s.spawn(Node {
-            // The row's line height, so an empty row holds the place a full one does.
-            min_height: Val::Px(crate::chrome::BODY_LINE_H.ceil()),
+            height: Val::Px(crate::chrome::BODY_LINE_H.ceil()),
+            overflow: bevy::ui::Overflow::clip(),
             ..default()
         })
         .with_children(|wrap| {
@@ -3660,7 +3664,16 @@ fn history_block(s: &mut ChildSpawnerCommands) {
             );
             row.observe(history_row_clicked);
             row.with_children(|line| {
-                crate::chrome::row_value(line, "", TEXT, HistoryText);
+                line.spawn((
+                    Text::new(""),
+                    TextColor(TEXT),
+                    crate::chrome::font(crate::chrome::text::BODY),
+                    bevy::text::TextLayout::new(
+                        bevy::text::Justify::Left,
+                        bevy::text::LineBreak::NoWrap,
+                    ),
+                    HistoryText,
+                ));
             });
         });
     }
