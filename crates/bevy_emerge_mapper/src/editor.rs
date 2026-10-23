@@ -1303,9 +1303,10 @@ enum Field {
     /// before it could be read. Two different questions — "what did I just do" and "why can't I
     /// place this" — so two lines.
     ///
-    /// **The second line of the receipt's row** (B-013), not a row of its own. That row already
-    /// reserves two lines for the receipt, so a hint shows in room that is there and moves nothing
-    /// below it. A receipt that wraps to two lines, with a hint showing, grows the row by a line.
+    /// **The second line of the receipt's row** (B-013), not a row of its own. That row holds two
+    /// lines and its value column is clipped to them, so a hint never grows the row and never moves
+    /// UNDO or REDO. While a receipt needs both lines the hint is hidden, and it returns when the
+    /// receipt clears.
     Hint,
     /// **What the piece-verbs would act on**, and the chord that opens it for editing.
     ///
@@ -2225,6 +2226,13 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                                 flex_direction: FlexDirection::Column,
                                 flex_grow: 1.0,
                                 min_width: Val::Px(0.0),
+                                // **Two lines is the whole room this slot has.** The receipt and the hint
+                                // share the row's reserved two lines. The clip keeps a third line (a
+                                // two-line receipt with a hint under it) from growing the row, which would
+                                // push UNDO and REDO down. The hint is the line that gives way: while a
+                                // receipt needs both lines, the hint is hidden until the receipt clears.
+                                height: Val::Px((RECEIPT_LINES * crate::chrome::BODY_LINE_H).ceil()),
+                                overflow: bevy::ui::Overflow::clip_y(),
                                 ..default()
                             })
                             .with_children(|col| {
