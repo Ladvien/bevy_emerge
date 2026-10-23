@@ -46,6 +46,8 @@ Agents pin through the same operation, `placement_set_pin`, and must give a reas
 
 An agent's edits are logged too, and they share Cmd+Z's history. After an agent applies `placement_set_pin`, `placement_set_yaw` or `placement_remove`, Cmd+Z takes back that change, the newest one still in effect, whoever made it, and the agent's other changes stay where they are. A change the agent already took back with `emerge_undo_operation` is dropped from the history, so Cmd+Z skips it. `emerge_undo_operation` still takes back any logged change by its operation id. A turn you make on the Map door is on the same history.
 
+The inspector's history list, under REDO, shows the last few changes one per row, each labelled as the agent's or yours. Clicking a row jumps the map to the point just after that change, as one undo group: a Cmd+Z after the jump takes back the whole jump in one step, and Shift+Cmd+Z puts it back in one step. The keyboard route to the same point is repeated Cmd+Z for rows behind the current point, and repeated Shift+Cmd+Z for rows ahead of it: a row k steps away takes k presses. Agents have no jump tool: `emerge_undo_operation` takes back one change by id, so an agent reaches an earlier point with that many successive undos.
+
 ## Stack
 
 **H** cycles which placement layer the next edit is aimed at (`CycleTarget`). Placements stack; this key chooses which stack the edit lands on.

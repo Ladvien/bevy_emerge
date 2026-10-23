@@ -480,7 +480,7 @@ fn operation_apply(
     }) = &applied
         && let Some(state) = state.as_mut()
     {
-        state.record_logged(operation_id.clone(), outcome.summary.clone());
+        state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
     }
 
     // **The person's receipt says what the agent did (B-020).** A refusal goes to the journal as a
@@ -589,7 +589,7 @@ fn operation_undo(
         && let Some(state) = state.as_mut()
     {
         if plan.restores {
-            state.record_logged(operation_id.clone(), outcome.summary.clone());
+            state.record_logged(operation_id.clone(), outcome.summary.clone(), true);
         } else {
             state.forget_line(&plan.line.operation_id);
         }

@@ -24,7 +24,23 @@ fn editor(tag: &str, side: f32) -> App {
         .place("floor", (300.0, 200.0))
         .side(side)
         .build("m");
-    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    booted(&root)
+}
+
+/// The floor, and a 50 m tower placed at `at`: a piece whose height is what a frame has to hold.
+fn editor_with_tower(tag: &str, at: (f32, f32)) -> App {
+    let root = fixtures::Fixture::new(tag)
+        .descriptor("floor", "alpha")
+        .tall_descriptor("tower", "alpha", 50.0)
+        .place("floor", (300.0, 200.0))
+        .place("tower", at)
+        .side(1120.0)
+        .build("m");
+    booted(&root)
+}
+
+fn booted(root: &std::path::Path) -> App {
+    let mut app = harness::build_headless(root, "m", None).unwrap_or_else(|e| panic!("{e}"));
     app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
     app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
     for _ in 0..6 {
@@ -248,11 +264,19 @@ fn an_agent_frames_a_rectangle_in_map_space() {
     assert_eq!(answer["outcome"], "framed", "{answer}");
     app.update();
     app.update();
+    let (pc, ps) = {
+        let project = app.world().resource::<Project>();
+        let open = app.world().resource::<OpenMap>();
+        bevy_emerge_mapper::editor::placement_bounds(project, open, 0)
+            .expect("the placed floor has a measured box, so it can be framed")
+    };
     let open = app.world().resource::<OpenMap>();
     let o = open.map.origin;
-    let (map_c, map_s) = bevy_emerge_mapper::editor::map_bounds(open);
-    let centre = Vec3::new(o.0 + 300.0, map_c.y, o.2 + 200.0);
-    let size = Vec3::new(200.0, map_s.y, 200.0);
+    // The rectangle's own ground is its footprint, and what stands in it is the piece's own box: its
+    // centre height and its height (cycle-3 item 1, reviewer gap 3). The map's height is not the
+    // rectangle's.
+    let centre = Vec3::new(o.0 + 300.0, pc.y, o.2 + 200.0);
+    let size = Vec3::new(200.0, ps.y, 200.0);
     let got = seen(&mut app, centre, size);
     assert!(
         got.inside,
@@ -262,5 +286,59 @@ fn an_agent_frames_a_rectangle_in_map_space() {
         got.fill >= 0.6,
         "the rectangle fills only {:.0}%: {answer}",
         got.fill * 100.0
+    );
+}
+
+/// Frame a rectangle through the agent's method, and let the camera settle. Returns the answer.
+fn frame_rect(app: &mut App, rect: [f32; 4]) -> serde_json::Value {
+    let answer = call(
+        app,
+        "emerge/frame_view",
+        serde_json::json!({"target": {"rect": rect}}),
+    );
+    assert_eq!(answer["outcome"], "framed", "{answer}");
+    app.update();
+    app.update();
+    answer
+}
+
+/// **A tall piece outside a rectangle does not raise the rectangle's frame.** A rectangle is ground, so
+/// what stands in it is the height, and a 50 m tower beside it must leave the view where the plain
+/// rectangle put it. This was already true when the test was written; the test pins it.
+#[test]
+fn a_tall_piece_outside_the_rectangle_does_not_raise_its_frame() {
+    let rect = [200.0, 100.0, 400.0, 300.0];
+    let plain = frame_rect(&mut editor("frame-rect-plain", 1120.0), rect);
+    let with = frame_rect(
+        &mut editor_with_tower("frame-rect-tower", (800.0, 800.0)),
+        rect,
+    );
+    assert_eq!(
+        plain["height_m"], with["height_m"],
+        "a tower outside the rectangle changed its frame's height: plain {plain}, with tower {with}"
+    );
+    assert_eq!(
+        plain["focus"], with["focus"],
+        "a tower outside the rectangle moved its frame's focus: plain {plain}, with tower {with}"
+    );
+}
+
+/// **A piece that straddles a rectangle's edge is framed at its full height.** The partial-overlap rule
+/// counts a piece that touches the rectangle, so the frame must enclose all of it, not only the part
+/// inside. This was already true when the test was written; the test pins it.
+#[test]
+fn a_piece_straddling_the_rectangle_edge_is_framed_at_full_height() {
+    let mut app = editor_with_tower("frame-rect-straddle", (400.0, 200.0));
+    frame_rect(&mut app, [200.0, 100.0, 400.0, 300.0]);
+    let (centre, size) = {
+        let project = app.world().resource::<Project>();
+        let open = app.world().resource::<OpenMap>();
+        bevy_emerge_mapper::editor::placement_bounds(project, open, 1)
+            .expect("the tower has a measured box, so it can be framed")
+    };
+    let got = seen(&mut app, centre, size);
+    assert!(
+        got.inside,
+        "the straddling tower's full box is not inside the framed rectangle's view"
     );
 }

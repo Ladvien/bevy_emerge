@@ -22,7 +22,7 @@ The MCP tool `emerge_frame_view` frames the Map camera on a box. Its `target` is
 - `"map"`: the whole map.
 - `"selection"`: the locked placement. It is refused when nothing is locked.
 - `{"placements": [ids]}`: the union of the named placements.
-- `{"rect": [x0, z0, x1, z1]}`: a rectangle on the floor.
+- `{"rect": [x0, z0, x1, z1]}`: a rectangle on the floor. Its width and depth are the rectangle's. Its height is what stands inside it, so a tall piece elsewhere on the map does not raise the frame; with nothing standing inside it, the frame stays at ground level.
 
 A person's keys frame the locked placement or the whole map with Home. Framing a set of placements is something the agent does with this tool.
 

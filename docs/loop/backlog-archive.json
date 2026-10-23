@@ -549,6 +549,44 @@
       "evidence": "Shipped in 9407d42 (the map block carries pinned and pinned_total), paged in d4b9be1 (pinned_from, pinned_next, how_to_narrow; cap 50, the oplog_read shape), and described in 06b9f3f (the MCP test the_state_tool_says_its_cap_and_how_to_page_it replaced a substring check); c2d9f63 fixed the guide; docs/mcp-tools.md regenerated. Failing before: e026_emerge_state_reports_each_pin, 0 passed, 3 failed (pinned null). Paging test emerge_state_pages_the_pin_list_past_the_cap (55 pins) has no captured failing-before: it asserts a key that did not exist before.",
       "last_failure": "",
       "first_seen": "2026-10-22"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-23",
+      "id": "B-037",
+      "kind": "bug",
+      "area": "view",
+      "title": "A rectangle frame took the whole map's height (a 3 m rectangle framed at 164 m)",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Home frames the whole map, but a rectangle cannot be framed as asked."
+      },
+      "status": "fixed",
+      "evidence": "Fixed in 7c37ca0: the frame's height is the height of the pieces inside the rectangle, and ground level when nothing stands in it. Failing before: frame_the_view, 3 m rectangle framed at 164.4 m, 10 m rectangle at 165.3 m. Regression: a_rectangle_frames_what_stands_in_it (crates/bevy_emerge_mapper/tests/). Expected box in an_agent_frames_a_rectangle_in_map_space changed (justified in the commit body). Live captures: docs/loop/iterations/assets/2026-10-23-cycle3-52d7f84/cycle3_rect.gif and cycle3_rect-sheet.png.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-018",
+      "kind": "enhancement",
+      "area": "editor",
+      "status": "fixed",
+      "title": "The full undo history as a list, with click-to-jump (the rest of renzora's history panel)",
+      "evidence": "Shipped in cycle 3 (52d7f84): 36dc1b3 and af0af0e (history is a list; a row jump is one Undo::Group on the other stack, and the history says who made each change), 8144862 (a row is one clipped line; found by a_receipt_does_not_move_the_panel::the_size_receipt_does_not_push_map_size_down, failing at af0af0e), 5227a9c (each row names the change on both sides of undo; failing before a_native_row_names_the_change_on_both_sides_of_undo), 25d15df (the clip holds the inset and the line; failing before a_history_row_holds_its_inset_and_one_line), 855565c (rectangle pins and test fixture), 52d7f84 (a spare or current row is not a pointer target; failing before a_spare_or_current_row_is_not_a_pointer_target). Live captures from af0af0e: assets/2026-10-23-cycle3-52d7f84/cycle3_history_click.gif and cycle3_history_two_step.gif. Report: docs/loop/iterations/2026-10-23-cycle3-52d7f84.md."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-22",
+      "id": "B-036",
+      "kind": "bug",
+      "area": "capture",
+      "status": "merged",
+      "title": "A 20 fps capture sequence hung once on a warm editor (not reproduced)",
+      "evidence": "Merged into B-038 in cycle 3 (52d7f84): the same wait (a run never reports done when a screenshot is skipped), so B-038 carries it. The 20 fps hang itself is not re-observed, and the same cause is not reproduced; see B-038 for the next steps."
     }
   ]
 }

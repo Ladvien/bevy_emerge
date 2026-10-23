@@ -257,6 +257,24 @@ impl EditorState {
         self.redo.len()
     }
 
+    /// **The whole history, oldest first (E-018)**, for the history list: the undo stack, then the
+    /// redo stack in the order redo would replay it. Row `n` is the entry at position `n`, and a
+    /// jump to position `n` leaves that entry applied.
+    pub fn history(&self) -> Vec<HistoryRow> {
+        let undone = self.redo.iter().rev().map(|op| (op, true));
+        self.undo
+            .iter()
+            .map(|op| (op, false))
+            .chain(undone)
+            .enumerate()
+            .map(|(i, (op, redo))| HistoryRow {
+                position: i + 1,
+                agent: op.by_agent(),
+                label: op.kind(redo),
+            })
+            .collect()
+    }
+
     /// **Record an edit**, and drop anything that was waiting to be redone.
     ///
     /// One place, so no edit site can forget the second half. A redo stack that survived a new edit
@@ -303,8 +321,12 @@ impl EditorState {
 
     /// **Record a change another front end made through the registry**, by its operation-log line, so
     /// it sits in the one history Cmd+Z walks (B-019). Clears redo like any edit.
-    pub(crate) fn record_logged(&mut self, line: String, phrase: String) {
-        self.record(Undo::Logged { line, phrase });
+    pub(crate) fn record_logged(&mut self, line: String, phrase: String, agent: bool) {
+        self.record(Undo::Logged {
+            line,
+            phrase,
+            agent,
+        });
     }
 
     /// **An agent's change, on the person's receipt (B-020).**
@@ -790,10 +812,69 @@ enum Undo {
     /// [`crate::ops::undo`], the function `emerge_undo_operation` reaches, so the two cannot disagree.
     /// `phrase` is the outcome's summary, captured when the change was made, so the INSPECTOR names it
     /// without reading the log.
-    Logged { line: String, phrase: String },
+    /// `agent` is `true` when an agent made the change, over BRP or the capture sequencer, so the
+    /// history list can say who.
+    Logged {
+        line: String,
+        phrase: String,
+        agent: bool,
+    },
+}
+
+/// **One row of the history list (E-018).** `position` is how many entries are applied when this row
+/// is the one the editor stands on, so a row is a jump target. `agent` says who made the change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryRow {
+    pub position: usize,
+    pub agent: bool,
+    pub label: String,
 }
 
 impl Undo {
+    /// **The short name of an entry for the history list (E-018).** Counts, not piece names: an entry
+    /// further down names a map that no longer stands, so naming pieces here would name the wrong ones.
+    /// It names the change the entry stands for, on either side of an undo; `phrase` names what Cmd+Z will do.
+    fn kind(&self, redo: bool) -> String {
+        let again = if redo { " again" } else { "" };
+        // Undo side: the entry undoes the change, so the verb names the change it reverses. Redo side:
+        // applying the entry is the change, so the verb names what applying it does. One change has one
+        // label, whichever side of the undo it sits on.
+        match self {
+            Undo::Added { count } if redo => format!("remove {count}{again}"),
+            Undo::Added { count } => format!("place {count}"),
+            Undo::RemovedMany { items } if redo => format!("place {}{again}", items.len()),
+            Undo::RemovedMany { items } => format!("remove {}", items.len()),
+            Undo::RemoveAt { indices } if redo => format!("remove {}{again}", indices.len()),
+            Undo::RemoveAt { indices } => format!("place {}", indices.len()),
+            Undo::Moved { moved } => format!("move {}{again}", moved.was.len()),
+            Undo::Turned { .. } => format!("turn{again}"),
+            Undo::Lifted { .. } => format!("lift{again}"),
+            Undo::Tipped { .. } => format!("tip{again}"),
+            Undo::Group { ops } => format!("{} changes{again}", ops.len()),
+            Undo::Stamped { count } if redo => format!("remove {count} stamps{again}"),
+            Undo::Stamped { count } => format!("stamp {count}"),
+            Undo::UnstampedMany { items } if redo => format!("stamp {}{again}", items.len()),
+            Undo::UnstampedMany { items } => format!("remove {} stamps", items.len()),
+            Undo::UnstampAt { indices } if redo => {
+                format!("remove {} stamps{again}", indices.len())
+            }
+            Undo::UnstampAt { indices } => format!("stamp {}", indices.len()),
+            Undo::MovedStamp { .. } => format!("move a stamp{again}"),
+            Undo::Pin { .. } => format!("pin{again}"),
+            Undo::Settings { .. } => format!("settings{again}"),
+            Undo::Logged { phrase, .. } => phrase.clone(),
+        }
+    }
+
+    /// **Whether an agent made this change (E-018).** A group is an agent's if any part of it is.
+    fn by_agent(&self) -> bool {
+        match self {
+            Undo::Logged { agent, .. } => *agent,
+            Undo::Group { ops } => ops.iter().any(Undo::by_agent),
+            _ => false,
+        }
+    }
+
     /// **What applying this entry does, named in the author's words.** The INSPECTOR's UNDO and REDO
     /// rows and `emerge/state` both show this phrase, so the two cannot disagree. It reads the map as
     /// it is now and no file, and names only pieces the map holds: an entry that can no longer act
@@ -1515,7 +1596,7 @@ impl Plugin for EditorPlugin {
                         apply_proposal.in_set(keys::Phase::Act).after(keys),
                         draw_proposal,
                     ),
-                    refresh_status,
+                    (refresh_status, refresh_history),
                     // Nested as a pair — the tuple is at its twenty-system cap, and these two are
                     // one rule: the list the arrows rearm must be the list on screen.
                     (
@@ -2088,6 +2169,12 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Hint,
                     Field::Edges,
                 ] {
+                    // **The history list sits under REDO and above the hint (E-018).** Its rows are
+                    // fixed in number, so the block keeps one height whatever the history holds, and
+                    // a hint appearing below it cannot move the pair above.
+                    if field == Field::Hint {
+                        history_block(s);
+                    }
                     let mut spawned = s.spawn(Node {
                         flex_direction: FlexDirection::Row,
                         // The receipt starts under the row above it, not floating mid-box when it
@@ -3319,10 +3406,26 @@ pub fn resolve_frame(
                     "a rectangle needs finite numbers with x0 < x1 and z0 < z1, in map metres; got [{x0}, {z0}, {x1}, {z1}]"
                 ));
             }
-            let (map_c, map_s) = map_bounds(open);
             let o = open.map.origin;
-            let centre = Vec3::new(o.0 + (x0 + x1) * 0.5, map_c.y, o.2 + (z0 + z1) * 0.5);
-            let size = Vec3::new(x1 - x0, map_s.y, z1 - z0);
+            // A rectangle is ground: its footprint is the rectangle, and its height is what stands inside
+            // it. A tall piece elsewhere on the map must not raise the frame (cycle-3 item 1).
+            let ground = Vec3::new(o.0 + (x0 + x1) * 0.5, o.1, o.2 + (z0 + z1) * 0.5);
+            let plan = Vec3::new(x1 - x0, 0.0, z1 - z0);
+            let inside = (0..open.map.placements.len())
+                .filter_map(|i| placed_box(project, open, &ys, i))
+                .filter(|(c, s)| {
+                    c.x + s.x * 0.5 > o.0 + x0
+                        && c.x - s.x * 0.5 < o.0 + x1
+                        && c.z + s.z * 0.5 > o.2 + z0
+                        && c.z - s.z * 0.5 < o.2 + z1
+                });
+            let (centre, size) = match enclose(inside) {
+                Some((c, s)) => (
+                    Vec3::new(ground.x, c.y, ground.z),
+                    Vec3::new(plan.x, s.y, plan.z),
+                ),
+                None => (ground, plan),
+            };
             (
                 format!("the rectangle [{x0}, {z0}, {x1}, {z1}] m"),
                 centre,
@@ -3523,6 +3626,173 @@ fn stack_row(next: Option<String>, depth: usize) -> (String, Color) {
         Some(phrase) if depth > 1 => (format!("{phrase} (+{})", depth - 1), TEXT),
         Some(phrase) => (phrase, TEXT),
         None => ("nothing".to_owned(), DIM),
+    }
+}
+
+/// **How many history rows show on each side of the current position (E-018).** The list is
+/// `2 * HISTORY_EACH_WAY + 1` rows, always, so it never changes height and the rows below stay put.
+const HISTORY_EACH_WAY: isize = 3;
+
+/// **One row of the history list (E-018 option C).** `offset` is the row's distance from the
+/// current position, fixed at spawn. `refresh_history` writes the rest each time the history
+/// changes. A click jumps to `position` as one undo group (`jump`). The keyboard route to the same
+/// row is `|offset|` presses of Cmd+Z (rows behind) or Cmd+Shift+Z (rows ahead); see
+/// `docs/guide/placing-and-undo.md`.
+#[derive(Component)]
+pub struct HistorySlot {
+    pub offset: isize,
+    /// The history position this row jumps to; `None` when the row is spare.
+    pub position: Option<usize>,
+    /// The row for the position the stacks are at now. A click on it does nothing.
+    pub current: bool,
+}
+
+/// The text of one history row.
+#[derive(Component)]
+struct HistoryText;
+
+/// **The history list under REDO (E-018).** Rows run from the redo side at the top to the undo side
+/// at the bottom.
+fn history_block(s: &mut ChildSpawnerCommands) {
+    for offset in (-HISTORY_EACH_WAY..=HISTORY_EACH_WAY).rev() {
+        // **Exactly one line, clipped (E-018).** A label that wrapped grew its row, and every row
+        // below it, MAP SIZE included, moved down: `a_receipt_does_not_move_the_panel` caught it.
+        // So the row is one line tall, its text does not wrap, and what runs past the panel is
+        // clipped rather than pushing anything. The wrapper holds the row's own top and bottom inset
+        // as well as its line, or the line's far edge is cut.
+        s.spawn(Node {
+            height: Val::Px((crate::chrome::BODY_LINE_H + 2.0 * crate::chrome::GAP_TIGHT).ceil()),
+            overflow: bevy::ui::Overflow::clip(),
+            ..default()
+        })
+        .with_children(|wrap| {
+            let mut row = crate::chrome::quiet_row(
+                wrap,
+                false,
+                HistorySlot {
+                    offset,
+                    position: None,
+                    current: false,
+                },
+            );
+            row.observe(history_row_clicked);
+            // A spare or current row is not a pointer target: `refresh_history` sets this on each change.
+            row.insert(bevy::picking::Pickable::default());
+            row.with_children(|line| {
+                line.spawn((
+                    Text::new(""),
+                    TextColor(TEXT),
+                    crate::chrome::font(crate::chrome::text::BODY),
+                    bevy::text::TextLayout::new(
+                        bevy::text::Justify::Left,
+                        bevy::text::LineBreak::NoWrap,
+                    ),
+                    HistoryText,
+                    // Ignored, so the pointer hits the row and not its text (see `refresh_history`).
+                    bevy::picking::Pickable::IGNORE,
+                ));
+            });
+        });
+    }
+}
+
+/// What a history row needs to jump: the same resources the keyboard's undo system takes.
+#[derive(bevy::ecs::system::SystemParam)]
+struct HistoryJump<'w, 's> {
+    commands: Commands<'w, 's>,
+    assets: Res<'w, AssetServer>,
+    project: ResMut<'w, Project>,
+    open: ResMut<'w, OpenMap>,
+    state: ResMut<'w, EditorState>,
+    placed: Query<'w, 's, (Entity, &'static Placement)>,
+}
+
+/// **A click on a history row jumps there, as one group (E-018).** Refused while the leaving
+/// question is up, as the undo chord is: a jump edits the map the question is asking about.
+fn history_row_clicked(
+    click: On<bevy::picking::events::PointerClick>,
+    slots: Query<&HistorySlot>,
+    mut jump_to: HistoryJump,
+) {
+    let Ok(slot) = slots.get(click.entity) else {
+        return;
+    };
+    if jump_to.state.leaving || slot.current {
+        return;
+    }
+    let Some(position) = slot.position else {
+        return;
+    };
+    let j = &mut jump_to;
+    jump(
+        &mut j.commands,
+        &j.assets,
+        &mut j.project,
+        &mut j.open,
+        &mut j.state,
+        &j.placed,
+        position,
+    );
+}
+
+/// **The history list's text (E-018).** Runs on the same change as the UNDO and REDO rows. Each row
+/// reads the history as it stands now, so a click means the row's current position.
+fn refresh_history(
+    state: Res<EditorState>,
+    open: Res<OpenMap>,
+    mut slots: Query<(&mut HistorySlot, &Children, &mut bevy::picking::Pickable)>,
+    mut texts: Query<(&mut Text, &mut TextColor), With<HistoryText>>,
+) {
+    if !state.is_changed() && !open.is_changed() {
+        return;
+    }
+    let depth = state.undo_depth();
+    let rows = state.history();
+    for (mut slot, children, mut pickable) in &mut slots {
+        let position = usize::try_from(depth as isize + slot.offset)
+            .ok()
+            .filter(|&p| p <= rows.len());
+        slot.position = position;
+        slot.current = position == Some(depth);
+        // **A spare or current row is not a pointer target** (the click observer refuses it), so it
+        // must not light up on hover either. `Hovered` is read from the pointer's hit, and an ignored
+        // entity is never hit, so the row goes non-pickable here and stays pickable when it is live.
+        let target = slot.position.is_some() && !slot.current;
+        let pick = if target {
+            bevy::picking::Pickable::default()
+        } else {
+            bevy::picking::Pickable::IGNORE
+        };
+        if *pickable != pick {
+            *pickable = pick;
+        }
+        let (want, tint) = match position {
+            None => (String::new(), TEXT),
+            Some(p) => {
+                let (what, who) = if p == 0 {
+                    ("before the first change".to_owned(), "")
+                } else {
+                    let row = &rows[p - 1];
+                    (row.label.clone(), if row.agent { "agent" } else { "you" })
+                };
+                let now = if slot.current { "now: " } else { "" };
+                let who = if who.is_empty() {
+                    String::new()
+                } else {
+                    format!("  \u{b7} {who}")
+                };
+                let tint = if p > depth { DIM } else { TEXT };
+                (format!("{now}{what}{who}"), tint)
+            }
+        };
+        for child in children.iter() {
+            if let Ok((mut text, mut colour)) = texts.get_mut(child) {
+                if text.0 != want {
+                    text.0 = want.clone();
+                }
+                colour.0 = tint;
+            }
+        }
     }
 }
 
@@ -5484,6 +5754,7 @@ fn drive_removal(
         logged.push(Undo::Logged {
             line,
             phrase: summary,
+            agent: false,
         });
         n += ids.len();
     }
@@ -5498,6 +5769,7 @@ fn drive_removal(
         logged.push(Undo::Logged {
             line,
             phrase: summary,
+            agent: false,
         });
         m += 1;
     }
@@ -5547,7 +5819,7 @@ fn delete_stamp(id: &str, project: &Project, open: &mut OpenMap, state: &mut Edi
         "{summary} — the whole stamp, not a piece of it. {} puts it back",
         keys::chord_text(keys::binding(Action::Undo))
     ));
-    state.record_logged(line, summary);
+    state.record_logged(line, summary, false);
 }
 
 /// Bring up whatever the map already holds.
@@ -6359,6 +6631,31 @@ pub fn redo_for_test(world: &mut World) {
             },
         )
         .unwrap_or_else(|e| panic!("redo_for_test: {e}"));
+}
+
+/// **Jump the history to a position, for a test (E-018).** See [`jump`].
+pub fn jump_for_test(world: &mut World, position: usize) {
+    use bevy::ecs::system::RunSystemOnce;
+    world
+        .run_system_once(
+            move |mut commands: Commands,
+                  assets: Res<AssetServer>,
+                  mut project: ResMut<Project>,
+                  mut open: ResMut<OpenMap>,
+                  mut state: ResMut<EditorState>,
+                  placed: Query<(Entity, &Placement)>| {
+                jump(
+                    &mut commands,
+                    &assets,
+                    &mut project,
+                    &mut open,
+                    &mut state,
+                    &placed,
+                    position,
+                );
+            },
+        )
+        .unwrap_or_else(|e| panic!("jump_for_test: {e}"));
 }
 
 /// Plant an undo entry whose stamp is no longer on the map, so a test can drive a **stale** entry
@@ -7178,7 +7475,7 @@ fn delete_index(
         }
     }
     state.status.note(summary.clone());
-    state.record_logged(line, summary);
+    state.record_logged(line, summary, false);
 }
 
 /// Take back the last edit.
@@ -7233,6 +7530,71 @@ fn redo(
         }
         Reversal::Refused => state.refused_entry(kept, true),
         Reversal::Stranded => state.settle(),
+    }
+}
+
+/// **Move the history to a position in one step (E-018).** `position` is how many entries are
+/// applied: below the undo depth the newest entries are taken back, above it the next ones are given
+/// again.
+///
+/// **One jump is one group.** Each entry is applied as undo and redo apply it, so a refusal stops the
+/// jump where it is and says how far it got. The inverses that applied go on the other stack as ONE
+/// `Undo::Group`, so a single Cmd+Z reverses the whole jump. Redo replays the last one applied first,
+/// so the group is written in reverse.
+fn jump(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    project: &mut Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    placed: &Query<(Entity, &Placement)>,
+    position: usize,
+) {
+    let depth = state.undo.len();
+    let redo_side = position > depth;
+    let steps = position.abs_diff(depth);
+    let mut applied: Vec<Undo> = Vec::new();
+    for _ in 0..steps {
+        let op = if redo_side {
+            state.redo.pop()
+        } else {
+            state.undo.pop()
+        };
+        let Some(op) = op else { break };
+        let kept = op.clone();
+        match apply(commands, assets, project, &mut *open, state, placed, op) {
+            Reversal::Done(inverse) => {
+                state.settle();
+                applied.push(inverse);
+            }
+            Reversal::Refused => {
+                state.refused_entry(kept, redo_side);
+                state.status.problem(format!(
+                    "the jump stopped after {} of {} steps",
+                    applied.len(),
+                    steps
+                ));
+                break;
+            }
+            Reversal::Stranded => {
+                state.settle();
+                break;
+            }
+        }
+    }
+    if applied.is_empty() {
+        return;
+    }
+    applied.reverse();
+    let entry = if applied.len() == 1 {
+        applied.remove(0)
+    } else {
+        Undo::Group { ops: applied }
+    };
+    if redo_side {
+        state.undo.push(entry);
+    } else {
+        state.redo.push(entry);
     }
 }
 
@@ -7732,7 +8094,11 @@ fn apply(
         // turn the person made by key (B-019). The same registry undo as `Pin` and `Settings`, so
         // Cmd+Z and the agent's undo share one history. A refusal is a refusal, where the author looks:
         // the agent may have taken the change back, or the map may have moved outside the log.
-        Undo::Logged { line, phrase } => {
+        Undo::Logged {
+            line,
+            phrase,
+            agent,
+        } => {
             let mut ctx = crate::ops::Ctx {
                 project: Some(project.clone()),
                 open: Some(std::mem::replace(
@@ -7769,6 +8135,7 @@ fn apply(
                     Undo::Logged {
                         line: operation_id,
                         phrase,
+                        agent,
                     }
                 }
                 Ok((_, crate::ops::Applied::Refused(e))) | Err(e) => {
@@ -7913,6 +8280,7 @@ fn rename_map(project: Option<&Project>, open: &mut OpenMap, state: &mut EditorS
             state.record(Undo::Logged {
                 line: operation_id,
                 phrase: format!("rename to `{}`", open.map.name),
+                agent: false,
             });
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
@@ -8071,7 +8439,7 @@ fn turn_under_cursor(
     };
     let (at, yaw, tip, descriptor, patch) =
         (p.at, p.yaw, p.tip, p.descriptor.clone(), p.patch.clone());
-    state.record_logged(line, summary);
+    state.record_logged(line, summary, false);
 
     for (entity, marker) in placed {
         if marker.0 == id {
