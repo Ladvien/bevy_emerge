@@ -199,10 +199,12 @@ pub const PENDING_ABANDONED_AFTER_MS: u64 = 10_000;
 /// more after the confirm, so without this record a read in between finds nothing at all.
 /// `create_new` means a record already there is refused rather than replaced.
 pub fn write_pending(dir: &Path, record: &SnipRecord) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("could not make {}: {e}", dir.display()))?;
+    let refuse = |e: String| format!("{e}; nothing was saved.");
+    std::fs::create_dir_all(dir)
+        .map_err(|e| refuse(format!("could not make {}: {e}", dir.display())))?;
     let path = dir.join(format!("{PENDING_PREFIX}{}.json", record.stem));
-    let text = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
-    write_new(&path, text.as_bytes())?;
+    let text = serde_json::to_string_pretty(record).map_err(|e| refuse(e.to_string()))?;
+    write_new(&path, text.as_bytes()).map_err(refuse)?;
     Ok(path)
 }
 
@@ -494,6 +496,21 @@ mod written {
         assert!(read_pending(&dir).0.is_empty(), "the stale record is gone");
         let (records, _) = read_snips(&dir);
         assert_eq!(records.len(), 1, "the finished snip is kept");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A pending record that cannot be written says that nothing was saved.** The editor shows the
+    /// refusal in its status line, and a bare IO error reads as if a half-saved snip might be left.
+    #[test]
+    fn a_pending_record_that_cannot_be_written_says_nothing_was_saved() {
+        let dir = fresh_dir("unwritable");
+        std::fs::create_dir_all(&dir).expect("the folder is made");
+        let blocker = dir.join("in-the-way");
+        std::fs::write(&blocker, "a file, not a folder").expect("the blocker is written");
+        let mut rec = record(12, "refused");
+        rec.stem = "snip-12".into();
+        let err = write_pending(&blocker, &rec).expect_err("a file cannot hold records");
+        assert!(err.ends_with("nothing was saved."), "the refusal does not say so: {err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
