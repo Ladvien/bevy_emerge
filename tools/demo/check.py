@@ -3,7 +3,7 @@
 
 Checks, each printed with its measured value:
   * every change moment (agent op, click, ⌘Z, Home, MCP view change) changes >= 5% of the scene pixels
-    (per-channel diff > 24) between the frame just before it and the frame 0.5 s after it;
+    (per-channel diff > 24) between the last frame before it and the largest diff among frames up to 0.2 s after it;
   * in every frame >= 40% of scene pixels are not near-black (max channel > 24);
   * no run of frames longer than 1.5 s without motion (the final hold counts only 1.5 s of its length), where a frame
     is "moving" when it differs from the previous frame on >= 0.5% of scene pixels;
@@ -13,6 +13,7 @@ Usage: check.py <events.json> <out.gif> [--limit-mb 3]
 """
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -21,12 +22,32 @@ from PIL import Image, ImageSequence
 
 CHANGE_DIFF = 24
 CHANGE_MIN = 0.05
+CHANGE_WINDOW_S = 0.2  # the editor acknowledges a discrete input within about 100 ms; frame quantisation adds up to 1/fps
 SCENE_MIN = 0.40
 STATIC_MAX_S = 1.5
 FINAL_HOLD_S = 1.5  # render.py's default --hold: the only frozen tail the GIF may end with
 MOTION_MIN = 0.005
 CAPTION_BAR = 56
 VIEWPORT_X = (470, 950)  # the 3D viewport's logical x range in the editor window (see storyboards' crop)
+
+
+def frame_diff(a, b):
+    """Fraction of scene pixels that differ by more than CHANGE_DIFF in any channel."""
+    return float((np.abs(a - b).max(axis=2) > CHANGE_DIFF).mean())
+
+
+def change_fraction(scenes, fps, t):
+    """Largest scene change between the last frame before t and any frame up to CHANGE_WINDOW_S after t.
+
+    The editor acknowledges a discrete input within about 100 ms, and each frame is quantised to 1/fps, so the change
+    may land a frame or two after the aligned event frame. The window covers that; the threshold does not move.
+    """
+    n = len(scenes)
+    before = min(n - 1, max(0, math.ceil(t * fps - 1e-9) - 1))
+    after = [i for i in range(before + 1, n) if i / fps <= t + CHANGE_WINDOW_S + 1e-9]
+    if not after:
+        after = [min(n - 1, before + 1)]
+    return max(frame_diff(scenes[before], scenes[i]) for i in after)
 
 
 def change_moments(rec):
@@ -70,9 +91,6 @@ def main():
     scenes = [f[:scene_h] for f in frames]
     ok = True
 
-    def diff_fraction(i, j):
-        return float((np.abs(scenes[i] - scenes[j]).max(axis=2) > CHANGE_DIFF).mean())
-
     # 1. Scene fraction in every frame.
     worst_scene = min(float((s.max(axis=2) > 24).mean()) for s in scenes)
     scene_ok = worst_scene >= SCENE_MIN
@@ -80,18 +98,16 @@ def main():
     print(f"scene fraction (min over frames): {worst_scene * 100:.1f}% "
           f"(need >= {SCENE_MIN * 100:.0f}%) {'PASS' if scene_ok else 'FAIL'}")
 
-    # 2. Change moments: frame before the moment vs 0.5 s after it.
+    # 2. Change moments: the last frame before the moment vs the largest change up to CHANGE_WINDOW_S after it.
     for kind, t in change_moments(rec):
-        before = min(n - 1, max(0, round((t - 1.0 / fps) * fps)))
-        after = min(n - 1, max(0, round((t + 0.5) * fps)))
-        frac = diff_fraction(before, after)
+        frac = change_fraction(scenes, fps, t)
         passed = frac >= CHANGE_MIN
         ok &= passed
         print(f"change {kind:6s} at {t:6.2f}s: {frac * 100:5.2f}% of scene pixels changed "
               f"(need >= {CHANGE_MIN * 100:.0f}%) {'PASS' if passed else 'FAIL'}")
 
     # 3. Static runs, with the final hold exempt only up to FINAL_HOLD_S.
-    moving = [False] + [diff_fraction(i - 1, i) >= MOTION_MIN for i in range(1, n)]
+    moving = [False] + [frame_diff(scenes[i - 1], scenes[i]) >= MOTION_MIN for i in range(1, n)]
     last_move = 0
     worst = 0.0
     for i in range(1, n):
