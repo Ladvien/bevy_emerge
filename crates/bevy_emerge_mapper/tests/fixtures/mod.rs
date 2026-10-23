@@ -587,6 +587,22 @@ impl Fixture {
         self
     }
 
+    /// A fully judged descriptor whose six fields were all written by `model` at `confidence`, a
+    /// Rust variant name (`High`, `Medium` or `Low`). For tests that read the labels row.
+    pub fn labelled_descriptor(self, id: &str, pack: &str, model: &str, confidence: &str) -> Fixture {
+        let mut f = self.descriptor(id, pack);
+        if let Some(last) = f.descriptors.last_mut() {
+            *last = last.replace(
+                "placement: ( rooms: [], group: None ),",
+                &format!(
+                    r#"placement: ( rooms: [], group: None ),
+            labels: Some((by: (kind: Some(Model), effects: Some(Model), look: Some(Model)), model: Some("{model}"), at: "2026-10-20", confidence: Some({confidence}))),"#
+                ),
+            );
+        }
+        f
+    }
+
     /// Place a descriptor already added by [`Fixture::descriptor`], minting `<id>@<n>`.
     pub fn place(self, id: &str, at: (f32, f32)) -> Fixture {
         let n = self.placements.len();

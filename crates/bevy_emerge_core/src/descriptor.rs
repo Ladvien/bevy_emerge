@@ -196,6 +196,18 @@ pub enum Confidence {
     Low,
 }
 
+/// **The word an author reads**, lower case: `high`, `medium`, `low`. The one spelling every
+/// surface uses, so a proposal line and a labels row cannot say the same confidence two ways.
+impl std::fmt::Display for Confidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::High => "high",
+            Self::Medium => "medium",
+            Self::Low => "low",
+        })
+    }
+}
+
 impl LabelOrigin {
     /// **A fresh record naming the model that is about to write**, with no axis claimed yet.
     ///

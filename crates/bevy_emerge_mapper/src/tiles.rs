@@ -9214,7 +9214,7 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                     // in the status band, by `labels::Labeler`. What stays here is what varies per
                     // proposal: when it was made, how many attempts it took, and how sure it was.
                     Text::new(format!(
-                        "PROPOSED {}{attempts}, confidence {:?}",
+                        "PROPOSED {}{attempts}, confidence {}",
                         p_.date, s.confidence
                     )),
                     TextColor(crate::chrome::SUGGEST),
@@ -9459,10 +9459,19 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
             // per-axis author already drives the tag-chip colour and is not duplicated as text.
             let (labels_text, labels_ink) = match &d.labels {
                 None => ("not labelled".to_owned(), LABEL),
-                Some(l) => match &l.model {
-                    Some(m) => (format!("{m} · {}", l.at), TEXT),
-                    None => (format!("by hand · {}", l.at), TEXT),
-                },
+                Some(l) => {
+                    // **How sure the model said it was**, read on the same row as who wrote it. A
+                    // hand-written record carries no confidence, so it has none to show.
+                    let sure = l
+                        .confidence
+                        .map(|c| format!(" · confidence {c}"))
+                        .unwrap_or_default();
+                    match &l.model {
+                        // **A model wrote it and nobody has confirmed it**: the unchecked colour.
+                        Some(m) => (format!("{m} · {}{sure}", l.at), crate::chrome::UNCHECKED),
+                        None => (format!("by hand · {}{sure}", l.at), TEXT),
+                    }
+                }
             };
             p.spawn(Node {
                 flex_direction: FlexDirection::Row,
