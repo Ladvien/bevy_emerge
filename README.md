@@ -4,7 +4,9 @@
 
 bevy_emerge is a world editor for Bevy games that you and an AI agent drive together. You build and point: place pieces, drag a snip over a problem, write a note. The agent acts through the same operations you use: turn, remove, frame, capture, check. One Cmd+Z takes back either of you. It also learns a layout's grammar from maps you build and generates new layouts with wave function collapse.
 
-![A person snips a box over a wall and writes a note, an agent reads the snip and turns the wall, and the person's Cmd+Z takes the turn back](docs/media/hero.gif)
+![A person snips a cluster of towers and writes a note; an agent reads the snip and removes two towers; the person's two Cmd+Z presses put them back, one at a time](docs/media/hero.gif)
+
+The agent removes two towers from the snip. The person takes each change back with Cmd+Z, newest first.
 
 The full recording is [`docs/media/demo.mp4`](docs/media/demo.mp4), 64 seconds long.
 
@@ -90,6 +92,8 @@ Sanctuary, a game built on Bevy, depends on `bevy_emerge_core` by path. It lays 
 
 Goal: put a piece on the grid, then take it back.
 
+![The barrel brush is armed, a click on the ground places a barrel, and Cmd+Z takes it back](docs/media/place-and-undo.gif)
+
 1. Pick a piece from the palette and click the grid.
 2. Press Cmd+Z to take it back.
 
@@ -101,16 +105,16 @@ Goal: show an agent a region and get one change back that you can undo.
 
 1. Press Cmd+\ to arm the snip, then drag a box over the region.
 2. Type a note and press Enter.
-3. The agent reads the snip with `emerge_list_snips` and changes a placement with an operation such as `placement_set_yaw`.
+3. The agent reads the snip with `emerge_list_snips` and changes placements with operations such as `placement_remove`.
 4. Press Cmd+Z to undo the agent's change.
 
-Review: after Enter the status line confirms the snip. The GIF at the top shows the agent's turn and the Cmd+Z that takes it back.
+Review: after Enter the status line confirms the snip. The GIF at the top shows the agent's two removals and the two Cmd+Z presses that take them back.
 
 ### Frame the map
 
 Goal: bring the whole map back into view after you have zoomed in on part of it.
 
-![Starts zoomed in on one corner; Home frames the whole map](docs/media/frame-the-map.gif)
+![Starts zoomed in on the middle of the town; Home frames the whole map](docs/media/frame-the-map.gif)
 
 1. Press Home. On a Mac laptop without a Home key, press Fn+←.
 
@@ -122,13 +126,17 @@ If it doesn't work: if Home frames one piece instead of the whole map, a piece i
 
 Goal: pan across the town.
 
-![The camera pans left and right across the town](docs/media/move-the-camera.gif)
+![Holding D pans right, S pans toward the viewer, and A pans back left](docs/media/move-the-camera.gif)
 
-Review: hold A and D to pan left and right. The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing and the camera in full.
+Review: hold A and D to pan left and right, and S to pan toward you. The [framing and camera guide](docs/guide/framing-and-camera.md) covers framing and the camera in full.
 
 ## Agents
 
 The MCP server gives an agent the same typed operations a person uses, including removing pieces, a box and a stamp (`placement_remove` and `stamp_remove`). The [tool reference](docs/mcp-tools.md) lists the eleven tools and their parameters. An agent's change lands in the same operation log and undo history as yours, and it shows on your receipt: the UNDER line in the inspector. A refusal goes to the toast and the journal (Cmd+E).
+
+![An agent removes tower_04, and the person's Cmd+Z puts it back](docs/media/agent-removes-then-undo.gif)
+
+Review: the status line reads `removed tower_04`, then `put back tower_04` after Cmd+Z. At this size the removed tower is small, so read the status line.
 
 Known gaps:
 

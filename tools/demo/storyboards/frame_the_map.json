@@ -1,0 +1,14 @@
+{
+  "name": "frame_the_map",
+  "fps": 15,
+  "scale": 2,
+  "width": 960,
+  "crop": [0, 64, 960, 690],
+  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-40, -30, 40, 30]}}}],
+  "chunks": [{"seconds": 6}],
+  "steps": [
+    {"at": 0.4, "caption": "person: the view is zoomed in on the middle"},
+    {"at": 1.2, "caption": "person: Home (Fn+←) frames the whole map"},
+    {"at": 1.6, "key": "Home"}
+  ]
+}
