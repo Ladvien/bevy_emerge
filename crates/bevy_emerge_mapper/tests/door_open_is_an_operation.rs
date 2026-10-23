@@ -369,3 +369,35 @@ fn a_door_is_refused_while_the_editor_is_asking_a_question() {
         "a door with nothing waiting and no question is allowed"
     );
 }
+
+/// **An agent's receipt survives the crossing it asked for (cycle 8, gap 7).** The agent's door is
+/// crossed on a later frame, and the crossing resets `EditorState`, which erased the receipt that said
+/// who asked. The person changed doors with no word of the agent.
+#[test]
+fn an_agents_receipt_survives_the_crossing_it_asked_for() {
+    let root = fixtures::Fixture::new("door_receipt_survives").build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_ne!(
+        *app.world().resource::<Door>(),
+        Door::Kit,
+        "the test starts on another door, so a crossing to Kit is visible"
+    );
+    app.world_mut()
+        .resource_mut::<EditorState>()
+        .status
+        .note("agent: door_open: opened the Kit door");
+    app.world_mut().resource_mut::<EditorState>().door_request =
+        Some(DoorRequest { door: Door::Kit, tab: Some(Mode::Tiles) });
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(*app.world().resource::<Door>(), Door::Kit, "the request crossed to the Kit door");
+    assert_eq!(
+        app.world().resource::<EditorState>().status.note_text(),
+        "agent: door_open: opened the Kit door",
+        "the agent's receipt is what the person reads after the crossing"
+    );
+}

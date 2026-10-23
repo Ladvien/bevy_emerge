@@ -130,7 +130,19 @@ pub fn close_the_door(world: &mut World) {
     // state. The teardown is a teardown; only the *door's own* resources are spared, and they are
     // spared because they now belong to the *next* door.
     if world.remove_resource::<Crossing>().is_some() {
+        // **The receipt is carried over the reset (cycle 8, gap 7).** The reset puts `EditorState`
+        // back empty, which erased the receipt of whoever asked for this door: the window changed
+        // doors with no word of who did it. The receipt is what the person reads on arrival, so it is
+        // kept. A problem is not: the journal already holds it.
+        let receipt = world
+            .get_resource::<crate::editor::EditorState>()
+            .map(|state| state.status.note_text().to_owned());
         reset_door_state(world);
+        if let Some(receipt) = receipt.filter(|r| !r.is_empty())
+            && let Some(mut state) = world.get_resource_mut::<crate::editor::EditorState>()
+        {
+            state.status.note(receipt);
+        }
         return;
     }
     crate::args::Opened::remove_from(world);

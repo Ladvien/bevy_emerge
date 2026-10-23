@@ -2175,12 +2175,22 @@ fn apply_door_request(world: &mut World) {
 /// **Cross to a door and enter the tab it was asked for.** A refused crossing stops here, so a tab is
 /// never entered on a door the author did not reach.
 fn enter_door(world: &mut World, request: DoorRequest) {
+    // **The receipt is carried across a crossing (cycle 8, gap 7).** The crossing resets
+    // `EditorState`, which erased the receipt of whoever asked for the door: an agent's `door_open`
+    // changed the window's door with no word of who did it. It is posted again once the tab is
+    // entered, so it stays the last word the person reads. Problems are not carried: the journal holds
+    // them already. A tab switch with no crossing still clears the note, as it always has.
+    let receipt = world.resource::<EditorState>().status.note_text().to_owned();
+    let mut crossed = false;
     if world.get_resource::<crate::tiles::Door>().copied() != Some(request.door) {
         match crate::screen::cross(world, request.door) {
-            Ok(()) => world
-                .resource_mut::<EditorState>()
-                .status
-                .note(format!("the {} door", request.door.label().to_lowercase())),
+            Ok(()) => {
+                crossed = true;
+                world
+                    .resource_mut::<EditorState>()
+                    .status
+                    .note(format!("the {} door", request.door.label().to_lowercase()));
+            }
             Err(e) => {
                 world
                     .resource_mut::<EditorState>()
@@ -2198,6 +2208,9 @@ fn enter_door(world: &mut World, request: DoorRequest) {
                 .status
                 .problem(format!("cannot enter that tab: {e}"));
         }
+    }
+    if crossed && !receipt.is_empty() {
+        world.resource_mut::<EditorState>().status.note(receipt);
     }
 }
 
