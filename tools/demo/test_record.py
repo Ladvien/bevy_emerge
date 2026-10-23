@@ -28,5 +28,29 @@ class McpEventIsStampedWhenCalled(unittest.TestCase):
         self.assertLess(event["t"] - before, 0.25, f"stamped {event['t'] - before:.3f} s after the call began")
 
 
+class StepsAreTimedFromTheirChunk(unittest.TestCase):
+    def test_a_step_falls_in_the_chunk_that_covers_its_storyboard_time(self):
+        self.assertEqual(record.chunk_of(7.0, [6.0, 2.5, 3.0]), (1, 1.0))
+        self.assertEqual(record.chunk_of(0.0, [6.0, 2.5, 3.0]), (0, 0.0))
+        self.assertEqual(record.chunk_of(8.5, [6.0, 2.5, 3.0]), (2, 0.0))
+
+    def test_a_step_at_a_boundary_belongs_to_the_later_chunk(self):
+        self.assertEqual(record.chunk_of(6.0, [6.0, 2.5, 3.0]), (1, 0.0))
+
+
+class EventsLandOnTheFrameThatShowsThem(unittest.TestCase):
+    def test_an_event_moves_to_the_first_frame_captured_at_or_after_its_stamp(self):
+        frames = [0.0, 0.1, 0.2, 0.3]
+        events = [{"t": 0.12, "type": "key"}, {"t": 0.3, "type": "caption"}, {"t": 0.0, "type": "caption"}]
+        record.align_events(events, frames)
+        self.assertEqual([e["t"] for e in events], [0.2, 0.3, 0.0])
+        self.assertEqual([e["t_stamp"] for e in events], [0.12, 0.3, 0.0])
+
+    def test_an_event_after_the_last_frame_stays_on_the_last_frame(self):
+        events = [{"t": 9.0, "type": "caption"}]
+        record.align_events(events, [0.0, 0.1])
+        self.assertEqual(events[0]["t"], 0.1)
+
+
 if __name__ == "__main__":
     unittest.main()

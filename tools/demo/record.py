@@ -9,7 +9,7 @@ never launches or closes the editor.
 Frames come from the editor's own emerge_capture_sequence (no screen capture). A storyboard lists
 `chunks`: one capture per chunk, each at the storyboard's fps. An agent operation can only be applied
 at the start of a sequence (frame 0 is the state before it), so every operation starts a new chunk.
-Chunk k starts at the time the storyboard schedules; the person's input is injected over
+Chunk k is due at the sum of the seconds of the chunks before it. The person's input is injected over
 bevy_debugger/input on its own schedule, so input and frames share one clock (t0).
 
 Output: <project>/target/loop/demo/<name>/events.json, the timeline render.py reads. Frame PNGs stay in
@@ -32,8 +32,13 @@ Storyboard format (JSON):
       {"at": 6.0, "caption": "person: ..."}
     ]
   }
-Times are seconds from t0. A caption stays until the next caption step.
+Step times are seconds from the start of the chunk that covers them (see chunk_of), and each step runs
+when that chunk has really started, so an overrunning chunk delays what follows it, not what it contains.
+Each event then moves to the first frame captured at or after its stamp (align_events). The stamp is
+kept as t_stamp. A chunk's planned_s and captured_s in events.json give its overrun.
+A caption stays until the next caption step.
 """
+import bisect
 import argparse
 import json
 import os
@@ -169,6 +174,8 @@ def run_chunks(storyboard, server, project, port, timeline, errors):
             if "operation" in chunk:
                 args["operation"] = chunk["operation"]
             wall = timeline.now()
+            timeline.chunk_started[i] = wall
+            timeline.started[i].set()
             keep = keep_awake(port, timeline) if "operation" in chunk else None
             try:
                 answer = client.json_call("emerge_capture_sequence", args)
@@ -184,6 +191,8 @@ def run_chunks(storyboard, server, project, port, timeline, errors):
                     "index": i, "label": args["label"], "start": round(wall, 3),
                     "operation_applied_t_s": answer.get("operation_applied_t_s"),
                     "operation_result": answer.get("operation_result"),
+                    "planned_s": chunk["seconds"],
+                    "captured_s": round(max((f["actual_t_s"] for f in answer["frames"]), default=0.0), 3),
                 })
                 for f in answer["frames"]:
                     timeline.frames.append({"t": round(wall + f["actual_t_s"], 3), "path": f["path"]})
@@ -195,12 +204,14 @@ def run_chunks(storyboard, server, project, port, timeline, errors):
 
 
 class Timeline:
-    def __init__(self):
+    def __init__(self, n_chunks=0):
         self.t0 = time.monotonic()
         self.lock = threading.Lock()
         self.events = []
         self.frames = []
         self.chunks = []
+        self.chunk_started = [None] * n_chunks
+        self.started = [threading.Event() for _ in range(n_chunks)]
 
     def now(self):
         return time.monotonic() - self.t0
@@ -214,6 +225,36 @@ def wait_until(timeline, t):
     delay = t - timeline.now()
     if delay > 0:
         time.sleep(delay)
+
+
+def chunk_of(at, seconds):
+    """The chunk covering storyboard time `at`, and the offset into it. A boundary belongs to the later chunk."""
+    start = 0.0
+    for k, s in enumerate(seconds):
+        if at < start + s or k == len(seconds) - 1:
+            return k, round(at - start, 6)
+        start += s
+
+
+def wait_for_chunk(timeline, k, capture):
+    """Block until chunk k has started. False if the capture thread ended first (it failed)."""
+    while not timeline.started[k].wait(0.1):
+        if not capture.is_alive():
+            return False
+    return True
+
+
+def align_events(events, frame_times):
+    """Move each event to the first frame captured at or after its stamp: that is the frame
+    that shows the event. An event after the last frame stays on the last frame. The stamp
+    is kept as t_stamp so the shift can be measured."""
+    if not frame_times:
+        return
+    for e in events:
+        i = bisect.bisect_left(frame_times, e["t"] - 1e-6)
+        e["t_stamp"] = e["t"]
+        e["t"] = frame_times[min(i, len(frame_times) - 1)]
+
 
 
 def do_step(step, timeline, inj, agent):
@@ -313,7 +354,7 @@ def main():
     out_dir = os.path.join(args.project, "target/loop/demo", sb["name"])
     os.makedirs(out_dir, exist_ok=True)
 
-    timeline = Timeline()
+    timeline = Timeline(len(sb["chunks"]))
     inj = Injector(args.port)
     agent = McpClient(args.server, args.project, args.port, f"{sb['name']}_agent")
     errors = []
@@ -323,8 +364,12 @@ def main():
                                args=(sb, args.server, args.project, args.port, timeline, errors))
     capture.start()
     try:
+        seconds = [c["seconds"] for c in sb["chunks"]]
         for step in steps:
-            wait_until(timeline, step["at"])
+            k, offset = chunk_of(step["at"], seconds)
+            if not wait_for_chunk(timeline, k, capture):
+                break
+            wait_until(timeline, timeline.chunk_started[k] + offset)
             do_step(step, timeline, inj, agent)
     finally:
         capture.join()
@@ -333,6 +378,7 @@ def main():
         raise errors[0]
 
     frames = sorted(timeline.frames, key=lambda f: f["t"])
+    align_events(timeline.events, [f["t"] for f in frames])
     record = {
         "name": sb["name"], "fps": sb["fps"], "scale": sb.get("scale", 2),
         "crop": sb.get("crop"), "width": sb.get("width", 1100), "title": sb.get("title"),
