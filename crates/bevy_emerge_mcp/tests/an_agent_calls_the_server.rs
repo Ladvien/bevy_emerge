@@ -22,6 +22,14 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use serde_json::{Value, json};
 
+/// **A local port with nothing listening on it**: bind an ephemeral port, then let it go. The
+/// kernel does not hand the same ephemeral port straight back out, so it stays closed for the
+/// length of a test.
+fn closed_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind an ephemeral port");
+    listener.local_addr().expect("the bound port").port()
+}
+
 /// **A running MCP server, as a subprocess.**
 struct Server {
     child: Child,
@@ -37,9 +45,15 @@ impl Server {
     }
 
     /// **Start the server with arguments, as an agent's client does, such as `--project`.**
+    ///
+    /// **On a port nothing listens on.** These tests drive the server with no editor running, and
+    /// several assert the refusal that says so. The default BRP port (15702) is whatever the
+    /// developer's machine has on it: on 2026-10-23 an ssh tunnel to another Mac held it, the
+    /// snip tool reached a remote editor, and the test failed on a PNG where it wanted a refusal.
     fn start_with(args: &[&str]) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_bevy_emerge_mcp"))
             .args(args)
+            .env("BEVY_BRP_PORT", closed_port().to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
