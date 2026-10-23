@@ -19,14 +19,17 @@ The Map door is one of the editor's three workspaces. It is where you lay pieces
 
 ## Turn, tip and lift a piece
 
-**Goal:** Rotate, tip or raise a piece you have already placed.
+**Goal:** Rotate, tip or raise a piece you have already placed, or set the facing of the piece you are about to place.
 
-1. Press `R` to turn the piece left, or `T` to turn it right.
-2. Press `Y` to tip it about x, or `U` to tip it about z.
-3. Press `V` to straighten it.
-4. Press `]` to lift the piece, or `[` to lower it.
+1. To turn a placed piece, first put the brush down (`Esc`), so no piece is armed. Point at the piece.
+2. Press `R` to turn it left, or `T` to turn it right, 15° a press. Hold the key to keep turning.
+3. Press `Y` to tip it about x, or `U` to tip it about z, a quarter turn a press.
+4. Press `V` to straighten it.
+5. Press `]` to lift the piece, or `[` to lower it.
 
 **What you see:** The piece turns, tips, or moves up or down in place.
+
+**While a piece is armed,** `R`, `T`, `Y` and `U` turn and tip the armed piece instead (the INSPECTOR's YAW row shows its facing), so the next click places it already turned. A placed piece under the pointer is left alone.
 
 ## Move a piece
 

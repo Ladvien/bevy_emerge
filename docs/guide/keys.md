@@ -58,10 +58,10 @@ These keys work on the Map tab.
 | `P` | Nothing in hand | Take the arrow keys to the compositions. |
 | `Up` / `Down` | While a composition is being picked | Walk the compositions. Hold Shift to move five at a time. |
 | `Enter` | While a composition is being picked | Arm this composition for the map. |
-| `R` | Any time | Turn the piece left. |
-| `T` | Any time | Turn the piece right. |
-| `Y` | Any time | Tip the piece about x. |
-| `U` | Any time | Tip the piece about z. |
+| `R` | Any time | Turn left, 15° a press: the armed piece if one is armed, otherwise the placed piece under the pointer. |
+| `T` | Any time | Turn right, 15° a press: the armed piece if one is armed, otherwise the placed piece under the pointer. |
+| `Y` | Any time | Tip about x, a quarter turn: the armed piece if one is armed, otherwise the piece under the pointer. |
+| `U` | Any time | Tip about z, a quarter turn: the armed piece if one is armed, otherwise the piece under the pointer. |
 | `V` | Any time | Straighten the piece. |
 | `J` | Any time | Change the grid rung: tile, fine, then finer. |
 | `[` / `]` | Any time | Lower / lift this piece. |
