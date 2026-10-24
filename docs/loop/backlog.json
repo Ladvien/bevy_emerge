@@ -542,8 +542,8 @@
         "no_workaround": true,
         "evidence": "Every learned/declared/composed generate; the only workaround is keep-then-undo. Judgment 2 of 3: must-fix."
       },
-      "status": "open",
-      "evidence": "GifGen 2026-10-23 on town_block: G shows only the status note 'proposed: 289 piece(s) replacing 289 ... Enter keeps it, Esc throws it away'; the 3D view is unchanged until Enter. The brief requires wide operations to be previewed before they commit.",
+      "status": "shipped",
+      "evidence": "G now draws every proposed piece as a translucent ghost through `spawn_piece`, the same meshes the commit lays; viewport change on town_block went 0.00% -> 3.67%, and Enter produced exactly the previewed layout. Tests `a_proposal_is_drawn_before_it_is_kept.rs` (3).",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -656,6 +656,22 @@
       },
       "status": "open",
       "evidence": "crates/bevy_emerge_core/src/descriptor.rs::mount_options",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
+    },
+    {
+      "id": "E-061",
+      "kind": "enhancement",
+      "area": "fill",
+      "title": "A stamp proposal is outlined by cell but its member pieces are not drawn",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "B-046's fix draws proposed *placements* only: a `composes` proposal lays stamps whose rows `expand` produces against the landing map, and duplicating that expansion in the preview is its own design. The cell outline and the count in the status line still cover them."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::sync_proposal_ghosts (the stamps arm is a comment)",
       "last_failure": "",
       "first_seen": "2026-10-24"
     }
