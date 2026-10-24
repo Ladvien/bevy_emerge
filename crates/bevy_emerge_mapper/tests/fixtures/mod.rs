@@ -25,8 +25,60 @@
 #![allow(dead_code)] // Each test uses a different corner of the builder.
 
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Once;
 
-/// A throwaway project directory, deleted when this is dropped.
+/// Remove the directories of exited test processes, once per process. A directory whose pid is
+/// alive belongs to a run in flight and is left alone, as is anything that does not parse.
+fn sweep_dead_fixtures() {
+    static SWEPT: Once = Once::new();
+    SWEPT.call_once(|| {
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+            return;
+        };
+        let mut alive: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(rest) = name
+                .to_str()
+                .and_then(|n| n.strip_prefix("emerge-fixture-"))
+            else {
+                continue;
+            };
+            let Some(pid) = rest.split('-').next().and_then(|p| p.parse::<u32>().ok()) else {
+                continue;
+            };
+            if pid == std::process::id() {
+                continue;
+            }
+            if !*alive.entry(pid).or_insert_with(|| pid_is_alive(pid)) {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    });
+}
+
+/// `kill -0` delivers no signal and only reports whether the pid exists. A spawn failure counts as
+/// alive, so an unexpected environment deletes nothing.
+fn pid_is_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(true)
+}
+
+/// A throwaway project directory in the system temp dir, named `emerge-fixture-<pid>-<name>`.
+///
+/// **Nothing deletes it when the test ends.** [`Fixture::build`] hands the project root back as a
+/// plain `PathBuf`, so no value is left to drop it, and tests keep using that path after the
+/// fixture is gone. The leak is bounded instead: the first [`Fixture::new`] in each test process
+/// runs `sweep_dead_fixtures`, which removes the directories of processes that have exited. A
+/// failed test's directory therefore survives until the next run, which is when you want to look
+/// at it. Before this sweep every run left about 200 directories behind, several GB in all.
 pub struct Fixture {
     dir: PathBuf,
     descriptors: Vec<String>,
@@ -168,6 +220,7 @@ fn descriptor_row(root: &Path, id: &str, pack: &str, y_offset: f32) -> String {
 impl Fixture {
     /// An empty project: a vocabulary, an empty library, a policy, and the font.
     pub fn new(name: &str) -> Fixture {
+        sweep_dead_fixtures();
         // A unique directory per test, since these run in parallel. The process id and the test's
         // own name are enough — no clock, so a rerun is reproducible.
         let dir =

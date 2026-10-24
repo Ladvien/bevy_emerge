@@ -192,3 +192,35 @@ fn the_generator_asks_for_what_the_map_says() {
     );
     assert_eq!(tuned.enclosure_weight, Some(900), "and its weight, from the same field");
 }
+
+/// **An agent can read back what it set**, so it checks the editor's answer rather than trusting its
+/// own parameters. Without this the wish was a write-only field: `emerge/state` did not report it,
+/// and an agent had no way to tell a change that landed from one that was quietly dropped.
+#[test]
+fn the_state_dump_reports_the_wish_an_agent_set() {
+    let mut app = editor("enclosure_readback");
+    call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({
+            "operation": "map_set_settings",
+            "parameters": {"enclosure_wish": 0.4, "enclosure_weight": 320},
+            "dry_run": false,
+        }),
+    )
+    .unwrap_or_else(|e| panic!("the apply answers: {e}"));
+
+    let state = call(&mut app, "emerge/state", serde_json::json!({}))
+        .unwrap_or_else(|e| panic!("the state answers: {e}"));
+    // **A fraction in `f32` is not exact in JSON**, so the comparison is to the precision the field
+    // has rather than to the decimal the caller typed — `0.4f32` reads back as `0.4000000059604645`.
+    let reported = state["map"]["enclosure_wish"]
+        .as_f64()
+        .unwrap_or_else(|| panic!("the wish is a number, got {:?}", state["map"]["enclosure_wish"]));
+    assert!(
+        (reported - 0.4).abs() < 1e-6,
+        "the state dump reports the wish, so an agent reads the editor rather than its own request; \
+         got {reported}"
+    );
+    assert_eq!(state["map"]["enclosure_weight"], 320, "and its weight");
+}
