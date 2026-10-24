@@ -686,8 +686,8 @@
         "no_workaround": false,
         "evidence": "`bevy_debugger/screenshot` returns before the PNG lands; two captures taken 1.5 s apart came back with identical MD5 9702f3bd311ea207d07719077bf74572 in the E-048 iteration, which produced a 0-pixel 'no change' reading and a wrong diagnosis. Workaround: hash the path after a delay, or read the state instead."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mcp/src/main.rs (emerge_capture_still); bevy_debugger_mcp's screenshot method",
+      "status": "shipped",
+      "evidence": "`emerge_capture_still` returns a `fingerprint` (FNV-1a 64 hex) over the bytes it writes, so two stills compare as pictures; live: unchanged screen -> same value, after a camera move -> different. The raw `bevy_debugger/screenshot {path}` trap remains (it returns in 21 ms, the PNG lands ~200 ms later) and is now warned about in docs/guide/agents.md; our tools never hit it because `grab()` polls `bevy_debugger/capture` and writes the file itself. Also corrected `docs.rs`'s claim that it reads the server's source (TOOLS is a hand-kept copy; the drift ratchet caught this change).",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },

@@ -8,8 +8,19 @@
 //! this is the checked half: the document is rendered from the same declarations the server
 //! builds its tools from, and a test fails when the two drift.
 //!
-//! **The rendering reads the server's own source**, so there is one list — the attributes on the
-//! `#[tool]` methods — and the document is a view of it.
+//! **The rendering reads [`TOOLS`], which is a hand-kept copy — and the copy is what drifts.**
+//!
+//! That sentence used to say the rendering read the server's own source. It does not: `TOOLS` below
+//! restates every name, description and hint, and `main.rs` states them again in its `#[tool]`
+//! attributes. Two copies of one vocabulary is exactly what this module exists to prevent, so the
+//! answer is the ratchet rather than the wish — `docs_are_current`'s
+//! `the_reference_names_the_servers_own_tools` lists the tools **through the running server** and
+//! compares each description and each hint against this table, one by one. On 2026-10-24 it caught a
+//! description edited in `main.rs` and not here, and refused to let the reference ship saying
+//! something the server does not do.
+//!
+//! **So: change a tool's description in `main.rs` and in this table, then regenerate.** The test is
+//! what makes forgetting the second step a build failure rather than a document an agent believes.
 
 use serde_json::Value;
 
@@ -112,10 +123,13 @@ pub const TOOLS: &[ToolDoc] = &[
     ToolDoc {
         name: "emerge_capture_still",
         description: "A picture of the editor as it is now -- the world and the interface, because \
-                       the editor draws both into one image -- plus a state summary of the same \
-                       moment. The picture is returned as an image and written to a file whose path \
-                       is in the answer. Use this after a change to see what it did, or before one \
-                       to see what it was like.",
+                      the editor draws both into one image -- plus a state summary of the same \
+                      moment. The picture is returned as an image and written to a file whose path \
+                      is in the answer. The answer also carries a fingerprint of the picture's \
+                      bytes: two stills with the same fingerprint are the same picture, so compare \
+                      fingerprints rather than file paths to tell whether the screen changed. Use \
+                      this after a change to see what it did, or before one to see what it was \
+                      like.",
         read_only: false,
         destructive: false,
         idempotent: false,

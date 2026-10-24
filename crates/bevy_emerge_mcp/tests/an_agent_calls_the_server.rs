@@ -944,3 +944,94 @@ fn a_pending_record_that_does_not_parse_is_named() {
     assert!(named, "the broken pending record is reported nowhere: {body}");
     let _ = std::fs::remove_dir_all(&project);
 }
+
+/// **A still says what the picture IS, so two of them can be compared** — E-062.
+///
+/// On 2026-10-24 this loop compared two captures by their **files** and got identical bytes; it read
+/// that as "the screen did not change" and built a whole (wrong) diagnosis on it. The real cause was
+/// a capture read back before its file landed — a raw `bevy_debugger/screenshot` returns an id in
+/// ~20 ms and writes the PNG a frame or two later.
+///
+/// The tool that does await the write already exists (`emerge_capture_still` polls
+/// `bevy_debugger/capture` until the frame is done), so the missing piece was **a fact in the answer
+/// that says whether two stills are the same picture**. The fingerprint is that fact: an agent
+/// comparing two captures from different frames gets two different numbers without opening either
+/// file, and two stills of an unchanged screen get the same one.
+///
+/// This test pins the contract on the shape of the answer, which is what an agent reads. The live
+/// half — that the editor's own frames differ after a camera move — is the loop's own measurement,
+/// recorded in the iteration report.
+#[test]
+fn a_still_says_what_the_picture_is_so_two_can_be_compared() {
+    let listed = {
+        let mut server = Server::start();
+        server.request("tools/list", json!({}))
+    };
+    let tool = listed["result"]["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|t| t["name"] == "emerge_capture_still"))
+        .cloned()
+        .unwrap_or_else(|| panic!("emerge_capture_still is not listed: {listed}"));
+    let description = tool["description"].as_str().unwrap_or_default();
+    assert!(
+        description.contains("fingerprint"),
+        "the description an outside agent reads must say the answer carries a fingerprint, or the \
+         number is a field nobody knows to compare: {description}"
+    );
+    assert!(
+        description.to_lowercase().contains("same picture")
+            || description.to_lowercase().contains("identical"),
+        "and it must say what the number is FOR: {description}"
+    );
+}
+
+/// **The fingerprint is the published FNV-1a, and it distinguishes pictures by their bytes.**
+///
+/// **This calls the server's own function**, not a restatement of it: `bevy_emerge_mcp::fingerprint`
+/// is the one `emerge_capture_still` uses. A test of a copy would pass while the server's version
+/// had lost its zero-padding or reversed the xor/multiply order — the failure a duplicate invites.
+///
+/// The vectors are the published ones (Fowler, Noll & Vo, *FNV*, 1991), so a "hash" that merely
+/// distinguishes its inputs cannot pass by accident.
+#[test]
+fn the_fingerprint_matches_the_published_vectors() {
+    for (input, want) in [
+        ("", "cbf29ce484222325"),
+        ("a", "af63dc4c8601ec8c"),
+        ("foobar", "85944171f73967e8"),
+        ("hello", "a430d84680aabd0b"),
+    ] {
+        assert_eq!(
+            bevy_emerge_mcp::fingerprint(input.as_bytes()),
+            want,
+            "FNV-1a 64 of {input:?} is not the published value"
+        );
+    }
+}
+
+/// **Two pictures differing by one byte do not share a fingerprint.**
+#[test]
+fn the_fingerprint_distinguishes_pictures_by_their_bytes() {
+    let a = bevy_emerge_mcp::fingerprint(&[200u8; 64]);
+    assert_eq!(a.len(), 16, "sixteen hex digits, one token: {a:?}");
+    assert!(
+        a.chars().all(|c| c.is_ascii_hexdigit()),
+        "not hexadecimal: {a:?}"
+    );
+    assert_eq!(
+        a,
+        bevy_emerge_mcp::fingerprint(&[200u8; 64]),
+        "the same bytes must fingerprint the same"
+    );
+    // At the ends and the middle, because a hash that only looked at a prefix would pass a spot
+    // check.
+    for at in [0usize, 31, 63] {
+        let mut other = vec![200u8; 64];
+        other[at] = 201;
+        assert_ne!(
+            bevy_emerge_mcp::fingerprint(&other),
+            a,
+            "a picture differing at byte {at} must not share a fingerprint"
+        );
+    }
+}

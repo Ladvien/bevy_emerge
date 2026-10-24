@@ -68,7 +68,7 @@ The library's pieces, a page at a time. Each row carries the piece's id, the mes
 
 ### `emerge_capture_still`
 
-A picture of the editor as it is now -- the world and the interface, because the editor draws both into one image -- plus a state summary of the same moment. The picture is returned as an image and written to a file whose path is in the answer. Use this after a change to see what it did, or before one to see what it was like.
+A picture of the editor as it is now -- the world and the interface, because the editor draws both into one image -- plus a state summary of the same moment. The picture is returned as an image and written to a file whose path is in the answer. The answer also carries a fingerprint of the picture's bytes: two stills with the same fingerprint are the same picture, so compare fingerprints rather than file paths to tell whether the screen changed. Use this after a change to see what it did, or before one to see what it was like.
 
 | annotation | value |
 |---|---|
