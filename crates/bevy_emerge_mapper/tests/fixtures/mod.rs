@@ -500,6 +500,29 @@ impl Fixture {
         self
     }
 
+    /// **Declare `kind` tokens**, so a test can move a piece's kind from one chip to another.
+    ///
+    /// The fixture ships `prop` alone, which is enough to observe *a* kind chip but not enough to
+    /// watch a click move the light from one chip to the next — the question B-047 asks.
+    pub fn kind_tokens(self, names: &[&str]) -> Fixture {
+        let at = self.dir.join("assets/emerge/vocab.ron");
+        let was =
+            std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("cannot read {at:?}: {e}"));
+        let one = r#"kind: (tokens: [( name: "prop", note: "a thing" )]),"#;
+        assert!(
+            was.contains(one),
+            "the fixture's kind axis must be the shipped one, or this is a no-op"
+        );
+        let mut rows = vec![r#"( name: "prop", note: "a thing" )"#.to_owned()];
+        for n in names {
+            rows.push(format!(r#"( name: "{n}", note: "a kind" )"#));
+        }
+        let full = format!("kind: (tokens: [{}]),", rows.join(", "));
+        std::fs::write(&at, was.replace(one, &full))
+            .unwrap_or_else(|e| panic!("cannot write {at:?}: {e}"));
+        self
+    }
+
     /// **A `kind` token that brings an `effects` token with it** — the *derived* half of `effects`.
     ///
     /// `Vocabularies::implied_effects` resolves the implication, `Vocabularies::masks` folds it into
