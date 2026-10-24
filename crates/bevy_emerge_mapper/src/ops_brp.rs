@@ -184,6 +184,12 @@ pub(crate) fn put_back(
     // library and the layers the Map draws from it, so a label kept only in the clone would be on
     // disk and not on screen. Compared first, for the reason the rules are: most operations change
     // no library, and writing through `as_deref_mut` marks the resource changed.
+    //
+    // **This is also what repaints the kit pane, and no extra trigger is needed (E-048).**
+    // `adopt_library` writes through `as_deref_mut`, which marks `Project` changed, and
+    // `tiles::rebuild_detail` runs on `resource_exists_and_changed::<Project>`. Measured with the
+    // `LabelGeneration` bump below removed: the `KIND` chip block still repainted (9,521 px), so a
+    // second trigger would be a second answer to a question already answered.
     if let Some(fresh) = ctx.project.as_ref()
         && project.as_deref().is_some_and(|p| p.measured != fresh.measured)
         && let Some(handle) = project.as_deref_mut()
@@ -817,14 +823,31 @@ fn operation_apply(
 
     // **The person's receipt says what the agent did (B-020).** A refusal goes to the journal as a
     // problem: it is an alarm, and it must not overwrite the receipt.
+    //
+    // **Both receipts, because the person reads the one belonging to the door they are on (E-048).**
+    // `EditorState::status` is the Map door's receipt; the kit door shows `ImportState::status`, and
+    // the agent path wrote only the first — so with the kit door open, an agent's label change
+    // reached the file, the live library and the chips, and said nothing in the row the author was
+    // looking at. Measured on the running editor: the labels row read `agent set kind` and the words
+    // `+crop -tile` appeared nowhere on screen.
+    let says = match &applied {
+        Ok(ops::Applied::Done { outcome, .. }) => Ok(outcome.summary.clone()),
+        Ok(ops::Applied::Refused(e)) | Err(e) => Err(e.0.clone()),
+    };
     if let Some(state) = state.as_mut() {
-        match &applied {
-            Ok(ops::Applied::Done { outcome, .. }) => {
-                state.receipt_agent_change(&p.operation, &outcome.summary);
-            }
-            Ok(ops::Applied::Refused(e)) | Err(e) => {
-                state.problem_agent_refusal(&p.operation, &e.0);
-            }
+        match &says {
+            Ok(summary) => state.receipt_agent_change(&p.operation, summary),
+            Err(why) => state.problem_agent_refusal(&p.operation, why),
+        }
+    }
+    if let Some(import) = import.as_mut() {
+        match &says {
+            Ok(summary) => import
+                .status
+                .note(format!("agent: {}: {summary}", p.operation)),
+            Err(why) => import
+                .status
+                .problem(format!("agent: {}: {why}", p.operation)),
         }
     }
     match applied {

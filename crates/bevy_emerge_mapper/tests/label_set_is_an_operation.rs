@@ -169,3 +169,96 @@ fn a_save_that_fails_refuses_and_changes_nothing() {
     assert_eq!(look_of(&app, "site/wall"), vec!["plain".to_string()], "the editor holds what the file holds");
     assert_eq!(look_by(&app, "site/wall"), None);
 }
+
+/// **The receipt names the transition, not just the axis** — E-048's second half.
+///
+/// `set kind on `torch_metal`` says which axis moved and leaves out what it became, which is the one
+/// thing a person reading a receipt wants. Measured on the running editor, that sentence was the
+/// whole visible evidence of an agent's label change: `0.116%` of the window.
+#[test]
+fn the_receipt_says_what_the_axis_changed_from_and_to() {
+    let mut app = editor_at("label-set-receipt-transition");
+    // `site/wall` starts `look: ["plain"]`; the fixture declares `worn` as a second look token.
+    let answer = label_set(&mut app, "site/wall", "look", &["worn"]);
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let summary = answer["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("+worn"),
+        "the receipt must name the token that arrived: {summary}"
+    );
+    assert!(
+        summary.contains("-plain"),
+        "and the token that left: {summary}"
+    );
+
+    // Clearing an axis says what left, so a deletion is not a receipt that reads `set look`.
+    let answer = label_set(&mut app, "site/wall", "look", &[]);
+    let summary = answer["summary"].as_str().unwrap_or_default();
+    assert!(summary.contains("-worn"), "an emptied axis names what left: {summary}");
+}
+
+/// **A re-stated axis names what actually happened**, not "unchanged".
+///
+/// Setting an axis to the tokens it already holds is not a no-op: `stamp_by` moves the axis's
+/// provenance to this writer, so a chip a person had confirmed turns `UNCHECKED` on screen. A
+/// receipt reading `unchanged` would be contradicted by the panel beside it.
+#[test]
+fn a_receipt_for_a_restated_axis_says_the_claim_was_restated() {
+    let mut app = editor_at("label-set-receipt-unchanged");
+    // The same tokens the piece already has.
+    let answer = label_set(&mut app, "site/wall", "look", &["plain"]);
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let summary = answer["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("claim restated"),
+        "re-asserting an axis moves its provenance and repaints the chip, so the receipt must say \
+         that rather than `unchanged`: {summary}"
+    );
+    assert!(
+        !summary.contains("unchanged"),
+        "a word the screen contradicts: {summary}"
+    );
+}
+
+/// **The kit door's receipt carries the agent's change too** — E-048.
+///
+/// The person reads the receipt belonging to the door they are on: `EditorState::status` is the Map
+/// door's, and the kit door shows `ImportState::status`. The agent path wrote only the Map one, so
+/// with the kit door open an agent's label change reached the file, the live library and the chips,
+/// and **said nothing in the row the author was looking at**. Measured on the running editor: the
+/// labels row read `agent set kind`, and the words `+crop -tile` appeared nowhere on screen.
+#[test]
+fn the_kit_doors_receipt_names_the_agents_label_change() {
+    let mut app = editor_at("label-set-kit-receipt");
+    let answer = label_set(&mut app, "site/wall", "look", &["worn"]);
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+
+    let receipt = app
+        .world()
+        .resource::<bevy_emerge_mapper::tiles::ImportState>()
+        .status
+        .note_text()
+        .to_owned();
+    assert!(
+        receipt.contains("agent") && receipt.contains("label_set"),
+        "the kit door's receipt must say an agent changed a label, because that is the row the \\
+         person is reading: {receipt:?}"
+    );
+    assert!(
+        receipt.contains("+worn"),
+        "and it must name what changed, not just the axis: {receipt:?}"
+    );
+}
+
+/// **A refusal reaches the kit door's journal as a problem**, not the receipt slot.
+#[test]
+fn the_kit_doors_refusal_is_a_problem() {
+    let mut app = editor_at("label-set-kit-refusal");
+    let answer = label_set(&mut app, "site/wall", "look", &["not-a-token"]);
+    assert_eq!(answer["outcome"], "refused", "{answer}");
+    let import = app.world().resource::<bevy_emerge_mapper::tiles::ImportState>();
+    assert!(
+        import.status.has_problem(),
+        "a refusal is an alarm, and the kit door must show it where alarms go"
+    );
+}

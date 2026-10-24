@@ -486,8 +486,8 @@
       "kind": "enhancement",
       "area": "editor",
       "title": "An agent's kit edit gives the person almost no visible feedback",
-      "status": "open",
-      "evidence": "Cycle 9 demo agent_corrects_a_label did not ship. The label change is 0.18-1.04% of the frame across crops A-E for label_set, and 0.39-1.28% for undo, against a 5% bar. Proposal: a receipt line naming the change (agent set barrel kind: container -> decor) and a brief highlight on the changed chip. Storyboard outside the repo: /tmp/cycle9/keep/agent_corrects_a_label.json. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "status": "shipped",
+      "evidence": "The receipt names the transition (`+crop  -tile`) and reaches BOTH doors: `EditorState::status` (Map) and `ImportState::status` (Kit). Four tests in `label_set_is_an_operation.rs`; the two kit-door ones fail before the fix with an empty receipt. An earlier `LabelGeneration` bump was measured to be unnecessary and removed.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -672,6 +672,38 @@
       },
       "status": "open",
       "evidence": "crates/bevy_emerge_mapper/src/editor.rs::sync_proposal_ghosts (the stamps arm is a comment)",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
+    },
+    {
+      "id": "E-062",
+      "kind": "enhancement",
+      "area": "capture",
+      "title": "A screenshot read back over BRP can be a stale file, and two reads can return the same bytes",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "`bevy_debugger/screenshot` returns before the PNG lands; two captures taken 1.5 s apart came back with identical MD5 9702f3bd311ea207d07719077bf74572 in the E-048 iteration, which produced a 0-pixel 'no change' reading and a wrong diagnosis. Workaround: hash the path after a delay, or read the state instead."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mcp/src/main.rs (emerge_capture_still); bevy_debugger_mcp's screenshot method",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
+    },
+    {
+      "id": "E-063",
+      "kind": "enhancement",
+      "area": "labels",
+      "title": "A label receipt names the axis it set but not the effects a kind change re-settled",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "`set_axis` re-settles implied effects when `kind` changes, so light -> decor drops `electricity`. The receipt says only `+decor -light`; the vocabulary decided the rest and the author is not told."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::set_axis, changed_from",
       "last_failure": "",
       "first_seen": "2026-10-24"
     }
