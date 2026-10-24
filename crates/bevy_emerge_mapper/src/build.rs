@@ -456,15 +456,21 @@ pub fn host_for(
     at: (f32, f32),
     span: (f32, f32),
 ) -> Result<Option<String>, String> {
-    // **The permissive mount, and the strict one for the refusal.** A `Mount::OnSurfaceOrFloor` piece
-    // that touches a sibling offering the class belongs *on* it — that is the mount's first reading —
-    // and one that touches nothing is fine on the floor. Reading `mount_class` here (the strict
-    // answer) made a two-way member save `on: None` whatever it was dropped against, and
-    // `rebind_hosts` then reset a hand-authored seating on the next edit.
-    let Some(want) = stack::may_take_surface(guest) else {
+    // **The strict mount decides whether a host is REQUIRED; the permissive one whether one is
+    // TAKEN.** A `Mount::OnSurfaceOrFloor` piece that touches a sibling offering the class belongs
+    // *on* it — that is the mount's first reading — and one that touches nothing is fine on the
+    // floor. Reading `mount_class` alone here made a two-way member save `on: None` whatever it was
+    // dropped against, and `rebind_hosts` then reset a hand-authored seating on the next edit.
+    //
+    // The two questions are asked separately on purpose: `mount_class` is the *required* host and
+    // covers surfaces and faces; `may_take_surface` is the *offered* one and covers the two-way
+    // mount. A piece that answers neither takes no host at all.
+    let Some(want) =
+        crate::editor::mount_class(guest).or_else(|| stack::may_take_surface(guest))
+    else {
         return Ok(None);
     };
-    let required = crate::editor::mount_class(guest).is_some();
+    let required = stack::needs_surface(guest).is_some() || stack::needs_face(guest).is_some();
 
     let mut found: Vec<&str> = Vec::new();
     for m in members {
