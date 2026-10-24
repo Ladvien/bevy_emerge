@@ -29,10 +29,11 @@ A **map** is a file that holds your placements. It is saved as `<name>.map.ron` 
 1. Press Right. The MAPS column is selected. Its only row is `+ new map`. The hint bar reads `up/down map · left/right column · Enter new map · Esc quit`.
 2. Press `N`. A form titled `NEW MAP IN furniture` opens in the panel under MAPS. It has four fields: NAME, BOUNDS, ORIGIN and NOTE. NAME is blank, BOUNDS is `10 x 4 x 10` and ORIGIN is `0 x 0 x 0`. The hint reads `type · Enter makes the map · Esc cancel`. Enter on `+ new map` also starts the name prompt.
 3. Type `first_map`. Use lowercase letters, digits and underscores. Start with a letter.
-4. Press Enter. The map `first_map` is made and selected in the MAPS column. It is not open yet.
-5. Press Enter again. The map opens in the editor.
+4. Press Enter. The map `first_map` is made **and opens in the editor**, in that one press.
 
 **What you see:** the editor opens on the MAP door. A door is one of the editor's three workspaces. The MAP door shows your map. A new map's bounds start at `10 x 4 x 10`.
+
+**If the map is made but does not open:** the door refused it, and the reason is on the status line (`\`first_map\` will not open: …`). The map is still in the MAPS column, so pressing Enter on it tries again.
 
 **If it goes wrong:** if Enter on `+ new map` does nothing, check that the form is open under MAPS. If you press Enter with the name blank, the message reads `a map needs a name — snake_case, starting with a letter`. Type a name first.
 
