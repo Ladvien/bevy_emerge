@@ -10805,7 +10805,12 @@ fn sense_under_cursor(
     );
     let picked = under_cursor_target(&mut lock, *pointer, camera, &project, &open)
         .and_then(|i| open.map.placements.get(i));
-    let want = under_readout(on_ui, picked);
+    // **The descriptor comes from the piece, through the same resolver every other question uses**,
+    // because the layer a two-way placement took is only readable next to the mount that asked
+    // (E-059). A piece the library has dropped answers `None` and the line keeps the words it had.
+    let described = picked
+        .and_then(|p| bevy_emerge_core::stack::descriptor_of(&project.library, p));
+    let want = under_readout(on_ui, picked, described.as_deref());
     if under.0 != want {
         under.0 = want;
     }
@@ -10818,7 +10823,11 @@ fn sense_under_cursor(
 /// blank whatever the rule does, and **passes with the gate deleted**. That is not a hypothetical:
 /// the first version of this test was written that way, mutation-tested, and found to assert
 /// nothing. The rule lives here so it can be asked directly.
-pub fn under_readout(on_ui: bool, picked: Option<&Placed>) -> String {
+pub fn under_readout(
+    on_ui: bool,
+    picked: Option<&Placed>,
+    descriptor: Option<&bevy_emerge_core::descriptor::Descriptor>,
+) -> String {
     // A panel is drawn over the map, so a pointer on one is not over the piece behind it — and this
     // line ends "edits it" about a key that acts on the PLACE selection there.
     if on_ui {
@@ -10828,13 +10837,43 @@ pub fn under_readout(on_ui: bool, picked: Option<&Placed>) -> String {
         // The chord comes from the census, never retyped — `keys.rs`'s one rule, and the reason
         // this line cannot come to name a key the build does not read.
         Some(p) => format!(
-            "{}  — {} edits it",
+            "{}  — {}{} edits it",
             p.id,
+            layer_of(p, descriptor),
             keys::chord_text(keys::binding(Action::EditTile))
         ),
         // Empty over bare floor. A row saying "nothing" would be a row that is never blank, and the
         // eye stops reading a line that always has something in it.
         None => String::new(),
+    }
+}
+
+/// **Which of its two layers this placement took, when that is a question** — E-059.
+///
+/// [`Mount::OnSurfaceOrFloor`](bevy_emerge_core::descriptor::Mount::OnSurfaceOrFloor) is the one
+/// mount whose answer belongs to the *placement*: dropped on a bench it seats there, dropped on open
+/// floor it stands on the deck, and `Placed::on` is the map file's record of which. Every other
+/// mount is settled by the descriptor, so the kit door's row already answers it and this says
+/// nothing — an ordinary crate announcing "on floor" on every hover would be the always-non-blank
+/// row this readout's own doc refuses.
+///
+/// Returns a phrase ready to sit before the chord, or `""`.
+///
+/// **The host is named, not just counted.** "on a host" was the first version and a test it was
+/// written against refused it: the map records *which* piece (`Placed::on`), and a line that says
+/// only that there is one leaves the author to hover the furniture to find out. It is the same
+/// argument [`crate::editor::under_readout`] makes for naming the piece at all.
+fn layer_of(
+    p: &Placed,
+    descriptor: Option<&bevy_emerge_core::descriptor::Descriptor>,
+) -> String {
+    use bevy_emerge_core::descriptor::Mount;
+    if !matches!(descriptor.map(|d| &d.mount), Some(Some(Mount::OnSurfaceOrFloor { .. }))) {
+        return String::new();
+    }
+    match &p.on {
+        Some(host) => format!("on `{host}`  — "),
+        None => "on the floor  — ".to_owned(),
     }
 }
 
