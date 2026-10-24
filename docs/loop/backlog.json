@@ -638,8 +638,8 @@
         "no_workaround": false,
         "evidence": "The mount label reads `on support or floor`; the per-placement answer is only in the INSPECTOR's UNDER row and in the map file."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/descriptor.rs::mount_label; crates/bevy_emerge_mapper/src/tiles.rs (palette rows)",
+      "status": "shipped",
+      "evidence": "The `UNDER` readout names the layer a two-way placement took: `smithy_horseshoes \u2014 on the floor \u2014 Cmd+Delete edits it`, or `on `{host}`` when seated. The item's own evidence was wrong \u2014 it said the answer was already in that row, and the row printed only the id and the chord; the kit door's mount row is a library declaration and correctly has no placement to report. Test `headless.rs::the_under_readout_says_which_layer_a_two_way_piece_took`, with the widened-check case mutation-tested.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },

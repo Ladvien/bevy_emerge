@@ -3281,7 +3281,7 @@ fn the_under_readout_is_blank_while_the_pointer_is_on_a_panel() {
     };
 
     // Over the world, pointing at something: the line names it and the key that acts on it.
-    let said = under_readout(false, Some(&piece));
+    let said = under_readout(false, Some(&piece), None);
     assert!(
         said.contains("crate@7"),
         "the readout must name the piece: `{said}`"
@@ -3295,12 +3295,12 @@ fn the_under_readout_is_blank_while_the_pointer_is_on_a_panel() {
     );
     // Over a panel, with the very same piece behind it: silent.
     assert_eq!(
-        under_readout(true, Some(&piece)),
+        under_readout(true, Some(&piece), None),
         "",
         "a panel is drawn over the map, so the block must not promise an edit to what is behind it"
     );
     // And bare floor stays blank, or the row is never empty and the eye stops reading it.
-    assert_eq!(under_readout(false, None), "");
+    assert_eq!(under_readout(false, None, None), "");
 }
 
 /// **"Is the pointer on a panel" answered against the real layout.**
@@ -16460,4 +16460,94 @@ mod patched_placements {
         assert_eq!(count, 2, "nothing was in the way: {}", said(&app));
         assert!(said(&app).contains("placed"), "said: {}", said(&app));
     }
+}
+
+/// **The readout says which layer the piece it names actually took** — E-059.
+///
+/// `Mount::OnSurfaceOrFloor` is the one mount whose answer is a property of the *placement*, not of
+/// the descriptor: dropped on a bench it seats there, dropped on open floor it stands on the deck.
+/// The map file records which (`Placed::on`), and the kit door's mount row can only ever show the
+/// *declaration* — `on support or floor` — because a library entry has no placement.
+///
+/// So the readout that names a specific piece is the one place the per-placement answer belongs, and
+/// it did not have it: hovering a horseshoe pile said `smithy_horseshoes — Cmd+Delete edits it`,
+/// with nothing about the bench it was standing on. This pins the two answers and, just as
+/// importantly, that a piece with no two-way mount keeps the line it had.
+#[test]
+fn the_under_readout_says_which_layer_a_two_way_piece_took() {
+    use bevy_emerge_mapper::editor::under_readout;
+
+    let placed = |id: &str, on: Option<&str>| bevy_emerge_core::map::Placed {
+        paint: 0,
+        id: id.to_owned(),
+        descriptor: "kit/dress_horseshoe_pile".to_owned(),
+        at: (1.0, 1.0),
+        yaw: 0.0,
+        lift: 0.0,
+        tip: (0, 0),
+        on: on.map(str::to_owned),
+        owned: false,
+        owned_because: None,
+        patch: None,
+        note: None,
+    };
+    let two_way = bevy_emerge_core::descriptor::Descriptor {
+        id: "kit/dress_horseshoe_pile".into(),
+        mount: Some(bevy_emerge_core::descriptor::Mount::OnSurfaceOrFloor {
+            class: "support".into(),
+        }),
+        ..Default::default()
+    };
+
+    // Seated on a host: the line names the host, which is the fact the map file records.
+    let seated = placed("pile@1", Some("smithy_workbench"));
+    let said = under_readout(false, Some(&seated), Some(&two_way));
+    assert!(
+        said.contains("smithy_workbench"),
+        "a piece seated on a host must say which host, or the author cannot tell it from one on \
+         the floor: `{said}`"
+    );
+
+    // Standing on the floor: the other half of the same mount, said plainly.
+    let floored = placed("pile@2", None);
+    let said = under_readout(false, Some(&floored), Some(&two_way));
+    assert!(
+        said.contains("floor"),
+        "a two-way piece that took the floor must say so: `{said}`"
+    );
+
+    // **A plain `OnSurface` piece is not two-way either, even when it is seated.** It has a host
+    // too — so a widened check (`OnSurface | OnSurfaceOrFloor`) would pass every case above — and
+    // the layer is settled by its descriptor, which the kit row already states. This is the case
+    // that pins the check to the variant and not to "some mount with a host".
+    let surface_only = bevy_emerge_core::descriptor::Descriptor {
+        id: "kit/lamp".into(),
+        mount: Some(bevy_emerge_core::descriptor::Mount::OnSurface {
+            class: "worktop".into(),
+        }),
+        ..Default::default()
+    };
+    let said = under_readout(false, Some(&placed("lamp@1", Some("desk"))), Some(&surface_only));
+    assert!(
+        !said.contains("on `desk`") && !said.contains("floor"),
+        "a seated `OnSurface` piece has the same `on` as a two-way one, so only the variant can \
+         tell them apart: `{said}`"
+    );
+
+    // **And a piece that is not two-way keeps exactly the line it had.** The floor is not news for
+    // an `OnFloor` piece, and saying it on every one of them would be the always-non-blank row the
+    // readout's own doc refuses.
+    let plain = bevy_emerge_core::descriptor::Descriptor {
+        id: "kit/crate".into(),
+        mount: Some(bevy_emerge_core::descriptor::Mount::OnFloor),
+        ..Default::default()
+    };
+    let said = under_readout(false, Some(&placed("crate@7", None)), Some(&plain));
+    assert!(
+        !said.contains("floor"),
+        "an ordinary floor piece does not need the floor announced: `{said}`"
+    );
+    // Unknown descriptor: no claim either way.
+    let said = under_readout(false, Some(&placed("x@1", None)), None);
+    assert!(!said.contains("floor"), "no descriptor, no claim: `{said}`");
 }
