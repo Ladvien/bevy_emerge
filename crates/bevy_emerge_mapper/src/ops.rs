@@ -1696,6 +1696,55 @@ pub mod label_set {
         }
     }
 
+    /// **The axis, read.** [`list_of`]'s mutable twin, for a caller that needs the value before a
+    /// write through `list_of` — one `&mut` borrow cannot be held across the call that uses it.
+    fn read_list<'a>(d: &'a Descriptor, axis: &str) -> &'a [String] {
+        match axis {
+            "kind" => &d.kind,
+            "effects" => &d.effects,
+            "look" => &d.look,
+            _ => &d.offers.surfaces,
+        }
+    }
+
+    /// **What a label write changed, as a phrase or nothing.** Only the part that moved: a receipt
+    /// repeating a value the author already had is noise, and one that names nothing is what this
+    /// exists to stop.
+    fn changed_from(was: &[String], now: &[String]) -> String {
+        let added: Vec<&str> = now
+            .iter()
+            .filter(|t| !was.contains(t))
+            .map(String::as_str)
+            .collect();
+        let removed: Vec<&str> = was
+            .iter()
+            .filter(|t| !now.contains(t))
+            .map(String::as_str)
+            .collect();
+        let say = |sign: &str, toks: &[&str]| {
+            if toks.is_empty() {
+                String::new()
+            } else {
+                format!(" {sign}{}", toks.join(", "))
+            }
+        };
+        let out = format!("{}{}", say("+", &added), say(" -", &removed));
+        if out.is_empty() {
+            // **Not "unchanged", and the difference is real.** Re-asserting the same tokens still
+            // moves the axis's provenance: `stamp_by` flips it to this writer, and a chip that was
+            // `TEXT` (a person confirmed it) paints `UNCHECKED` afterwards. So the receipt says what
+            // actually happened — the claim was re-stated by this writer — rather than reporting a
+            // no-op the screen contradicts.
+            if was.is_empty() {
+                " — nothing".to_owned()
+            } else {
+                " — same tokens, claim restated".to_owned()
+            }
+        } else {
+            out
+        }
+    }
+
     fn axis_of(axis: &str) -> Axis {
         match axis {
             "kind" => Axis::Kind,
@@ -1847,8 +1896,14 @@ pub mod label_set {
                     Source::Human => By::Human,
                     Source::Agent => By::Agent,
                 };
+                // **The axis as it was, before the write** — the receipt names a transition, and
+                // "set kind on `barrel`" is a sentence that leaves out the only part a person wants:
+                // what it became. Measured on the running editor, an agent's `label_set` on a piece
+                // was `0.116%` of the window and its receipt said only `set kind on town/shrub`.
+                let was = read_list(d, axis).to_vec();
                 set_axis(d, &project.vocab, axis, tokens, by);
-                (format!("set {axis} on `{id}`"), state_json(d))
+                let now = read_list(d, axis).to_vec();
+                (format!("set {axis} on `{id}`{}", changed_from(&was, &now)), state_json(d))
             }
             Request::Restore { record, .. } => {
                 d.kind = record.kind.clone();
