@@ -22,6 +22,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
+// `Pressed` is the button layer's "a press is in flight" marker; arming the snip clears it — see
+// `snip_gates_picking`.
+use bevy::ui::Pressed;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::window::{PrimaryWindow, Window};
 use bevy_emerge_snip::{CameraView, PlacedIn, SnipRecord, write_snip};
@@ -469,10 +472,29 @@ pub fn snip_overlay(
 /// **While the snip is armed, no button sees the pointer.** Bevy fires a button's `Activate` on a click,
 /// so a drag that starts and ends on a button would press it. Picking is off while the snip is armed and
 /// back on once it is done. The check is on the armed flag only, so the note field stays clickable.
+///
+/// **Turning picking off is not enough on its own** — B-032. `button_on_pointer_click`
+/// (`bevy_ui_widgets-0.20.0/src/button.rs:60-72`) activates a button that carries [`Pressed`] when a
+/// `PointerClick` arrives, and the press that set `Pressed` may have happened *before* the snip
+/// armed. Picking off stops new presses; it cannot stop a release from completing one already in
+/// flight, so the person presses a button, decides mid-press to snip instead, and the button fires
+/// anyway. Arming therefore also **drops every `Pressed`**, which is the state the release looks for.
+/// The press the person abandoned is the press they abandoned.
 fn snip_gates_picking(
     snip: Res<SnipEdit>,
     settings: Option<ResMut<bevy::picking::PickingSettings>>,
+    mut in_flight: Query<Entity, With<Pressed>>,
+    mut commands: Commands,
 ) {
+    // **On the frame it becomes armed, not every armed frame.** `Res::is_changed` is true once, when
+    // the arming written this frame arrives; sweeping every frame would instead keep clearing
+    // presses the button layer makes later, and a press started on a *disarmed* editor would never
+    // finish. One clear at the transition is exactly the press the person abandoned.
+    if snip.is_changed() && snip.armed {
+        for entity in &mut in_flight {
+            commands.entity(entity).remove::<Pressed>();
+        }
+    }
     let Some(mut settings) = settings else {
         return;
     };

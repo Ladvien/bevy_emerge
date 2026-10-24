@@ -617,6 +617,65 @@ fn the_record_reads_the_cursor_where_the_drag_was_released() {
     );
 }
 
+/// **A press that began before the snip was armed must not activate on release** — B-032.
+///
+/// `button_on_pointer_click` (`bevy_ui_widgets-0.20.0/src/button.rs:60-72`) fires `Activate` when a
+/// `PointerClick` arrives on a button that has `Pressed` — and the press that sets `Pressed` may have
+/// happened *before* the snip armed. Turning picking off while armed stops new presses reaching a
+/// button; it cannot stop a release from completing one that is already in flight.
+///
+/// The person's sequence is ordinary: press a button, decide mid-press to snip instead, and the
+/// button fires on release anyway. The workaround is to release and press again, which is why this is
+/// not must-fix — but it is a press the person did not make.
+///
+/// **What this asserts is the mechanism, not the pixel**: while the snip claims the pointer, no
+/// button may still be carrying `Pressed`. The editor drops it on arming, so the release finds no
+/// button in flight.
+#[test]
+fn arming_the_snip_drops_a_press_that_was_already_in_flight() {
+    use bevy::ui::Pressed;
+
+    let mut app = editor("snip_arming_mid_press");
+    for _ in 0..3 {
+        app.update();
+    }
+
+    // A button with a press already in progress — the state `button_on_pointer_down` leaves behind.
+    let button = app
+        .world_mut()
+        .spawn((
+            bevy::ui_widgets::Button,
+            Pressed,
+            Node::default(),
+        ))
+        .id();
+    app.update();
+    assert!(
+        app.world().get::<Pressed>(button).is_some(),
+        "the fixture models a press in flight"
+    );
+
+    // Mid-press, the person arms the snip.
+    step(
+        &mut app,
+        Frame {
+            keys: vec![MOD_KEYS[0], KeyCode::Backslash],
+            ..default()
+        },
+    );
+    app.update();
+    assert!(
+        app.world().resource::<SnipEdit>().armed,
+        "the snip is armed after Cmd+\\"
+    );
+
+    assert!(
+        app.world().get::<Pressed>(button).is_none(),
+        "arming the snip must drop a press already in flight, or the release completes it and \
+         activates a button the person was no longer pressing (B-032)"
+    );
+}
+
 /// **While the snip is armed, no button sees the pointer.** A button fires its `Activate` on a click, so
 /// a drag that starts and ends on it would press it. The snip turns picking off while it is armed and
 /// back on when it is done, and this proves the switch; the activation itself needs a real pointer.

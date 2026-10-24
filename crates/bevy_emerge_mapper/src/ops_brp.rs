@@ -322,6 +322,11 @@ fn editor_state(
             "stamps": o.map.stamps.len(),
             "bash": o.map.bash,
             "note": o.map.note,
+            // **The enclosure wish, so an agent can read back what it set.** Without these two, an
+            // operation could change the wish and the state dump would not show it — the agent would
+            // have to trust its own parameters rather than the editor's answer (E-005).
+            "enclosure_wish": o.map.enclosure.wish,
+            "enclosure_weight": o.map.enclosure.weight,
             "pinned": pinned,
             "pinned_total": pinned_total,
             // **Where the next page starts**, and the sentence that says so — the shape `oplog_read`
