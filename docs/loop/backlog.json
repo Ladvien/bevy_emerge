@@ -611,9 +611,9 @@
    "id": "E-057",
    "kind": "enhancement",
    "area": "editor",
-   "title": "Saving the town map roughly triples its file (75 KB to 229 KB)",
-   "status": "open",
-   "evidence": "DocGame and GifAgent 2026-10-23: a save took town.map.ron from 75,089 to 228,856 bytes (placements expanded). Check whether the expansion is intended.",
+   "title": "A save writes every default on every placement, so a map's file is 41% larger than it needs to be",
+   "status": "fixed",
+   "evidence": "crates/bevy_emerge_core/src/map.rs (skip_serializing_if on Placed's defaulted fields); map::tests::a_default_field_is_not_written_and_nothing_is_lost and a_stated_field_is_still_written; measured live on the town map, 226,923 -> 134,320 bytes, 720 placements and 4 pins intact, second save byte-identical. The item's 'placements expanded' diagnosis was wrong: save checks by expanding and writes unexpanded.",
    "last_failure": "",
    "first_seen": "2026-10-23"
   },

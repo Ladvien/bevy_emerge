@@ -87,10 +87,16 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 |---|---|
 | Where | `assets/emerge/maps/<name>.map.ron`, one file per map |
 | What it holds | One map: its name, its origin and bounds, its placements, its stamps, its locations and its `enclosure` wish. The file keeps each stamp as a stamp. The game expands stamps when it loads. |
-| Written by | The editor, when a map is saved and when a new empty map is made. The save checks the map and expands its stamps before it writes. |
+| Written by | The editor, when a map is saved and when a new empty map is made. The save **checks** the map by expanding its stamps — the same `Map::expanded` the game uses, so the gate and the loader agree — and then writes the map **unexpanded**, so each stamp stays a stamp. |
 | Live reload | Yes, for the map the editor has open. |
 | Read by | The game's loader, which refuses a map whose `name` does not match its file, and the editor. |
 | Format version | 7 |
+
+### What a save leaves out
+
+A placement is written without the fields that hold their defaults: `on`, `owned`, `owned_because`, `patch` and `note` are omitted when they are `None` or `false`. An absent field deserializes to exactly that value, so nothing is lost and the file says only what is true. On the town map this is 226,923 bytes down to 134,320 — **41 %** — and a second save is byte-identical, so a file no longer grows each time it is written.
+
+A stated value is still written: `owned: true`, a `note`, a `patch`, a `paint` layer and `on:` all appear when they mean something. Only the map's own header `note` is written even when absent — it is one line per file, and having it visible is why the field exists.
 
 ### `enclosure`
 
