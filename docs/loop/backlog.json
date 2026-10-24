@@ -562,8 +562,8 @@
       "kind": "bug",
       "area": "editor",
       "title": "Undoing a removal blanks the ground patches for one frame",
-      "status": "unconfirmed",
-      "evidence": "docs/media/agent-drives.gif frame 22 (about 2.2 s): during the first Cmd+Z (put back abbey_table and 3 on it) the red field patches vanish for one frame and return. Likely a full respawn on put-back.",
+      "status": "fixed",
+      "evidence": "Reproduced at 15 fps on the town map: the undo frame (f009, t=0.60 s) had 0 green field pixels where its neighbours have 143,694. Cause: a logged undo and an agent's undo ask for `Due::map_replaced`, whose `draw_every_placement` despawned EVERY standing piece before respawning the map. The person's Cmd+Z never blanked (143,694 across all 45 frames) because it takes the targeted path. Fixed: despawn only what the map no longer holds, and leave a piece alone only when it is drawn where its row says (position AND facing). Also: the put-back now spawns restored rows with their `Paint`. Test `a_full_redraw_leaves_the_standing_pieces_standing.rs` (first of two fails before).",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },

@@ -16,12 +16,14 @@ The full recording is [`docs/media/demo.mp4`](docs/media/demo.mp4), 64 seconds l
 - **One undo history.** Cmd+Z takes back the agent's last turn as well as your own. The agent's turn joins your history, so you do not need a second undo.
 - **Snips show the agent what you mean.** Cmd+\ lets you drag a rectangle over the editor and write a note. The agent can list your snips, read each note, and get each picture from its file.
 - **Edit data files and see the result.** The editor checks its project files every quarter of a second and re-reads the ones that changed.
+- **A generator shows you the layout before you keep it.** G proposes a whole arrangement and draws it as translucent pieces, so you look at the map rather than at a sentence about it, and Enter keeps exactly what you saw.
+- **A piece can rest on a surface or on the floor.** A library entry can say "on a `support` top, or on the floor", and each placement records which it took — so a dressing set goes on the bench in one room and on the floor in the next without a second library entry.
 - **Layouts learned from your maps.** You lay out a corner the way you want it. The editor learns the rules from that arrangement, then continues it with wave function collapse, so it adds more of your layout, not a generic one.
 - **Labels that wait for you.** A vision model can propose a label for each piece. Each proposal is marked unchecked. To confirm an axis, toggle one of its label chips, which marks the whole axis as yours. No button confirms a proposal in place.
 
 ## Status
 
-**Works today:** the editor (`bevy_emerge_mapper`) for building maps from kits; the MCP server (`bevy_emerge_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout.
+**Works today:** the editor (`bevy_emerge_mapper`) for building maps from kits; the MCP server (`bevy_emerge_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout, drawn before you commit to it; pieces that may rest on a surface or on the floor.
 
 **Install:** use the crates by path or git. `bevy_emerge_rng` and `bevy_emerge_solver` are marked `publish = false`.
 
@@ -67,8 +69,8 @@ The tools are listed in [MCP tools](docs/mcp-tools.md).
 
   ![The whole editor window on the Map door: the PLACE list is walked to the gate house, R turns it before it is placed, two clicks place two gate houses, X and a click remove one, and Cmd+Z puts it back; the inspector names each step](docs/media/build-a-map.gif)
 
-- **Make kits and labels.** Bring in meshes, group them into kits, and label each piece. See [kits and labels](docs/guide/kits-and-labels.md).
-- **Work with an agent.** Let an agent turn and remove pieces, and frame and capture the map, while you watch and snip problems. See [agents](docs/guide/agents.md).
+- **Make kits and labels.** Bring in meshes, group them into kits, and label each piece. A label change says what it did, in the receipt row of the door you are on — including the effects a `kind` change re-derived from the vocabulary. See [kits and labels](docs/guide/kits-and-labels.md).
+- **Work with an agent.** Let an agent turn and remove pieces, label them, and frame and capture the map, while you watch and snip problems. A still's answer carries a fingerprint of its bytes, so two captures can be compared as pictures. See [agents](docs/guide/agents.md).
 - **Use the data files.** Read and edit the files a game loads. See [data files](docs/guide/data-files.md).
 - **Know the keys.** See [keys](docs/guide/keys.md).
 
