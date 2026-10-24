@@ -1245,6 +1245,15 @@ fn keep_palette_selection_on_screen(
 #[derive(Component)]
 pub struct Placement(pub String);
 
+/// **A proposed piece's ghost**, so a preview can be taken down without touching the map's own rows.
+///
+/// Its own marker rather than `Ghost` alone, because the two have different lifetimes and different
+/// owners: `Ghost` is the *look* (translucent, no shadow — see `fade_ghost`), and this is the
+/// *bookkeeping* of a proposal that has not been committed. `sync_proposal_ghosts` despawns by this
+/// and nothing else, so discarding a layout cannot take an armed brush's ghost with it.
+#[derive(Component)]
+pub struct ProposalGhost;
+
 /// **The grid step the map is read on**, metres.
 ///
 /// Shared by `generate` and `check_edges` on purpose: the learned grammar and the edge check must
@@ -1389,6 +1398,10 @@ impl Plugin for EditorPlugin {
             // nobody registered it.
             .init_resource::<Rung>()
             .init_resource::<Proposal>()
+            // **A resource, not a field on `EditorState`.** `EditorState` is rebuilt on every door
+            // crossing and the sync's `Local` is not, so a counter living there disagreed with the
+            // thing comparing against it — see [`ProposalClock`].
+            .init_resource::<ProposalClock>()
             .init_resource::<FineAnchor>()
             .init_resource::<PlaceDrag>()
             // Read by `drive_run`, so this plugin owns it — a missing `ResMut` panics its system in
@@ -1617,6 +1630,17 @@ impl Plugin for EditorPlugin {
                         // by the same frame's `Esc` peel — the two halves of one door must not both
                         // fire on one press.
                         apply_proposal.in_set(keys::Phase::Act).after(keys),
+                        // **After `keys`, so a proposal is drawn on the frame it was made and taken
+                        // down on the frame it was thrown away or kept** — a ghost that outlived its
+                        // proposal would show a layout the map does not hold (B-046).
+                        sync_proposal_ghosts
+                            .in_set(keys::Phase::Act)
+                            .after(keys)
+                            // **After the commit door**, or the two race: `apply_proposal` takes
+                            // the proposal and `sync` reads it, and with no order between them the
+                            // sync can run first and leave `drawn` pointing at a proposal that is
+                            // already gone — so the next `G` of equal generation goes undrawn.
+                            .after(apply_proposal),
                         draw_proposal,
                     ),
                     (refresh_status, refresh_history),
@@ -3418,6 +3442,33 @@ pub struct Proposed {
     /// itself, so writing them into the map would make a second, stale copy of its answer.
     /// [`apply_proposal`] refuses one and leaves it standing.
     pub preview_only: bool,
+    /// **Which generate made this**, monotonic for the life of the process.
+    ///
+    /// The preview's own identity, and the reason it is a number rather than something derived from
+    /// the rows: pressing `G` twice in a row is ordinary, and a key built from the layout would make
+    /// the second proposal of the same length go undrawn. See [`sync_proposal_ghosts`].
+    ///
+    /// **Not `state.seed`.** That is a door-scoped field (`EditorState` is rebuilt on every door
+    /// crossing, `seed: 1`), and the sync's `Local` survives the reset — so the two disagreed after
+    /// a crossing and a proposal could be mistaken for the one already drawn. [`ProposalClock`] is a
+    /// resource, so it outlives the door exactly as the `Local` does.
+    pub generation: u64,
+}
+
+/// **A counter that never resets**, for telling one proposal from the next.
+///
+/// Its own resource rather than a field on `EditorState`, because `EditorState` is rebuilt every time
+/// a door is crossed and the thing it is compared against ([`sync_proposal_ghosts`]'s `Local`) is
+/// not. A counter with a different lifetime from its reader is a counter that will eventually lie.
+#[derive(Resource, Default)]
+pub struct ProposalClock(pub u64);
+
+impl ProposalClock {
+    /// The next proposal's number. Wrapping is fine: two proposals 2^64 apart are not a case.
+    pub fn tick(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(1);
+        self.0
+    }
 }
 
 /// The proposal in hand, or `None`. `None` is a real state: it is what makes the Map's key list show
@@ -7207,6 +7258,9 @@ type ToolsParam<'w> = (
     ResMut<'w, TargetLock>,
     ResMut<'w, Proposal>,
     Res<'w, crate::compose::Armed>,
+    // **The proposal counter rides here for the same reason** the parameter list is full: it is a
+    // `ResMut` and there is no seventeenth slot. See [`ProposalClock`].
+    ResMut<'w, ProposalClock>,
 );
 
 /// The Tiles tab's state as one `keys` param.
@@ -7278,7 +7332,7 @@ fn keys(
         return;
     }
     let (mode, import, confirm) = &mut tiles;
-    let (move_drag, clone_drag, target, proposal, compose) = &mut tools;
+    let (move_drag, clone_drag, target, proposal, compose, clock) = &mut tools;
     // One clock for every key that repeats while held — see `keys::repeating`.
     let dt = time.delta_secs();
 
@@ -7661,17 +7715,17 @@ fn keys(
     // **G continues the layout.** Learn the grammar from what is already placed, then fill the free
     // cells with more of it — see `bevy_emerge_core::grammar`.
     if keys::just_pressed(&keyboard, *live, Action::GenerateDeclared) {
-        generate_from(&project, &open, &mut state, proposal, Source::Declared);
+        generate_from(&project, &open, &mut state, proposal, clock, Source::Declared);
     }
     // The three arms need no `return` between them and no ordering: `just_pressed` refuses a binding
     // whose modifier state does not match exactly (`keys.rs`, `b.needs_mod != mod_held || !shift_ok`),
     // so bare, Shift and the platform modifier are mutually exclusive by construction. `keys`'
     // `the_three_generate_sources_do_not_shadow_each_other` is what keeps that true.
     if keys::just_pressed(&keyboard, *live, Action::GenerateComposed) {
-        generate_from(&project, &open, &mut state, proposal, Source::Composed);
+        generate_from(&project, &open, &mut state, proposal, clock, Source::Composed);
     }
     if keys::just_pressed(&keyboard, *live, Action::Generate) {
-        generate(&project, &open, &mut state, proposal);
+        generate(&project, &open, &mut state, proposal, clock);
         return;
     }
 
@@ -11283,21 +11337,23 @@ enum Source {
 }
 
 fn generate(project: &Project,
-    open: &OpenMap, state: &mut EditorState, proposal: &mut Proposal) {
-    generate_from(project, open, state, proposal, Source::Learned);
+    open: &OpenMap, state: &mut EditorState, proposal: &mut Proposal,
+    clock: &mut ProposalClock) {
+    generate_from(project, open, state, proposal, clock, Source::Learned);
 }
 
 fn generate_from(project: &Project,
     open: &OpenMap,
     state: &mut EditorState,
     proposal: &mut Proposal,
+    clock: &mut ProposalClock,
     source: Source,
 ) {
     // **The project's rules answer first when they apply**, and only for `Learned` — `Declared` and
     // `Composed` read other things and a rule has nothing to say to them. When a rule applies it
     // is the whole answer, refusals included: falling back to the 1 m learned path after a rule
     // refused would show the author a layout the game will never build.
-    if source == Source::Learned && generate_by_rules(project, open, state, proposal) {
+    if source == Source::Learned && generate_by_rules(project, open, state, proposal, clock) {
         return;
     }
     // One metre: the tile the kits are authored on, and coarse enough that a 32 m map is a grid the
@@ -11480,6 +11536,8 @@ fn generate_from(project: &Project,
         stamps: solved.stamps,
         cell: CELL,
         preview_only: false,
+        // The seed the solve ran under, which is already monotonic and already advanced per generate.
+        generation: clock.tick(),
     });
 }
 
@@ -11501,6 +11559,7 @@ fn generate_by_rules(
     open: &OpenMap,
     state: &mut EditorState,
     proposal: &mut Proposal,
+    clock: &mut ProposalClock,
 ) -> bool {
     if let Some(rule) = project
         .rules
@@ -11508,7 +11567,7 @@ fn generate_by_rules(
         .iter()
         .find(|r| r.example == open.map.name)
     {
-        generate_example_block(rule, open, state, proposal);
+        generate_example_block(rule, open, state, proposal, clock);
         return true;
     }
     let asks = open.map.placements.iter().any(|p| {
@@ -11519,7 +11578,7 @@ fn generate_by_rules(
             .any(|r| r.regions.contains(&p.descriptor))
     });
     if asks {
-        generate_region_blocks(project, open, state, proposal);
+        generate_region_blocks(project, open, state, proposal, clock);
         return true;
     }
     false
@@ -11554,6 +11613,7 @@ fn generate_example_block(
     open: &OpenMap,
     state: &mut EditorState,
     proposal: &mut Proposal,
+    clock: &mut ProposalClock,
 ) {
     // Seeded like the ordinary path — every press a different layout — but from the rule's own seed.
     state.seed = state.seed.wrapping_add(1);
@@ -11577,6 +11637,7 @@ fn generate_example_block(
                 stamps: Vec::new(),
                 cell: rule.cell,
                 preview_only: false,
+                generation: clock.tick(),
             });
         }
         Err(e) => {
@@ -11657,6 +11718,7 @@ fn generate_region_blocks(
     open: &OpenMap,
     state: &mut EditorState,
     proposal: &mut Proposal,
+    clock: &mut ProposalClock,
 ) {
     // Not `state.seed`: the game seeds a region from its id, so a second press must show the same
     // layout, or the preview would stop being a preview of anything.
@@ -11687,6 +11749,7 @@ fn generate_region_blocks(
                     stamps: Vec::new(),
                     cell,
                     preview_only: true,
+                    generation: clock.tick(),
                 });
             }
         }
@@ -11735,6 +11798,97 @@ fn draw_proposal(project: Res<Project>,
             PROPOSAL_LINE,
         );
     }
+}
+
+/// **Draw the proposal's pieces, before anyone is asked to keep them** — B-046.
+///
+/// `G` proposes a layout and then asks a yes/no question about it. Until this system existed the
+/// answer was asked over an unchanged viewport: `draw_proposal` outlined each proposed cell in a
+/// 1-px gizmo on the ground plane, and measured on `town_block` (289 rows) pressing `G` changed
+/// **0.37% of the viewport's pixels, every one a hairline**. An author cannot judge a layout from
+/// that, which makes `Enter` a coin toss over something wide in scope — the brief's own rule about
+/// previewing wide operations, broken by the operation it names.
+///
+/// **The same meshes the commit will lay.** Each proposed row goes through [`spawn_piece`], the
+/// function `redraw_placements` uses, and its height comes from the same [`resolve_y`] the commit
+/// runs — so what is on screen is the seating that will land, not an approximation of it. The
+/// entities carry [`Ghost`] so [`fade_ghost`] makes them translucent, and [`ProposalGhost`] so they
+/// can be taken down without disturbing the map's own rows or an armed brush's ghost.
+///
+/// **Rebuilt only when the proposal changes.** The height of one proposed piece can be another's
+/// (a mug on a tray), so the rows are resolved as a group against a map that holds them: a scratch
+/// copy of the open map with the proposal appended. Doing that every frame would resolve 289 rows
+/// per frame for a layout that has not moved.
+///
+/// Runs after `keys` so a proposal made this frame is drawn this frame, and so a proposal `Esc` or
+/// `Enter` took is cleared this frame — the ghost must never outlive its proposal.
+fn sync_proposal_ghosts(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    project: Res<Project>,
+    open: Res<OpenMap>,
+    proposal: Res<Proposal>,
+    mut drawn: Local<Option<(u64, u32, u32)>>,
+    ghosts: Query<Entity, With<ProposalGhost>>,
+) {
+    // **Keyed on the proposal's generation AND the map it stands on.** The generation alone is not
+    // enough: a proposal outlives a change to the map under it, and the ghosts captured the origin
+    // they were spawned at. An agent's `map_set_settings` (or a `Cmd+Z` of one, or a file edit the
+    // watcher adopts) moves every real piece and every `draw_proposal` outline while the ghosts stay
+    // where they were — and `Enter` then lays the pieces somewhere the preview never showed. The
+    // origin is the only map fact a ghost's position depends on; the rows come from the proposal.
+    let key = proposal
+        .0
+        .as_ref()
+        .map(|p| (p.generation, open.map.origin.0.to_bits(), open.map.origin.2.to_bits()));
+    if *drawn == key {
+        return;
+    }
+    *drawn = key;
+
+    // Take the old ghosts down first, always: a proposal that shrank must not leave the tail behind.
+    for e in &ghosts {
+        commands.entity(e).despawn();
+    }
+    let Some(p) = proposal.0.as_ref() else {
+        return;
+    };
+
+    // **The rows resolved against a map that holds them.** A proposal's pieces can rest on each
+    // other, and `resolve_y` answers a guest from its host — so the scratch map is the open one plus
+    // the proposal, which is precisely the map `Enter` will commit.
+    let mut scratch = open.map.clone();
+    scratch.placements.extend(p.placements.iter().cloned());
+    let ys = match bevy_emerge_core::stack::resolve_y(&scratch, &project.library) {
+        Ok(ys) => ys,
+        // A proposal that does not resolve is one the commit would refuse too. Drawing nothing is
+        // the honest answer; the status line already carries the refusal that made it.
+        Err(_) => return,
+    };
+    let offset = open.map.placements.len();
+    for (i, row) in p.placements.iter().enumerate() {
+        let Some(d) = bevy_emerge_core::stack::descriptor_of(&project.library, row) else {
+            continue;
+        };
+        let Some(&y) = ys.get(offset + i) else {
+            continue;
+        };
+        if let Some(e) = spawn_piece(
+            &mut commands,
+            &assets,
+            Pose { d: &d, yaw: row.yaw, tip: row.tip },
+            row.at,
+            open.map.origin,
+            y,
+        ) {
+            commands.entity(e).insert((ProposalGhost, Ghost));
+        }
+    }
+    // **Stamps are not drawn piece by piece, and that is a scope decision stated rather than
+    // hidden.** A stamp is a composition reference whose rows are expanded by `composition::expand`
+    // against the map it lands in; drawing its members here would duplicate that expansion's
+    // placement rules. The cell outline `draw_proposal` draws still covers them, and the count in the
+    // status line says how many. Logged as E-061.
 }
 
 /// **Take the proposal, or leave it** — the other half of the commit door.

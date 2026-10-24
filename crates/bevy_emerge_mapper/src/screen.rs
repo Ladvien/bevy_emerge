@@ -549,6 +549,11 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::editor::RunGhostDrag", Ownership::Door),
     ("bevy_emerge_mapper::editor::FineAnchor", Ownership::Door),
     ("bevy_emerge_mapper::editor::Proposal", Ownership::Door),
+    // **`Session`, and that is the entire reason the resource exists.** `EditorState` — where the
+    // counter used to live as `seed` — is rebuilt on every door crossing, while the thing comparing
+    // against it (`sync_proposal_ghosts`' `Local`) is not. A counter that a door can reset is a
+    // counter that eventually reports a proposal as already drawn. See `ProposalClock`'s own doc.
+    ("bevy_emerge_mapper::editor::ProposalClock", Ownership::Session),
     ("bevy_emerge_mapper::editor::Rung", Ownership::Door),
     ("bevy_emerge_mapper::editor::SizeEdit", Ownership::Door),
     ("bevy_emerge_mapper::editor::Folded", Ownership::Door),
