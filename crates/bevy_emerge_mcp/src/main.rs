@@ -627,8 +627,11 @@ impl Emerge {
         description = "A picture of the editor as it is now -- the world and the interface, because \
                        the editor draws both into one image -- plus a state summary of the same \
                        moment. The picture is returned as an image and written to a file whose path \
-                       is in the answer. Use this after a change to see what it did, or before one \
-                       to see what it was like.",
+                       is in the answer. The answer also carries a fingerprint of the picture's \
+                       bytes: two stills with the same fingerprint are the same picture, so compare \
+                       fingerprints rather than file paths to tell whether the screen changed. Use \
+                       this after a change to see what it did, or before one to see what it was \
+                       like.",
         annotations(
             title = "Capture a still of the editor",
             read_only_hint = false,
@@ -673,6 +676,14 @@ impl Emerge {
         let answer = json!({
             "path": path.to_string_lossy(),
             "bytes": bytes.len(),
+            // **What the picture IS, so two stills can be compared without opening them (E-062).**
+            //
+            // A caller that compares paths, or timestamps, or file sizes cannot tell "the screen did
+            // not change" from "the file did not change" — and on 2026-10-24 that cost this loop a
+            // whole iteration: two captures came back with identical MD5, which was read as a stale
+            // screen and was in fact a repeated file. A fingerprint of the bytes is the fact the
+            // question actually needs.
+            "fingerprint": bevy_emerge_mcp::fingerprint(&bytes),
             "state": state,
         });
         Ok(CallToolResult::success(vec![
