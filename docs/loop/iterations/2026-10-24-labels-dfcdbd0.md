@@ -1,6 +1,6 @@
 # 2026-10-24 labels: an agent's kit edit says what it changed, in the door you are looking at (E-048)
 
-Focus: bug sweep (all GitHub issues closed) · Commits: `a741f06`..`HEAD` · Outcome: fixes only
+Focus: bug sweep (all GitHub issues closed) · Commits: `a741f06`..`dfcdbd0` · Outcome: fixes only
 
 ## Summary
 
@@ -41,7 +41,7 @@ cannot report different things.
 
 | Before (no receipt on the kit door) | After |
 | --- | --- |
-| ![before](assets/2026-10-24-labels-a741f06/E-048-panel.png) | ![after](assets/2026-10-24-labels-a741f06/E-048-receipt.png) |
+| ![before](assets/2026-10-24-labels-dfcdbd0/E-048-panel.png) | ![after](assets/2026-10-24-labels-dfcdbd0/E-048-receipt.png) |
 
 The right-hand image is the kit door's own receipt row after an agent's `label_set`; before the fix
 that row was empty and the change was only visible as the chip moving.
