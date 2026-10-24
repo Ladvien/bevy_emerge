@@ -1452,6 +1452,59 @@ mod tests {
     }
 
     /// **And the same for a map**, asked for in those words. A map made this way takes
+    /// **A map made at the keyboard is a map you are working in, not a row you press Enter on
+    /// again** (E-054).
+    ///
+    /// The guide taught the two-step in so many words — *"Press Enter. The map `first_map` is made
+    /// and selected in the MAPS column. It is not open yet. Press Enter again."* — and a guide that
+    /// has to teach a ceremony is describing one. It costs a person and an agent the same thing: the
+    /// first Enter answers, the screen does not change, and the natural reading is that nothing was
+    /// made.
+    ///
+    /// **Why the two presses were structural, not a decision.** `type_into_field` runs before
+    /// `drive_chooser` and sets `Chooser::swallowed` for the `Enter` it used, so `drive_chooser`
+    /// returns before its `KeyCode::Enter` arm and `open_the_selection` never runs that frame. The
+    /// press could commit the name and nothing else. So the opening has to happen where the name is
+    /// kept, which is what [`keep_field`] now does.
+    ///
+    /// **The assertion is on the arguments the screen would use**, because `args::open` is what turns
+    /// them into an editor and `launch_args` is the chooser's own answer: a map that was just made
+    /// must open *the map just made*, in that same press.
+    #[test]
+    fn making_a_map_opens_it_in_the_same_press() {
+        let root = Root::new("map-opens-once");
+        root.kit(Some("site"), 2);
+        let catalog = Catalog::scan(&root.0).unwrap_or_else(|e| panic!("{e}"));
+        let mut c = Chooser::new(root.0.clone(), catalog, Some("site"));
+
+        c.focus = Focus::Maps;
+        c.start_new();
+        c.raw = "porch".to_owned();
+        keep_field(&mut c, Field::Name);
+
+        assert!(c.creating.is_none(), "the map was made");
+        assert_eq!(c.problem, None, "and nothing was refused");
+        // **One press, one open.** `keep_field` leaves the map in hand rather than only on the
+        // cursor, so the screen opens it without a second keystroke.
+        let made = c
+            .made
+            .clone()
+            .unwrap_or_else(|| panic!("a map made at the keyboard must be left in hand to open"));
+
+        let args = c
+            .launch_args()
+            .unwrap_or_else(|e| panic!("the map just made must be openable: {e}"));
+        assert!(
+            args.iter().any(|a| a == "porch"),
+            "the arguments open the map that was just made: {args:?}"
+        );
+        assert!(
+            made.ends_with("porch.map.ron"),
+            "and the map left in hand is the one just written: {}",
+            made.display()
+        );
+    }
+
     /// `Map::default()`'s bounds, which is not a substitution — `MAP INFO` edits them afterwards
     /// through the same validate-then-atomic write, so nothing is reachable before creation that
     /// is not reachable after it.
@@ -2689,6 +2742,18 @@ pub struct Chooser {
     /// the keyboard first, exactly as `keys::Phase::Text` runs before `Act` in the editor. What was
     /// missing is the other half of that contract — having taken the key, say so.
     pub swallowed: bool,
+    /// **A map the name field made, waiting for this frame's open** (E-054).
+    ///
+    /// The `Enter` that commits a name is consumed by `type_into_field`, which sets
+    /// [`Self::swallowed`] so `drive_chooser` does not read the same press again. That is right for
+    /// Escape and wrong for this one: making a map *is* the press, and the author asked to work in
+    /// it, not to be shown a row. So the map made is left here for `drive_chooser` to open, on the
+    /// same frame, through the same `launch_args` → `args::open` path a second `Enter` used.
+    ///
+    /// `None` every frame but that one. A door that refuses leaves the map selected and the refusal
+    /// on screen, which is the one case where the two presses still happen — and now it is a case,
+    /// not the rule.
+    pub made: Option<PathBuf>,
 }
 
 /// **Something the screen has asked, and is waiting on an answer to.**
@@ -2825,6 +2890,7 @@ impl Chooser {
             creating: None,
             ask: None,
             swallowed: false,
+            made: None,
         }
     }
 
@@ -5962,11 +6028,15 @@ fn make_it(chooser: &mut Chooser, new: &New) -> Result<(), String> {
             // selected kit — it was written beside that kit's library — and a map now resolves
             // against every bound kit merged, so there is nothing left for the selection to decide.
             let dir = chooser.root.join(EMERGE_DIR).join(MAPS_DIR);
-            create_map(&dir, &d.name, d.bounds, d.origin, d.note.clone())?;
+            let path = create_map(&dir, &d.name, d.bounds, d.origin, d.note.clone())?;
             let name = d.name.clone();
             chooser.creating = None;
             rescan_keeping_place(chooser, Some(&name));
             chooser.focus = Focus::Maps;
+            // **Leave it in hand, so the same press can open it** (E-054). The cursor is on the map
+            // and `launch_args` would already name it on a *second* Enter; this is what lets that
+            // open happen now rather than after another keystroke.
+            chooser.made = Some(path);
         }
         New::Project(name) => {
             // **A sibling beside this root** — the parent is where the other projects live, and
@@ -6091,6 +6161,21 @@ fn drive_chooser(input: ChooserInput<'_, '_>) {
     // `Chooser` changed on every frame, which silently killed `paint_chooser`'s `is_changed()` guard
     // and rebuilt all four panels (plus a `read_to_string` of the selected map and of the kit's
     // policy) sixty times a second on an idle menu.
+    // **A map the name field just made opens in the same press** (E-054).
+    //
+    // This has to be here, above the `swallowed` return, because the press that made the map is the
+    // press `type_into_field` consumed: `keep_field` committed the name and set `swallowed`, so the
+    // `KeyCode::Enter` arm below never runs on that frame. Leaving the map in `made` is how the same
+    // press reaches `open_the_selection` — through the very path a second `Enter` used to, so a
+    // refusal still lands on screen and nothing else about opening changes.
+    if chooser.made.is_some() {
+        chooser.made = None;
+        open_the_selection(&mut chooser, &mut commands, &mut next);
+        // **And the keyboard is no longer the field's.** `keep_field` already cleared `editing`; the
+        // `swallowed` flag belonged to the press this branch just spent.
+        chooser.swallowed = false;
+        return;
+    }
     if chooser.swallowed {
         chooser.swallowed = false;
         return;
