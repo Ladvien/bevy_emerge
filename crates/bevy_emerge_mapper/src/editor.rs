@@ -4066,6 +4066,9 @@ struct HistoryJump<'w, 's> {
     open: ResMut<'w, OpenMap>,
     state: ResMut<'w, EditorState>,
     placed: Query<'w, 's, (Entity, &'static Placement)>,
+    /// **A drawn piece's own transform**, which is how the sweep tells a piece standing where the
+    /// map wants it from one that is not (B-048).
+    transforms: Query<'w, 's, &'static Transform>,
 }
 
 /// **A click on a history row jumps there, as one group (E-018).** Refused while the leaving
@@ -4092,6 +4095,7 @@ fn history_row_clicked(
         &mut j.open,
         &mut j.state,
         &j.placed,
+        &j.transforms,
         position,
     );
 }
@@ -6995,6 +6999,32 @@ pub enum Subject {
 /// reading opposite stacks, and a test that drove a copy of them would pass while the real pair was
 /// broken. `RunSystemError` is surfaced rather than swallowed — a test whose driver silently did
 /// nothing is a test that always passes.
+/// **Draw the whole map again**, the way a logged undo and an agent's undo both ask for — B-048.
+///
+/// The release path is `redraw_the_map`, which runs on `Due::map_replaced`; this calls the function
+/// that does the work, so a test asks the editor's own question. Reachable from
+/// `tests/a_full_redraw_leaves_the_standing_pieces_standing.rs`, which is about whether that
+/// function despawns pieces the map still holds — a still cannot see the frame that is missing.
+pub fn redraw_all_for_test(world: &mut World) {
+    use bevy::ecs::system::RunSystemOnce;
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             assets: Res<AssetServer>,
+             project: Res<Project>,
+             open: Res<OpenMap>,
+             placed: Query<(Entity, &Placement)>,
+             transforms: Query<&Transform>| {
+                if let Err(e) =
+                    draw_every_placement(&mut commands, &assets, &project, &open, &placed, &transforms)
+                {
+                    panic!("redraw_all_for_test: {e}");
+                }
+            },
+        )
+        .unwrap_or_else(|e| panic!("redraw_all_for_test: {e}"));
+}
+
 pub fn undo_for_test(world: &mut World) {
     use bevy::ecs::system::RunSystemOnce;
     world
@@ -7004,8 +7034,9 @@ pub fn undo_for_test(world: &mut World) {
              mut project: ResMut<Project>,
              mut open: ResMut<OpenMap>,
              mut state: ResMut<EditorState>,
-             placed: Query<(Entity, &Placement)>| {
-                undo(&mut commands, &assets, &mut project, &mut open, &mut state, &placed);
+             placed: Query<(Entity, &Placement)>,
+             transforms: Query<&Transform>| {
+                undo(&mut commands, &assets, &mut project, &mut open, &mut state, &placed, &transforms);
             },
         )
         .unwrap_or_else(|e| panic!("undo_for_test: {e}"));
@@ -7020,8 +7051,9 @@ pub fn redo_for_test(world: &mut World) {
              mut project: ResMut<Project>,
              mut open: ResMut<OpenMap>,
              mut state: ResMut<EditorState>,
-             placed: Query<(Entity, &Placement)>| {
-                redo(&mut commands, &assets, &mut project, &mut open, &mut state, &placed);
+             placed: Query<(Entity, &Placement)>,
+             transforms: Query<&Transform>| {
+                redo(&mut commands, &assets, &mut project, &mut open, &mut state, &placed, &transforms);
             },
         )
         .unwrap_or_else(|e| panic!("redo_for_test: {e}"));
@@ -7037,7 +7069,8 @@ pub fn jump_for_test(world: &mut World, position: usize) {
                   mut project: ResMut<Project>,
                   mut open: ResMut<OpenMap>,
                   mut state: ResMut<EditorState>,
-                  placed: Query<(Entity, &Placement)>| {
+                  placed: Query<(Entity, &Placement)>,
+                  transforms: Query<&Transform>| {
                 jump(
                     &mut commands,
                     &assets,
@@ -7045,6 +7078,7 @@ pub fn jump_for_test(world: &mut World, position: usize) {
                     &mut open,
                     &mut state,
                     &placed,
+                    &transforms,
                     position,
                 );
             },
@@ -7264,7 +7298,7 @@ type ToolsParam<'w> = (
 );
 
 /// The Tiles tab's state as one `keys` param.
-type TilesParam<'w> = (
+type TilesParam<'w, 's> = (
     ResMut<'w, crate::tiles::Mode>,
     ResMut<'w, crate::tiles::ImportState>,
     // **The prompt rides in this tuple for the reason the tuple exists**: the parameter list is
@@ -7273,6 +7307,9 @@ type TilesParam<'w> = (
     // of a full signature — the alternative was splitting the `Esc` cascade into a second
     // system, and that cascade only works because every layer of it is peeled in one place.
     ResMut<'w, crate::confirm::Confirm>,
+    // **The transform query rides here** for the reason this tuple exists: the parameter list is at
+    // Bevy's sixteen. `undo` needs it to tell a drawn piece from a stale one (B-048).
+    Query<'w, 's, &'static Transform>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -7331,7 +7368,7 @@ fn keys(
     if state.leaving {
         return;
     }
-    let (mode, import, confirm) = &mut tiles;
+    let (mode, import, confirm, transforms) = &mut tiles;
     let (move_drag, clone_drag, target, proposal, compose, clock) = &mut tools;
     // One clock for every key that repeats while held — see `keys::repeating`.
     let dt = time.delta_secs();
@@ -7349,12 +7386,12 @@ fn keys(
     );
 
     if keys::just_pressed(&keyboard, *live, Action::Undo) {
-        undo(&mut commands, &assets, &mut project, &mut open, &mut state, &placed);
+        undo(&mut commands, &assets, &mut project, &mut open, &mut state, &placed, transforms);
         return;
     }
 
     if keys::just_pressed(&keyboard, *live, Action::Redo) {
-        redo(&mut commands, &assets, &mut project, &mut open, &mut state, &placed);
+        redo(&mut commands, &assets, &mut project, &mut open, &mut state, &placed, transforms);
         return;
     }
 
@@ -7876,6 +7913,7 @@ fn delete_index(
 }
 
 /// Take back the last edit.
+#[allow(clippy::too_many_arguments)]
 fn undo(
     commands: &mut Commands,
     assets: &AssetServer,
@@ -7883,6 +7921,7 @@ fn undo(
     open: &mut OpenMap,
     state: &mut EditorState,
     placed: &Query<(Entity, &Placement)>,
+    transforms: &Query<&Transform>,
 ) {
     let Some(op) = state.undo.pop() else {
         state.status.note("nothing to undo".to_owned());
@@ -7892,7 +7931,7 @@ fn undo(
     // refused undo is a refusal, not a spent one, so the author sees why and the stack is as it was
     // (B-026). Only a stranded entry is dropped, because the map moved and there is nothing to put back.
     let kept = op.clone();
-    match apply(commands, assets, project, &mut *open, state, placed, op) {
+    match apply(commands, assets, project, &mut *open, state, placed, transforms, op) {
         Reversal::Done(inverse) => {
             state.settle();
             state.redo.push(inverse);
@@ -7903,6 +7942,7 @@ fn undo(
 }
 
 /// Take back the last thing undone.
+#[allow(clippy::too_many_arguments)]
 fn redo(
     commands: &mut Commands,
     assets: &AssetServer,
@@ -7910,6 +7950,7 @@ fn redo(
     open: &mut OpenMap,
     state: &mut EditorState,
     placed: &Query<(Entity, &Placement)>,
+    transforms: &Query<&Transform>,
 ) {
     let Some(op) = state.redo.pop() else {
         state.status.note("nothing to redo".to_owned());
@@ -7920,7 +7961,7 @@ fn redo(
     // so a redo could never be repeated. Redo moves an entry between the stacks; it does not author
     // anything.
     let kept = op.clone();
-    match apply(commands, assets, project, &mut *open, state, placed, op) {
+    match apply(commands, assets, project, &mut *open, state, placed, transforms, op) {
         Reversal::Done(inverse) => {
             state.settle();
             state.undo.push(inverse);
@@ -7938,6 +7979,7 @@ fn redo(
 /// jump where it is and says how far it got. The inverses that applied go on the other stack as ONE
 /// `Undo::Group`, so a single Cmd+Z reverses the whole jump. Redo replays the last one applied first,
 /// so the group is written in reverse.
+#[allow(clippy::too_many_arguments)]
 fn jump(
     commands: &mut Commands,
     assets: &AssetServer,
@@ -7945,6 +7987,7 @@ fn jump(
     open: &mut OpenMap,
     state: &mut EditorState,
     placed: &Query<(Entity, &Placement)>,
+    transforms: &Query<&Transform>,
     position: usize,
 ) {
     let depth = state.undo.len();
@@ -7959,7 +8002,7 @@ fn jump(
         };
         let Some(op) = op else { break };
         let kept = op.clone();
-        match apply(commands, assets, project, &mut *open, state, placed, op) {
+        match apply(commands, assets, project, &mut *open, state, placed, transforms, op) {
             Reversal::Done(inverse) => {
                 state.settle();
                 applied.push(inverse);
@@ -8011,6 +8054,7 @@ enum Reversal {
 /// The single body behind both stacks — see [`Undo`] on why the enum is closed under inversion. The
 /// [`Reversal`] says whether the map changed and where the inverse goes. A refusal keeps the entry on
 /// the stack it came from, so refusing is never the same as spending the undo (B-026).
+#[allow(clippy::too_many_arguments)]
 fn apply(
     commands: &mut Commands,
     assets: &AssetServer,
@@ -8018,6 +8062,7 @@ fn apply(
     open: &mut OpenMap,
     state: &mut EditorState,
     placed: &Query<(Entity, &Placement)>,
+    transforms: &Query<&Transform>,
     op: Undo,
 ) -> Reversal {
     let inverse = match op {
@@ -8286,7 +8331,7 @@ fn apply(
             let mut inverses = Vec::with_capacity(ops.len());
             let mut stranded = false;
             for op in ops {
-                match apply(commands, assets, project, &mut *open, state, placed, op) {
+                match apply(commands, assets, project, &mut *open, state, placed, transforms, op) {
                     Reversal::Done(inv) => inverses.push(inv),
                     Reversal::Refused => {}
                     // A sub-op that moved the map and could not draw it still moved it.
@@ -8529,7 +8574,7 @@ fn apply(
                 )) => {
                     // **The turn is on screen as well as in the map.** An undo that only changed the
                     // map left the piece drawn at the angle it had before (B-019).
-                    if let Err(e) = draw_every_placement(commands, assets, project, open, placed) {
+                    if let Err(e) = draw_every_placement(commands, assets, project, open, placed, transforms) {
                         state
                             .status
                             .problem(format!("cannot draw the map after undoing {phrase}: {e}"));
@@ -9018,6 +9063,7 @@ fn relevel_placements(
 /// where it was would mint an id the file already holds, and the map would hold two placements
 /// with one name. **Undo despawns by id match**, so taking one back would sweep the other off
 /// the screen with it.
+#[allow(clippy::too_many_arguments)]
 fn redraw_the_map(
     mut commands: Commands,
     assets: Res<AssetServer>,
@@ -9026,6 +9072,7 @@ fn redraw_the_map(
     mut state: ResMut<EditorState>,
     mut due: ResMut<crate::watch::Due>,
     placed: Query<(Entity, &Placement)>,
+    transforms: Query<&Transform>,
 ) {
     if !due.map_replaced {
         return;
@@ -9037,7 +9084,7 @@ fn redraw_the_map(
     // **Everything standing is swept**, and everything in the map is spawned again. A map whose
     // stacking will not resolve is a map the author has to be told about, and the last good screen
     // stays, which is why the sweep happens after the heights are resolved and not before.
-    if let Err(e) = draw_every_placement(&mut commands, &assets, &project, &open, &placed) {
+    if let Err(e) = draw_every_placement(&mut commands, &assets, &project, &open, &placed, &transforms) {
         state
             .status
             .problem(format!("the map on disk does not resolve: {e}"));
@@ -9056,12 +9103,61 @@ fn draw_every_placement(
     project: &Project,
     open: &OpenMap,
     placed: &Query<(Entity, &Placement)>,
+    transforms: &Query<&Transform>,
 ) -> Result<(), String> {
     let ys = heights(project, open)?;
-    for (entity, _) in placed.iter() {
-        commands.entity(entity).despawn();
+    // **A piece already drawn where the map wants it is left alone** — B-048.
+    //
+    // This swept every standing entity and then spawned the map again, so for one frame the screen
+    // had **no placements at all**. Measured on the town map at 15 fps: the undo frame (`f009`,
+    // t=0.60 s) had **0 green field pixels** where its neighbours have 143,694. The person's `Cmd+Z`
+    // on a key removal never blanked — it takes the targeted path — so the defect was this sweep,
+    // which the logged undo and an agent's undo both reach.
+    //
+    // **"Standing" is a claim about the picture, not about the id.** Two things must both hold for an
+    // entity to be left alone, and each was found the hard way: its row must still be in the map (a
+    // removal goes through the registry and despawns nothing, so a removed piece's entity outlives
+    // its row), and it must be drawn **where that row says** (`a_map_edited_on_disk_reaches_the_screen`
+    // caught the cheaper version: a piece moved on disk kept its entity and stayed at the old
+    // place). Whatever fails either test is despawned and spawned again below.
+    let live: std::collections::HashSet<&str> =
+        open.map.placements.iter().map(|p| p.id.as_str()).collect();
+    let mut keep: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (entity, marker) in placed.iter() {
+        let drawn_right = live.contains(marker.0.as_str())
+            && open
+                .map
+                .placements
+                .iter()
+                .position(|p| p.id == marker.0)
+                .is_some_and(|i| {
+                let p = &open.map.placements[i];
+                let (Some(d), Some(&y)) = (descriptor_of(&project.library, p), ys.get(i)) else {
+                    return false;
+                };
+                // **Position AND facing**, because a turn moves neither the row's `at` nor the
+                // piece's translation — it only spins it. `an_agent_turn_stands_on_the_screen` is the
+                // test that caught a translation-only version: the file and the map said 90
+                // degrees, the piece on screen stayed at 0.
+                let want_at =
+                    bevy_emerge::origin_of(p.at, open.map.origin, y + bevy_emerge::tip_seat(&d, p.tip));
+                let want_rot = Quat::from_rotation_y(bevy_emerge::draw_yaw(&d, p.yaw).to_radians())
+                    * bevy_emerge::tip_quat(p.tip);
+                let Ok(got) = transforms.get(entity) else {
+                    return false;
+                };
+                got.translation.distance(want_at) < 1e-3 && got.rotation.angle_between(want_rot) < 1e-3
+            });
+        if drawn_right {
+            keep.insert(marker.0.as_str());
+        } else {
+            commands.entity(entity).despawn();
+        }
     }
     for (i, p) in open.map.placements.iter().enumerate() {
+        if keep.contains(p.id.as_str()) {
+            continue;
+        }
         let Some(d) = descriptor_of(&project.library, p) else {
             warn!(
                 "placement `{}` names descriptor `{}`, which this library does not have",
