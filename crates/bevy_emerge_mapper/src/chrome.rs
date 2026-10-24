@@ -398,6 +398,45 @@ pub const CONTROLS_W: f32 = 380.0;
 /// map at `UiScale(1.2)`, which is the thing the right edge was chosen to protect.
 pub const LIST_W: f32 = 264.0;
 
+/// **The narrowest a panel may be squeezed to before the viewport gets the rest** — B-014.
+///
+/// The two widths above are *preferred* widths, and a panel took its own whatever the window could
+/// afford, because [`panel_root`] set `width: Val::Px(width)` and nothing could give it back. At a
+/// 900 logical px window that left the map **69 px** — measured from the real layout in
+/// `the_viewport_keeps_a_usable_width_in_a_narrow_window`, and the same number the item filed
+/// ("about 70 logical px at 1800 x 1406 physical").
+///
+/// Two things make the overhead bigger than the constants suggest. `EDITOR_UI_SCALE` multiplies
+/// every `Val::Px`, so `CONTROLS_W` 380 is 456 on screen at 1.2 before the panel's own `MARGIN` and
+/// border; measured, the left dock was **485** and the right **346**. And a dock is as wide as its
+/// widest *visible* panel, so it cannot answer for the sum.
+///
+/// The floor is not zero: a panel narrowed past this stops being a panel, its rows wrap and its tag
+/// chips stack into a column of single words. So panels shrink **down to** this and no further, and
+/// the viewport is guaranteed the remainder — see [`fit_docks_to_the_window`].
+pub const DOCK_MIN_W: f32 = LIST_W * 0.6;
+
+/// **The width the viewport is owed before either dock gets more than its floor** — B-014.
+///
+/// The docks were never *overflowing* a 900 px window; measured, they took 835 of it and the map got
+/// the 65 that was left. So the defect is not "the panels do not fit", it is **"nothing reserved the
+/// viewport"**: the map was the leftover of two fixed panels, and at a narrow window that leftover is
+/// a sliver. Below this width the docks give ground down to [`DOCK_MIN_W`] each, because a map
+/// narrower than two palette rows is not a map you can place a piece on.
+///
+/// It is a floor with a reason rather than a round number: `LIST_W` plus room for a piece of the
+/// largest tile class and the ghost's footprint beside it, which is what the author needs to see to
+/// judge where a piece will land.
+///
+/// **It is a reserve, not a guarantee, and the distinction is honest.** A window can be too narrow
+/// for this *and* two readable docks at once — at 900 logical px, `1.2` scaling makes the pair owe
+/// `(158 + 24) * 1.2 * 2 = 438` even at their floors, and 438 + 504 of viewport is more than the
+/// window has. When that happens [`DOCK_MIN_W`] wins and the viewport takes the remainder: a panel
+/// squeezed past its floor is a column of single words with nothing to read, while a viewport
+/// smaller than this is merely cramped and still shows the map. Measured at a 900 px window, the map
+/// went from **69 px to 379**: the sliver is gone, and the panels are still panels.
+pub const VIEWPORT_MIN_W: f32 = 420.0;
+
 // ── the widget layer ─────────────────────────────────────────────────────────────────────────────
 
 /// **`bevy_feathers`' machinery, with this editor's palette in it.**
@@ -688,7 +727,7 @@ pub fn section<'a>(parent: &'a mut ChildSpawnerCommands, label: &str) -> EntityC
 }
 
 /// Which edge a panel is pinned to.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Side {
     Left,
     Right,
@@ -714,6 +753,20 @@ pub enum Side {
 /// row by a pixel dropped a piece behind the panel. `Hovered` is true for an entity **or any
 /// descendant** (`bevy_picking-0.19.0/src/hover.rs:322`), so one on the root answers for the whole
 /// surface. The frame above it deliberately carries none — see [`Frame`].
+/// **What width a panel would like, so the frame can answer how much it may have.**
+///
+/// The pair is the whole of B-014's fix: `preferred` is what the panel's own constant asks for and
+/// stays the width on any window that can afford it, while [`fit_docks_to_the_window`] lowers the
+/// *applied* width toward [`DOCK_MIN_W`] on a window that cannot. Stored as data rather than
+/// recomputed from `Node` so the system never has to guess which of `Node`'s widths was the wish.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PanelWidth {
+    pub preferred: f32,
+    /// Which dock it lives in. Carried rather than inferred from the node's margin: the margin is a
+    /// layout detail that could be anything, and the question this answers is which side of the row.
+    pub side: Side,
+}
+
 pub fn panel_root<'a>(
     commands: &'a mut Commands,
     frame: &Frame,
@@ -751,6 +804,7 @@ pub fn panel_root<'a>(
     let panel = commands
         .spawn((
             node,
+            PanelWidth { preferred: width, side },
             BackgroundColor(PANEL_BG),
             Ground(PANEL_BG),
             // The edge and the corner are what make this read as a surface rather than as a
@@ -890,6 +944,86 @@ fn light_the_focused_panel(mut panels: Query<(&mut BorderColor, Has<Focused>), W
         let want = focus_edge(focused);
         if border.top != want {
             *border = BorderColor::all(want);
+        }
+    }
+}
+
+/// **How wide each panel should be, given the window** — B-014.
+///
+/// The frame's contract is that *a panel says how wide it wants to be, and the frame answers how much
+/// room there is*. The answer was missing: every panel was `width: Val::Px(preferred)` and nothing
+/// could take it back, so a 900 px window gave the two docks 485 + 346 and the map **69 px**.
+///
+/// **The arithmetic is over every visible panel, not the docks.** A dock is as wide as its widest
+/// visible child, so the row's demand is the sum of the widest panel on each side, and that is what
+/// has to fit. One panel per door is visible at a time (`Display::None` is how the rest hide, which
+/// is also why they lay out to nothing and are skipped here).
+///
+/// **Both sides are squeezed by the same fraction**, so the pair keeps the proportion its two
+/// constants chose rather than one side winning a negotiation it started with a wider number. When
+/// the fraction is 1 nothing is written at all, which is the common case and the reason this costs
+/// nothing on an ordinary window.
+///
+/// The floor is [`DOCK_MIN_W`] per side. A window narrower than the two floors can afford does not
+/// get a smaller interface, it gets the viewport it has left — the docks cannot lie about their
+/// content by becoming narrower than a row.
+fn fit_docks_to_the_window(
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    ui_scale: Res<UiScale>,
+    mut panels: Query<(&PanelWidth, &mut Node, &ComputedNode), Without<ViewportSlot>>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let scale = ui_scale.0.max(f32::EPSILON);
+    // The row's room in `Val::Px` units — the units the constants above are written in. `Window`'s
+    // width is already logical, and `UiScale` multiplies every `Val::Px`, so dividing takes the
+    // logical width back to the units the panel widths are expressed in.
+    let room = window.resolution.width() / scale;
+
+    // **The row's demand is the widest *visible* panel on each side** — a dock is as wide as its
+    // widest visible child, which is the dock's own definition, and the rest are `Display::None` and
+    // lay out to nothing. Two per door are visible on no door, so the two slots below are exactly
+    // the two docks.
+    let mut widest = [0.0f32; 2];
+    for (want, node, computed) in &panels {
+        if node.display == Display::None || computed.size().x <= 0.0 {
+            continue;
+        }
+        let side = usize::from(want.side == Side::Right);
+        widest[side] = widest[side].max(want.preferred);
+    }
+
+    // Each dock is its panel plus the margin that panel carries, **measured rather than derived**:
+    // `(380 + 2 * 12) * 1.2 = 484.8`, against a real left dock of 485, and `(264 + 24) * 1.2 = 345.6`
+    // against a right dock of 346. The border is inside that width, so it is not added here.
+    let overhead: f32 = 2.0 * MARGIN;
+    let sides: Vec<f32> = widest.iter().copied().filter(|w| *w > 0.0).collect();
+    if sides.is_empty() {
+        return;
+    }
+    let sum_pref: f32 = sides.iter().sum();
+    let sum_overhead = overhead * sides.len() as f32;
+
+    // **The viewport is paid first.** The docks were not overflowing a 900 px window — measured, they
+    // took 835 of it and left the map 65 — so the question is not "do they fit" but "what is the map
+    // owed". `squeeze` is the fraction of its preferred width each panel keeps.
+    let squeeze = if room - (sum_pref + sum_overhead) >= VIEWPORT_MIN_W {
+        1.0
+    } else {
+        let affordable = room - VIEWPORT_MIN_W - sum_overhead;
+        (affordable / sum_pref).clamp(0.0, 1.0)
+    };
+    // **No panel narrower than the floor**, which binds hardest on the *narrowest* side: the two
+    // sides scale by one fraction, so the fraction that keeps the smaller panel at `DOCK_MIN_W` is
+    // the one that keeps both usable.
+    let floor_fraction = DOCK_MIN_W / sides.iter().copied().fold(f32::INFINITY, f32::min);
+    let squeeze = squeeze.max(floor_fraction.min(1.0));
+
+    for (want, mut node, _) in &mut panels {
+        let width = want.preferred * squeeze;
+        if node.width != Val::Px(width) {
+            node.width = Val::Px(width);
         }
     }
 }
@@ -2706,6 +2840,14 @@ impl Plugin for ChromePlugin {
             // before it would show the box one character behind what has been typed.
             .add_systems(Update,
                 (paint_name_box.after(keys::Phase::Text))
+                    .run_if(in_state(crate::screen::Screen::Editor)),
+            )
+            // B-014: the docks answer to the window. Editor-only, because the menu's own columns
+            // go straight into `body` and carry no `PanelWidth`.
+            .add_systems(
+                Update,
+                fit_docks_to_the_window
+                    .after(FrameSystems)
                     .run_if(in_state(crate::screen::Screen::Editor)),
             )
             .add_systems(Update,
