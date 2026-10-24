@@ -763,6 +763,19 @@ pub fn mount_options(surfaces: &[String]) -> Vec<Mount> {
                 },
             );
         }
+        // **The two-mount entry, right after the class it lifts from.** Only the first class, and
+        // deliberately: `mount_options` is a cycle list an author taps through with `M`, and one
+        // `or the floor` entry per class would put the list's length at the vocabulary's twice.
+        // A piece that may take any other class is authored in the file, where the class is a
+        // sentence rather than a rung.
+        if let Some(class) = surfaces.first() {
+            out.insert(
+                at + surfaces.len(),
+                Mount::OnSurfaceOrFloor {
+                    class: class.clone(),
+                },
+            );
+        }
     }
     // And the same for the face placeholder. Done second so the surface expansion above has already
     // moved it, rather than both editing positions computed against the original list.
@@ -825,6 +838,7 @@ pub fn mount_label(mount: Option<&Mount>) -> String {
         None => "unset".to_owned(),
         Some(Mount::OnFloor) => "on floor".to_owned(),
         Some(Mount::OnSurface { class }) => format!("on {class}"),
+        Some(Mount::OnSurfaceOrFloor { class }) => format!("on {class} or floor"),
         Some(Mount::OnFace { class, height }) => format!("on {class} face at {height:.1} m"),
         Some(Mount::OnWall { height }) => format!("on wall at {height:.1} m"),
         Some(Mount::OnCeiling) => "on ceiling".to_owned(),
@@ -1039,6 +1053,7 @@ pub struct Extent {
 /// | `InOpening { .. }` | the opening | only other `InOpening` — so a door and its wall cannot conflict |
 /// | `OnWall { height }` | that height | only `OnWall` **at the same height**, within 1 mm |
 /// | `OnSurface { class }` | its host's top | only `OnSurface` **on the same host** — two lamps contest one table, not two tables |
+/// | `OnSurfaceOrFloor { class }` | whichever it took | whichever it took: with a host it contests that host's top, without one it stands in the floor layer |
 ///
 /// **A heterogeneous pair contests nothing at all** (`same_layer`'s `_ => false`), which is why the
 /// bounded claim on [`crate::stack::blocking`] matters: the rule is per-layer and in plan, so a tall
@@ -1064,6 +1079,30 @@ pub enum Mount {
     InOpening { clear: Option<(f32, f32)> },
     /// Rests on another piece that offers this surface class.
     OnSurface { class: String },
+    /// **Either rests on a piece offering this class, or stands on the floor** — and which one is
+    /// decided per placement, by what the author dropped it on.
+    ///
+    /// The case a single `OnSurface` cannot state, and the one a dressing set needs: a smith's tools,
+    /// a horseshoe pile or a bundle of rods belongs *on a bench* in one room and *on the floor* in the
+    /// next, and a library entry describes the piece, not the room. Before this, the only way to say
+    /// so in data was a second descriptor with the same mesh and the other mount, which doubles the
+    /// library entries and splits one piece's labels across two ids.
+    ///
+    /// # The placement records which one it took
+    ///
+    /// [`crate::map::Placed::on`] **is** the record: `Some(host)` says it took the surface and names
+    /// the host; `None` says it took the floor. That is why a reload reproduces the seating without a
+    /// second field — the height is already derived from `on`, and nothing here is consulted at
+    /// resolve time. A variant with no per-placement state would put the same piece on the floor after
+    /// a reload, which is the failure a derived height exists to prevent.
+    ///
+    /// # What it does not combine with
+    ///
+    /// A floor and a named surface class only. `OnWall`, `OnCeiling`, `InOpening` and `Decal` are
+    /// *planes*, and "on the wall or on the floor" is a sentence about two different fixtures rather
+    /// than about one piece; refusing the combination keeps the variant from becoming a general
+    /// union type nothing can reason about.
+    OnSurfaceOrFloor { class: String },
     /// **Fixed to a named face of a named host**, `height` metres up it.
     ///
     /// The standing sibling of [`Self::OnSurface`], and the one that makes a fixture belong to a

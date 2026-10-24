@@ -62,7 +62,7 @@ A piece has six label axes:
 - `effects`: what the piece does, shown on the chip `DOES`.
 - `look`: how it looks, shown on the chip `LOOKS`.
 - `surfaces`: what it offers, shown on the chip `OFFERS`.
-- `mount`: where the piece attaches.
+- `mount`: where the piece attaches. A piece may also declare **two**: `OnSurfaceOrFloor { class }` says it rests on a piece offering `class` when dropped on one, and stands on the floor when dropped anywhere else. The placement records which of the two it took, so a reload reproduces it.
 - `note`: a description in your own words.
 
 The first four are **tokens**: words from the vocabulary in `assets/emerge/vocab.ron`. A token that is not in the vocabulary is refused.

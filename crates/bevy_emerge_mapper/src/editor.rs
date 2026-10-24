@@ -4642,6 +4642,11 @@ pub fn brush_span(d: &bevy_emerge_core::descriptor::Descriptor, yaw: f32, tip: (
 /// resurrected by a second mount kind the guard had never heard of. A third one must not be able to
 /// do it again, so "does this need a host" has exactly one answer here.
 ///
+/// **`OnSurfaceOrFloor` is deliberately not one of them**, and this is the one place that distinction
+/// has to be written down. A brush that *may* take a surface can be laid on open floor — that is the
+/// whole of its mount — so a flood or a box fill with one is legal and seats every piece on the deck.
+/// Asking `stack::may_take_surface` here instead would refuse the gesture the feature exists for.
+///
 /// [`bevy_emerge_core::stack`] keeps the two apart deliberately — they answer different questions and a
 /// caller that wants the datum needs to know which — so this composes them rather than replacing
 /// them.
@@ -5594,8 +5599,14 @@ fn stamp_set(
             CloneHost::Layer => None,
             CloneHost::InSet(h) => Some(new_ids[*h].clone()),
             CloneHost::Outside => {
+                // **A piece that may take a surface or the floor answers by where it lands.** A
+                // paste over a bench seats on it; a paste on open floor takes the floor. Refusing
+                // when `host_under` finds nothing was right for a strict `OnSurface` and is the
+                // wrong answer for this mount — the click path accepts the same piece at the same
+                // spot, and a paste that disagrees with a click is two answers to one question.
                 match bevy_emerge_core::stack::host_under(&open.map, &project.library, &ys, d, at) {
                     Some((host, _)) => Some(host.id.clone()),
+                    None if bevy_emerge_core::stack::needs_surface(d).is_none() => None,
                     None => {
                         state.status.problem(format!(
                             "stamp refused: `{}` needs a surface and nothing offers one where it \

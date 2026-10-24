@@ -402,6 +402,28 @@ impl Fixture {
         self
     }
 
+    /// **A piece that may sit on a support surface or on the floor** — issue #1's
+    /// `mount: Some(OnSurfaceOrFloor( class: "..." ))`.
+    ///
+    /// The third member of the surface family: `surface_descriptor` offers a top,
+    /// `mounted_descriptor` may only rest on one, and this may do either. A test that drops it in two
+    /// places is the only way to prove the two seatings are one mount rather than two descriptors.
+    pub fn two_way_descriptor(mut self, id: &str, pack: &str, class: &str) -> Fixture {
+        self = self.descriptor(id, pack);
+        if let Some(last) = self.descriptors.last_mut() {
+            let was = "mount: Some(OnFloor)";
+            assert!(
+                last.contains(was),
+                "the fixture's descriptor shape changed under this helper"
+            );
+            *last = last.replace(
+                was,
+                &format!("mount: Some(OnSurfaceOrFloor( class: \"{class}\" ))"),
+            );
+        }
+        self
+    }
+
     /// **A piece that offers a surface** — a desk, a table, a shelf.
     ///
     /// The other half of the pair: without one in the library, a refusal about a missing host has

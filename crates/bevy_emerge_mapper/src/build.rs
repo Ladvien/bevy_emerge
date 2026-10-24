@@ -456,9 +456,15 @@ pub fn host_for(
     at: (f32, f32),
     span: (f32, f32),
 ) -> Result<Option<String>, String> {
-    let Some(want) = crate::editor::mount_class(guest) else {
+    // **The permissive mount, and the strict one for the refusal.** A `Mount::OnSurfaceOrFloor` piece
+    // that touches a sibling offering the class belongs *on* it — that is the mount's first reading —
+    // and one that touches nothing is fine on the floor. Reading `mount_class` here (the strict
+    // answer) made a two-way member save `on: None` whatever it was dropped against, and
+    // `rebind_hosts` then reset a hand-authored seating on the next edit.
+    let Some(want) = stack::may_take_surface(guest) else {
         return Ok(None);
     };
+    let required = crate::editor::mount_class(guest).is_some();
 
     let mut found: Vec<&str> = Vec::new();
     for m in members {
@@ -484,6 +490,11 @@ pub fn host_for(
 
     match found.as_slice() {
         [] => {
+            // **A piece that may take a surface and finds none stand on the floor.** No host, no
+            // refusal — the same answer the click path gives.
+            if !required {
+                return Ok(None);
+            }
             // **Name what would work.** The refusal knew what was missing and not what to do about
             // it, so an author was left to guess which of seventy-five rows offers a `support` —
             // and the editor has that list. `docs/2026-08-11-editor-visual-inspection.md` records

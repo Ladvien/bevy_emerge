@@ -1031,6 +1031,10 @@ pub fn descriptor_fingerprint(d: &Descriptor) -> u64 {
         Some(Mount::OnFace { class, height }) => {
             f.tag(8).str(class).f32(*height);
         }
+        // Tag 9, appended for the same reason.
+        Some(Mount::OnSurfaceOrFloor { class }) => {
+            f.tag(9).str(class);
+        }
     }
     f.u32(d.clearance.len() as u32);
     for c in &d.clearance {

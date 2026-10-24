@@ -68,10 +68,31 @@ pub fn descriptor_with<'a>(
     })
 }
 
-/// The surface class a descriptor needs under it, if it needs one.
+/// The surface class a descriptor needs **under** it, if it cannot stand without one.
+///
+/// The strict question, and the one every "may this piece go here" guard must ask: a piece that
+/// answers `Some` here and finds no host is refused rather than floored. [`may_take_surface`] is the
+/// permissive sibling, and the difference between the two is the whole of
+/// [`Mount::OnSurfaceOrFloor`].
 pub fn needs_surface(d: &Descriptor) -> Option<&str> {
     match &d.mount {
         Some(Mount::OnSurface { class }) => Some(class.as_str()),
+        _ => None,
+    }
+}
+
+/// The surface class a descriptor **would take** if something offering it were under the piece.
+///
+/// `Some` for both surface mounts, because both consult a host when there is one. It is not
+/// [`needs_surface`]: a [`Mount::OnSurfaceOrFloor`] piece that finds no host stands on the floor, so
+/// a caller deciding whether a placement is *legal* asks `needs_surface`, while a caller looking for
+/// what is *under* a piece asks this one.
+///
+/// Two functions rather than one returning a flag, because a `bool` at the call site reads as
+/// "does it need a surface" at both sites and one of them must not.
+pub fn may_take_surface(d: &Descriptor) -> Option<&str> {
+    match &d.mount {
+        Some(Mount::OnSurface { class } | Mount::OnSurfaceOrFloor { class }) => Some(class.as_str()),
         _ => None,
     }
 }
@@ -88,6 +109,41 @@ pub fn needs_face(d: &Descriptor) -> Option<(&str, f32)> {
     }
 }
 
+/// **The host a piece consults, and how far above that host's own base it lands.**
+///
+/// `None` for every piece that derives its height from the map rather than from a neighbour — the
+/// floor, the ceiling, a doorway, a decal — **and for a [`Mount::OnSurfaceOrFloor`] that took the
+/// floor**, which is the one case where the answer depends on the placement rather than on the
+/// descriptor.
+///
+/// One function because the lookup is not cheap of thought: it resolves another placement's Y, and a
+/// second copy of it is a second place for "the host is gone" to become a different sentence. Before
+/// this, `resolve_one` asked `needs_face` twice to decide between two branches, and the shape a third
+/// host-bearing mount would have had to copy is exactly what a `_ => None` wildcard would have let it
+/// skip.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HostNeed<'a> {
+    /// Rests on a piece offering this surface class; the lift is that piece's own height.
+    Surface(&'a str),
+    /// Fixed to a piece presenting this face class, `f32` metres up it.
+    Face(&'a str, f32),
+}
+
+pub fn host_need<'a>(d: &'a Descriptor, on: Option<&str>) -> Option<HostNeed<'a>> {
+    match &d.mount {
+        Some(Mount::OnSurface { class }) => Some(HostNeed::Surface(class)),
+        // **Resolved by what the placement recorded.** `Placed::on` is the record of which mount it
+        // took: `Some(host)` says it took the surface, `None` says it stands on the floor. A seated
+        // piece whose host has gone is still an error — `resolve_one` refuses it below rather than
+        // letting it fall to the floor, because a silent fall moves a piece the author had seated.
+        Some(Mount::OnSurfaceOrFloor { class }) => {
+            on.map(|_| HostNeed::Surface(class))
+        }
+        Some(Mount::OnFace { class, height }) => Some(HostNeed::Face(class, *height)),
+        _ => None,
+    }
+}
+
 /// Whether `host` offers the surface **or the face** `guest` asks for.
 ///
 /// String comparison here rather than the resolved masks because the editor works with a candidate
@@ -98,7 +154,11 @@ pub fn needs_face(d: &Descriptor) -> Option<(&str, f32)> {
 /// The two lists are checked separately rather than merged: a class is a class, but reading a top as
 /// a face would put a sconce on a wall's roof.
 pub fn offers_for(host: &Descriptor, guest: &Descriptor) -> bool {
-    if let Some(class) = needs_surface(guest) {
+    // `may_take_surface`, not `needs_surface`: a piece that *may* take a surface and finds a host
+    // offering its class must be seated on it, so "does this host present the class" has to be asked
+    // of the permissive mount too. Reading the strict one here would silently drop every
+    // `OnSurfaceOrFloor` piece to the floor even when a bench is under it.
+    if let Some(class) = may_take_surface(guest) {
         return host.offers.surfaces.iter().any(|s| s == class);
     }
     if let Some((class, _)) = needs_face(guest) {
@@ -142,7 +202,7 @@ pub fn host_under<'a>(
     guest: &Descriptor,
     probe: (f32, f32),
 ) -> Option<(&'a Placed, f32)> {
-    needs_surface(guest)?;
+    may_take_surface(guest)?;
     let mut best: Option<(&Placed, f32)> = None;
     for (i, p) in map.placements.iter().enumerate() {
         let (Some(d), Some(&py)) = (descriptor_of(library, p), y.get(i)) else {
@@ -213,23 +273,29 @@ fn resolve_one(
     let d: &Descriptor = &d_owned;
 
     // The host, resolved first — the only part of the datum that depends on another placement, and so
-    // the only part that can recurse. **Two mounts arrive here and they differ only in how far above
+    // the only part that can recurse. **Three mounts arrive here and they differ only in how far above
     // the host they land**: a top answers with the host's own height, a face with a distance measured
-    // up it. Sharing the lookup is what makes "the host is gone" one error rather than two.
-    let host_top = match &d.mount {
-        Some(Mount::OnSurface { class }) | Some(Mount::OnFace { class, .. }) => {
-            let (what, fix) = if needs_face(d).is_some() {
-                (
-                    "is fixed to a",
-                    "put it on a piece that offers the `{class}` face, or change the descriptor's \
-                     layer",
-                )
-            } else {
-                (
+    // up it. Sharing the lookup is what makes "the host is gone" one error rather than three.
+    //
+    // `host_need` also answers *whether* there is a host to look for, and that is what makes
+    // `OnSurfaceOrFloor` work: a placement that recorded no `on` took the floor, so it needs none and
+    // falls through to `datum`'s floor arm — while one that recorded a host is held to the same
+    // refusal a plain `OnSurface` gets when that host has gone.
+    let host_top = match host_need(d, p.on.as_deref()) {
+        Some(need) => {
+            let (class, what, fix) = match need {
+                HostNeed::Surface(class) => (
+                    class,
                     "mounts on a",
                     "Placing it at floor level is how a lamp ends up inside the floor — put it on a \
                      piece that offers `{class}`, or change the descriptor's layer",
-                )
+                ),
+                HostNeed::Face(class, _) => (
+                    class,
+                    "is fixed to a",
+                    "put it on a piece that offers the `{class}` face, or change the descriptor's \
+                     layer",
+                ),
             };
             let host_id = p.on.as_ref().ok_or_else(|| {
                 format!(
@@ -259,21 +325,21 @@ fn resolve_one(
             // A top lifts by the host's whole height; a face by however far up it the fixture is
             // fixed. Both are measured from the host's own resolved Y, which is what makes either
             // one follow the host when it moves.
-            let lift = match needs_face(d) {
-                Some((_, height)) => {
+            let lift = match need {
+                HostNeed::Face(_, height) => {
                     if !offers_for(host_d, d) {
                         return Err(face_refusal(host_d, d, &host.id, &p.id));
                     }
                     height
                 }
-                None => surface_of(host_d, d, &host.id, &p.id)?,
+                HostNeed::Surface(_) => surface_of(host_d, d, &host.id, &p.id)?,
             };
             path.push(i);
             let host_y = resolve_one(map, library, hi, out, done, path)?;
             path.pop();
             Some(host_y + lift)
         }
-        _ => None,
+        None => None,
     };
 
     // The authored lift rides on top of whatever the layer decided — and because it lands in
@@ -352,6 +418,11 @@ pub fn datum(
         Some(Mount::OnSurface { class }) => host_top.ok_or_else(|| {
             format!("`{who}` needs a `{class}` surface and there is none under it")
         })?,
+        // **Whichever it took.** A placement that recorded a host was lifted to it by
+        // `resolve_one` and arrives here with `host_top`; one that recorded none stands on the
+        // floor, which is this map's own origin — the same answer `OnFloor` gives, deliberately,
+        // because taking the floor is not a degraded surface.
+        Some(Mount::OnSurfaceOrFloor { .. }) => host_top.unwrap_or(map.origin.1),
         // Already the host's base plus the height up its face — `resolve_one` did the addition,
         // because only it can resolve another placement.
         Some(Mount::OnFace { class, .. }) => host_top.ok_or_else(|| {
@@ -384,6 +455,9 @@ pub fn placement_at<'a>(
     probe: (f32, f32),
 ) -> Result<(f32, Option<&'a Placed>), String> {
     let host = host_under(map, library, y, d, probe);
+    // **The strict question, on purpose.** Only a piece that *cannot* stand without a host is
+    // refused here. An `OnSurfaceOrFloor` piece that finds none takes the floor, which is one of the
+    // two answers its mount allows — `datum`'s own arm for it lands at the map's origin.
     if needs_surface(d).is_some() && host.is_none() {
         let class = needs_surface(d).unwrap_or("");
         return Err(no_surface_sentence(d, class));
@@ -461,10 +535,30 @@ fn same_layer(a: &Descriptor, a_on: Option<&str>, b: &Descriptor, b_on: Option<&
         (Some(OnCeiling), Some(OnCeiling)) => true,
         (Some(InOpening { .. }), Some(InOpening { .. })) => true,
         (Some(OnWall { height: h1 }), Some(OnWall { height: h2 })) => (h1 - h2).abs() < 1e-3,
-        (Some(OnSurface { .. }), Some(OnSurface { .. })) => match (a_on, b_on) {
+        // **The surface family, resolved by what the placement recorded.** `OnSurfaceOrFloor` is the
+        // one variant whose layer is a property of the placement rather than of the descriptor, so
+        // its two halves are read here: with a host it is a surface piece on that host, without one
+        // it stands in the floor layer.
+        //
+        // Mixed pairs are handled in this arm by `on` alone, which is exactly the resolution: two
+        // surface pieces contest only the same host, and a piece with no host is on the floor
+        // whatever its mount says. A bare `OnSurface` with no `on` cannot occur on a validated map
+        // (resolve refuses it), and reading it as "floor" here would be the silent fall this mount
+        // exists to prevent — so the `None, None` case is narrowed to the two-way variant by name.
+        (
+            Some(OnSurface { .. } | OnSurfaceOrFloor { .. }),
+            Some(OnSurface { .. } | OnSurfaceOrFloor { .. }),
+        ) => match (a_on, b_on) {
             (Some(x), Some(y)) => x == y,
+            (None, None) => {
+                matches!(a.mount, Some(OnSurfaceOrFloor { .. }))
+                    && matches!(b.mount, Some(OnSurfaceOrFloor { .. }))
+            }
             _ => false,
         },
+        // The two-way variant that took the floor shares the floor layer with what stands on it.
+        (Some(OnFloor) | None, Some(OnSurfaceOrFloor { .. }))
+        | (Some(OnSurfaceOrFloor { .. }), Some(OnFloor) | None) => a_on.is_none() && b_on.is_none(),
         // **Two fixtures contest a face only if it is the same face of the same host, at the same
         // height.** Host alone is too coarse — a corridor wall carries a sconce on each side and they
         // never meet — and the class is what tells the two sides apart. Height too, because a sconce
@@ -739,6 +833,7 @@ mod tests {
             Mount::OnCeiling,
             Mount::InOpening { clear: None },
             Mount::OnSurface { class: "worktop".to_owned() },
+            Mount::OnSurfaceOrFloor { class: "worktop".to_owned() },
             Mount::Decal { on: DecalHost::Floor },
             Mount::Tiled,
             Mount::OnFace { class: "wall-inner".to_owned(), height: 1.8 },
@@ -756,6 +851,7 @@ mod tests {
                 | Mount::OnCeiling
                 | Mount::InOpening { .. }
                 | Mount::OnSurface { .. }
+                | Mount::OnSurfaceOrFloor { .. }
                 | Mount::OnFace { .. }
                 | Mount::Tiled => (false, ""),
             };
