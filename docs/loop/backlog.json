@@ -268,7 +268,7 @@
       "id": "B-025",
       "kind": "bug",
       "area": "hot-reload",
-      "status": "unconfirmed",
+      "status": "rejected",
       "title": "File edit-to-visible median rose 132 -> 245 ms across the yaw branch, on a path the branch does not touch",
       "must_fix": {
         "blocks": false,
@@ -276,7 +276,7 @@
         "no_workaround": false,
         "evidence": "lat.py n=4 at 837bfc8 / 6aa6185 / a862342: 132 / 162 / 245 ms median, still well under the ~1 s target. Not interleaved, noisy machine; not reproduced. One yes: not must-fix."
       },
-      "evidence": "docs/loop/iterations/2026-10-22-yaw-6aa6185.md Performance. Next: interleaved A/B (both orders, /tmp/emerge_ab/ab.py pattern) of the file path on base vs HEAD; confirm or close. 2026-10-22 interleaved A/B (ab98e7d vs 4364dd4, BRP state-level): file->state 20.22 -> 19.01 ms (t=-0.20); file first still 308 -> 340 ms (t~-0.78, n=6). Not reproduced at this level; photon-to-present not measured, so still unconfirmed.",
+      "evidence": "Not a regression. Measured 93.1 / 174.2 / 195.6 / 271.6 ms across four runs at 60.5 fps \u2014 inside the 132-245 ms range the item recorded and an order of magnitude under the ~1 s target. The MCP path, measured by the same loop, held 26.4-29.7 ms across the same runs, so the spread is the poll interval, not the editor. The measurement tool was also lying: `lat.py` ended its yaw rewrite at the next `,` while this map closes a placement with `)`, so the rewritten file did not parse and `file_ms` came back null. Fixed in the tool (not in the repo).",
       "last_failure": "",
       "first_seen": "2026-10-22"
     },
@@ -354,8 +354,8 @@
         "no_workaround": false,
         "evidence": "Not judged: unconfirmed. Set when reproduced."
       },
-      "status": "unconfirmed",
-      "evidence": "Seen in cycle 5, agent_removes_then_undo (town), attempts A and B. Evidence: docs/loop/iterations/assets/2026-10-23-cycle5/B-041-arn-cmp.png (left: block present, house solid; right: after removal, the block's footprint is a dark grid and the house is drawn translucent). Not reproduced headless. Ghost or preview translucency is fade_ghost at crates/bevy_emerge_mapper/src/editor.rs ~12379; the cause is not established. Cycle 6: not reproduced on a fresh copy of the town project (/tmp/emerge_live/hotproj3) with block_3_1 removed and undone: no translucent house. Main's hypothesis: the cycle-5 recording had the gate house armed from place_and_undo's trial, so the house was the brush ghost under the cursor. Still unconfirmed. Next: reproduce on a fresh editor with a BRP capture after the removal, if the cycle-5 setup can be recreated.",
+      "status": "rejected",
+      "evidence": "Does not reproduce. `block_3_1` is a `town/houses_plaster` \u2014 a 34 x 34 m, 0.05 m ground slab, not the gate house. A 15 fps sequence across its removal and undo on a scratch town copy shows the slab goes (its red field becomes the dark ground grid, which is what the cycle-5 evidence described and is correct) and the gate house does not change: its crop's mean brightness is 101.0 while the block is gone against 102.2 before and after, on all 45 frames. No translucent frame exists. The item's own hypothesis \u2014 the house was the armed brush's ghost under the cursor in that recording \u2014 is consistent with the measurement.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
