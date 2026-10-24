@@ -7070,6 +7070,105 @@ fn keep_candidate_selection_visible(
     }
 }
 
+/// **Click one tag chip, the way a person's press does** — B-047, and E-041's gap.
+///
+/// Fires the same `Activate` the button sends, so [`on_tag_chip`]'s observer runs. Nothing in the
+/// suite could reach a chip until this existed: the tag route under test was the keyboard's
+/// (`take_the_one_match`), which is a different function with its own copy of the write.
+///
+/// Panics when the chip is not on screen, because a test that silently clicked nothing would pass
+/// for the wrong reason — `size_field_for_test` makes the same argument.
+pub fn click_tag_chip_for_test(world: &mut World, axis: &str, token: &str) {
+    let want = match axis {
+        "kind" => Axis::Kind,
+        "effects" => Axis::Effects,
+        "look" => Axis::Look,
+        "surfaces" => Axis::Surfaces,
+        other => panic!("click_tag_chip_for_test: `{other}` is not a tag axis"),
+    };
+    let names = world
+        .get_resource::<Project>()
+        .map(|p| match want {
+            Axis::Kind => p.vocab.kind.names(),
+            Axis::Effects => p.vocab.effects.names(),
+            Axis::Look => p.vocab.look.names(),
+            Axis::Surfaces => p.vocab.surfaces.names(),
+        })
+        .map(|n| {
+            n.map(str::to_owned)
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    let Some(ix) = names.iter().position(|n| n == token) else {
+        panic!("click_tag_chip_for_test: `{token}` is not a {axis} token. The axis holds {names:?}");
+    };
+    let mut chips = world.query::<(Entity, &TagChip)>();
+    let Some(entity) = chips
+        .iter(world)
+        .find(|(_, c)| c.axis == want && c.token == ix)
+        .map(|(e, _)| e)
+    else {
+        panic!("click_tag_chip_for_test: no `{token}` chip on the {axis} row is on screen");
+    };
+    world.trigger(Activate { entity });
+    world.flush();
+}
+
+/// **The edges of one held `kind` chip and one unheld one**, for the shape assertion — B-047.
+///
+/// The fill alone cannot answer "is this chosen": `ROW_HOVER` is ΔL\* 3.89 under `ROW_SELECTED`, and
+/// the palette's answer to that is a **shape**. This reads the shape.
+pub fn kind_chip_edges_for_test(world: &mut World) -> (Color, Color) {
+    let mut chips = world.query::<(&TagChip, &BackgroundColor, &BorderColor)>();
+    let mut held: Option<Color> = None;
+    let mut unheld: Option<Color> = None;
+    for (c, bg, edge) in chips.iter(world) {
+        if c.axis != Axis::Kind {
+            continue;
+        }
+        if bg.0 == ROW_SELECTED {
+            held.get_or_insert(edge.top);
+        } else {
+            unheld.get_or_insert(edge.top);
+        }
+    }
+    (
+        held.unwrap_or_else(|| panic!("no held `kind` chip is on screen")),
+        unheld.unwrap_or_else(|| panic!("no unheld `kind` chip is on screen")),
+    )
+}
+
+/// **Which `kind` chips are lit, in row order** — what the pane says, read back.
+///
+/// A chip's colour is the pane's only statement about which tokens a piece holds, so a test that
+/// wants to know whether the panel agrees with the file has to read the colour and not the model.
+/// `chrome::chip` paints a held token in `TEXT` (or `UNCHECKED` when a model wrote it), and an
+/// unheld one in `LABEL`; those two are what is compared.
+pub fn lit_kind_chips(world: &mut World) -> Vec<String> {
+    let names: Vec<String> = world
+        .get_resource::<Project>()
+        .map(|p| p.vocab.kind.names().map(str::to_owned).collect())
+        .unwrap_or_default();
+    // **`RowRest`, not `BackgroundColor`.** `chrome::chip` sets both, and `style_list_rows` rewrites
+    // `BackgroundColor` every frame for hover and press — so reading the *painted* colour would let a
+    // held chip under a pressed mouse (`ROW_PRESSED`) read as unheld. `RowRest` is what the chip was
+    // spawned as and nothing mutates it, which is the question this asks: did the panel build this
+    // token as held?
+    let mut chips = world.query::<(&TagChip, &crate::chrome::RowRest)>();
+    let held: Vec<usize> = chips
+        .iter(world)
+        .filter(|(c, _)| c.axis == Axis::Kind)
+        .filter(|(_, rest)| rest.0 == ROW_SELECTED)
+        .map(|(c, _)| c.token)
+        .collect();
+    let mut out: Vec<String> = held
+        .into_iter()
+        .filter_map(|i| names.get(i).cloned())
+        .collect();
+    out.sort();
+    out
+}
+
 /// The library's ids in the order the panel lists them — declaration order, which is the order the
 /// rows are drawn in, so the arrows walk what the eye reads.
 /// **The library ids the author can actually see**, in list order.
@@ -9922,7 +10021,31 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                                     LABEL
                                 },
                                 if on { ROW_SELECTED } else { ROW_BG },
-                                if ghost { crate::chrome::SUGGEST } else { Color::NONE },
+                                // **A held chip carries a SHAPE, not only a fill** — B-047.
+                                //
+                                // The palette is built so that a selected thing is told apart by
+                                // its leading rail, because `ROW_HOVER` sits only ΔL* 3.89 under
+                                // `ROW_SELECTED` (`chrome.rs`, "It steps only ΔL* 3.89 over
+                                // ROW_HOVER and does not need more, because … selection also
+                                // carries a shape"). **Chips never got that shape**: measured on
+                                // the running editor, rest is `(42,39,34)`, a hovered chip is
+                                // `(54,50,44)` — 60% of the way to held — and a held chip is
+                                // `(63,59,51)`, with the same `1 px` dark border on all three.
+                                // So a screenshot taken with the pointer resting on a chip cannot
+                                // say whether that chip is held, which is exactly how B-047 was
+                                // reported: *"the cursor ring sat over it"*.
+                                //
+                                // `ACCENT` on a held chip's own edge is the same remedy the rows
+                                // use, at the border the chip already draws — no new node, no
+                                // second layout. A proposal still wins, because a ghost is a
+                                // question and a held token is an answer.
+                                if ghost {
+                                    crate::chrome::SUGGEST
+                                } else if on {
+                                    crate::chrome::ACCENT
+                                } else {
+                                    Color::NONE
+                                },
                             );
                         }
                         // **The `+` chip — the mouse half of the vocabulary prompt.** Growing the

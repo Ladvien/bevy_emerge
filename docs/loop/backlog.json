@@ -403,7 +403,7 @@
         "evidence": "Not judged: unconfirmed. Set when reproduced."
       },
       "status": "open",
-      "evidence": "Cycle 6 review: the palette parity test checks the entry-point string (arm_piece), not the click observer. Add an Activate event to the headless harness so on_row_click runs under test. Report: docs/loop/iterations/2026-10-23-cycle6-f34d8f4.md",
+      "evidence": "Partly closed: `on_tag_chip` is now reachable and tested through `tiles::click_tag_chip_for_test`, which fires the real `Activate`. The palette row click (`on_row_click`) still has no hook.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -552,8 +552,8 @@
       "kind": "bug",
       "area": "labels",
       "title": "Clicking an unlit KIND chip on a model-labelled piece stamps the kind by hand, but the clicked chip does not appear lit",
-      "status": "unconfirmed",
-      "evidence": "GifKit 2026-10-23 (barrel, kit door): clicking decor set the labels row to 'by hand set kind' and the status to 'kind tags updated', but container stayed lit and decor did not visibly light (the cursor ring sat over it). Frames /tmp/gifs/label-a-kit/frames/label-a-kit_t4.70.png and _t5.20.png. Not yet traced in tiles.rs toggle_tag.",
+      "status": "fixed",
+      "evidence": "The stated symptom does not reproduce: with a hook that fires a chip's real `Activate`, the click writes the token to `project.measured` AND the clicked chip is the held one. The defect that made it unanswerable and the GIF misleading is fixed \u2014 chips were told apart by fill alone (rest (42,39,34), hovered (54,50,44) = 60% of the way to held, held (63,59,51); 1.14:1, all three with the same 1 px dark border), so a held chip now carries the `ACCENT` edge the palette's shape rule already required. Guard test `clicking_a_tag_chip_writes_the_kind_and_lights_the_clicked_chip`; shape test `a_held_tag_chip_carries_an_accent_edge_and_an_unheld_one_does_not` (fails before).",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },

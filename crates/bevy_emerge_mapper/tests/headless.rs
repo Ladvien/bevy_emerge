@@ -16551,3 +16551,155 @@ fn the_under_readout_says_which_layer_a_two_way_piece_took() {
     let said = under_readout(false, Some(&placed("x@1", None)), None);
     assert!(!said.contains("floor"), "no descriptor, no claim: `{said}`");
 }
+
+/// **B-047 does not reproduce: a chip click writes the piece and lights the chip it clicked.**
+///
+/// Reported from a GIF (2026-10-23, kit door, `barrel`): clicking the unlit `KIND` chip `decor` set
+/// the labels row to `by hand set kind` and the status to `kind tags updated`, but the clicked chip
+/// did not visibly light while `container` stayed lit.
+///
+/// **It could never be settled because nothing in the suite fired a chip's `Activate`** (E-041
+/// records the gap; the tag route under test was the keyboard's `take_the_one_match`, a different
+/// function). This drives the click itself — the same `Activate` a person's press sends — and then
+/// reads the chip colours back. On the first version that could do so, **the pane agrees with the
+/// file**: the clicked token is in the descriptor and its chip is the lit one.
+///
+/// So the cycle-5 observation was something else. The likeliest is the one the item already guesses
+/// for B-041's sibling frame — the cursor ring sat over the chip (`the cursor ring sat over it`, its
+/// own evidence), and a `Hovered` fill is painted by `style_list_rows` over the held fill, so a
+/// screenshot taken under the ring cannot settle which state the chip was in.
+///
+/// This test stays as the guard: it is the first thing in the suite to click a tag chip, so a future
+/// change that made the pane read a different value than the click wrote would fail here.
+#[test]
+fn clicking_a_tag_chip_writes_the_kind_and_lights_the_clicked_chip() {
+    use bevy::prelude::*;
+
+    let root = Fixture::new("b047-chip-click")
+        .descriptor("crate", "alpha")
+        // Two kind tokens, so the click moves the lit chip from one to the other — the reported
+        // symptom is about which chip is lit, so one token would prove nothing.
+        .kind_tokens(&["container", "decor"])
+        .build("m");
+    let mut app = harness::build_headless_at(
+        &root,
+        "m",
+        None,
+        bevy_emerge_mapper::tiles::Mode::Meshes,
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..4 {
+        app.update();
+    }
+
+    let id = app
+        .world()
+        .resource::<bevy_emerge_mapper::project::Project>()
+        .library
+        .descriptors
+        .first()
+        .map(|d| d.id.clone())
+        .unwrap_or_else(|| panic!("the fixture must carry a descriptor"));
+    app.world_mut()
+        .resource_mut::<bevy_emerge_mapper::tiles::ImportState>()
+        .selected_library_id = Some(id.clone());
+    for _ in 0..4 {
+        app.update();
+    }
+
+    // `container` is the descriptor's kind, so its chip starts lit and `decor` starts dark.
+    assert_eq!(
+        bevy_emerge_mapper::tiles::lit_kind_chips(app.world_mut()),
+        vec!["prop".to_owned()],
+        "the fixture's kind chip must start where the descriptor says (`prop`)"
+    );
+
+    // The click, through the observer a person's press fires.
+    bevy_emerge_mapper::tiles::click_tag_chip_for_test(app.world_mut(), "kind", "decor");
+    for _ in 0..4 {
+        app.update();
+    }
+
+    // The write landed…
+    let kinds = app
+        .world()
+        .resource::<bevy_emerge_mapper::project::Project>()
+        .measured
+        .descriptors
+        .iter()
+        .find(|d| d.id == id)
+        .map(|d| d.kind.clone())
+        .unwrap_or_default();
+    assert_eq!(
+        kinds,
+        vec!["prop".to_owned(), "decor".to_owned()],
+        "a chip click toggles one token, so `decor` joins `prop`"
+    );
+
+    // …and the chip the person clicked is the one that is lit.
+    assert_eq!(
+        bevy_emerge_mapper::tiles::lit_kind_chips(app.world_mut()),
+        vec!["decor".to_owned(), "prop".to_owned()],
+        "the clicked chip must be lit too, or the pane is showing the state before the click"
+    );
+}
+
+/// **A held chip carries a shape, so a hover cannot be mistaken for it** — the cause B-047 was
+/// reported as a symptom of.
+///
+/// The palette's own rule is that a chosen thing is told apart by **shape**, because `ROW_HOVER`
+/// sits only ΔL\* 3.89 under `ROW_SELECTED` (`chrome.rs`). Chips never got that shape. Measured on
+/// the running editor: rest `(42,39,34)`, hovered `(54,50,44)` — 60% of the way to held — held
+/// `(63,59,51)`, and **all three drew the same 1 px dark border**. So the cycle-5 GIF, taken with
+/// "the cursor ring over it", could not say which state the chip was in; the pane was right and the
+/// picture was unreadable.
+///
+/// This pins the shape: a held chip's border is `ACCENT`, an unheld one has none, and a proposal
+/// still wins on the border because a ghost is a question.
+#[test]
+fn a_held_tag_chip_carries_an_accent_edge_and_an_unheld_one_does_not() {
+    use bevy::prelude::*;
+
+    let root = Fixture::new("b047-chip-shape")
+        .descriptor("crate", "alpha")
+        .kind_tokens(&["container", "decor"])
+        .build("m");
+    let mut app = harness::build_headless_at(
+        &root,
+        "m",
+        None,
+        bevy_emerge_mapper::tiles::Mode::Meshes,
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..4 {
+        app.update();
+    }
+    let id = app
+        .world()
+        .resource::<bevy_emerge_mapper::project::Project>()
+        .library
+        .descriptors
+        .first()
+        .map(|d| d.id.clone())
+        .unwrap_or_else(|| panic!("the fixture must carry a descriptor"));
+    app.world_mut()
+        .resource_mut::<bevy_emerge_mapper::tiles::ImportState>()
+        .selected_library_id = Some(id);
+    for _ in 0..4 {
+        app.update();
+    }
+
+    let (held_edge, unheld_edge) =
+        bevy_emerge_mapper::tiles::kind_chip_edges_for_test(app.world_mut());
+    assert_eq!(
+        held_edge,
+        bevy_emerge_mapper::chrome::ACCENT,
+        "the held chip must carry the accent edge; without it a hover one ΔL* away is \
+         indistinguishable from it"
+    );
+    assert_eq!(
+        unheld_edge,
+        Color::NONE,
+        "an unheld chip must carry no edge, or every chip looks chosen"
+    );
+}
