@@ -1896,11 +1896,6 @@ pub mod label_set {
                     Source::Human => By::Human,
                     Source::Agent => By::Agent,
                 };
-                // **The axis as it was, before the write** — the receipt names a transition, and
-                // "set kind on `barrel`" is a sentence that leaves out the only part a person wants:
-                // what it became. Measured on the running editor, an agent's `label_set` on a piece
-                // was `0.116%` of the window and its receipt said only `set kind on town/shrub`.
-                let was = read_list(d, axis).to_vec();
                 // **The derived axis, before the write** — E-063. `set_axis` re-settles `effects`
                 // from `kind`, so a `kind` write can change tokens the author did not type.
                 //
@@ -1914,6 +1909,24 @@ pub mod label_set {
                 // Settling both sides compares what this write moved against what the screen said.
                 let effects_were =
                     crate::labels::settled_effects(&d.kind, &d.effects, &project.vocab);
+                // **The axis as it was, before the write** — the receipt names a transition, and
+                // "set kind on `barrel`" is a sentence that leaves out the only part a person wants:
+                // what it became. Measured on the running editor, an agent's `label_set` on a piece
+                // was `0.116%` of the window and its receipt said only `set kind on town/shrub`.
+                //
+                // **For the effects axis, "as it was" means as the screen showed it**, which is the
+                // settled list — the same argument the paragraph above makes. Reading the raw row
+                // here made a stale file report the vocabulary's own effect as the author's
+                // addition: `+powered -inert` where `powered` had never left.
+                let was = if axis == "effects" {
+                    effects_were.clone()
+                } else {
+                    read_list(d, axis).to_vec()
+                };
+                // **What the author asked for**, kept because `set_axis` takes the list by value and
+                // the effects clause needs to compare the settled result against the request. Only
+                // that clause reads it, so only that axis pays for the copy (review, P3).
+                let asked = (axis == "effects").then(|| tokens.clone());
                 set_axis(d, &project.vocab, axis, tokens, by);
                 let now = read_list(d, axis).to_vec();
                 // **And said out loud, when the vocabulary moved them.** The write is right; a
@@ -1921,9 +1934,34 @@ pub mod label_set {
                 // separately because they are two decisions: one a person made, one the vocabulary
                 // made from it — and only the second is the one nobody expected.
                 let derived = if axis == "effects" {
-                    // Already named by the axis's own phrase; naming it twice would read as two
-                    // changes.
-                    String::new()
+                    // **The vocabulary can overrule an effects write too** — E-064.
+                    //
+                    // `set_axis` settles `effects` after either axis, because the derived half is
+                    // the kind's to state: a piece whose kind implies `powered` cannot be left
+                    // without it. An author who removes it has it put back — and the receipt used to
+                    // say only `set effects on `bench`  -powered`, naming a removal that did not
+                    // happen. A receipt that reports a change the library refused is worse than none,
+                    // because it is believed.
+                    //
+                    // The net phrase cannot carry this: `-inert` is true whether or not `powered`
+                    // survived, so the fact that the author's request was overruled has to be said.
+                    // The tokens named are the ones *asked for and kept*, which is the part nobody
+                    // expected.
+                    // **Read against what the author ASKED for, not against the settled pair.**
+                    // `was` and `now` are the same list here in the one case that matters — the
+                    // effect never left — so a comparison of them cannot see the override. The
+                    // request is `tokens`, which is the axis's whole new value.
+                    let kept: Vec<&str> = was
+                        .iter()
+                        .filter(|t| !asked.as_ref().is_some_and(|a| a.contains(t)))
+                        .filter(|t| d.effects.iter().any(|e| e == *t))
+                        .map(String::as_str)
+                        .collect();
+                    if kept.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" — kept {} (the kind implies it)", kept.join(", "))
+                    }
                 } else if effects_were == d.effects {
                     // A `kind` write that left the effects alone has nothing to add. Compared as
                     // lists, not by parsing the phrase: `changed_from` also speaks for a no-op

@@ -718,8 +718,8 @@
         "no_workaround": true,
         "evidence": "`set_axis` settles `effects` after an effects write too, so an author removing an implied effect has it put back. The receipt reads `set effects on X  -inert` and never says `emit` stayed because the kind implies it. Found by E-063's review; same class as E-063 on the other axis."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::set_axis; tests/a_label_set_on_effects_settles_as_the_kind_does.rs",
+      "status": "shipped",
+      "evidence": "An effects write that drops an implied token says so: `set effects on `town/brazier` \u2014 kept emit (the kind implies it)`. The kept tokens are read against the request, and the effects axis's 'as it was' is the SETTLED list \u2014 review found that reading the raw row reported the vocabulary's own effect as the author's addition (`+powered -inert`) on a file not yet caught up with its kind. 3 tests, the first and third failing before; live-verified on a scratch project with an implication.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     }
