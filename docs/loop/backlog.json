@@ -626,6 +626,38 @@
       "evidence": "2026-10-23 round: agent-drives shipped as the README hero. build-a-map failed on caption sync and small pieces; label-a-kit waits on B-047; generate-a-layout waits on B-046. Storyboards and attempts in /tmp/gifs/ (not committed).",
       "last_failure": "",
       "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-059",
+      "kind": "enhancement",
+      "area": "kits",
+      "title": "A two-way piece's palette row does not say which layer each placement took",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "The mount label reads `on support or floor`; the per-placement answer is only in the INSPECTOR's UNDER row and in the map file."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_core/src/descriptor.rs::mount_label; crates/bevy_emerge_mapper/src/tiles.rs (palette rows)",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
+    },
+    {
+      "id": "E-060",
+      "kind": "enhancement",
+      "area": "kits",
+      "title": "`mount_options` offers the two-way mount for the first surface class only",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "The M cycle is a fixed-length list; one entry per class would double it. Authoring another class is a file edit, so a workaround exists."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_core/src/descriptor.rs::mount_options",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
     }
   ]
 }

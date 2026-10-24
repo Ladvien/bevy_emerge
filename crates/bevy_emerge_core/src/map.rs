@@ -255,6 +255,15 @@ pub struct Placed {
     ///
     /// `None` for everything that stands on the floor, hangs from the ceiling or fills a doorway —
     /// those layers derive their height from the map, not from a neighbour.
+    ///
+    /// # And it is the record of which mount a two-way piece took
+    ///
+    /// For a [`Descriptor`](crate::descriptor::Descriptor) mounted
+    /// [`Mount::OnSurfaceOrFloor`](crate::descriptor::Mount::OnSurfaceOrFloor), this field **is** the
+    /// answer to "did it take the surface or the floor": `Some(host)` says the surface, `None` says the
+    /// floor. That is why the variant needs no second field — [`crate::stack::resolve_y`] already
+    /// derives the height from `on`, so the two seatings reproduce on a reload without anything else
+    /// being stored.
     #[serde(default)]
     pub on: Option<String>,
     /// **Owned by the author** — a generator must route around it rather than through it.

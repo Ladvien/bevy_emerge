@@ -410,6 +410,10 @@ pub fn mount_token(m: &Mount) -> &'static str {
     match m {
         Mount::OnFloor => "floor",
         Mount::OnSurface { .. } => "surface",
+        // Its own token rather than a second spelling of `surface`: the model has to be able to say
+        // "this could go either way", and folding it into `surface` would make every dressing set
+        // come back as surface-only — the guess the feature exists to stop being permanent.
+        Mount::OnSurfaceOrFloor { .. } => "surface_or_floor",
         Mount::OnFace { .. } => "face",
         Mount::OnWall { .. } => "wall",
         Mount::OnCeiling => "ceiling",
@@ -452,6 +456,12 @@ fn mount_meaning(m: &Mount) -> &'static str {
             "too small or unstable to stand on the ground - it belongs ON \
                                     TOP OF another piece of furniture (a mug, a lamp, a keyboard, \
                                     a book, a tray)"
+        }
+        Mount::OnSurfaceOrFloor { .. } => {
+            "small enough to sit on a table but also at home directly on the floor \
+                                          - a set of tools, a pile of ingots, a bundle of rods, a \
+                                          stack of sheets. Choose this only when BOTH readings are \
+                                          natural; a mug is `surface`"
         }
         Mount::OnFace { .. } => {
             "fixed flat against the vertical face of another piece - not \
@@ -500,7 +510,9 @@ fn mount_meaning(m: &Mount) -> &'static str {
 fn mount_shape(m: &Mount) -> String {
     let token = mount_token(m);
     match m {
-        Mount::OnSurface { class } => format!(r#"{{"on": "{token}", "class": "{class}"}}"#),
+        Mount::OnSurface { class } | Mount::OnSurfaceOrFloor { class } => {
+            format!(r#"{{"on": "{token}", "class": "{class}"}}"#)
+        }
         // A face carries both halves — the class saying which face, the height saying how far up
         // it — and `valid_mount` demands both rather than inventing either.
         Mount::OnFace { class, height } => {
@@ -873,6 +885,29 @@ fn valid_mount(raw: &RawMount, surfaces: &Vocabulary) -> Result<Mount, String> {
                 ));
             }
             Ok(Mount::OnSurface { class })
+        }
+        // **The same class demand as `surface`, and for the same reason.** The class is what matches
+        // a host, so a model that answered this token without one would be asking the library to
+        // invent the half of the sentence that decides where the piece lands.
+        "surface_or_floor" => {
+            let class = raw
+                .class
+                .clone()
+                .ok_or_else(|| {
+                    format!(
+                        "mount on `surface_or_floor` needs `class` — the class is one of: {}",
+                        surfaces.names().collect::<Vec<_>>().join(", ")
+                    )
+                })?;
+            if !surfaces.contains(&class) {
+                let hint = nearest(surfaces, &class)
+                    .map(|n| format!(" (did you mean `{n}`?)"))
+                    .unwrap_or_default();
+                return Err(format!(
+                    "mount class `{class}` is not a `surfaces` token{hint}"
+                ));
+            }
+            Ok(Mount::OnSurfaceOrFloor { class })
         }
         // **The face mount needs both halves, and neither is inventable.** A class the project has
         // not declared, or a height nobody stated, would be a guess written into a library entry —
