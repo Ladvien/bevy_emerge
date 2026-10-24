@@ -582,8 +582,8 @@
    "kind": "enhancement",
    "area": "chooser",
    "title": "Enter on '+ new map' makes the map but does not open it; a second Enter is needed",
-   "status": "open",
-   "evidence": "DocStart 2026-10-23 from chooser.rs; documented in docs/guide/getting-started.md steps 4-5.",
+   "status": "fixed",
+   "evidence": "crates/bevy_emerge_mapper/src/chooser.rs Chooser::made + drive_chooser's open above the swallowed return; chooser::tests::making_a_map_opens_it_in_the_same_press (fails without the change); measured on the real editor: pre-fix binary, one Enter leaves the chooser asking 'Enter open MAP'; this build, one Enter opens first_map (10x4x10). Guide steps 4-5 are now one step.",
    "last_failure": "",
    "first_seen": "2026-10-23"
   },
@@ -720,6 +720,16 @@
    },
    "status": "shipped",
    "evidence": "An effects write that drops an implied token says so: `set effects on `town/brazier` \u2014 kept emit (the kind implies it)`. The kept tokens are read against the request, and the effects axis's 'as it was' is the SETTLED list \u2014 review found that reading the raw row reported the vocabulary's own effect as the author's addition (`+powered -inert`) on a file not yet caught up with its kind. 3 tests, the first and third failing before; live-verified on a scratch project with an implication.",
+   "last_failure": "",
+   "first_seen": "2026-10-24"
+  },
+  {
+   "id": "E-059",
+   "kind": "enhancement",
+   "area": "tests",
+   "title": "Five sequencer tests fail under machine load: a real-time 20 s deadline spins without sleeping",
+   "status": "open",
+   "evidence": "2026-10-24, load average 30-37 on 10 cores: three consecutive `cargo test --workspace` runs each failed a DIFFERENT member of the family (a_sequence_takes_the_agents_checks, a_person_removes_a_piece_and_undoes_it, an_agent_turn_in_a_sequence_stands_on_the_screen, a_sequence_turn_is_on_the_receipt), and each passes alone (3/3 for the piece one). Clean main at 4b15d06 fails the same way, so this is pre-existing, not any one change. a_sequence_turn_is_on_the_receipt.rs:49 loops `app.update()` against a 20 s real-time deadline with NO thread::sleep; its siblings do sleep.",
    "last_failure": "",
    "first_seen": "2026-10-24"
   }
