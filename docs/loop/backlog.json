@@ -702,8 +702,24 @@
         "no_workaround": true,
         "evidence": "`set_axis` re-settles implied effects when `kind` changes, so light -> decor drops `electricity`. The receipt says only `+decor -light`; the vocabulary decided the rest and the author is not told."
       },
+      "status": "shipped",
+      "evidence": "The receipt names the effects a `kind` write re-settled: `set kind on `town/brazier`  -light; effects  -emit`. Compared settled-to-settled, so a stale disk row cannot report a change the editor already showed (review gap G1). Two tests in `label_set_is_an_operation.rs`, both failing before the fix.",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
+    },
+    {
+      "id": "E-064",
+      "kind": "enhancement",
+      "area": "labels",
+      "title": "An `effects` write can be overridden by the vocabulary and the receipt does not say so",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "`set_axis` settles `effects` after an effects write too, so an author removing an implied effect has it put back. The receipt reads `set effects on X  -inert` and never says `emit` stayed because the kind implies it. Found by E-063's review; same class as E-063 on the other axis."
+      },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::set_axis, changed_from",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::set_axis; tests/a_label_set_on_effects_settles_as_the_kind_does.rs",
       "last_failure": "",
       "first_seen": "2026-10-24"
     }

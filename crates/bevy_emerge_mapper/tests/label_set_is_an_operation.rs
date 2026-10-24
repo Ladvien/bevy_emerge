@@ -262,3 +262,86 @@ fn the_kit_doors_refusal_is_a_problem() {
         "a refusal is an alarm, and the kit door must show it where alarms go"
     );
 }
+
+/// **A `kind` change names the effects the vocabulary re-settled** — E-063.
+///
+/// `set_axis` re-runs `settle_implied_effects` whenever `kind` or `effects` moves, because the
+/// derived half of `effects` is the vocabulary's answer, not the writer's: a piece that stops being
+/// a `light` stops emitting, and one that becomes a bed starts recharging stamina. The write is
+/// correct — and the receipt said only `+decor -light`, so the author was never told that four other
+/// tokens had changed under them.
+///
+/// This pins the sentence, not the model: the assertion is about what the receipt SAYS, because the
+/// whole point is that the change was invisible.
+#[test]
+fn a_kind_change_names_the_effects_the_vocabulary_resettled() {
+    // `lamp` implies `electricity`; `decor` implies nothing. Setting the kind from one to the other
+    // must therefore drop the effect, and the receipt must say so.
+    let root = fixtures::Fixture::new("e063-kind-settles")
+        .descriptor("site/wall", "alpha")
+        .kind_implies("electricity")
+        .build("m");
+    let mut app =
+        harness::build_headless_at(&root, "m", None, Mode::Meshes).unwrap_or_else(|e| panic!("{e}"));
+    app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
+    app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
+    for _ in 0..8 {
+        app.update();
+    }
+
+    // The piece is a `prop`, which implies `electricity`, and its stored effects are `["inert"]` —
+    // so the settled row the editor shows is `[inert, electricity]`. **Taking the kind away is the
+    // derivation**: with no kind nothing implies the effect, so the vocabulary drops it, and the
+    // author typed only the kind.
+    let answer = label_set(&mut app, "site/wall", "kind", &[]);
+    assert_eq!(answer["outcome"], "applied", "{answer}");
+    let summary = answer["summary"].as_str().unwrap_or_default();
+
+    let effects = live_piece(&app, "site/wall").effects;
+    assert!(
+        !effects.iter().any(|e| e == "electricity"),
+        "with no kind the derived effect must go: {effects:?}"
+    );
+    assert!(
+        summary.contains("electricity"),
+        "the receipt must name the effect the vocabulary dropped, or the author is told only about \
+         the axis they typed and nothing about the rest of the change: {summary:?}"
+    );
+}
+
+/// **The derived phrase reads as a second sentence, not as a second axis.**
+///
+/// `effects:+electricity` without the separator would read as part of the axis name. This pins the
+/// shape the test above cannot: a `kind` write that moves effects says so after a `;`, and a write
+/// that leaves them alone adds nothing at all.
+#[test]
+fn the_derived_effects_phrase_is_separated_and_only_appears_when_they_moved() {
+    let root = fixtures::Fixture::new("e063-separator")
+        .descriptor("site/wall", "alpha")
+        .kind_implies("electricity")
+        .build("m");
+    let mut app =
+        harness::build_headless_at(&root, "m", None, Mode::Meshes).unwrap_or_else(|e| panic!("{e}"));
+    app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
+    app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
+    for _ in 0..8 {
+        app.update();
+    }
+
+    // Taking the kind away drops the derived effect, so the receipt must name it, after a
+    // semicolon.
+    let first = label_set(&mut app, "site/wall", "kind", &[]);
+    let said = first["summary"].as_str().unwrap_or_default();
+    assert!(
+        said.contains("; effects  -electricity"),
+        "the derived effects follow a semicolon so they cannot read as part of the axis: {said:?}"
+    );
+
+    // A `look` write touches nothing derived, so it must not mention effects at all.
+    let quiet = label_set(&mut app, "site/wall", "look", &["plain"]);
+    let said = quiet["summary"].as_str().unwrap_or_default();
+    assert!(
+        !said.contains("effects"),
+        "a write on an axis the vocabulary does not settle must not talk about effects: {said:?}"
+    );
+}

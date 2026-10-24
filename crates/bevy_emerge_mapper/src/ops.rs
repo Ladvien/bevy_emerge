@@ -1901,9 +1901,53 @@ pub mod label_set {
                 // what it became. Measured on the running editor, an agent's `label_set` on a piece
                 // was `0.116%` of the window and its receipt said only `set kind on town/shrub`.
                 let was = read_list(d, axis).to_vec();
+                // **The derived axis, before the write** — E-063. `set_axis` re-settles `effects`
+                // from `kind`, so a `kind` write can change tokens the author did not type.
+                //
+                // **Settled first, and that is what keeps the receipt honest.** The row on disk can
+                // be behind its own `kind`: a library written before an `implies` rule was added
+                // stores effects that the rule now contradicts, and `Project::open` settles only the
+                // in-memory `library` — not `measured`, the copy this write edits. Comparing the raw
+                // stored list would then tell the author the vocabulary had *just* added an effect
+                // the editor has been showing since open (found by review, on this very test's
+                // fixture: `kind` `prop` before and after, and a receipt claiming `+electricity`).
+                // Settling both sides compares what this write moved against what the screen said.
+                let effects_were =
+                    crate::labels::settled_effects(&d.kind, &d.effects, &project.vocab);
                 set_axis(d, &project.vocab, axis, tokens, by);
                 let now = read_list(d, axis).to_vec();
-                (format!("set {axis} on `{id}`{}", changed_from(&was, &now)), state_json(d))
+                // **And said out loud, when the vocabulary moved them.** The write is right; a
+                // receipt that names only the axis the author typed is not. The two are reported
+                // separately because they are two decisions: one a person made, one the vocabulary
+                // made from it — and only the second is the one nobody expected.
+                let derived = if axis == "effects" {
+                    // Already named by the axis's own phrase; naming it twice would read as two
+                    // changes.
+                    String::new()
+                } else if effects_were == d.effects {
+                    // A `kind` write that left the effects alone has nothing to add. Compared as
+                    // lists, not by parsing the phrase: `changed_from` also speaks for a no-op
+                    // ("same tokens, claim restated"), and a string test here would be a second
+                    // rule that could drift from the first.
+                    String::new()
+                } else {
+                    format!("; effects{}", changed_from(&effects_were, &d.effects))
+                };
+                // **The axis phrase, and the derived one.** When the axis did not move but the
+                // vocabulary did, "same tokens, claim restated" is not the news — the effects are —
+                // so the restated clause is dropped rather than leading the sentence.
+                // **Structural, not a string match.** The axis moved iff the two lists differ;
+                // that is the same fact `changed_from` reads, asked here directly so the two cannot
+                // drift on what "moved" means.
+                let axis_phrase = if !derived.is_empty() && was == now {
+                    String::new()
+                } else {
+                    changed_from(&was, &now)
+                };
+                (
+                    format!("set {axis} on `{id}`{axis_phrase}{derived}"),
+                    state_json(d),
+                )
             }
             Request::Restore { record, .. } => {
                 d.kind = record.kind.clone();
