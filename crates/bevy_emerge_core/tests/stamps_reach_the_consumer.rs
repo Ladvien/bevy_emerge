@@ -151,6 +151,7 @@ fn project(tag: &str, stamps: Option<&[Stamped]>) -> PathBuf {
         stamps: stamps.map(|s| s.to_vec()).unwrap_or_default(),
         locations: Vec::new(),
         note: None,
+        ..Default::default()
     };
     std::fs::write(
         emerge.join("maps/yard.map.ron"),

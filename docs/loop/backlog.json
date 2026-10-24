@@ -59,8 +59,8 @@
     "no_workaround": false,
     "evidence": "editor.rs ENCLOSURE_WISH = 0.25 and ENCLOSURE_WEIGHT = 200 are not in rules.ron, so they are not authored and cannot be tuned without a rebuild."
    },
-   "status": "open",
-   "evidence": "crates/bevy_emerge_mapper/src/editor.rs (ENCLOSURE_WISH, ENCLOSURE_WEIGHT)",
+   "status": "fixed",
+   "evidence": "crates/bevy_emerge_core/src/map.rs Map::enclosure (MAP_VERSION 7) + ops::map_set_settings enclosure_wish/enclosure_weight + editor::enclosure_wishes; tests/the_enclosure_wish_is_the_maps_to_set.rs (5 tests); docs/guide/data-files.md",
    "last_failure": "",
    "first_seen": "2026-10-21"
   },
@@ -328,8 +328,8 @@
     "no_workaround": true,
     "evidence": "Judgment: 1 of 3 (no_workaround only). Partly fixed in 233fc64: picking is disabled while armed. Workaround: release and press again."
    },
-   "status": "open",
-   "evidence": "Reviewer gap 15, partial. Root cause: Bevy's button_on_pointer_click (bevy_ui_widgets-0.20.0/src/button.rs:60-72) fires on a press that started before arming. Test a_snip_armed_over_a_button_does_not_press_it covers the case after arming only.",
+   "status": "fixed",
+   "evidence": "crates/bevy_emerge_mapper/tests/a_person_snips_an_area_of_the_editor.rs::arming_the_snip_drops_a_press_that_was_already_in_flight (failed before, passes after); fix in snip::snip_gates_picking; docs/loop/iterations/2026-10-24-snip-<sha>.md",
    "last_failure": "",
    "first_seen": "2026-10-22"
   },
@@ -436,8 +436,8 @@
     "no_workaround": false,
     "evidence": "Not judged: unconfirmed. Set when reproduced."
    },
-   "status": "open",
-   "evidence": "Cycle 8 review note 19. snip.rs:425-450 (SNIP_WASH). Not reproduced. Review: local://c8-review.md (not in repo).",
+   "status": "rejected",
+   "evidence": "Reproduced 2026-10-24 and found to be intended, not a defect: while the note is typed the drag box stays and its label carries the note (`note: h|  (Enter saves, Escape cancels)`), the wash is SNIP_WASH alpha 0.28 by design (an existing test pins 0.2-0.5 so the map underneath stays readable), and the overlay is despawned and respawned each frame so a capture never contains it. Probe: armed, drag, release, type 'h', then overlays_while_typing=1 with pending.note=Some(\"h\"). No wash covers the note field itself.",
    "last_failure": "",
    "first_seen": "2026-10-23"
   },

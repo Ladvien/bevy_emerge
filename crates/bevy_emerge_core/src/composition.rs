@@ -1561,6 +1561,8 @@ pub fn interface(
         stamps: Vec::new(),
         locations: Vec::new(),
         note: None,
+        // A scratch map that exists to answer mounts, never to generate, so no wish is in play.
+        enclosure: crate::map::Enclosure::default(),
     };
     for f in &flats {
         scratch.placements.push(Placed {
@@ -2193,6 +2195,7 @@ mod tests {
             stamps: Vec::new(),
             locations: Vec::new(),
             note: None,
+            ..Default::default()
         }
     }
 

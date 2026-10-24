@@ -76,7 +76,10 @@ use crate::placement::ir::Guard;
 /// than read with them ignored — which is the loud failure this schema's rules are for. **`6`
 /// replaced `palette` with [`Map::bash`]** — the ad-hoc per-map list became a combination declared
 /// once in `kits.ron`, so two maps can draw on the same one and it is validated in one place.
-pub const MAP_VERSION: u32 = 6;
+/// **`7` added [`Map::enclosure`]** — how much of a generated region should close into rooms was a
+/// constant in the editor, so the author who wanted more enclosed rooms edited Rust (E-005). Its
+/// default is the pair of numbers the editor shipped, so an older map generates exactly as it did.
+pub const MAP_VERSION: u32 = 7;
 
 /// One authored world.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -149,6 +152,39 @@ pub struct Map {
     /// docs on why this is a field rather than a comment.
     #[serde(default)]
     pub note: Option<String>,
+    /// **How much of a generated region should close into rooms, and what that wish is worth.**
+    ///
+    /// **Authored, because it is a taste.** The editor used to hold `0.25` and `200` as constants in
+    /// `editor.rs`, so a developer who wanted more enclosed rooms — a keep, a cellar, a maze — had to
+    /// edit Rust and rebuild (E-005). What an author means by "rooms" differs per map, and it is
+    /// exactly the kind of number someone tunes while looking at a result.
+    ///
+    /// Absent means [`Enclosure::default`], which is the pair the editor shipped, so a map written
+    /// before this field existed generates exactly as it did.
+    #[serde(default)]
+    pub enclosure: Enclosure,
+}
+
+/// **The enclosure wish a generator aims at, and its weight against everything else.**
+///
+/// A *soft* wish: a region that cannot reach the target returns its best arrangement and says so
+/// rather than refusing, which is what makes a tuned number safe.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Enclosure {
+    /// **The fraction of a generated region that should close into rooms**, `0.0..=1.0`.
+    pub wish: f32,
+    /// **What that wish is worth** against the other terms of the solve. Any positive value makes it
+    /// decisive, because it is the only soft constraint in play; the number leaves room for a second
+    /// wish to be weighed against it later.
+    pub weight: u32,
+}
+
+impl Default for Enclosure {
+    /// The pair `editor.rs` held as constants before E-005: a quarter of the region, weighted 200.
+    fn default() -> Self {
+        Enclosure { wish: 0.25, weight: 200 }
+    }
 }
 
 impl Default for Map {
@@ -170,6 +206,7 @@ impl Default for Map {
             stamps: Vec::new(),
             locations: Vec::new(),
             note: None,
+            enclosure: Enclosure::default(),
         }
     }
 }
@@ -858,6 +895,7 @@ mod tests {
                 }],
             }],
             note: Some("a galley, for the schema tests".into()),
+            ..Default::default()
         }
     }
 

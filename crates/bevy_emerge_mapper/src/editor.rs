@@ -1261,20 +1261,23 @@ pub struct ProposalGhost;
 /// the solver does not think touch.
 const CELL: f32 = grid::TILE;
 
-/// How much of a generated region should close into rooms, and what that wish is worth.
+/// How much of a generated region should close into rooms, and what that wish is worth — **as
+/// shipped, and as the defaults of [`Enclosure`]** (E-005).
 ///
-/// **Constants rather than controls, deliberately for now.** This crate has no slider widget of any
-/// kind, so a knob is a marker, a resource, an observer, a keystroke filter and a repaint system —
-/// real work that should follow evidence about what an author actually wants to turn, not precede it.
-/// The wish being *soft* is what makes a fixed number safe: a region that cannot reach the target
+/// **These are defaults now, not the only answer.** A developer who wants more enclosed rooms edits
+/// the map's `enclosure` block, or asks an agent to set it in the running editor; nothing here needs
+/// a rebuild. The values stay because a map written before the setting existed has to mean something,
+/// and the meaning it had is this one.
+///
+/// The wish being *soft* is what makes a fixed default safe: a region that cannot reach the target
 /// returns its best arrangement and says so, rather than refusing.
 ///
 /// The weight is what the wish is worth against everything else asked of the solve. It is the only
 /// soft constraint in play — the per-cell texture is a preference and costs nothing — so any positive
 /// value makes it decisive; this one is round and leaves room for a second wish to be weighed against
 /// it later.
-const ENCLOSURE_WISH: f32 = 0.25;
-const ENCLOSURE_WEIGHT: u32 = 200;
+pub const ENCLOSURE_WISH: f32 = 0.25;
+pub const ENCLOSURE_WEIGHT: u32 = 200;
 
 /// The see-through preview of the armed brush.
 ///
@@ -11477,6 +11480,24 @@ fn generate(project: &Project,
     generate_from(project, open, state, proposal, clock, Source::Learned);
 }
 
+/// **The wishes a generation asks for, read off the map** — E-005.
+///
+/// It was `ENCLOSURE_WISH` / `ENCLOSURE_WEIGHT`, constants in this file, so an author who wanted a
+/// keep's worth of rooms edited Rust and rebuilt. The map carries the pair now, which is what makes
+/// it something a developer tunes while looking at a result: an agent sets it through
+/// `map_set_settings` and a file edit sets the same field.
+///
+/// **Public so the reading is testable without a generator.** `generate_from` needs a project, a
+/// proposal and a clock; what an author can get wrong is *which number the generator is told*, and
+/// that is this function's whole job. A test that had to run a solve to check it would be proving
+/// the solver rather than the wiring.
+pub fn enclosure_wishes(map: &bevy_emerge_core::map::Map) -> bevy_emerge_core::grammar::Wishes {
+    bevy_emerge_core::grammar::Wishes {
+        enclosure: map.enclosure.wish,
+        enclosure_weight: Some(map.enclosure.weight),
+    }
+}
+
 fn generate_from(project: &Project,
     open: &OpenMap,
     state: &mut EditorState,
@@ -11581,14 +11602,11 @@ fn generate_from(project: &Project,
         n += 1;
         format!("gen@{n}")
     };
+    let enclosure = enclosure_wishes(&open.map);
     let outcome = match source {
         Source::Composed => {
-            let wishes = bevy_emerge_core::grammar::Wishes {
-                enclosure: ENCLOSURE_WISH,
-                enclosure_weight: Some(ENCLOSURE_WEIGHT),
-            };
             bevy_emerge_core::grammar::solve_constrained(
-                &scratch, &grammar, &faces, &wishes, CELL, state.seed, &mut mint,
+                &scratch, &grammar, &faces, &enclosure, CELL, state.seed, &mut mint,
             )
         }
         Source::Learned | Source::Declared => {
@@ -11633,7 +11651,7 @@ fn generate_from(project: &Project,
         format!(
             " — but does not reach the {}% enclosure it aims for; the kit's rules do not allow more \
              here",
-            (ENCLOSURE_WISH * 100.0).round() as u32
+            (enclosure.enclosure * 100.0).round() as u32
         )
     } else {
         String::new()

@@ -931,6 +931,15 @@ pub mod map_set_settings {
         /// **The map's note** — the header prose, as data. Absent leaves it; `null` clears it.
         #[serde(default, deserialize_with = "present")]
         pub note: Option<Option<String>>,
+        /// **The fraction of a generated region that should close into rooms**, `0.0..=1.0`.
+        ///
+        /// Tuning this is why the field exists: what an author means by "rooms" differs per map, and
+        /// the editor held one number for every map until E-005. Absent leaves it alone.
+        #[serde(default)]
+        pub enclosure_wish: Option<f32>,
+        /// **What that wish is worth** against the other terms of the solve. Absent leaves it alone.
+        #[serde(default)]
+        pub enclosure_weight: Option<u32>,
     }
 
     /// **A field that is present is `Some`, even when it is `null`.**
@@ -1014,6 +1023,17 @@ pub mod map_set_settings {
                     "note": {
                         "description": "The map's note: the header prose, as data.",
                         "type": ["string", "null"]
+                    },
+                    "enclosure_wish": {
+                        "description": "The fraction of a generated region that should close into rooms, 0.0 to 1.0. Used by the composition source, whose grammar has walls to close; the learned and declared sources derive no interfaces and ignore it. Soft: a region that cannot reach it returns its best arrangement and says so.",
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "enclosure_weight": {
+                        "description": "What the enclosure wish is worth against the other terms of the solve. Any positive value makes it decisive, because it is the only soft constraint in play.",
+                        "type": "integer",
+                        "minimum": 1
                     }
                 }
             })
@@ -1027,7 +1047,8 @@ pub mod map_set_settings {
             serde_json::from_value(raw.clone()).map_err(|e| {
                 Refusal::new(format!(
                     "these are not a map's settings: {e}. The fields are `origin`, `bounds`, `axis`, \
-                     `axis_value`, `bash` and `note`, and nothing else."
+                     `axis_value`, `bash`, `note`, `enclosure_wish` and `enclosure_weight`, and \
+                     nothing else."
                 ))
             })
         }
@@ -1108,12 +1129,36 @@ pub mod map_set_settings {
                     axis.label()
                 )));
             }
+            // **The wish is a fraction, and a weight has to weigh something.**
+            //
+            // A wish outside `0.0..=1.0` is not a bigger ask, it is a number with no meaning — the
+            // solver compares it against the fraction of a region that closed. A weight of zero is
+            // the author switching the wish off while saying they want it, which is two answers to
+            // one question and is refused rather than silently guessed.
+            if let Some(wish) = p.enclosure_wish
+                && !(wish.is_finite() && (0.0..=1.0).contains(&wish))
+            {
+                return Err(Refusal::new(format!(
+                    "the enclosure wish is the fraction of a region that should close into rooms, \
+                     from 0 to 1 — `{wish}` is not."
+                )));
+            }
+            if let Some(weight) = p.enclosure_weight
+                && weight < 1
+            {
+                return Err(Refusal::new(
+                    "the enclosure weight is what the wish is worth, and it has to be at least 1 — \
+                     a wish worth nothing is a wish not being asked for.",
+                ));
+            }
             // **The preview is the change, stated.**
             Ok(json!({
                 "origin": p.origin,
                 "bounds": p.bounds,
                 "bash": p.bash,
                 "note": p.note,
+                "enclosure_wish": p.enclosure_wish,
+                "enclosure_weight": p.enclosure_weight,
             }))
         }
 
@@ -1130,6 +1175,7 @@ pub mod map_set_settings {
                 bounds: open.map.bounds,
                 bash: open.map.bash.clone(),
                 note: open.map.note.clone(),
+                enclosure: open.map.enclosure,
             };
             if let Some(v) = p.origin {
                 open.map.origin = v;
@@ -1153,6 +1199,14 @@ pub mod map_set_settings {
             }
             if let Some(v) = p.note {
                 open.map.note = v;
+            }
+            // **The wish, one field at a time**, the same partial-update rule as every other
+            // setting: an author tuning the weight keeps the fraction they already chose.
+            if let Some(v) = p.enclosure_wish {
+                open.map.enclosure.wish = v;
+            }
+            if let Some(v) = p.enclosure_weight {
+                open.map.enclosure.weight = v;
             }
             // **And the file, so the change is not only in memory.** The brief's rule: a live
             // change is written back to the data file, so nothing exists only in memory.
@@ -1179,6 +1233,7 @@ pub mod map_set_settings {
                     open.map.bounds = old.bounds;
                     open.map.bash = old.bash;
                     open.map.note = old.note;
+                    open.map.enclosure = old.enclosure;
                     ctx.open = Some(open);
                     return Err(Refusal::new(format!(
                         "the settings were changed but the file refused them, so nothing was \
@@ -1207,6 +1262,8 @@ pub mod map_set_settings {
                 "bounds": [old.bounds.0, old.bounds.1, old.bounds.2],
                 "bash": old.bash,
                 "note": old.note,
+                "enclosure_wish": old.enclosure.wish,
+                "enclosure_weight": old.enclosure.weight,
             });
             let after = ctx.open.as_ref().map(settings_of);
             Ok(Outcome {
@@ -1229,6 +1286,8 @@ pub mod map_set_settings {
             "bounds": [open.map.bounds.0, open.map.bounds.1, open.map.bounds.2],
             "bash": open.map.bash,
             "note": open.map.note,
+            "enclosure_wish": open.map.enclosure.wish,
+            "enclosure_weight": open.map.enclosure.weight,
         })
     }
 
@@ -1242,6 +1301,7 @@ pub mod map_set_settings {
         pub bounds: (f32, f32, f32),
         pub bash: Option<String>,
         pub note: Option<String>,
+        pub enclosure: bevy_emerge_core::map::Enclosure,
     }
 }
 

@@ -86,11 +86,23 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 | | |
 |---|---|
 | Where | `assets/emerge/maps/<name>.map.ron`, one file per map |
-| What it holds | One map: its name, its origin and bounds, its placements, its stamps and its locations. The file keeps each stamp as a stamp. The game expands stamps when it loads. |
+| What it holds | One map: its name, its origin and bounds, its placements, its stamps, its locations and its `enclosure` wish. The file keeps each stamp as a stamp. The game expands stamps when it loads. |
 | Written by | The editor, when a map is saved and when a new empty map is made. The save checks the map and expands its stamps before it writes. |
 | Live reload | Yes, for the map the editor has open. |
 | Read by | The game's loader, which refuses a map whose `name` does not match its file, and the editor. |
-| Format version | 6 |
+| Format version | 7 |
+
+### `enclosure`
+
+How much of a generated region should close into rooms, and what that wish is worth:
+
+```ron
+enclosure: (wish: 0.25, weight: 200),
+```
+
+`wish` is a fraction, `0.0` to `1.0`, and only the **composition** source uses it — the learned and declared sources derive no interfaces, so they have no walls to close. The wish is *soft*: a region that cannot reach the target returns its best arrangement and says so, rather than refusing. `weight` is what the wish is worth against the other terms of the solve; any positive value makes it decisive, because it is the only soft constraint in play.
+
+**Absent means those two numbers**, which is what the editor shipped before the field existed (E-005), so a map written earlier generates exactly as it did. Set it through `map_set_settings` (`enclosure_wish`, `enclosure_weight`) or by editing the file; both write the same field, and neither needs a rebuild.
 
 ## oplog.jsonl
 

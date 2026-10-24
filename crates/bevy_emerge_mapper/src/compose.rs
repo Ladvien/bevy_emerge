@@ -1680,6 +1680,8 @@ fn restage_group(
             stamps: Vec::new(),
             locations: Vec::new(),
             note: None,
+            // A stage for standing a group up, never a map that generates, so no wish is in play.
+            enclosure: bevy_emerge_core::map::Enclosure::default(),
         };
         let stamp = bevy_emerge_core::composition::Stamped {
             id: "staged".to_owned(),
@@ -3670,6 +3672,7 @@ mod paint_tests {
             stamps: Vec::new(),
             locations: Vec::new(),
             note: None,
+            ..Default::default()
         };
         let stamps = vec![Stamped { id: "s".to_owned(), of: "bay".to_owned(), ..Default::default() }];
         let out = bevy_emerge_core::composition::expand(&map, &stamps, &[comp], &lib)
