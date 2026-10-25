@@ -253,6 +253,17 @@ pub struct EditorState {
 }
 
 impl EditorState {
+    /// **The solver's seed for the next proposal**, advanced by exactly one.
+    ///
+    /// A generator that cannot be asked again is one the author has to undo to disagree with, so
+    /// every press advances this. It lives on the state rather than in the proposer so that a
+    /// proposal made by an agent (which supplies its own seed) and one made by a key behave the
+    /// same way on the *next* press.
+    pub fn next_seed(&mut self) -> u64 {
+        self.seed = self.seed.wrapping_add(1);
+        self.seed
+    }
+
     /// **How many steps back are available**, for a test that needs to assert an act recorded
     /// *nothing* — discarding a proposal, for one, which writes nothing and so must take nothing
     /// back. The stack itself stays private: this answers a question, it does not hand over the rows.
@@ -2142,7 +2153,9 @@ pub fn open_door(world: &mut World, door: crate::tiles::Door, tab: Option<crate:
         project,
         open,
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let applied = crate::ops::dispatch(&mut ctx, "door_open", &params);
     match applied {
@@ -2999,7 +3012,9 @@ pub fn arm_piece(
         project: Some(project.clone()),
         open: open.cloned(),
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let params = serde_json::json!({"descriptor": descriptor});
     match crate::ops::dispatch(&mut ctx, "brush_arm", &params) {
@@ -3059,7 +3074,9 @@ pub fn select_piece(import: &mut crate::tiles::ImportState, project: &Project, i
         project: Some(project.clone()),
         open: None,
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let params = serde_json::json!({"id": id});
     match crate::ops::dispatch(&mut ctx, "piece_select", &params) {
@@ -3089,7 +3106,9 @@ pub fn set_label(
         project: Some(project.clone()),
         open: None,
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let params = serde_json::json!({"id": id, "axis": axis, "tokens": tokens});
     match crate::ops::dispatch(&mut ctx, "label_set", &params) {
@@ -3220,7 +3239,9 @@ fn size_edit_keys(
                     project: project.as_deref().cloned(),
                     open: taken_open.take(),
                     source: crate::ops::Source::Human,
+                    root: None,
                     session: crate::ops::session_id(),
+                    proposal: None,
                 };
                 let outcome = crate::ops::dispatch(
                     &mut ctx,
@@ -3425,12 +3446,16 @@ pub struct Rung(pub SnapLevel);
 
 /// **A generated layout that has not been written to the map.**
 ///
-/// See [`keys::Stance::Proposed`] for why this is a phase rather than a flag, and `generate_from`
-/// for the measured reason it exists at all.
+/// See [`keys::Stance::Proposed`] for why this is a phase rather than a flag, and [`propose`] for
+/// the measured reason it exists at all.
 ///
-/// It holds only what the solver produced. What the layout would *clear* is decided by
-/// [`apply_proposal`] against the live map, because an index captured now and used later is a bug
-/// waiting for the first author who places a piece while a proposal is up.
+/// It holds only what the solver produced. What the layout would *clear* is decided when it is
+/// taken, against the live map, because an index captured now and used later is a bug waiting for
+/// the first author who places a piece while a proposal is up.
+///
+/// **`PartialEq` because a proposal is compared, not just drawn**: `layout_propose` answers a test
+/// with two layouts and the question "did the same seed lay the same thing" has to be answerable.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Proposed {
     /// True when the source was `Composed`, which lays stamps rather than placements — and therefore
     /// clears the unpinned stamps rather than the unpinned placements.
@@ -6498,76 +6523,40 @@ fn place_one(
     at: (f32, f32),
     free: bool,
 ) {
-    // **What it lands on.** A piece that mounts on a surface must find one under the cursor; the same
-    // question the ghost has been answering while the author moved the mouse here, asked once more at
-    // the moment it matters.
-    let ys = match heights(project, open) {
-        Ok(ys) => ys,
-        Err(e) => {
-            state.status.problem(e);
-            return;
-        }
-    };
-    let (y, host) =
-        match bevy_emerge_core::stack::placement_at(&open.map, &project.library, &ys, d, at) {
-            Ok(found) => found,
-            // Refused, not floored. Dropping it at floor level is the behaviour this replaced: the
-            // piece appears, in the wrong place, and looks like an authoring mistake.
-            Err(e) => {
-                state.status.problem(e);
-                return;
-            }
-        };
-    let on = host.map(|h| h.id.clone());
-
-    // **Occupied space is replaced, and the author is told what went.** Flush is fine — kitbashing
-    // lays pieces end to end, and `stack::OVERLAP_EPS` is what keeps "touching" from reading as
-    // "overlapping" — but a piece INSIDE another is an accident that otherwise surfaces as a doubled
-    // draw call nobody can see. Same-layer only: the floor a crate stands on is not in its way.
-    //
-    // It used to refuse, which made repainting a tile a two-step (remove, then place) on every cell.
-    // Replacing is one act and one undo. What still refuses is a piece that carries another: taking
-    // it away would strand its rider, so the author removes the rider first.
-    let blockers = bevy_emerge_core::stack::blockers(
-        &open.map,
-        &project.library,
+    // **The click is the operation's own reasoning, called with the click's own numbers.** Everything
+    // up to the write is `plan_placement`; what follows is the entity work an operation does not own.
+    // This used to be the other way round — the plan existed only here — which is why an agent could
+    // not place a piece at all (S2.1).
+    state.next_id += 1;
+    let planned = match plan_placement(
+        project,
+        open,
         d,
         at,
         state.brush_yaw,
         state.brush_tip,
-        on.as_deref(),
-    );
-    if let [only] = blockers.as_slice()
-        && let Some(p) = open.map.placements.get(*only)
-        && p.descriptor == d.id
-        && p.patch.is_none()
-        && p.at == at
-        && p.yaw == state.brush_yaw
-        && p.tip == state.brush_tip
-    {
-        // Exactly what is there: replacing it would mint a new id and change the file for no change on screen.
-        state.status.note(format!("`{}` is already there", p.id));
-        return;
-    }
-    if let Err(e) = riders_refuse(&open.map, &blockers) {
-        state.status.note(e);
-        return;
-    }
+        state.next_id,
+    ) {
+        Ok(p) => p,
+        // **"Already there" is a note; everything else is a problem.** The distinction is the
+        // crate's own: clicking a cell that already holds this exact piece is an answer, and a piece
+        // whose host is missing is a refusal the author has to act on.
+        Err(e) => {
+            if e.ends_with("is already there") {
+                state.status.note(e);
+            } else {
+                state.status.problem(e);
+            }
+            return;
+        }
+    };
+    let y = planned.y;
+    let on = planned.placed.on.clone();
+    let blockers = planned.replaces.clone();
     let removed = take_rows(commands, placed, &mut open.map, &blockers);
 
-    state.next_id += 1;
-    let id = format!("{}@{}", short_id(&d.id), state.next_id);
-
-    let placed_row = Placed {
-        id: id.clone(),
-        descriptor: d.id.clone(),
-        at,
-        yaw: state.brush_yaw,
-        tip: state.brush_tip,
-        on: on.clone(),
-        ..Placed::default()
-    };
-    open.map.placements.push(placed_row);
+    let id = planned.placed.id.clone();
+    open.map.placements.push(planned.placed);
     let replaced: Vec<String> = removed.iter().map(|(_, p)| p.id.clone()).collect();
     state.record(record_added(1, removed));
 
@@ -6592,6 +6581,76 @@ fn place_one(
         (Some(host), true) => format!("placed {id} on {host}{how}"),
         (None, true) => format!("placed {id} at ({:.2}, {:.2}){how}", at.0, at.1),
     });
+}
+
+/// **What a placement would be, before anything is written** — the click's own reasoning, split out
+/// so an agent's `placement_add` and a person's click cannot disagree (S2.1).
+///
+/// It is the first half of `place_one`, moved rather than copied: which layer the piece lands on, what
+/// is already in its way, whether it carries a rider, and the id it would take. **Nothing here writes**
+/// — no row is pushed, no entity despawned, no id counter advanced — which is what lets it answer a
+/// `dry_run` and what lets the operation own the write.
+pub(crate) struct PlannedPlacement {
+    /// The row that would be appended.
+    pub placed: Placed,
+    /// The rows it would replace, ascending. Occupied space is replaced rather than refused; a piece
+    /// that carries another is still refused, and that happens here.
+    pub replaces: Vec<usize>,
+    /// **The height it would sit at.** The solver lays pieces on the floor grid; how high one ends up
+    /// is a question about the finished map, so the click needs this to draw it and the operation
+    /// needs it to report.
+    pub y: f32,
+}
+
+pub(crate) fn plan_placement(
+    project: &Project,
+    open: &OpenMap,
+    d: &bevy_emerge_core::descriptor::Descriptor,
+    at: (f32, f32),
+    yaw: f32,
+    tip: (u8, u8),
+    n: u32,
+) -> Result<PlannedPlacement, String> {
+    // **What it lands on.** A piece that mounts on a surface must find one under the cursor; the same
+    // question the ghost has been answering while the author moved the mouse here, asked once more at
+    // the moment it matters.
+    let ys = heights(project, open)?;
+    let (y, host) = bevy_emerge_core::stack::placement_at(&open.map, &project.library, &ys, d, at)?;
+    let on = host.map(|h| h.id.clone());
+
+    // **Occupied space is replaced, and the author is told what went.** Flush is fine — kitbashing
+    // lays pieces end to end, and `stack::OVERLAP_EPS` is what keeps "touching" from reading as
+    // "overlapping" — but a piece INSIDE another is an accident that otherwise surfaces as a doubled
+    // draw call nobody can see. Same-layer only: the floor a crate stands on is not in its way.
+    let blockers =
+        bevy_emerge_core::stack::blockers(&open.map, &project.library, d, at, yaw, tip, on.as_deref());
+    if let [only] = blockers.as_slice()
+        && let Some(p) = open.map.placements.get(*only)
+        && p.descriptor == d.id
+        && p.patch.is_none()
+        && p.at == at
+        && p.yaw == yaw
+        && p.tip == tip
+    {
+        // Exactly what is there: replacing it would mint a new id and change the file for no change
+        // on screen. This is a note rather than a problem — the click path says so too.
+        return Err(format!("`{}` is already there", p.id));
+    }
+    riders_refuse(&open.map, &blockers)?;
+
+    Ok(PlannedPlacement {
+        placed: Placed {
+            id: format!("{}@{n}", short_id(&d.id)),
+            descriptor: d.id.clone(),
+            at,
+            yaw,
+            tip,
+            on,
+            ..Placed::default()
+        },
+        replaces: blockers,
+        y,
+    })
 }
 
 /// `` `a`, `b` `` — ids for a status line.
@@ -7284,7 +7343,7 @@ pub fn send_to_tiles_for_test(
 
 /// The tail of a descriptor id, so a generated placement id reads as `crate@7` rather than
 /// `kenney_prototype-kit/crate@7`.
-fn short_id(descriptor_id: &str) -> &str {
+pub fn short_id(descriptor_id: &str) -> &str {
     descriptor_id.rsplit('/').next().unwrap_or(descriptor_id)
 }
 
@@ -7373,6 +7432,9 @@ fn keys(
     }
     let (mode, import, confirm, transforms) = &mut tiles;
     let (move_drag, clone_drag, target, proposal, compose, clock) = &mut tools;
+    // `proposal` is a `&mut ResMut<Proposal>` here; the two layout helpers take a plain
+    // `&mut Proposal`, so the deref happens at the call rather than at the binding.
+    let proposal: &mut Proposal = &mut *proposal;
     // One clock for every key that repeats while held — see `keys::repeating`.
     let dt = time.delta_secs();
 
@@ -7534,10 +7596,8 @@ fn keys(
         // waiting for an answer: a generate can clear every unpinned row on the map. Discarding it
         // is not an undo — nothing was written — so there is nothing to record and nothing to put
         // back. That is the whole point of the door.
-        if proposal.0.take().is_some() {
-            state
-                .status
-                .note("layout thrown away — the map is as it was".to_owned());
+        if proposal.0.is_some() {
+            discard_layout(&mut open, &mut state, proposal);
             return;
         }
         if move_drag.held.is_some() {
@@ -7618,18 +7678,7 @@ fn keys(
     // tab that only committed the composition answered "saved" to an author who had twenty unsaved
     // Map edits behind them.
     if keys::just_pressed(&keyboard, *live, Action::Save) && live.0 != keys::Context::Tiles {
-        match open.save(&project) {
-            Ok(()) => {
-                let path = open.map_path.display().to_string();
-                state.status.note(format!("saved {path}"));
-                info!("saved {path}");
-            }
-            // The save refuses on an invalid map rather than writing one, and says which rule.
-            Err(e) => {
-                state.status.problem(format!("NOT SAVED: {e}"));
-                error!("{e}");
-            }
-        }
+        save_map(&project, &mut open, &mut state);
         return;
     }
 
@@ -7755,17 +7804,17 @@ fn keys(
     // **G continues the layout.** Learn the grammar from what is already placed, then fill the free
     // cells with more of it — see `bevy_emerge_core::grammar`.
     if keys::just_pressed(&keyboard, *live, Action::GenerateDeclared) {
-        generate_from(&project, &open, &mut state, proposal, clock, Source::Declared);
+        propose_layout(&project, &mut open, &mut state, proposal, clock, LayoutSource::Declared);
     }
     // The three arms need no `return` between them and no ordering: `just_pressed` refuses a binding
     // whose modifier state does not match exactly (`keys.rs`, `b.needs_mod != mod_held || !shift_ok`),
     // so bare, Shift and the platform modifier are mutually exclusive by construction. `keys`'
     // `the_three_generate_sources_do_not_shadow_each_other` is what keeps that true.
     if keys::just_pressed(&keyboard, *live, Action::GenerateComposed) {
-        generate_from(&project, &open, &mut state, proposal, clock, Source::Composed);
+        propose_layout(&project, &mut open, &mut state, proposal, clock, LayoutSource::Composed);
     }
     if keys::just_pressed(&keyboard, *live, Action::Generate) {
-        generate(&project, &open, &mut state, proposal, clock);
+        propose_layout(&project, &mut open, &mut state, proposal, clock, LayoutSource::Learned);
         return;
     }
 
@@ -7828,7 +7877,9 @@ fn remove_through(
             ),
         )),
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let outcome = crate::ops::dispatch(&mut ctx, operation, &params);
     if let Some(fresh) = ctx.open.take() {
@@ -8457,7 +8508,9 @@ fn apply(
                     ),
                 )),
                 source: crate::ops::Source::Human,
+                root: None,
                 session: crate::ops::session_id(),
+                proposal: None,
             };
             let undone = crate::ops::undo(&mut ctx, Some(&line));
             if let Some(fresh) = ctx.open.take() {
@@ -8506,7 +8559,9 @@ fn apply(
                     ),
                 )),
                 source: crate::ops::Source::Human,
+                root: None,
                 session: crate::ops::session_id(),
+                proposal: None,
             };
             let undone = crate::ops::undo(&mut ctx, Some(&line));
             if let Some(fresh) = ctx.open.take() {
@@ -8559,7 +8614,9 @@ fn apply(
                     ),
                 )),
                 source: crate::ops::Source::Human,
+                root: None,
                 session: crate::ops::session_id(),
+                proposal: None,
             };
             let undone = crate::ops::undo(&mut ctx, Some(&line));
             if let Some(fresh) = ctx.open.take() {
@@ -8670,7 +8727,9 @@ fn set_pin(
             ),
         )),
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let outcome = crate::ops::dispatch(
         &mut ctx,
@@ -8742,7 +8801,9 @@ fn rename_map(
             ),
         )),
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let outcome = crate::ops::dispatch(&mut ctx, "map_rename", &serde_json::json!({"name": raw}));
     if let Some(fresh) = ctx.open.take() {
@@ -8795,7 +8856,9 @@ fn set_yaw(
             ),
         )),
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let outcome = crate::ops::dispatch(
         &mut ctx,
@@ -11460,9 +11523,11 @@ fn pin_reason_keys(
 /// observed pairs — and `Declared` cannot answer for a library nobody has tokened. Each says so
 /// rather than quietly deferring to the other, because a generator that silently changed which
 /// grammar it used would produce output the author cannot account for.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Source {
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutSource {
     /// Learned from what is already placed. Continues the author's own corner of the room.
+    #[default]
     Learned,
     /// Read off the kit's declared edge tokens. Works on an empty map.
     Declared,
@@ -11474,12 +11539,6 @@ enum Source {
     Composed,
 }
 
-fn generate(project: &Project,
-    open: &OpenMap, state: &mut EditorState, proposal: &mut Proposal,
-    clock: &mut ProposalClock) {
-    generate_from(project, open, state, proposal, clock, Source::Learned);
-}
-
 /// **The wishes a generation asks for, read off the map** — E-005.
 ///
 /// It was `ENCLOSURE_WISH` / `ENCLOSURE_WEIGHT`, constants in this file, so an author who wanted a
@@ -11487,10 +11546,10 @@ fn generate(project: &Project,
 /// it something a developer tunes while looking at a result: an agent sets it through
 /// `map_set_settings` and a file edit sets the same field.
 ///
-/// **Public so the reading is testable without a generator.** `generate_from` needs a project, a
-/// proposal and a clock; what an author can get wrong is *which number the generator is told*, and
-/// that is this function's whole job. A test that had to run a solve to check it would be proving
-/// the solver rather than the wiring.
+/// **Public so the reading is testable without a generator.** `propose` needs a project and a map;
+/// what an author can get wrong is *which number the generator is told*, and that is this function's
+/// whole job. A test that had to run a solve to check it would be proving the solver rather than the
+/// wiring.
 pub fn enclosure_wishes(map: &bevy_emerge_core::map::Map) -> bevy_emerge_core::grammar::Wishes {
     bevy_emerge_core::grammar::Wishes {
         enclosure: map.enclosure.wish,
@@ -11498,45 +11557,190 @@ pub fn enclosure_wishes(map: &bevy_emerge_core::map::Map) -> bevy_emerge_core::g
     }
 }
 
-fn generate_from(project: &Project,
-    open: &OpenMap,
+/// **Every generate key's one line: propose, then put the answer where the editor reads it.**
+///
+/// The key path and the agent's `layout_propose` run the same [`propose`]; this is the half that
+/// needs a running editor — a seed from the state, a generation number from the clock, the receipt,
+/// and one problem per refusal the proposer did not treat as fatal.
+fn propose_layout(
+    project: &Project,
+    open: &mut OpenMap,
     state: &mut EditorState,
     proposal: &mut Proposal,
     clock: &mut ProposalClock,
-    source: Source,
+    source: LayoutSource,
 ) {
-    // **The project's rules answer first when they apply**, and only for `Learned` — `Declared` and
-    // `Composed` read other things and a rule has nothing to say to them. When a rule applies it
-    // is the whole answer, refusals included: falling back to the 1 m learned path after a rule
-    // refused would show the author a layout the game will never build.
-    if source == Source::Learned && generate_by_rules(project, open, state, proposal, clock) {
-        return;
+    // **Through the registry, like `set_yaw` and every other migrated key.** The three generate keys
+    // dispatch `layout_propose` — the same operation an agent calls — so the seed, the receipts and
+    // the refusals are one implementation with two front ends rather than two that agree by habit.
+    // The one thing the key owns that the operation does not is *which seed*: the person's next press
+    // advances the state's counter, so two presses differ.
+    let seed = state.next_seed();
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        proposal: proposal.0.take(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(
+        &mut ctx,
+        "layout_propose",
+        &serde_json::json!({"source": source, "seed": seed}),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
     }
+    // **The operation's answer is the editor's new state**: the proposal it made goes back into the
+    // resource the outline and the ghosts read.
+    let carried = ctx.proposal.take().map(|mut p| {
+        p.generation = clock.tick();
+        p
+    });
+    if carried.is_some() || proposal.0.is_none() {
+        proposal.0 = carried;
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            state.status.note(outcome.summary);
+            // **The warnings are problems**, not notes: a composition the kit cannot make a tile of
+            // is a refusal of part of the request, and it was shown that way before this was an
+            // operation.
+            if let Some(after) = outcome.after.as_ref()
+                && let Some(warnings) = after.get("warnings").and_then(|w| w.as_array())
+            {
+                for warning in warnings.iter().filter_map(|w| w.as_str()) {
+                    state.status.problem(warning.to_owned());
+                }
+            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            // **Logged as well as shown**, because the status line lives in a UI panel and the panel
+            // is the one thing neither an offscreen mirror capture nor an unfocused devshot can see —
+            // so without this an agent driving the editor cannot tell a refusal from a keystroke that
+            // never arrived, which are opposite diagnoses.
+            error!("bevy_emerge_mapper: {}", e.0);
+            state.status.problem(e.0);
+        }
+    }
+}
+
+/// **The three things a proposer answers with.**
+///
+/// Nothing is written: a layout is *offered*, and whether it becomes rows on the map is
+/// [`crate::ops::layout_accept`]'s decision (or the person's `Enter`). This struct is what makes the
+/// offering one function instead of three that each wrote to a different place.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Laid {
+    /// The layout itself — placements, stamps, preview-only, and the cell it is drawn at.
+    pub proposed: Proposed,
+    /// The one line the receipt shows: what was offered, replacing what, and the two chords that
+    /// answer it.
+    pub note: String,
+    /// **Refusals that are not failures.** A composition the kit cannot make a tile of is named and
+    /// the rest of the layout still stands, so these are shown one per line rather than taking the
+    /// whole proposal down.
+    pub warnings: Vec<String>,
+}
+
+/// **One pure layout proposer behind every generate key, every source, and the agent's
+/// `layout_propose`.**
+///
+/// It was five functions — `generate`, `generate_from`, `generate_by_rules`,
+/// `generate_example_block`, `generate_region_blocks` — each of which read `EditorState` for a seed
+/// and an id counter, wrote the receipt with `state.status`, and stored the result in a `Proposal`
+/// resource. So *what a layout is* was only reachable through *who asked for it*, and an agent could
+/// not ask: the operation registry has no `&mut EditorState` and no viewport.
+///
+/// This is that logic with the three side effects turned into arguments and return values. It reads
+/// a `Project` and an `OpenMap` and nothing else, which is what makes it testable without an `App`
+/// and callable from an operation.
+///
+/// `seed` is the caller's, not the state's: `layout_propose` names it so the same seed on the same
+/// map lays the same layout, and the key path passes [`EditorState::next_seed`] so two presses
+/// differ. The id counter is seeded from the map (`next_id_after`), so a proposal cannot mint an id
+/// that is already taken.
+pub fn propose(
+    project: &Project,
+    open: &OpenMap,
+    source: LayoutSource,
+    seed: u64,
+) -> Result<Laid, String> {
+    // **A rule answers first, and only for `Learned`.** `Declared` and `Composed` read other things
+    // and a rule has nothing to say to them. When a rule applies it is the whole answer, refusals
+    // included: falling back to the 1 m learned path after a rule refused would show the author a
+    // layout the game will never build.
+    if source == LayoutSource::Learned
+        && let Some(laid) = propose_by_rules(project, open, seed)?
+    {
+        return Ok(laid);
+    }
+    propose_from_grammar(project, open, source, seed)
+}
+
+/// **`G` under the project's block rules**, for the one case where they apply.
+///
+/// `Ok(None)` means "no rule is about this map" and the ordinary path runs unchanged — the
+/// distinction the `bool` return used to carry, made explicit so `propose` reads as the decision it
+/// is.
+fn propose_by_rules(
+    project: &Project,
+    open: &OpenMap,
+    seed: u64,
+) -> Result<Option<Laid>, String> {
+    if let Some(rule) = project
+        .rules
+        .blocks
+        .iter()
+        .find(|r| r.example == open.map.name)
+    {
+        return propose_example_block(rule, open, seed).map(Some);
+    }
+    let asks = open
+        .map
+        .placements
+        .iter()
+        .any(|p| project.rules.blocks.iter().any(|r| r.regions.contains(&p.descriptor)));
+    if asks {
+        return propose_region_blocks(project, open).map(Some);
+    }
+    Ok(None)
+}
+
+/// The ordinary path: build a grammar from the source, solve, and offer the result.
+fn propose_from_grammar(
+    project: &Project,
+    open: &OpenMap,
+    source: LayoutSource,
+    seed: u64,
+) -> Result<Laid, String> {
     // One metre: the tile the kits are authored on, and coarse enough that a 32 m map is a grid the
     // solver finishes rather than 4,096 cells of half-metre noise.
 
     // `from_compositions` also reports what it could not make a tile of, by name. `learn` and
     // `declared` refuse whole or succeed whole, so they carry an empty report rather than a different
-    // shape — one type here, and the refusals reach the status line either way.
+    // shape — one type here, and the refusals reach the warnings either way.
     //
     // **The interfaces travel with the grammar**, and that is what makes rooms possible. Only
     // `from_compositions` derives them, and `solve_constrained` needs them to know which face of a
     // tile presents a wall — so an enclosure wish is expressible for the composition source and for
-    // no other. `learn` and `declared` carry an empty list rather than a different shape.
+    // no other.
     type Built = (
         bevy_emerge_core::grammar::Grammar,
         Vec<String>,
         Vec<Option<bevy_emerge_core::composition::Interface>>,
     );
     let built: Result<Built, String> = match source {
-        Source::Learned => {
+        LayoutSource::Learned => {
             bevy_emerge_core::grammar::learn(&open.map, CELL).map(|g| (g, Vec::new(), Vec::new()))
         }
-        Source::Declared => {
+        LayoutSource::Declared => {
             bevy_emerge_core::grammar::declared(&project.library, project.lattice.face_bands, CELL)
                 .map(|g| (g, Vec::new(), Vec::new()))
         }
-        Source::Composed => bevy_emerge_core::grammar::from_compositions(
+        LayoutSource::Composed => bevy_emerge_core::grammar::from_compositions(
             &project.compositions.compositions,
             &project.library,
             project.lattice.face_bands,
@@ -11545,108 +11749,52 @@ fn generate_from(project: &Project,
         )
         .map(|c| (c.grammar, c.skipped, c.faces)),
     };
-    let (grammar, skipped, faces) = match built {
-        Ok(g) => g,
-        Err(e) => {
-            // **Logged as well as shown, and that is not belt-and-braces.** The status line lives in
-            // a UI panel, and the panel is the one thing neither an offscreen mirror capture nor an
-            // unfocused devshot can see — so without this an agent driving the editor cannot tell a
-            // refusal from a keystroke that never arrived, which are opposite diagnoses.
-            // `redraw_stamps` has paired the two since it was written; this path had not.
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
-            return;
-        }
-    };
-    state.seed = state.seed.wrapping_add(1);
-    let mut n = state.next_id;
+    let (grammar, skipped, faces) = built?;
+
+    let mut n = next_id_after(&open.map);
 
     // **The solver has to see the stamps, or an owned group protects nothing.**
     //
     // `solve` builds its pinned set from `map.placements.iter().filter(|p| p.owned)`, and stamped
-    // rows are deliberately never in `placements` — so a composition an author marked owned, whose whole
-    // documented meaning is *"a generator routes around the whole group"*, was invisible and the
-    // collapser filled straight through it. Expanding into a scratch map is what makes the pin real:
-    // `expand` already propagates `Stamped::owned` to every row it produces, so the cells come back
-    // as the unary constraints they were always supposed to be.
+    // rows are deliberately never in `placements` — so a composition an author marked owned, whose
+    // whole documented meaning is *"a generator routes around the whole group"*, was invisible and
+    // the collapser filled straight through it. Expanding into a scratch map is what makes the pin
+    // real: `expand` already propagates `Stamped::owned` to every row it produces.
     //
-    // A scratch copy rather than the real map, because the expansion must not become authored rows —
-    // that invariant is what keeps the reference model a reference.
+    // A scratch copy rather than the real map, because the expansion must not become authored rows.
     let mut scratch = open.map.clone();
     if !scratch.stamps.is_empty() {
-        match bevy_emerge_core::composition::expand(
+        let expanded = bevy_emerge_core::composition::expand(
             &open.map,
             &open.map.stamps,
             &project.compositions.compositions,
             &project.library,
-        ) {
-            Ok(e) => scratch.placements.extend(e.placements),
-            Err(e) => {
-                error!("bevy_emerge_mapper: cannot generate around the stamps: {e}");
-                state
-                    .status
-                    .problem(format!("cannot generate around the stamps: {e}"));
-                return;
-            }
-        }
+        )
+        .map_err(|e| format!("cannot generate around the stamps: {e}"))?;
+        scratch.placements.extend(expanded.placements);
     }
+
     // **The composition source solves under constraints; the other two collapse.**
     //
     // Not two ways to do one thing — two sources with different information. A grammar learned from
     // placements derives no interfaces, so it has no walls to close and nothing to ask for; the
-    // composition grammar does, and asking is the whole point. `docs/research/2026-08-10-expressive-range.md`
-    // measured the collapse at zero enclosed regions in 128 solves and falsified both the vocabulary
-    // and the weight explanations for it — a closed boundary is a property over distance, and local
-    // adjacency has no term for it.
+    // composition grammar does. `docs/research/2026-08-10-expressive-range.md` measured the collapse
+    // at zero enclosed regions in 128 solves and falsified both the vocabulary and the weight
+    // explanations for it.
     let mut mint = || {
         n += 1;
         format!("gen@{n}")
     };
     let enclosure = enclosure_wishes(&open.map);
-    let outcome = match source {
-        Source::Composed => {
-            bevy_emerge_core::grammar::solve_constrained(
-                &scratch, &grammar, &faces, &enclosure, CELL, state.seed, &mut mint,
-            )
+    let solved = match source {
+        LayoutSource::Composed => bevy_emerge_core::grammar::solve_constrained(
+            &scratch, &grammar, &faces, &enclosure, CELL, seed, &mut mint,
+        ),
+        LayoutSource::Learned | LayoutSource::Declared => {
+            bevy_emerge_core::grammar::solve(&scratch, &grammar, CELL, seed, &mut mint)
         }
-        Source::Learned | Source::Declared => {
-            bevy_emerge_core::grammar::solve(&scratch, &grammar, CELL, state.seed, &mut mint)
-        }
-    };
-    let solved = match outcome {
-        Ok(s) => s,
-        Err(e) => {
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
-            return;
-        }
-    };
-    state.next_id = n;
+    }?;
 
-    // Everything unpinned is the sketch; the solve is the drawing. Despawn it and rebuild —
-    // **keeping what was removed, with its indices**, because this is an edit like any other and the
-    // history must be able to put it back. This used a bare `retain()` and recorded only the solver
-    // rows, which was two defects in one line: the author's sketch was unrecoverable (Cmd+Z drained
-    // the solver output and stopped, with a success message), and every index-based entry already on
-    // the stack — Moved, Turned, Pinned, RemoveAt — was left pointing at rows that had shifted, so a
-    // second Cmd+Z rewrote whatever now sat at those indices with the dead sketch's data.
-    // **A solve replaces the sketch in the medium it draws in.** A grammar over descriptors lays
-    // placements, so it clears the unpinned placements; a grammar over compositions lays stamps, so it
-    // clears the unpinned stamps and must leave the author's placements alone. Clearing both would
-    // make `Shift+G` silently delete every group an author had stamped.
-    let composes = matches!(source, Source::Composed);
-
-    // **Nothing is written. The layout becomes a proposal, and the author decides.**
-    //
-    // `G` used to rewrite the map on the keypress. Alvarez et al. 2018 (FDG,
-    // `10.1145/3235765.3235815`) put a two-step commit into the Evolutionary Dungeon Designer for
-    // exactly that, and said why: apply-on-click was **"occasionally causing work loss due to
-    // accidental replacements"**. A generate here can clear every unpinned row on the map, which is
-    // the largest single act the editor has — and it was the one with no way back except undo.
-    //
-    // **What to clear is decided at apply time, not here.** Holding indices captured now and using
-    // them later would be a stale-index bug waiting for the first author who places something while
-    // a proposal is up; `apply_proposal` reads the live map instead.
     let shortfall = if solved.unmet > 0 {
         format!(
             " — but does not reach the {}% enclosure it aims for; the kit's rules do not allow more \
@@ -11656,14 +11804,16 @@ fn generate_from(project: &Project,
     } else {
         String::new()
     };
-    for s in &skipped {
-        state.status.problem(format!("not a tile: {s}"));
-    }
 
+    // **A solve replaces the sketch in the medium it draws in.** A grammar over descriptors lays
+    // placements, so it clears the unpinned placements; a grammar over compositions lays stamps, so
+    // it clears the unpinned stamps and must leave the author's placements alone. Clearing both
+    // would make `Shift+G` silently delete every group an author had stamped.
+    let composes = matches!(source, LayoutSource::Composed);
     let count = solved.placements.len();
     let stamped = solved.stamps.len();
-    // **The delta, not the absolute** — `docs/ui.md` §3.2, and the same thing EDD's suggestion panel
-    // shows: what would change if this were taken, next to what is there now.
+    // **The delta, not the absolute** — what would change if this were taken, next to what is there
+    // now. `layout_accept` recomputes it against the live map at the moment of commitment.
     let replaces = if composes {
         open.map.stamps.iter().filter(|s| !s.owned).count()
     } else {
@@ -11674,67 +11824,27 @@ fn generate_from(project: &Project,
     } else {
         format!("{count} piece(s)")
     };
-    state.status.note(format!(
-        "proposed: {laid} replacing {replaces}, around {} pinned cell(s), from {} prototype(s)\
-         {shortfall} — {} keeps it, {} throws it away",
-        solved.owned_cells,
-        grammar.len() - 1,
-        keys::chord(Action::AcceptProposal),
-        keys::chord(Action::Cancel),
-    ));
-
-    proposal.0 = Some(Proposed {
-        composes,
-        placements: solved.placements,
-        stamps: solved.stamps,
-        cell: CELL,
-        preview_only: false,
-        // The seed the solve ran under, which is already monotonic and already advanced per generate.
-        generation: clock.tick(),
-    });
-}
-
-/// **`G` under the project's block rules**, for the one case where they apply. Returns whether it
-/// handled the press — proposed, or refused by name — so `false` means "no rule is about this map"
-/// and the ordinary learned path runs unchanged.
-///
-/// Two shapes, both through `bevy_emerge_core::rules`, the same code the game runs, so what is drawn
-/// here is what the game builds:
-///
-/// - **The example.** The open map *is* a rule's example. Learn from it at the rule's cell, pin its
-///   owned cells, solve one block centred on the map, and propose the result like any other
-///   generate — Enter replaces the unowned rows.
-/// - **Regions.** The map holds placements a rule names in `regions`, each asking for a block. Learn
-///   from the example map on disk, solve every block around its region, and propose all of them as
-///   a **preview only**: the game lays these blocks out itself.
-fn generate_by_rules(
-    project: &Project,
-    open: &OpenMap,
-    state: &mut EditorState,
-    proposal: &mut Proposal,
-    clock: &mut ProposalClock,
-) -> bool {
-    if let Some(rule) = project
-        .rules
-        .blocks
-        .iter()
-        .find(|r| r.example == open.map.name)
-    {
-        generate_example_block(rule, open, state, proposal, clock);
-        return true;
-    }
-    let asks = open.map.placements.iter().any(|p| {
-        project
-            .rules
-            .blocks
-            .iter()
-            .any(|r| r.regions.contains(&p.descriptor))
-    });
-    if asks {
-        generate_region_blocks(project, open, state, proposal, clock);
-        return true;
-    }
-    false
+    Ok(Laid {
+        note: format!(
+            "proposed: {laid} replacing {replaces}, around {} pinned cell(s), from {} prototype(s)\
+             {shortfall} — {} keeps it, {} throws it away",
+            solved.owned_cells,
+            grammar.len() - 1,
+            keys::chord(Action::AcceptProposal),
+            keys::chord(Action::Cancel),
+        ),
+        warnings: skipped.iter().map(|s| format!("not a tile: {s}")).collect(),
+        proposed: Proposed {
+            composes,
+            placements: solved.placements,
+            stamps: solved.stamps,
+            cell: CELL,
+            preview_only: false,
+            // Filled by the caller, which owns the clock: this function is a function of its
+            // arguments, so a clock here would be a fifth thing it depends on.
+            generation: 0,
+        },
+    })
 }
 
 /// What a rule's example lays: the new placements, the pinned cells it kept and the prototypes it
@@ -11761,43 +11871,35 @@ fn solve_example_block(
     Ok((placed, pins.len(), alphabet.grammar.len().saturating_sub(1)))
 }
 
-fn generate_example_block(
+fn propose_example_block(
     rule: &bevy_emerge_core::rules::BlockRules,
     open: &OpenMap,
-    state: &mut EditorState,
-    proposal: &mut Proposal,
-    clock: &mut ProposalClock,
-) {
+    seed: u64,
+) -> Result<Laid, String> {
     // Seeded like the ordinary path — every press a different layout — but from the rule's own seed.
-    state.seed = state.seed.wrapping_add(1);
-    let seed_base = rule.seed.wrapping_add(state.seed.wrapping_mul(1000));
-    let mut n = state.next_id;
-    match solve_example_block(rule, open, seed_base, &mut n) {
-        Ok((placements, pinned, prototypes)) => {
-            state.next_id = n;
-            let replaces = open.map.placements.iter().filter(|p| !p.owned).count();
-            state.status.note(format!(
-                "proposed: {} piece(s) replacing {replaces}, around {pinned} pinned cell(s), from \
-                 {prototypes} prototype(s), by the rules for `{}` — {} keeps it, {} throws it away",
-                placements.len(),
-                rule.example,
-                keys::chord(Action::AcceptProposal),
-                keys::chord(Action::Cancel),
-            ));
-            proposal.0 = Some(Proposed {
-                composes: false,
-                placements,
-                stamps: Vec::new(),
-                cell: rule.cell,
-                preview_only: false,
-                generation: clock.tick(),
-            });
-        }
-        Err(e) => {
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
-        }
-    }
+    let seed_base = rule.seed.wrapping_add(seed.wrapping_mul(1000));
+    let mut n = next_id_after(&open.map);
+    let (placements, pinned, prototypes) = solve_example_block(rule, open, seed_base, &mut n)?;
+    let replaces = open.map.placements.iter().filter(|p| !p.owned).count();
+    Ok(Laid {
+        note: format!(
+            "proposed: {} piece(s) replacing {replaces}, around {pinned} pinned cell(s), from \
+             {prototypes} prototype(s), by the rules for `{}` — {} keeps it, {} throws it away",
+            placements.len(),
+            rule.example,
+            keys::chord(Action::AcceptProposal),
+            keys::chord(Action::Cancel),
+        ),
+        warnings: Vec::new(),
+        proposed: Proposed {
+            composes: false,
+            placements,
+            stamps: Vec::new(),
+            cell: rule.cell,
+            preview_only: false,
+            generation: 0,
+        },
+    })
 }
 
 /// What every region on the open map lays: the placements, the number of blocks, the blocks that
@@ -11840,8 +11942,9 @@ fn solve_region_blocks(
             let path = project
                 .maps_dir
                 .join(bevy_emerge_core::naming::map_file_name(&rule.example));
-            let text = std::fs::read_to_string(&path)
-                .map_err(|e| format!("the example map for `{}`: {}: {e}", region.id, path.display()))?;
+            let text = std::fs::read_to_string(&path).map_err(|e| {
+                format!("the example map for `{}`: {}: {e}", region.id, path.display())
+            })?;
             let example = bevy_emerge_core::map::Map::parse(&text)
                 .map_err(|e| format!("{}: {e}", path.display()))?;
             slot.insert(rules::learn(rule, &example)?);
@@ -11866,51 +11969,39 @@ fn solve_region_blocks(
     Ok((placements, blocks, failed, cell.unwrap_or(CELL)))
 }
 
-fn generate_region_blocks(
-    project: &Project,
-    open: &OpenMap,
-    state: &mut EditorState,
-    proposal: &mut Proposal,
-    clock: &mut ProposalClock,
-) {
-    // Not `state.seed`: the game seeds a region from its id, so a second press must show the same
-    // layout, or the preview would stop being a preview of anything.
-    match solve_region_blocks(project, open, state.next_id) {
-        Ok((placements, blocks, failed, cell)) => {
-            let laid = blocks - failed.len();
-            if !failed.is_empty() {
-                let message = format!(
-                    "no layout for {} of {blocks} block(s): {}",
-                    failed.len(),
-                    failed.join("; ")
-                );
-                error!("bevy_emerge_mapper: {message}");
-                state.status.problem(message);
-            } else {
-                state.status.note(format!(
-                    "previewing {} piece(s) in {blocks} block(s) by the rules — the game lays \
-                     these out itself, so {} will not keep them; {} clears the preview",
-                    placements.len(),
-                    keys::chord(Action::AcceptProposal),
-                    keys::chord(Action::Cancel),
-                ));
-            }
-            if laid > 0 {
-                proposal.0 = Some(Proposed {
-                    composes: false,
-                    placements,
-                    stamps: Vec::new(),
-                    cell,
-                    preview_only: true,
-                    generation: clock.tick(),
-                });
-            }
-        }
-        Err(e) => {
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
-        }
+fn propose_region_blocks(project: &Project, open: &OpenMap) -> Result<Laid, String> {
+    // Not the state's seed: the game seeds a region from its id, so a second press must show the
+    // same layout, or the preview would stop being a preview of anything.
+    let (placements, blocks, failed, cell) =
+        solve_region_blocks(project, open, next_id_after(&open.map))?;
+    let laid = blocks - failed.len();
+    // **No layout at all is a refusal**, not a receipt for an empty preview: there is nothing on
+    // screen to answer, and `Enter` on it would say "kept" about nothing.
+    if laid == 0 {
+        return Err(format!(
+            "no layout for {} of {blocks} block(s): {}",
+            failed.len(),
+            failed.join("; ")
+        ));
     }
+    Ok(Laid {
+        note: format!(
+            "previewing {} piece(s) in {blocks} block(s) by the rules — the game lays \
+             these out itself, so {} will not keep them; {} clears the preview",
+            placements.len(),
+            keys::chord(Action::AcceptProposal),
+            keys::chord(Action::Cancel),
+        ),
+        warnings: failed.iter().map(|f| format!("no layout for {f}")).collect(),
+        proposed: Proposed {
+            composes: false,
+            placements,
+            stamps: Vec::new(),
+            cell,
+            preview_only: true,
+            generation: 0,
+        },
+    })
 }
 
 /// **What the proposal would put down, drawn where it would go.**
@@ -12046,119 +12137,235 @@ fn sync_proposal_ghosts(
 
 /// **Take the proposal, or leave it** — the other half of the commit door.
 ///
-/// The write `generate_from` used to do inline. It reads the live map to decide what to clear, so a
-/// piece placed between the proposal and the acceptance is accounted for rather than being addressed
-/// by an index that has since moved.
+/// The write `generate_from` used to do inline, and since S-001 it is an operation like every other
+/// verb: `layout_accept` clears the unpinned rows, appends the layout, saves, and hands back the
+/// inverse that takes all of it back. This system is the key half — it decides *when*, and the
+/// operation decides *what*, which is the rule the whole registry exists to keep.
 fn apply_proposal(
-    mut commands: Commands,
-    assets: Res<AssetServer>,
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<keys::Live>,
     map: MapWrite,
     mut proposal: ResMut<Proposal>,
-    placed: Query<(Entity, &Placement)>,
 ) {
     let MapWrite { project, mut open, mut state } = map;
     if !keys::just_pressed(&keyboard, *live, Action::AcceptProposal) {
         return;
     }
+    accept_layout(&project, &mut open, &mut state, &mut proposal);
+}
+
+/// **`Enter`'s half, dispatchable without a system's argument budget.**
+///
+/// One function so the key and anything else that keeps a layout cannot come to disagree, and so the
+/// system above stays inside Bevy's parameter limit.
+fn accept_layout(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    proposal: &mut Proposal,
+) {
     // **A preview is refused before it is taken**, so it is still on screen to be looked at and
-    // cleared with Esc. Taking it first would throw it away on the very key that was meant to keep it.
+    // cleared with Esc. Taking it first would throw it away on the very key that was meant to keep
+    // it — and the operation makes the same refusal, so the sentence is written once.
     if proposal.0.as_ref().is_some_and(|p| p.preview_only) {
-        state.status.note(
-            "preview only — the game lays these blocks out itself. Esc clears it; to fix a cell, \
-             place a tile there and pin it with O."
-                .to_owned(),
-        );
+        state
+            .status
+            .note(crate::ops::layout_accept::PREVIEW_ONLY.to_owned());
         return;
     }
-    let Some(taken) = proposal.0.take() else {
-        return;
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        proposal: proposal.0.take(),
+        ..crate::ops::Ctx::default()
     };
-    let composes = taken.composes;
-
-    // **A grammar over descriptors lays placements, so it clears the unpinned placements; a grammar
-    // over compositions lays stamps, so it clears the unpinned stamps** and must leave the author's
-    // placements alone. Clearing both would make `Cmd+G` silently delete every piece hand-placed.
-    let removed: Vec<(usize, Box<Placed>)> = if composes {
-        Vec::new()
-    } else {
-        open
-            .map
-            .placements
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| !p.owned)
-            .map(|(i, p)| (i, Box::new(p.clone())))
-            .collect()
-    };
-    let unstamped: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)> = if composes {
-        open
-            .map
-            .stamps
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| !s.owned)
-            .map(|(i, s)| (i, Box::new(s.clone())))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    for (entity, marker) in &placed {
-        if removed.iter().any(|(_, p)| p.id == marker.0) {
-            commands.entity(entity).despawn();
+    let applied = crate::ops::dispatch(&mut ctx, "layout_accept", &serde_json::json!({}));
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    // **Whatever the operation did with the proposal goes back**, so a refusal that restored it
+    // leaves the outlines on screen.
+    if ctx.proposal.is_some() || proposal.0.is_none() {
+        proposal.0 = ctx.proposal.take();
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            state.record_logged(operation_id, outcome.summary.clone(), false);
+            state.status.note(outcome.summary);
+        }
+        Ok(_) => {}
+        Err(e) => {
+            error!("bevy_emerge_mapper: {e}");
+            state.status.problem(e.0);
         }
     }
-    // Descending, so removing an earlier row cannot shift a later one out from under us.
-    for (i, _) in removed.iter().rev() {
-        open.map.placements.remove(*i);
-    }
-    for (i, _) in unstamped.iter().rev() {
-        open.map.stamps.remove(*i);
-    }
+}
 
-    // **Into the map first, drawn second.** The solver lays pieces on the floor grid; how high each
-    // one ends up is a question about the finished map, so the map has to be finished before it is
-    // asked.
-    let count = taken.placements.len();
+/// **`Cmd+S`'s half**: dispatch `map_save` and report what it said.
+///
+/// The save itself is `OpenMap::save`, unchanged — it validates and expands the stamps the way the
+/// game does, so a map the game could not load is refused here rather than written. What changed is
+/// that the act has a name an agent can call, and that the two front ends cannot drift.
+fn save_map(project: &Project, open: &mut OpenMap, state: &mut EditorState) {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(&mut ctx, "map_save", &serde_json::json!({}));
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            state.status.note(outcome.summary.clone());
+            info!("{}", outcome.summary);
+        }
+        Ok(_) => {}
+        // The save refuses on an invalid map rather than writing one, and says which rule.
+        Err(e) => {
+            state.status.problem(e.0.clone());
+            error!("{}", e.0);
+        }
+    }
+}
+
+/// **`F`'s half**: dispatch `fill` from the cursor's map-space point.
+///
+/// The brush, its facing and its tip are the key path's; the flood, its refusals and the cap's route
+/// are the operation's. The pieces are spawned here rather than by the operation, because an
+/// operation does not own entities — the same split every placement operation makes.
+// The same budget note as `flood_from_cursor`: the six things a fill needs are genuinely six — the
+// entities to spawn, the map and project to change, the state for the receipt, the brush it is
+// about, and where. Bundling them into a struct would hide them from the ratchet tests that read
+// system signatures, which is the reason `keys` keeps its own `SystemParam`s named in the source.
+#[allow(clippy::too_many_arguments)]
+fn fill_at(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    brush: &bevy_emerge_core::descriptor::Descriptor,
+    at: (f32, f32),
+    pitch: f32,
+) {
     let first = open.map.placements.len();
-    open.map.placements.extend(taken.placements);
-    spawn_range(&mut commands, &assets, &project, &open, &mut state, first);
-
-    // **Stamps need no spawn call.** `redraw_stamps` rebuilds the whole stamped picture from
-    // `map.stamps` whenever it changes, so writing the rows is the whole job — unlike the placement
-    // path above, which owns its entities.
-    let stamped = taken.stamps.len();
-    open.map.stamps.extend(taken.stamps);
-
-    // One act, one entry: undoing a generate first strips the solver rows (the `Added`/`Stamped`),
-    // then puts the sketch back at its own indices (the `RemovedMany`/`UnstampedMany`) —
-    // [`Undo::Group`] applies in order and inverts by reversing.
-    let mut ops = Vec::new();
-    if count > 0 {
-        ops.push(Undo::Added { count });
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(
+        &mut ctx,
+        "fill",
+        &serde_json::json!({
+            "piece": brush.id,
+            "at": [at.0, at.1],
+            "yaw": state.brush_yaw,
+            "tip": [state.brush_tip.0, state.brush_tip.1],
+            "pitch": pitch,
+        }),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
     }
-    if stamped > 0 {
-        ops.push(Undo::Stamped { count: stamped });
-    }
-    if !removed.is_empty() {
-        ops.push(Undo::RemovedMany { items: removed });
-    }
-    if !unstamped.is_empty() {
-        ops.push(Undo::UnstampedMany { items: unstamped });
-    }
-    if !ops.is_empty() {
-        state.record(Undo::Group { ops });
-    }
-
-    state.status.note(format!(
-        "kept the layout: {}",
-        if composes {
-            format!("{stamped} stamped")
-        } else {
-            format!("{count} placed")
+    match applied {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            spawn_range(commands, assets, project, open, state, first);
+            state.next_id = next_id_after(&open.map);
+            state.record_logged(operation_id, outcome.summary.clone(), false);
+            // **A capped fill is a problem, not a receipt**: it looks exactly like a finished one,
+            // and the only thing that tells them apart is this sentence.
+            let truncated = outcome
+                .after
+                .as_ref()
+                .and_then(|a| a.get("truncated"))
+                .and_then(|t| t.as_bool())
+                .unwrap_or(false);
+            if truncated {
+                state.status.problem(outcome.summary);
+            } else {
+                state.status.note(outcome.summary);
+            }
         }
-    ));
+        Ok(_) => {}
+        Err(e) => {
+            error!("bevy_emerge_mapper: {}", e.0);
+            state.status.problem(e.0);
+        }
+    }
+}
+
+/// **`Esc`'s half**: dispatch `layout_discard` and report what it said.
+///
+/// The map is untouched by a proposal, so this writes nothing and records nothing to take back. It is
+/// a verb because *dropping the offer* is an act with a receipt, and because an agent that proposed a
+/// layout and thought better of it needs a way to say so.
+fn discard_layout(open: &mut OpenMap, state: &mut EditorState, proposal: &mut Proposal) {
+    let mut ctx = crate::ops::Ctx {
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        proposal: proposal.0.take(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(&mut ctx, "layout_discard", &serde_json::json!({}));
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    // **A refusal puts the proposal back**, so `Esc` that could not dispatch does not silently eat
+    // the layout it was asked to clear.
+    proposal.0 = ctx.proposal.take();
+    match applied {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
+        Ok(_) => {}
+        Err(e) => {
+            error!("bevy_emerge_mapper: {e}");
+            state.status.problem(e.0);
+        }
+    }
+}
+
+/// **A map to swap out of an `OpenMap` while an operation holds the real one.**
+///
+/// `Ctx` takes the map **by value** — that is what makes the registry hold more than one operation —
+/// so a caller that wants to keep its own copy has to put something there.
+///
+/// # The rule this placeholder keeps, and the review that found it
+///
+/// **Every caller of this function MUST put `ctx.open` back before returning**, including on the
+/// refusal path — and the consequence of forgetting is that the placeholder becomes the author's map.
+/// `layout_discard` changes no map at all, so its context carried the placeholder straight back; that
+/// it happened to be harmless is because `commit` receives `ctx.open` and hands the same value on.
+/// **A future operation whose `commit` does not touch `ctx.open` would empty the map on `Esc`.**
+///
+/// So the placeholder is **small and identifiable rather than empty**: a default map with a name no
+/// map may have. If one ever reaches the editor, `assert!` in the callers' write-back says so by name
+/// instead of showing an empty world. `tests/an_agent_can_generate_a_layout.rs::
+/// discarding_a_proposal_does_not_wipe_the_map` is the guard on the path that has this shape today.
+fn empty_map_for_take() -> OpenMap {
+    // **A name `naming::is_id` refuses**, so a file written from this could never be opened and a
+    // `map_save` on it would fail at validate rather than overwrite a real map.
+    let map = bevy_emerge_core::map::Map {
+        name: "the-placeholder-an-operation-holds".to_owned(),
+        ..bevy_emerge_core::map::Map::default()
+    };
+    OpenMap::new(map, std::path::PathBuf::new())
 }
 
 /// The `F` handler, split out so `keys` stays readable.
@@ -12190,78 +12397,23 @@ fn flood_from_cursor(
             .note("nothing armed to fill with — pick a piece from the palette".to_owned());
         return;
     };
-
-    let start_id = state.next_id;
-    let mut n = start_id;
-    let short = short_id(&brush.id).to_owned();
-    let filled = match crate::fill::flood(
-        &open.map,
+    // **The brush, the facing and the tip are the key's; the flood is the operation's.** One
+    // function for both front ends, so an agent's fill and a person's cannot disagree about what a
+    // fill is, what it refuses, or where the cap's route leads.
+    // **The point is read before the map is handed over**, because `fill_at` takes the `OpenMap`
+    // mutably and holding a read of it across the call is the borrow conflict this line avoids.
+    let at = open.map.to_map_space((hit.x, hit.z));
+    // `project`, `open` and `state` are already `&`/`&mut` here, so no re-borrow.
+    fill_at(
+        commands,
+        assets,
+        project,
+        open,
+        state,
         &brush,
-        open.map.to_map_space((hit.x, hit.z)),
-        state.brush_yaw,
-        state.brush_tip,
+        at,
         pitch,
-        || {
-            n += 1;
-            format!("{short}@{n}")
-        },
-    ) {
-        Ok(f) => f,
-        // **A refusal is a `problem`, not a receipt.** "Outside the map" and "something is already
-        // here" are both things the author **needs told** rather than worked around — and a
-        // receipt is the wrong place to tell them, because a receipt is one dim row that the next
-        // receipt overwrites and that a tab switch erases.
-        //
-        // **And this one was measured invisible.** The flood refused; the INSPECTOR's `Field::Last`
-        // row was empty in a capture; and the author had no way to know the fill had not happened.
-        // The ghost's refusal for the same piece — the same fact, from the same piece — was plainly
-        // visible in the amber hint line of the receipt row, because the ghost writes a different field.
-        Err(e) => {
-            state.status.problem(e);
-            return;
-        }
-    };
-    state.next_id = n;
-
-    let count = filled.placements.len();
-    let first = open.map.placements.len();
-    open.map.placements.extend(filled.placements);
-    spawn_range(commands, assets, project, &*open, state, first);
-    // **One undo entry for the whole fill.** A fill is one act to the person who performed it, and an
-    // undo stack that made them press Ctrl+Z 1,408 times would be a stack that models the code rather
-    // than the work.
-    if count > 0 {
-        state.record(Undo::Added { count });
-    }
-    // A cap that stopped the fill has to say so — a truncated fill looks exactly like a finished one,
-    // which is the whole argument for it being the loud slot rather than the quiet one.
-    if filled.truncated {
-        // **The message names a route that works.**
-        //
-        // It used to say *"fill again to continue"*, and **the second fill could not continue**:
-        // the flood will not start on a cell that already holds something, and the cell the author
-        // clicks is exactly the cell the first fill filled. So the author was told to do a thing
-        // that was refused — and the refusal went to the receipt slot, so **they were told nothing
-        // at all**. Measured, and pinned by `fill::tests::the_caps_promise_cannot_be_kept_by_a_second_fill`.
-        //
-        // **The route that works is a fill from a new cell**, because the flood stops at anything
-        // already placed — and the first fill's pieces are anything already placed. A second flood
-        // from a different empty cell lays the next {MAX_CELLS} and truncates again. Measured: 4,096
-        // more.
-        //
-        // **This is the same sentence the box fill says** (`fill::CAP_ROUTE`), because the two
-        // fills are the same operation and a message that differs between them is a message one
-        // of them got wrong.
-        state.status.problem(format!(
-            "filled {count} and STOPPED at the {} cell cap. {}",
-            crate::fill::MAX_CELLS,
-            crate::fill::CAP_ROUTE
-        ));
-    } else {
-        state
-            .status
-            .note(format!("filled {count} with {}", brush.id));
-    }
+    );
 }
 
 // ── the ghost ────────────────────────────────────────────────────────────────────────────────────

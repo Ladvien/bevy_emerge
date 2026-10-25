@@ -893,6 +893,15 @@ impl Action {
             Action::SwitchDoor | Action::TabSlot1 | Action::TabSlot2 | Action::TabSlot3 => {
                 Some("door_open")
             }
+            // **The three generate sources and the commit door** (S-001). Each key dispatches the
+            // same operation an agent calls: `propose_layout` for the three, `accept_layout` for
+            // Enter. `Action::Cancel` stays unmigrated — it peels several things.
+            Action::Generate | Action::GenerateDeclared | Action::GenerateComposed => {
+                Some("layout_propose")
+            }
+            Action::AcceptProposal => Some("layout_accept"),
+            Action::Fill => Some("fill"),
+            Action::Save => Some("map_save"),
             _ => None,
         }
     }

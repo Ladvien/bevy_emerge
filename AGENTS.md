@@ -31,6 +31,36 @@ Consumers: Sanctuary (`/Users/ladvien/sanctuary`, decision 0087).
 
 A game links only `bevy_emerge_core` (with `bevy_emerge_rng` and `bevy_emerge_solver`); the editor crates are a separate binary run from this repo on the game's project: `cargo run -p bevy_emerge_mapper -- <game-root> <map> --kit <kit>`. So an editor-only change never touches the game's build, while a change to core is picked up by the game's next `cargo` run through its path dependency, with nothing to copy or bump. `cargo run -q -p bevy_emerge_mapper --example boot_headless -- <game-root>` proves a game's project still opens without a window. The per-game loop (what to run, what to commit where) is in the game's `AGENTS.md`; Sanctuary's is under "bevy_emerge: the editor and WFC, evolving with Sanctuary".
 
+## Blender is a tool we own, and it is not rebuilt here
+
+**golem is ours** (`~/golem_mcp`, the MCP server that drives the open Blender: meshes, UVs, bakes,
+painting, rigging, kitbashing, the `.glb` export). It is the same family as this repo, so the rule
+under "Use the ladvien crate family" applies to it unchanged: **fix it at the source, in its own
+repo, in its own commits with its own tests — never vendor, patch or re-implement it here.**
+
+The boundary, measured on 2026-10-25 (`grep` for `kit.yaml`/`kitbash` under `crates/`: 0 hits; for
+`bevy_emerge`/`library.ron` under golem: 0 hits):
+
+| | golem | bevy_emerge |
+|---|---|---|
+| Subject | a **folder** of `.glb` — a pack | **one** `.glb` inside a project |
+| Writes | `kit.yaml`, for kitbashing *in Blender* | `library.ron` `Descriptor`, for placing *on a map* |
+| Frame | Blender z-up | Bevy y-up, metres on the map |
+| Validation | the gate + the Blender analyzer | `import::measure` + `vocab::validate_library` |
+
+**So the duplication to refuse is a second generator or a second Blender driver, not an importer.**
+A golem `.glb` reaching the palette through `piece_import` is a bridge, not a copy: no code is
+shared, and neither project knows the other's schema. Concretely:
+
+- Need a mesh, a UV, a bake, a paint, a rig or a kitbash? **Ask golem over MCP.** Do not add Blender
+  code, a `.blend` reader, or a glTF writer to this workspace.
+- A golem behaviour that is wrong or missing is fixed in `~/golem_mcp`. If it is outside this
+  iteration, log it in the backlog with golem named — as the family-crate rule says.
+- This repo *does* own reading a `.glb` well enough to place it (`bevy_emerge_core/src/glb.rs`,
+  `import.rs`): it needs bounds, triangles, a front and a cell footprint at authoring time, inside
+  the game's own project, with no Blender open. That is a different question from golem's, and the
+  two implementations are allowed to differ — neither imports the other.
+
 ## Rules
 
 - `bevy_emerge_core`, `bevy_emerge_rng` and `bevy_emerge_solver` are engine-free. `bevy_emerge_core/tests/engine_free.rs` fails on any `bevy*` dependency except the exact names in `SIBLING_DEPS`.

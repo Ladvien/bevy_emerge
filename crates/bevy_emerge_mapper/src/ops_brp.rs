@@ -120,6 +120,7 @@ fn fifty() -> usize {
 fn context(
     project: Option<ResMut<crate::project::Project>>,
     open: Option<ResMut<crate::project::OpenMap>>,
+    menu: Option<Res<crate::chooser::MenuOpening>>,
 ) -> Ctx {
     Ctx {
         // **Cloned out, because the context owns what it carries.** The reason is the registry:
@@ -127,9 +128,15 @@ fn context(
         // `dyn` because a list of operations is looked up by name. One copy of a map's settings
         // is a price worth paying for that.
         project: project.map(|p| p.into_inner().clone()),
+        // **The menu's root, while the menu is the screen that is up.** There is no `Project`
+        // resource until a door opens, so without this every `emerge/…` command refused on the one
+        // screen where a project is chosen — including `map_create`, which is how a map gets made
+        // before any door exists.
+        root: menu.map(|m| m.root.clone()),
         open: open.map(|o| o.into_inner().clone()),
         source: Source::Agent,
         session: crate::ops::session_id(),
+        proposal: None,
     }
 }
 
@@ -154,9 +161,48 @@ pub(crate) fn take(
 ) -> Ctx {
     Ctx {
         project: project.as_deref().cloned(),
+        root: None,
         open: open.as_deref().cloned(),
         source: Source::Agent,
         session: crate::ops::session_id(),
+        proposal: None,
+    }
+}
+
+/// **Carry the standing proposal between the context and the editor's `Proposal` resource.**
+///
+/// A layout proposal is not map data, so it travels in [`Ctx`] rather than in `OpenMap` — and that
+/// means the two front ends have to move it across by hand, the way they move the map. Before the
+/// dispatch it is taken out of the resource (`dry_run` clones instead, because a preview must not
+/// change anything); after it, whatever the context holds is written back.
+///
+/// **Only the three layout operations are touched**, and that is deliberate: a `placement_set_yaw`
+/// that overwrote the resource with `None` would silently throw away a layout standing on screen,
+/// which is the kind of second-order loss this codebase keeps having to fix.
+///
+/// **Every write is compared first.** Storing the same `Option<Proposed>` through `as_deref_mut`
+/// marks the resource changed, and `tests/no_system_writes_every_frame.rs` fails on a system that
+/// writes what it did not change.
+pub(crate) fn carry_proposal(
+    name: &str,
+    ctx_proposal: Option<crate::editor::Proposed>,
+    proposal: Option<&mut crate::editor::Proposal>,
+    clock: Option<&mut crate::editor::ProposalClock>,
+) {
+    if !matches!(name, "layout_propose" | "layout_accept" | "layout_discard") {
+        return;
+    }
+    let (Some(proposal), Some(clock)) = (proposal, clock) else {
+        return;
+    };
+    // **A fresh proposal gets a fresh generation**, so `sync_proposal_ghosts` can tell a second
+    // layout from the first one even when they are the same length.
+    let fresh = ctx_proposal.map(|mut p| {
+        p.generation = clock.tick();
+        p
+    });
+    if proposal.0 != fresh {
+        proposal.0 = fresh;
     }
 }
 
@@ -212,8 +258,20 @@ fn project_root(
     _: In<serde_json::Value>,
     project: Option<Res<crate::project::Project>>,
     open: Option<Res<crate::project::OpenMap>>,
+    menu: Option<Res<crate::chooser::MenuOpening>>,
 ) -> Result<Value, String> {
+    // **The menu's root counts.** The menu is the screen you are on before a door, and it knows
+    // which directory it is about — so the server's own "are we pointed at the same project" check
+    // can pass there, and `map_create` can be reached before any door is open. Without this the
+    // whole agent surface refused on the one screen where a project is chosen.
     let Some(project) = project else {
+        if let Some(menu) = menu {
+            return Ok(json!({
+                "project_root": menu.root.to_string_lossy(),
+                "map": serde_json::Value::Null,
+                "screen": "menu",
+            }));
+        }
         return Err("no project is open.".to_owned());
     };
     // **The open map's name, while a map is open.** A rename changes the open map and not the
@@ -260,6 +318,10 @@ pub struct StateParams {
 ///
 /// **And it is cheap.** Everything here is already in memory, so the whole command is a read and
 /// a `json!` — no scanning, no measuring, no rendering.
+// The presentation resource is an eighth parameter. Bundling it into `Loaded` would hide it from the
+// ratchet tests that read this signature and would tie a read-only summary to a resource that only
+// S1.7 introduced — the same reason every other resource here is its own parameter.
+#[allow(clippy::too_many_arguments)]
 fn editor_state(
     In(params): In<StateParams>,
     loaded: Loaded,
@@ -268,8 +330,19 @@ fn editor_state(
     armed: Option<Res<crate::compose::Armed>>,
     door: Option<Res<crate::tiles::Door>>,
     mode: Option<Res<crate::tiles::Mode>>,
+    presenting: Option<Res<crate::present::Presenting>>,
 ) -> Result<Value, String> {
     let Loaded { project, open } = loaded;
+    // **The agent's presentation, and the person's answer to it** (S1.7). `None` until an agent
+    // presents something; then an object whose `answer` is `null` while the question is up. This is
+    // the only channel an agent has for what a person did after its call returned.
+    let presentation = presenting.as_ref().and_then(|p| p.0.as_ref()).map(|p| {
+        json!({
+            "id": p.id,
+            "title": p.title,
+            "answer": p.answer,
+        })
+    });
     // **The pins, named by id and reason.** A pin is the one thing an agent cannot see in the state
     // today, and the list is capped so a state dump stays a summary. `pinned_total` is the true
     // count, so a reader can tell a full list from a cut one.
@@ -398,6 +471,7 @@ fn editor_state(
         "map": map,
         "project": project_summary,
         "editor": editor,
+        "presentation": presentation,
         "armed_composition": armed.and_then(|a| a.id().map(|s| s.to_owned())),
         "selected": tiles.as_ref().map(|t| t.selected_library_id.clone()),
         "door": door.map(|d| d.label()),
@@ -605,6 +679,7 @@ fn operation_preview(
     In(p): In<PreviewParams>,
     project: Option<ResMut<crate::project::Project>>,
     open: Option<ResMut<crate::project::OpenMap>>,
+    menu: Option<Res<crate::chooser::MenuOpening>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -612,7 +687,7 @@ fn operation_preview(
             p.operation
         ));
     };
-    let ctx = context(project, open);
+    let ctx = context(project, open, menu);
     match ops::preview(&ctx, op.as_ref(), &p.parameters) {
         Ok(plan) => Ok(json!({
             "operation": p.operation,
@@ -680,6 +755,9 @@ pub(crate) fn piece_select_refusal(
 #[allow(clippy::too_many_arguments)]
 fn operation_apply(
     In(p): In<ApplyParams>,
+    // **For the one thing a `ResMut` cannot do: put a resource where there was none.** `map_open` can
+    // load a project from the menu's root, and installing it is `Commands::insert_resource`.
+    mut commands: Commands,
     mut project: Option<ResMut<crate::project::Project>>,
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
@@ -689,6 +767,9 @@ fn operation_apply(
     mode: Option<Res<crate::tiles::Mode>>,
     filters: Option<Res<crate::filter::Filters>>,
     mut import: Option<ResMut<crate::tiles::ImportState>>,
+    menu: Option<Res<crate::chooser::MenuOpening>>,
+    mut proposal: Option<ResMut<crate::editor::Proposal>>,
+    mut clock: Option<ResMut<crate::editor::ProposalClock>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -751,10 +832,14 @@ fn operation_apply(
         let read_project = project.as_deref();
         let read_open = open.as_deref();
         let ctx = Ctx {
+            root: menu.as_ref().map(|m| m.root.clone()),
             project: read_project.cloned(),
             open: read_open.cloned(),
             source: Source::Agent,
             session: crate::ops::session_id(),
+            // **Cloned, not taken**, because a preview must not change anything — including the
+            // layout standing on screen, which `layout_accept` reads.
+            proposal: proposal.as_deref().and_then(|r| r.0.clone()),
         };
         return match ops::preview(&ctx, op.as_ref(), &p.parameters) {
             Ok(plan) => Ok(json!({
@@ -771,10 +856,60 @@ fn operation_apply(
     }
     // **And the real thing**, which takes the editor's own map and project and gives them back.
     let mut ctx = take(&project, &open);
-    let applied = ops::dispatch(&mut ctx, &p.operation, &p.parameters);
+    // **The menu's root, when the menu is up**, so `map_create` has a directory before any door.
+    ctx.root = menu.as_ref().map(|m| m.root.clone());
+    // **The proposal travels by value**, in and out, because it is not map data.
+    ctx.proposal = proposal.as_deref_mut().and_then(|r| r.0.take());
+    // **A proposal with no seed named gets the editor's own next one.** This is what makes two
+    // `layout_propose` calls differ the way two `G` presses do; a caller that names a seed gets
+    // exactly that seed, which is what makes a layout reproducible.
+    let mut params = p.parameters.clone();
+    if p.operation == "layout_propose"
+        && params.get("seed").is_none()
+        && let Some(state) = state.as_deref_mut()
+    {
+        params["seed"] = json!(state.next_seed());
+    }
+    let applied = ops::dispatch(&mut ctx, &p.operation, &params);
+    let carried = ctx.proposal.take();
+    // **A project the operation LOADED is installed here, before the map goes back.** `map_open` can
+    // load the project from the menu's root — that is what lets an agent make a map and then work in
+    // it — and a write-back that skipped it left the editor holding a map and no project, which no
+    // door can show. `put_back` cannot do it: it holds `Option<ResMut>`, and a `ResMut` cannot be
+    // built outside a world. Measured: `map_create` applied, `map_open` applied, and the next call
+    // reported an empty library because `Project` was still absent.
+    // **A project the operation LOADED is installed, before the map goes back.** `map_open` can load
+    // the project from the menu's root — that is what lets an agent make a map and then work in it —
+    // and a write-back that skipped it left the editor holding a map and no project, which no door
+    // can show. `put_back` cannot do it: it holds `Option<ResMut>`, and a `ResMut` cannot be built
+    // outside a world. Measured: `map_create` applied, `map_open` applied, and the next call
+    // reported an empty library because `Project` was still absent.
+    //
+    // The project and the map are taken together, because the map is a resource the editor can only
+    // show *with* its project.
+    let loaded = if project.is_none() {
+        ctx.project.clone()
+    } else {
+        None
+    };
+    let opened = if open.is_none() { ctx.open.clone() } else { None };
     // **The map goes back either way** — changed, refused, or not — so the editor's own state is
     // never left holding a half-applied edit.
     put_back(&mut project, &mut open, ctx);
+    if matches!(&applied, Ok(ops::Applied::Done { .. })) {
+        if let Some(fresh) = loaded {
+            commands.insert_resource(fresh);
+        }
+        if let Some(fresh) = opened {
+            commands.insert_resource(fresh);
+        }
+    }
+    carry_proposal(
+        &p.operation,
+        carried,
+        proposal.as_deref_mut(),
+        clock.as_deref_mut(),
+    );
     // **The screen is redrawn when the write-back saved.** The watcher adopts a file whose
     // contents already match the open map and does nothing, so nothing else would tell the
     // screen; a piece the agent turned stayed where it was until the editor was reopened.
@@ -796,6 +931,21 @@ fn operation_apply(
         && p.operation == "door_open"
     {
         crate::editor::request_door(state, outcome.after.as_ref());
+    }
+    // **`map_open` asks for the Map door when the editor is already up.** From a door, that is the
+    // same crossing `door_open` makes. **From the menu it is not enough**, and saying so matters more
+    // than a workaround: `EditorState` does not exist on the menu, and `apply_pending_door` runs
+    // `in_state(Screen::Editor)` — so the editor cannot be *entered* by an operation at all. The menu
+    // enters the editor through `Chooser::open_the_selection` -> `launch_args` -> `NextState`, which
+    // needs the screen. An agent that made a map from the menu therefore still has to ask again once
+    // the editor is up; E-078 records the gap.
+    if let (Ok(ops::Applied::Done { .. }), Some(state)) = (&applied, state.as_deref_mut())
+        && p.operation == "map_open"
+    {
+        state.door_request = Some(crate::editor::DoorRequest {
+            door: crate::tiles::Door::Map,
+            tab: None,
+        });
     }
 
     // **An agent's selection is the row a click would be (E-044).** The answer names the piece, and
@@ -914,10 +1064,12 @@ fn operation_undo(
     if p.dry_run {
         // **A preview reads the log and plans the inverse, and writes nothing.**
         let ctx = Ctx {
+            root: None,
             project: project.as_deref().cloned(),
             open: open.as_deref().cloned(),
             source: Source::Agent,
             session: crate::ops::session_id(),
+            proposal: None,
         };
         let resolved = ops::undo_target(&ctx, p.operation_id.as_deref()).and_then(|plan| {
             let op = ops::find(&plan.line.op).ok_or_else(|| {
@@ -1346,7 +1498,108 @@ impl Plugin for OpsBridgePlugin {
             .example(json!({"target": {"rect": [200.0, 100.0, 400.0, 300.0]}})),
             frame_view,
         );
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/present",
+                "Put a result in front of the person: a title, what was made, what they asked for, \
+                 what you decided on your own, and the operations it covers. The editor asks them \
+                 Keep or Undo all, and their answer comes back in emerge/state's \
+                 presentation.answer. This returns at once and changes no map data. Parameters: \
+                 title and summary (required); specified and inferred (strings); check, up to \
+                 three {what, placements}; operation_ids, the operations it covers.",
+            )
+            .example(json!({
+                "title": "courtyard",
+                "summary": "A 12 x 4 x 12 m courtyard with two exits, floor filled and walls placed.",
+                "specified": ["a courtyard", "two exits"],
+                "inferred": ["12 x 4 x 12 m"],
+                "check": [{"what": "the east exit is clear", "placements": []}],
+                "operation_ids": [],
+            })),
+            editor_present,
+        );
     }
+}
+
+/// **`emerge/present`** — put a result in front of the person.
+///
+/// **It returns at once**, because an MCP call that blocked on a person would deadlock with the
+/// editor's own frame. The answer is read from `emerge/state`, which is the only channel an agent
+/// has for what happened after its call returned.
+fn editor_present(
+    In(p): In<crate::present::PresentParams>,
+    project: Option<Res<crate::project::Project>>,
+    mut confirm: Option<ResMut<crate::confirm::Confirm>>,
+    mut presenting: Option<ResMut<crate::present::Presenting>>,
+) -> Result<Value, String> {
+    let Some(confirm) = confirm.as_mut() else {
+        return Err("this editor has no confirm modal, so nothing can be asked".to_owned());
+    };
+    if confirm.is_open() {
+        return Err("another question is on screen — answer it first".to_owned());
+    }
+    if p.title.trim().is_empty() {
+        return Err("a presentation needs a title".to_owned());
+    }
+    if p.check.len() > crate::present::MAX_CHECKS {
+        return Err(format!(
+            "at most {} places to check — pick the ones most worth a look",
+            crate::present::MAX_CHECKS
+        ));
+    }
+    // **Every operation id has to be in the log**, because Undo all walks them and an id the log does
+    // not hold would make the walk stop on something that never happened.
+    //
+    // **The log is read through `ops::read_entries`**, the same parse `emerge/oplog_read` makes one
+    // screen over — two parses would be two answers to "is this id real".
+    let log = project
+        .as_ref()
+        .map(|p| ops::read_entries(&ops::oplog_path(p)))
+        .unwrap_or_default();
+    for id in &p.operation_ids {
+        if !log.iter().any(|e| &e.operation_id == id) {
+            return Err(format!("`{id}` is not in the operation log"));
+        }
+    }
+    // **The steps are the log's own `result` lines**, never raw logs: that is the rule the Mixar beat
+    // carries, and it is why the agent cites ids rather than describing what it did. The order is the
+    // caller's, so the person reads the turn as the agent narrated it.
+    let steps: Vec<String> = p
+        .operation_ids
+        .iter()
+        .filter_map(|id| {
+            log.iter()
+                .find(|e| &e.operation_id == id)
+                .and_then(|e| e.result.clone())
+        })
+        .collect();
+    let body = crate::present::body(&p, &steps);
+    confirm.ask(
+        crate::confirm::Asked::Presentation,
+        p.title.clone(),
+        body,
+        // **Yes is the destructive answer**, so the button is red and Enter answers nothing.
+        "Undo all",
+        "Keep",
+    );
+    let Some(presenting) = presenting.as_mut() else {
+        return Err("this editor has no presentation slot".to_owned());
+    };
+    let n = presenting
+        .0
+        .as_ref()
+        .and_then(|prev| prev.id.rsplit('-').next())
+        .and_then(|n| n.parse::<u32>().ok())
+        .map(|n| n + 1)
+        .unwrap_or(1);
+    let id = format!("present-{n}");
+    presenting.0 = Some(crate::present::Presented {
+        id: id.clone(),
+        title: p.title.clone(),
+        operation_ids: p.operation_ids.clone(),
+        answer: None,
+    });
+    Ok(json!({"presentation": id, "steps": steps.len()}))
 }
 
 /// **Which history a logged change joins (cycle 9 gap 1).** A library write joins the Meshes history,

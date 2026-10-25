@@ -1432,7 +1432,9 @@ fn replay_logged(
         project: Some(project.clone()),
         open: None,
         source: crate::ops::Source::Human,
+        root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     match crate::ops::undo(&mut ctx, Some(&line)) {
         Ok((
@@ -4814,7 +4816,9 @@ mod pack_fold_tests {
             project: Some(fresh),
             open: None,
             source: crate::ops::Source::Human,
+            root: None,
             session: crate::ops::session_id(),
+            proposal: None,
         };
         crate::editor::carry_changes(&mut live, &mut ctx);
         let look = live

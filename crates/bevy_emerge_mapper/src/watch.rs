@@ -368,6 +368,28 @@ fn differs(path: &Path, project: &Project) -> bool {
 /// **The "did it change?" answer matters**, because the editor's own save writes this file and
 /// the watcher sees the write. A redraw on every one of the editor's own saves would respawn
 /// every piece after every edit, for no reason.
+///
+/// # Compared against what was last saved, not against what the editor holds (B-049)
+///
+/// This compared the re-read file with `open.map` — **the in-memory map, which is where the
+/// person's unsaved edits live** — and replaced it whenever the two differed. So a save from
+/// anywhere (an agent's operation, another editor, a `cp`) followed by an unsaved edit inside the
+/// 250 ms poll replaced the edit with the file, **silently**: the map on screen and the map on
+/// disk then agree, so nothing looks wrong, and the work is gone. The intermittent failure of
+/// `a_person_removes_a_piece_and_undoes_it::an_agents_undo_of_a_removal_waits_while_the_person_has_moved_a_piece_since`
+/// was this, reported as flakiness.
+///
+/// The decision order below is what "the file says something the editor does not" turns into once
+/// a third state exists — the file, what was saved, and what the person has since typed:
+///
+/// 1. **The file says what the editor holds** → nothing happened; it is this editor's own save
+///    landing, and `mark_saved` keeps the map from being called unsaved for a save just made.
+/// 2. **The file says what was last saved or read** → it is the file the editor already knows
+///    about, so an unsaved edit is the only difference and it is the person's. Nothing to do.
+/// 3. **The person has unsaved edits** → **refuse, and say why.** A re-read here would choose
+///    between two versions of somebody's work on their behalf. The caller puts this in the Map
+///    door's `status.problem`, so it is an alarm rather than a note.
+/// 4. **Otherwise** → a clean editor and a file that says something new: adopt it.
 fn adopt_map(path: &Path, open: &mut OpenMap) -> Result<bool, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let fresh =
@@ -375,7 +397,25 @@ fn adopt_map(path: &Path, open: &mut OpenMap) -> Result<bool, String> {
     if fresh == open.map {
         // **The file says what the editor already says.** The editor's own save, or a person
         // saving an identical file. **Nothing to do.**
+        open.mark_saved();
         return Ok(false);
+    }
+    if fresh == *open.saved() {
+        // **The file is exactly what was last saved or read.** The only difference from `map` is
+        // the person's own unsaved editing, which no poll has any business touching.
+        return Ok(false);
+    }
+    if open.dirty() {
+        // **Two versions, and one of them is unsaved work.** Refusing is the only answer that
+        // cannot destroy either: the file is still on disk, and the editor still holds what the
+        // person typed. The route out is in the message, because "it refused" without one is a
+        // person who cannot save.
+        return Err(format!(
+            "`{}` changed on disk while this map has unsaved edits, so the file was not read. Save \
+             to keep your version; to take the file's, leave the map without saving and open it \
+             again",
+            path.display()
+        ));
     }
     // **The new map replaces the old one, and the editor's own save record is refreshed** — so
     // the editor does not think the map is unsaved when it is not.

@@ -77,6 +77,14 @@ pub enum Asked {
     SwitchDoor,
     /// A labelling walk found pieces in scope that already carry labels.
     RelabelJudged,
+    /// **The agent has finished a turn and is handing the result back** (S1.7).
+    ///
+    /// Its answers are the two the brief asks for: **Keep** (the default, and what `Esc` gives) or
+    /// **Undo all** (every operation the presentation listed, newest first). The affirmative is the
+    /// destructive one, so the button is red and `Enter` deliberately answers nothing — the same
+    /// rule the leave question follows, because a turn's worth of changes must not be discarded by
+    /// reflex.
+    Presentation,
 }
 
 impl Asked {
@@ -90,7 +98,7 @@ impl Asked {
     fn destructive(self) -> bool {
         match self {
             // The whole kit directory, or the map file.
-            Asked::DeleteEntry => true,
+            Asked::DeleteEntry | Asked::Presentation => true,
             // **Yes overwrites labels a human confirmed** with what a model proposes. Nothing is
             // deleted from disk, and judgement is work: the affirmative here is `All 732`, which
             // is the one keystroke in the labelling walk that cannot be got back.

@@ -83,7 +83,13 @@ pub fn trim_metres(m: f32) -> String {
 /// working on a game needs to know what was done to that game's map, and a log in a shared
 /// location would answer a different question.
 pub fn oplog_path(project: &Project) -> PathBuf {
-    project.project_dir.join("oplog.jsonl")
+    oplog_path_at(&project.root)
+}
+
+/// **The log's path from a project root alone**, so a change made before a door is open — the menu's
+/// `map_create` — records itself in the same file the editor's changes do.
+pub fn oplog_path_at(root: &std::path::Path) -> PathBuf {
+    root.join("assets/emerge").join("oplog.jsonl")
 }
 
 /// **Who did it.**
@@ -209,6 +215,137 @@ impl Refusal {
     }
 }
 
+/// **One row of a map, with where it sits** — so a removal can be put back exactly where it was.
+///
+/// An index and not just the row, because a map's order is meaningful: `at` decides nothing about
+/// precedence, but the file is a list an author reads, and a restoration that appended would move a
+/// piece from the middle of the file to its end on every undo/redo round trip.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Indexed<T> {
+    pub index: usize,
+    pub row: T,
+}
+
+/// **A change to a map's rows that can be undone by applying its own inverse.**
+///
+/// The shape every row-changing operation in this series shares, because the undo path re-dispatches
+/// an operation with its logged `inverse` as the parameters — so the inverse has to be expressible
+/// as *this operation's own parameters*. `RowDelta` is that vocabulary: what to take away, and what
+/// to put back, each with its index.
+///
+/// **It is pure and it does not save.** Applying it edits the map in memory and hands back the delta
+/// that would undo it; the caller decides when that map is written, which is what lets a save failure
+/// restore both.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RowDelta {
+    #[serde(default)]
+    pub remove_placements: Vec<String>,
+    #[serde(default)]
+    pub remove_stamps: Vec<String>,
+    #[serde(default)]
+    pub add_placements: Vec<Indexed<bevy_emerge_core::map::Placed>>,
+    #[serde(default)]
+    pub add_stamps: Vec<Indexed<bevy_emerge_core::composition::Stamped>>,
+}
+
+impl RowDelta {
+    /// **Apply this delta to `map`, and return the delta that undoes it.**
+    ///
+    /// Three steps, in this order and for stated reasons:
+    ///
+    /// 1. **Find every row to remove before removing anything.** A missing id is refused with the id
+    ///    named — it means something else has changed the map since this delta was recorded, and a
+    ///    partial application followed by a refusal is worse than no application at all.
+    /// 2. **Record each removed row with its index, then remove in descending order**, so removing an
+    ///    earlier row cannot shift a later one out from under the loop.
+    /// 3. **Insert the additions in ascending order**, at `index.min(len)` — clamped because a delta
+    ///    recorded against a map that has since shrunk is still answerable: the row goes at the end
+    ///    rather than vanishing.
+    ///
+    /// An added id that is already on the map is refused: two rows with one id is a map the editor
+    /// cannot address, and nothing downstream would say so.
+    pub fn apply(&self, map: &mut bevy_emerge_core::map::Map) -> Result<RowDelta, Refusal> {
+        // 1 — find, and refuse before touching anything.
+        let mut doomed_placements: Vec<(usize, bevy_emerge_core::map::Placed)> = Vec::new();
+        for id in &self.remove_placements {
+            let at = map
+                .placements
+                .iter()
+                .position(|p| &p.id == id)
+                .ok_or_else(|| {
+                    Refusal::new(format!(
+                        "`{id}` is not on the map any more, so this cannot be taken back — \
+                         something changed it since"
+                    ))
+                })?;
+            doomed_placements.push((at, map.placements[at].clone()));
+        }
+        let mut doomed_stamps: Vec<(usize, bevy_emerge_core::composition::Stamped)> = Vec::new();
+        for id in &self.remove_stamps {
+            let at = map
+                .stamps
+                .iter()
+                .position(|s| &s.id == id)
+                .ok_or_else(|| {
+                    Refusal::new(format!(
+                        "`{id}` is not on the map any more, so this cannot be taken back — \
+                         something changed it since"
+                    ))
+                })?;
+            doomed_stamps.push((at, map.stamps[at].clone()));
+        }
+        for add in &self.add_placements {
+            if map.placements.iter().any(|p| p.id == add.row.id) {
+                return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
+            }
+        }
+        for add in &self.add_stamps {
+            if map.stamps.iter().any(|s| s.id == add.row.id) {
+                return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
+            }
+        }
+
+        // 2 — remove descending, so indices stay valid.
+        doomed_placements.sort_by_key(|(i, _)| *i);
+        doomed_stamps.sort_by_key(|(i, _)| *i);
+        for (i, _) in doomed_placements.iter().rev() {
+            map.placements.remove(*i);
+        }
+        for (i, _) in doomed_stamps.iter().rev() {
+            map.stamps.remove(*i);
+        }
+
+        // 3 — add ascending, clamping to the map that is there now.
+        let mut added_placements = self.add_placements.clone();
+        added_placements.sort_by_key(|a| a.index);
+        for add in &added_placements {
+            let at = add.index.min(map.placements.len());
+            map.placements.insert(at, add.row.clone());
+        }
+        let mut added_stamps = self.add_stamps.clone();
+        added_stamps.sort_by_key(|a| a.index);
+        for add in &added_stamps {
+            let at = add.index.min(map.stamps.len());
+            map.stamps.insert(at, add.row.clone());
+        }
+
+        // **The inverse: what was added comes out, what was removed goes back at its index.**
+        Ok(RowDelta {
+            remove_placements: added_placements.iter().map(|a| a.row.id.clone()).collect(),
+            remove_stamps: added_stamps.iter().map(|a| a.row.id.clone()).collect(),
+            add_placements: doomed_placements
+                .into_iter()
+                .map(|(index, row)| Indexed { index, row })
+                .collect(),
+            add_stamps: doomed_stamps
+                .into_iter()
+                .map(|(index, row)| Indexed { index, row })
+                .collect(),
+        })
+    }
+}
+
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -271,12 +408,48 @@ pub enum Applied {
 pub struct Ctx {
     /// **The project**, for the library and the paths.
     pub project: Option<Project>,
+    /// **The project's root directory, when there is no loaded `Project` in hand.**
+    ///
+    /// The menu is the screen you are on *before* a door: it has a root and an unloaded library, and
+    /// opening the whole `Project` to make one map would parse every kit and require `vocab.ron`.
+    /// What a *change made from the menu* needs is the root — the log line goes in it, and a map goes
+    /// in its `maps/`. An operation that needs the library says so, which is the refusal it already
+    /// has; nothing dispatched from the menu does.
+    pub root: Option<PathBuf>,
     /// **The map being edited**, if there is one.
     pub open: Option<OpenMap>,
     /// **Who is doing it.**
     pub source: Source,
     /// **Which session.**
     pub session: String,
+    /// **The layout standing on screen, when an operation needs to see it.**
+    ///
+    /// A proposal is not map data — nothing is written until the person or an agent keeps it — so it
+    /// travels in the context rather than in `OpenMap`. `layout_propose` writes one here, and
+    /// `layout_accept` / `layout_discard` take it away; every other operation leaves it alone, which
+    /// is why it defaults to `None` and why the front ends carry it across as a value rather than
+    /// reaching into a resource.
+    pub proposal: Option<crate::editor::Proposed>,
+}
+
+impl Ctx {
+    /// **Where a map goes** — the project's own directory when one is loaded, else the menu's.
+    ///
+    /// One question with one answer, so `map_create` does not have to know which screen called it.
+    pub fn maps_dir_or_project(&self) -> Option<PathBuf> {
+        self.project
+            .as_ref()
+            .map(|p| p.maps_dir.clone())
+            .or_else(|| self.root.as_ref().map(|r| r.join("assets/emerge/maps")))
+    }
+
+    /// **The project's root**, loaded or not, so a log line has somewhere to go.
+    pub fn root_or_project(&self) -> Option<PathBuf> {
+        self.project
+            .as_ref()
+            .map(|p| p.root.clone())
+            .or_else(|| self.root.clone())
+    }
 }
 
 /// **An operation, as the registry knows it.**
@@ -342,6 +515,1485 @@ pub trait Operation: 'static {
     fn writes_library(&self) -> bool {
         false
     }
+
+    /// **The RNG seed this operation ran under, for the log.** `None` unless the operation's result
+    /// depends on one — a proposal without its seed is a layout nobody can reproduce, which is the
+    /// complaint the brief already makes about a WFC run recorded without its RNG.
+    fn rng_seed(&self, _params: &serde_json::Value) -> Option<u64> {
+        None
+    }
+}
+
+/// **Make a map** — the operation a developer's *"make me a courtyard"* becomes (E-008).
+///
+/// # Why this is an operation and not just the chooser's function
+///
+/// `chooser::create_map` writes a map's file, and it was the only way to make one: a person, at the
+/// keyboard, on the menu screen. The brief's second step is *"the in-editor agent turns that into
+/// typed editor operations"*, and the first thing anyone asks for is a place to work — so the
+/// simplest request in the whole loop had no tool behind it.
+///
+/// **The write itself is not duplicated.** This calls the same `chooser::create_map`, so the naming
+/// rule, the refusal for a name already in use, and the validate-then-atomic write are one
+/// implementation with two front ends rather than two that agree by habit.
+///
+/// # Undo
+///
+/// `Undo::Inverse`, and the inverse is the map's own **removal**: the delta a create leaves behind is
+/// a file that was not there. Undo does not restore anything — there was nothing before — it takes
+/// the new file away, which is the only truthful inverse of "this did not exist".
+pub mod map_create {
+    use super::*;
+    use serde_json::json;
+
+    /// **The map to make.**
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// **What it is called**, forced to snake_case by the same rule a file name uses.
+        pub name: String,
+        /// **How big, in metres on each axis.** Absent means a new map's default — 10 x 4 x 10 —
+        /// so an agent that only knows a name does not have to state a size it has no opinion about.
+        #[serde(default)]
+        pub bounds: Option<(f32, f32, f32)>,
+        /// **Where it sits in the world.** Absent means the origin.
+        #[serde(default)]
+        pub origin: Option<(f32, f32, f32)>,
+        /// **The header prose** — what the developer said they wanted, kept as data.
+        #[serde(default)]
+        pub note: Option<String>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                    "name": {
+                        "description": "What the map is called. Forced to snake_case: lowercase letters, digits and single underscores, starting with a letter.",
+                        "type": "string"
+                    },
+                    "bounds": {
+                        "description": "How big the map is, in metres on each axis, as [x, y, z]. Every axis is positive. Omit for a new map's default of 10 x 4 x 10.",
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3
+                    },
+                    "origin": {
+                        "description": "Where the map sits in the world, in metres, as [x, y, z]. Omit for the origin.",
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3
+                    },
+                    "note": {
+                        "description": "The map's note: what it is and why it is laid out this way, as data. This is where a request like 'a mossy ruined courtyard with two exits' is worth keeping.",
+                        "type": "string"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for making a map: {e}. The fields are `name`,                      `bounds`, `origin` and `note`, and `name` is required."
+                ))
+            })
+        }
+    }
+
+    pub struct MapCreate;
+
+    impl Operation for MapCreate {
+        fn name(&self) -> &'static str {
+            "map_create"
+        }
+
+        /// **No inverse, and the reason is a gap rather than a choice.**
+        ///
+        /// The truthful inverse of a create is the file's removal, and `take_back` applies an inverse
+        /// by calling **this same operation's `commit` with it** — so the inverse has to be this
+        /// operation's own parameters. There is no `map_remove` operation to carry that, and writing
+        /// one is a separate verb with its own refusals (what happens to the map another session has
+        /// open?), so this declares `Undo::None` the way `door_open` does and says so here rather
+        /// than inventing a parameter shape that would be refused on the way back.
+        ///
+        /// **What that costs, stated plainly:** Cmd+Z does not take a map away. The map is a file,
+        /// and deleting it is the chooser's `Delete` row. Logged as E-066.
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(maps_dir) = ctx.maps_dir_or_project() else {
+                return Err(Refusal::new("no project is open, so there is nowhere to put a map."));
+            };
+            let name = bevy_emerge_core::naming::to_snake_case(&p.name);
+            if name.is_empty() {
+                return Err(Refusal::new(format!(
+                    "`{}` leaves nothing usable as a name. Names are snake_case — lowercase                      letters, digits and single underscores, starting with a letter.",
+                    p.name
+                )));
+            }
+            // **The same refusal `create_map` makes, said before anything is written.** A preview
+            // that would fail at commit is not a preview of the change; it is a preview of a
+            // refusal, and saying so here is what makes `dry_run` worth calling.
+            let path = maps_dir.join(bevy_emerge_core::naming::map_file_name(&name));
+            if path.exists() {
+                return Err(Refusal::new(format!(
+                    "`{name}` already exists in this project. Pick another name, or open the one                      that is there."
+                )));
+            }
+            if let Some(b) = p.bounds
+                && (b.0 <= 0.0 || b.1 <= 0.0 || b.2 <= 0.0)
+            {
+                return Err(Refusal::new(format!(
+                    "a map's bounds are metres on each axis, and every one has to be positive —                      `{b:?}` is not."
+                )));
+            }
+            let default = bevy_emerge_core::map::Map::default();
+            let bounds = p.bounds.unwrap_or(default.bounds);
+            let origin = p.origin.unwrap_or(default.origin);
+            Ok(json!({
+                "name": name,
+                "map": name,
+                "bounds": [bounds.0, bounds.1, bounds.2],
+                "origin": [origin.0, origin.1, origin.2],
+                "note": p.note,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let name = plan["name"].as_str().unwrap_or_default().to_owned();
+            let read = |key: &str| -> (f32, f32, f32) {
+                let v = &plan[key];
+                (
+                    v[0].as_f64().unwrap_or(0.0) as f32,
+                    v[1].as_f64().unwrap_or(0.0) as f32,
+                    v[2].as_f64().unwrap_or(0.0) as f32,
+                )
+            };
+            let bounds = read("bounds");
+            let origin = read("origin");
+            let note = plan["note"].as_str().map(str::to_owned);
+
+            let Some(maps_dir) = ctx.maps_dir_or_project() else {
+                return Err(Refusal::new("no project is open, so there is nowhere to put a map."));
+            };
+            // **The chooser's own function, so the two front ends cannot drift.** Its refusals are
+            // already sentences an author can act on, and it is the write every other path uses.
+            let path = crate::chooser::create_map(&maps_dir, &name, bounds, origin, note.clone())
+                .map_err(Refusal::new)?;
+            let (x, y, z) = bounds;
+            Ok(Outcome {
+                summary: format!(
+                    "made map `{name}` — {} x {} x {} m, and the file was written",
+                    trim_metres(x),
+                    trim_metres(y),
+                    trim_metres(z)
+                ),
+                affected: 1,
+                saved: true,
+                // **No inverse**, for the reason `undo` gives: the faithful one is a `map_remove` that
+                // does not exist yet.
+                inverse: None,
+                after: Some(json!({
+                    "name": name,
+                    "map": name,
+                    "bounds": [x, y, z],
+                    "origin": [origin.0, origin.1, origin.2],
+                    "note": note,
+                    "path": path.to_string_lossy(),
+                })),
+            })
+        }
+    }
+}
+
+/// **Propose a layout, change nothing, and let the person or the agent decide.**
+///
+/// The generate keys (`G`, `Shift+G`, `Cmd+G`) have always worked this way for a person: a layout is
+/// *offered*, drawn as outlines, and kept with `Enter` or thrown away with `Esc`. But the offer was
+/// `editor`'s own private act — five functions taking `&mut EditorState` — so an agent could not ask
+/// for one at all, and an agent is exactly who the brief's *"a mossy ruined courtyard with two
+/// exits"* is supposed to reach.
+///
+/// This is that offer with a name in the registry. It calls [`crate::editor::propose`], which reads a
+/// `Project` and an `OpenMap` and nothing else.
+///
+/// # It writes nothing, and says so
+///
+/// `undo()` is [`Undo::None`] because there is no change to take back: the map, the file and the
+/// library are untouched, and `after` carries `"preview_only": true` beside the rows so a caller
+/// cannot mistake the offer for the change. A standing proposal is taken away by
+/// [`layout_discard`], which is a different verb because it is a different act.
+pub mod layout_propose {
+    use super::*;
+    use serde_json::json;
+
+    /// **Where the rules come from, and the seed.**
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// Which of the three sources lays the layout.
+        pub source: crate::editor::LayoutSource,
+        /// **The solver's seed.** Absent means the editor picks a fresh one per call.
+        ///
+        /// Named rather than hidden so the same seed on the same map lays the same layout — which is
+        /// what makes a proposal something an agent can talk about, and what a test can assert.
+        #[serde(default)]
+        pub seed: Option<u64>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source"],
+                "properties": {
+                    "source": {
+                        "description": "Where the rules come from. `learned` continues what is already placed on the map (refuses an empty map); `declared` reads the kit's declared edge tokens (works on an empty map); `composed` builds from the kit's compositions and is the only source that lays stamps rather than pieces.",
+                        "type": "string",
+                        "enum": ["learned", "declared", "composed"]
+                    },
+                    "seed": {
+                        "description": "The solver's seed. Omit it and the editor picks a fresh one per call; the same seed on the same map lays the same layout.",
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for proposing a layout: {e}. The fields are \
+                     `source` (learned, declared or composed) and `seed`, and `source` is required."
+                ))
+            })
+        }
+    }
+
+    pub struct LayoutPropose;
+
+    impl Operation for LayoutPropose {
+        fn name(&self) -> &'static str {
+            "layout_propose"
+        }
+
+        /// **Nothing to undo**: a proposal is an offer, and the map is untouched. Taking a standing
+        /// proposal away is [`super::layout_discard`], which is its own verb.
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        /// **The seed goes in the log.** Without it an agent's proposal is a layout nobody can
+        /// reproduce — the same complaint the brief makes about a WFC run recorded without its RNG.
+        fn rng_seed(&self, params: &serde_json::Value) -> Option<u64> {
+            serde_json::from_value::<Params>(params.clone())
+                .ok()
+                .and_then(|p| p.seed)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_ref()) else {
+                return Err(Refusal::new(
+                    "no map is open, so there is nowhere to propose a layout.",
+                ));
+            };
+            let laid = crate::editor::propose(project, open, p.source, p.seed.unwrap_or(1))
+                .map_err(Refusal::new)?;
+            Ok(json!({
+                "map": open.map.name,
+                "source": p.source,
+                "seed": p.seed,
+                "laid": laid.proposed.placements.len() + laid.proposed.stamps.len(),
+                "placements": laid.proposed.placements.len(),
+                "stamps": laid.proposed.stamps.len(),
+                "composes": laid.proposed.composes,
+                "preview_only": laid.proposed.preview_only,
+                "note": laid.note,
+                "warnings": laid.warnings,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let after = self.plan(ctx, params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_ref()) else {
+                return Err(Refusal::new(
+                    "no map is open, so there is nowhere to propose a layout.",
+                ));
+            };
+            // **The same computation the plan made**, so what was previewed is what stands — the
+            // preview is this operation's own plan thrown away, and it must not be a second opinion.
+            let laid = crate::editor::propose(project, open, p.source, p.seed.unwrap_or(1))
+                .map_err(Refusal::new)?;
+            let note = laid.note.clone();
+            ctx.proposal = Some(laid.proposed);
+            Ok(Outcome {
+                summary: note,
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(after),
+            })
+        }
+    }
+}
+
+/// **Keep the layout on screen** — `Enter`, and the agent's half of the same door.
+///
+/// The person's arm used to live inline in `apply_proposal`; this is the same write with a name, so
+/// an agent that proposed a layout can finish the job instead of leaving it on screen for somebody
+/// to press a key at.
+///
+/// # What it clears, and when that is decided
+///
+/// A grammar over descriptors lays pieces, so it clears the **unpinned placements**; a grammar over
+/// compositions lays stamps, so it clears the **unpinned stamps** and leaves the author's pieces
+/// alone. Which rows those are is read from the **live map at the moment of commitment**, never
+/// captured when the layout was proposed: an index held across the gap is a stale-index bug waiting
+/// for the first author who places something while a proposal is up.
+///
+/// The removed rows are recorded with their indices in the inverse, so `Cmd+Z` puts the sketch back
+/// where it was rather than at the end of the file.
+///
+/// # Undo
+///
+/// `Undo::Inverse`, and the inverse is this operation's own `delta` parameter — the vocabulary
+/// [`RowDelta`] gives every row-changing operation here. The `delta` form is marked
+/// [`Operation::only_as_undo`], so a bare `layout_accept {"delta": ...}` from an agent is refused:
+/// putting rows back is the undo stack's job, not something an agent may do directly.
+pub mod layout_accept {
+    use super::*;
+    use serde_json::json;
+
+    /// **Keep the proposal, or (as an undo) put rows back.**
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// **The undo's own form.** Present only when this is being called to take a keep back.
+        #[serde(default)]
+        pub delta: Option<RowDelta>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "delta": {
+                        "description": "The rows an undo puts back. Only an undo may set this: to keep the layout on screen, call with no parameters.",
+                        "type": "object"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for keeping a layout: {e}. Call with no \
+                     parameters to keep the proposal on screen."
+                ))
+            })
+        }
+    }
+
+    /// **The preview-only sentence, in one place.** The key path and the operation both say it, and a
+    /// message that differs between them is a message one of them got wrong.
+    pub const PREVIEW_ONLY: &str = "preview only — the game lays these blocks out itself. Esc clears \
+                                    it; to fix a cell, place a tile there and pin it with O.";
+
+    pub struct LayoutAccept;
+
+    impl Operation for LayoutAccept {
+        fn name(&self) -> &'static str {
+            "layout_accept"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).map(|p| p.delta.is_some()).unwrap_or(false)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new("no map is open, so there is nothing to lay a layout on."));
+            };
+            if let Some(delta) = &p.delta {
+                // **Planned against a copy**, so the plan stays pure: the rows are counted, not moved.
+                let mut trial = open.map.clone();
+                delta.apply(&mut trial)?;
+                return Ok(json!({
+                    "map": open.map.name,
+                    "placements": trial.placements.len(),
+                    "stamps": trial.stamps.len(),
+                }));
+            }
+            let Some(proposed) = ctx.proposal.as_ref() else {
+                return Err(Refusal::new(
+                    "there is no layout to keep — propose one first (layout_propose)",
+                ));
+            };
+            if proposed.preview_only {
+                return Err(Refusal::new(PREVIEW_ONLY));
+            }
+            // **What it would clear**, read now. The count is the whole of `docs/ui.md` §3.2's delta:
+            // what changes, beside what is there.
+            let clears = if proposed.composes {
+                open.map.stamps.iter().filter(|s| !s.owned).count()
+            } else {
+                open.map.placements.iter().filter(|p| !p.owned).count()
+            };
+            Ok(json!({
+                "map": open.map.name,
+                "laid": if proposed.composes {
+                    json!({"stamps": proposed.stamps.len()})
+                } else {
+                    json!({"placements": proposed.placements.len()})
+                },
+                "clears": clears,
+                "composes": proposed.composes,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_mut() else {
+                return Err(Refusal::new("no map is open, so there is nothing to lay a layout on."));
+            };
+            let before = open.map.clone();
+
+            // **The undo's form: put the rows back, save, and hand back the delta that undoes it.**
+            if let Some(delta) = &p.delta {
+                let inverse = delta.apply(&mut open.map)?;
+                let (some, taken) = (
+                    inverse.add_placements.len() + inverse.add_stamps.len(),
+                    delta.remove_placements.len(),
+                );
+                let Some(project) = ctx.project.as_ref() else {
+                    return Err(Refusal::new("no project is open."));
+                };
+                let saved = match open.save(project) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        // **The rows go back before the refusal**: the in-memory map and the file
+                        // must not disagree, or the dirty flag says "unsaved" about a change nobody
+                        // made.
+                        open.map = before;
+                        return Err(Refusal::new(format!(
+                            "the rows were put back but the file refused them, so nothing was \
+                             written: {e}"
+                        )));
+                    }
+                };
+                return Ok(Outcome {
+                    summary: format!("put back {some} row(s) and took away {taken}"),
+                    affected: some + delta.remove_placements.len(),
+                    saved,
+                    inverse: Some(json!({ "delta": inverse })),
+                    after: Some(json!({
+                        "map": open.map.name,
+                        "placements": open.map.placements.len(),
+                        "stamps": open.map.stamps.len(),
+                    })),
+                });
+            }
+
+            // **The keep.** Take the proposal, then reproduce the map edit it describes.
+            let Some(taken) = ctx.proposal.take() else {
+                return Err(Refusal::new(
+                    "there is no layout to keep — propose one first (layout_propose)",
+                ));
+            };
+            if taken.preview_only {
+                // **Put it back**, so the screen still has something to clear with Esc: the refusal
+                // must not throw away the very thing it refused to keep.
+                ctx.proposal = Some(taken);
+                return Err(Refusal::new(PREVIEW_ONLY));
+            }
+
+            // **Which rows go, read from the live map.** See the type's documentation for why this is
+            // not captured at propose time.
+            let removed: Vec<Indexed<bevy_emerge_core::map::Placed>> = if taken.composes {
+                Vec::new()
+            } else {
+                open.map
+                    .placements
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| !p.owned)
+                    .map(|(index, row)| Indexed { index, row: row.clone() })
+                    .collect()
+            };
+            let unstamped: Vec<Indexed<bevy_emerge_core::composition::Stamped>> = if taken.composes {
+                open.map
+                    .stamps
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| !s.owned)
+                    .map(|(index, row)| Indexed { index, row: row.clone() })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            // Descending, so removing an earlier row cannot shift a later one out from under us.
+            for row in removed.iter().rev() {
+                open.map.placements.remove(row.index);
+            }
+            for row in unstamped.iter().rev() {
+                open.map.stamps.remove(row.index);
+            }
+
+            let count = taken.placements.len();
+            let stamped = taken.stamps.len();
+            let added: Vec<String> = taken.placements.iter().map(|p| p.id.clone()).collect();
+            let added_stamps: Vec<String> = taken.stamps.iter().map(|s| s.id.clone()).collect();
+            open.map.placements.extend(taken.placements);
+            open.map.stamps.extend(taken.stamps);
+
+            // **A save failure restores the map AND the proposal**, so a refusal leaves the screen
+            // exactly as it was and the person can try again or fix the file.
+            let Some(project) = ctx.project.as_ref() else {
+                open.map = before;
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map = before;
+                // The rows are back in the proposal, rebuilt from what was just written into it.
+                ctx.proposal = Some(crate::editor::Proposed {
+                    composes: taken.composes,
+                    placements: added
+                        .iter()
+                        .filter_map(|id| open.map.placements.iter().find(|p| &p.id == id).cloned())
+                        .collect(),
+                    stamps: added_stamps
+                        .iter()
+                        .filter_map(|id| open.map.stamps.iter().find(|s| &s.id == id).cloned())
+                        .collect(),
+                    cell: taken.cell,
+                    preview_only: taken.preview_only,
+                    generation: taken.generation,
+                });
+                return Err(Refusal::new(format!(
+                    "the layout was laid but the file refused it, so nothing was written: {e}"
+                )));
+            }
+
+            let inverse = RowDelta {
+                remove_placements: added,
+                remove_stamps: added_stamps,
+                add_placements: removed,
+                add_stamps: unstamped,
+            };
+            Ok(Outcome {
+                summary: if taken.composes {
+                    format!("kept the layout: {stamped} stamped")
+                } else {
+                    format!("kept the layout: {count} placed")
+                },
+                affected: count + stamped,
+                saved: true,
+                inverse: Some(json!({ "delta": inverse })),
+                after: Some(json!({
+                    "map": open.map.name,
+                    "placements": open.map.placements.len(),
+                    "stamps": open.map.stamps.len(),
+                })),
+            })
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            Some(json!({
+                "map": open.map.name,
+                "placements": open.map.placements.len(),
+                "stamps": open.map.stamps.len(),
+            }))
+        }
+    }
+}
+
+/// **Throw the layout away** — `Esc`, and the agent's half of the same door.
+///
+/// The map is untouched by a proposal, so throwing one away is not an undo: it writes nothing and
+/// records nothing to take back. It is a verb because *dropping the offer* is an act with a receipt,
+/// and because an agent that proposed a layout and thought better of it needs a way to say so.
+pub mod layout_discard {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {}
+
+    pub struct LayoutDiscard;
+
+    impl Operation for LayoutDiscard {
+        fn name(&self) -> &'static str {
+            "layout_discard"
+        }
+
+        /// Nothing is written, so there is nothing to take back.
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({"type": "object", "additionalProperties": false, "properties": {}})
+        }
+
+        fn plan(&self, ctx: &Ctx, _params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            if ctx.proposal.is_none() {
+                return Err(Refusal::new("there is no layout to throw away"));
+            }
+            Ok(json!({"map": ctx.open.as_ref().map(|o| o.map.name.clone())}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, _params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            if ctx.proposal.take().is_none() {
+                return Err(Refusal::new("there is no layout to throw away"));
+            }
+            Ok(Outcome {
+                summary: "layout thrown away — the map is as it was".to_owned(),
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(json!({"map": ctx.open.as_ref().map(|o| o.map.name.clone())})),
+            })
+        }
+    }
+}
+
+/// **Flood fill from a cell** — `F`, and the agent's half of it.
+///
+/// The fill itself is `fill::flood`, unchanged: it refuses a piece that mounts on something, it stops
+/// at anything already placed, and it stops at `MAX_CELLS` with a route to carry on. What was missing
+/// was a name in the registry, so an agent could not lay a floor.
+///
+/// # `at` is a cell, not a pixel
+///
+/// The start point is **the same value the click passes to `flood`** — `open.map.to_map_space((x, z))`
+/// from the cursor — so a caller is speaking map space in metres. A generator that reads placements
+/// sits on the 1 m grid; a person's brush may be on a finer one, and the pitch argument is theirs.
+pub mod fill {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// **What to lay.** A descriptor id from the project's library.
+        ///
+        /// **Optional in the type and required in practice**, because the undo's form carries only
+        /// `delta` — `take_back` re-dispatches an operation with the inverse its log line recorded,
+        /// and a `required` field would make the undo unparseable. The refusal is made by `plan`, by
+        /// name, when a fill is asked for without a piece.
+        #[serde(default)]
+        pub piece: String,
+        /// **Where the flood starts**, in map space in metres. Absent only in the undo's form.
+        #[serde(default)]
+        pub at: (f32, f32),
+        #[serde(default)]
+        pub yaw: f32,
+        #[serde(default)]
+        pub tip: (u8, u8),
+        /// The cell pitch. Omitted means the project's default snap.
+        #[serde(default)]
+        pub pitch: Option<f32>,
+        /// **The undo's own form**: the placements a fill added, to be taken away again.
+        #[serde(default)]
+        pub delta: Option<RowDelta>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["piece", "at"],
+                "properties": {
+                    "piece": {
+                        "description": "The piece to lay, by descriptor id. emerge_list_pieces lists them. A piece that mounts on a surface or a wall cannot be filled with, because a fill covers open floor.",
+                        "type": "string"
+                    },
+                    "at": {
+                        "description": "Where the flood starts, in map space in metres, as [x, z]. The same value a click passes: not a screen position.",
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 2,
+                        "maxItems": 2
+                    },
+                    "yaw": {
+                        "description": "The facing every filled piece takes, in degrees. Omit for 0.",
+                        "type": "number"
+                    },
+                    "tip": {
+                        "description": "Which variant of a tipped piece to lay, as [a, b]. Omit for [0, 0].",
+                        "type": "array",
+                        "items": {"type": "integer", "minimum": 0},
+                        "minItems": 2,
+                        "maxItems": 2
+                    },
+                    "pitch": {
+                        "description": "The cell pitch in metres. Omit for the project's default snap.",
+                        "type": "number"
+                    },
+                    "delta": {
+                        "description": "The rows an undo takes away. Only an undo may set this: to fill, call with `piece` and `at`.",
+                        "type": "object"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for a fill: {e}. The fields are `piece`, `at`, \
+                     `yaw`, `tip`, `pitch` and `delta`, and `piece` and `at` are required."
+                ))
+            })
+        }
+    }
+
+    pub struct Fill;
+
+    impl Operation for Fill {
+        fn name(&self) -> &'static str {
+            "fill"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).map(|p| p.delta.is_some()).unwrap_or(false)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_ref()) else {
+                return Err(Refusal::new("no map is open, so there is nowhere to fill."));
+            };
+            if let Some(delta) = &p.delta {
+                let mut trial = open.map.clone();
+                delta.apply(&mut trial)?;
+                return Ok(json!({
+                    "map": open.map.name,
+                    "placements": trial.placements.len(),
+                }));
+            }
+            let Some(descriptor) = project.library.get(&p.piece) else {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a piece in this project — emerge_list_pieces lists them",
+                    p.piece
+                )));
+            };
+            let pitch = p
+                .pitch
+                .unwrap_or_else(|| default_pitch(project.lattice.snap_divisor));
+            // **A dry run counts the cells and writes nothing.** The mint is the same shape the click
+            // uses, so the count is the count the fill would really lay.
+            let short = crate::editor::short_id(&descriptor.id).to_owned();
+            let mut n = crate::editor::next_id_after(&open.map);
+            let filled = crate::fill::flood(
+                &open.map,
+                descriptor,
+                p.at,
+                p.yaw,
+                p.tip,
+                pitch,
+                || {
+                    n += 1;
+                    format!("{short}@{n}")
+                },
+            )
+            .map_err(Refusal::new)?;
+            Ok(json!({
+                "map": open.map.name,
+                "would_fill": filled.placements.len(),
+                "truncated": filled.truncated,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_mut() else {
+                return Err(Refusal::new("no map is open, so there is nowhere to fill."));
+            };
+            let before = open.map.clone();
+
+            if let Some(delta) = &p.delta {
+                let inverse = delta.apply(&mut open.map)?;
+                let taken = inverse.add_placements.len();
+                let Some(project) = ctx.project.as_ref() else {
+                    return Err(Refusal::new("no project is open."));
+                };
+                let saved = match open.save(project) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        open.map = before;
+                        return Err(Refusal::new(format!(
+                            "the fill was taken away but the file refused it, so nothing was \
+                             written: {e}"
+                        )));
+                    }
+                };
+                return Ok(Outcome {
+                    summary: format!("took the fill away: {taken} piece(s)"),
+                    affected: taken,
+                    saved,
+                    inverse: Some(json!({ "delta": inverse })),
+                    after: Some(json!({
+                        "map": open.map.name,
+                        "placements": open.map.placements.len(),
+                        "truncated": false,
+                    })),
+                });
+            }
+
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            let Some(descriptor) = project.library.get(&p.piece).cloned() else {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a piece in this project — emerge_list_pieces lists them",
+                    p.piece
+                )));
+            };
+            let pitch = p
+                .pitch
+                .unwrap_or_else(|| default_pitch(project.lattice.snap_divisor));
+            let short = crate::editor::short_id(&descriptor.id).to_owned();
+            let mut n = crate::editor::next_id_after(&open.map);
+            let filled = crate::fill::flood(
+                &open.map,
+                &descriptor,
+                p.at,
+                p.yaw,
+                p.tip,
+                pitch,
+                || {
+                    n += 1;
+                    format!("{short}@{n}")
+                },
+            )
+            .map_err(Refusal::new)?;
+            let count = filled.placements.len();
+            let added: Vec<String> = filled.placements.iter().map(|p| p.id.clone()).collect();
+            open.map.placements.extend(filled.placements);
+
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map = before;
+                return Err(Refusal::new(format!(
+                    "the fill was laid but the file refused it, so nothing was written: {e}"
+                )));
+            }
+            // **The cap's route is carried in the summary**, because a truncated fill looks exactly
+            // like a finished one and the message that says so is the only thing that distinguishes
+            // them. `CAP_ROUTE` names a route that works: a fill from a *new* cell.
+            let summary = if filled.truncated {
+                format!(
+                    "filled {count} and STOPPED at the {} cell cap. {}",
+                    crate::fill::MAX_CELLS,
+                    crate::fill::CAP_ROUTE
+                )
+            } else {
+                format!("filled {count} with {}", p.piece)
+            };
+            Ok(Outcome {
+                summary,
+                affected: count,
+                saved: true,
+                inverse: Some(json!({ "delta": { "remove_placements": added } })),
+                after: Some(json!({
+                    "map": open.map.name,
+                    "placements": open.map.placements.len(),
+                    "truncated": filled.truncated,
+                })),
+            })
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            Some(json!({
+                "map": open.map.name,
+                "placements": open.map.placements.len(),
+            }))
+        }
+
+    }
+
+    /// The project's own default cell pitch, so an omitted `pitch` fills on the grid the kits are
+    /// authored on rather than on whatever the last brush used.
+    fn default_pitch(snap_divisor: u32) -> f32 {
+        bevy_emerge_core::grid::SnapLevel::default().pitch(snap_divisor)
+    }
+}
+
+/// **Save the open map** — `Cmd+S` on the Map door, and the agent's half of it.
+///
+/// The save is `OpenMap::save`, unchanged: it validates, expands the stamps the way the game does,
+/// and refuses rather than writing a file the game cannot load. The value of the operation is that an
+/// agent can *finish*: every mutating operation already writes, but a proposal that was kept and a
+/// brush that was armed are different acts, and "save now" is what a person presses when they are
+/// done.
+///
+/// # Undo
+///
+/// `Undo::None`: a save changes no document. There is nothing to take back, and taking it back would
+/// mean restoring a file the author had already replaced.
+pub mod map_save {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {}
+
+    pub struct MapSave;
+
+    impl Operation for MapSave {
+        fn name(&self) -> &'static str {
+            "map_save"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({"type": "object", "additionalProperties": false, "properties": {}})
+        }
+
+        fn plan(&self, ctx: &Ctx, _params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open, so there is nothing to save."));
+            };
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new("no map is open, so there is nothing to save."));
+            };
+            let path = project
+                .maps_dir
+                .join(bevy_emerge_core::naming::map_file_name(&open.map.name));
+            Ok(json!({
+                "map": open.map.name,
+                "path": path.to_string_lossy(),
+                "dirty": open.dirty(),
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_mut()) else {
+                return Err(Refusal::new("no map is open, so there is nothing to save."));
+            };
+            match open.save(project) {
+                Ok(()) => Ok(Outcome {
+                    summary: format!("saved {}", plan["path"].as_str().unwrap_or_default()),
+                    affected: 0,
+                    saved: true,
+                    inverse: None,
+                    after: Some(json!({
+                        "map": open.map.name,
+                        "path": plan["path"],
+                        "dirty": false,
+                    })),
+                }),
+                // **A refusal of the whole operation**, not a half-applied change that reports
+                // success: the map is unchanged and the file is unchanged.
+                Err(e) => Err(Refusal::new(format!("NOT SAVED: {e}"))),
+            }
+        }
+    }
+}
+
+/// **Open a map by name** — the verb an agent needs the moment it has made one (E-067).
+///
+/// `map_create` could make a map and then the agent had no way in: `door_open` takes a door and a
+/// tab, and nothing took a map's name. The acceptance script's own third step failed on exactly this
+/// and had to relaunch the editor as a workaround — which is not something an agent can to do to a
+/// person's session.
+///
+/// # What it does, and what it does not
+///
+/// It reads the file through `OpenMap::open` — the same door the Map tab uses, so the naming rule and
+/// the refusal for a file that calls itself something else are one implementation — puts it in the
+/// context, and asks for the Map door. The crossing itself is the editor's, in the next frame, for
+/// the same reason `door_open` waits: a map with unsaved edits asks the person before it is replaced.
+///
+/// **It is not `door_open` with a parameter.** Crossing doors and choosing a map are two questions,
+/// and folding them would make a caller state a door it has no opinion about.
+pub mod map_open {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The map's name, as `emerge_list_pieces`-style listings and `map_create` spell it.
+        pub name: String,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                    "name": {
+                        "description": "The map to open, by name. The name IS its file (maps/<name>.map.ron), so a name that does not exist is refused rather than started.",
+                        "type": "string"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for opening a map: {e}. The field is `name`, and \
+                     it is required."
+                ))
+            })
+        }
+    }
+
+    pub struct MapOpen;
+
+    impl Operation for MapOpen {
+        fn name(&self) -> &'static str {
+            "map_open"
+        }
+
+        /// **`Undo::None`, and the honest reason is that opening a map is not an edit.** It changes
+        /// which document the editor is holding, not the document — the same argument `door_open`
+        /// makes. Undoing it would mean putting the previous map back, which is `map_open` with the
+        /// other name.
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            // **The menu's root is enough, and that is the whole point of this verb.** An agent makes
+            // a map from the menu (where there is a root and no loaded `Project`) and then wants in —
+            // so this loads the project from the root when nothing is loaded, exactly as the editor
+            // does on a door crossing. Measured: without this, `map_open` right after `map_create`
+            // refused with *"no project is open"*, which is the same dead end E-067 described.
+            let loaded;
+            let project = match (ctx.project.as_ref(), ctx.root.as_ref()) {
+                (Some(p), _) => p,
+                (None, Some(root)) => {
+                    loaded = crate::project::Project::open(root, None).map_err(Refusal::new)?;
+                    &loaded
+                }
+                (None, None) => {
+                    return Err(Refusal::new(
+                        "no project is open, so there is no map to open.",
+                    ));
+                }
+            };
+            // **A map that does not exist is refused, and this is the one place that differs from
+            // the editor's own "new map" path.** `OpenMap::open` *starts* a map when the file is
+            // absent, which is exactly right for `map_create`'s caller and an author pressing `+ new
+            // map` — and wrong here: an agent asking to open a map it has not made would silently
+            // get an empty one under a name nobody chose, and would then work in the wrong document
+            // without ever being told. Measured: the first version of this operation did exactly
+            // that and answered `opened `no_such_map``.
+            let name = bevy_emerge_core::naming::to_snake_case(&p.name);
+            let path = project
+                .maps_dir
+                .join(bevy_emerge_core::naming::map_file_name(&name));
+            if !path.is_file() {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a map in this project, so there is nothing to open. `map_create` \
+                     makes one; the maps directory holds the rest.",
+                    p.name
+                )));
+            }
+            // **The same reader the Map tab uses**, so a file that calls itself something else is
+            // refused here exactly as it is there. A refusal changes nothing.
+            let open = OpenMap::open(project, &p.name).map_err(Refusal::new)?;
+            Ok(json!({
+                "map": open.map.name,
+                "bounds": [open.map.bounds.0, open.map.bounds.1, open.map.bounds.2],
+                "placements": open.map.placements.len(),
+                "stamps": open.map.stamps.len(),
+                "dirty": open.dirty(),
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let p = Params::parse(params)?;
+            // **The project is loaded here too, and KEPT.** The plan may have loaded it from the
+            // menu's root; a commit that then refused because `ctx.project` was still `None` was the
+            // same dead end one step later — measured: `map_create` applied, `map_open` refused with
+            // "no project is open". Loading it into the context is what a crossing needs anyway: the
+            // editor cannot show a map without the project it belongs to.
+            if ctx.project.is_none()
+                && let Some(root) = ctx.root.clone()
+            {
+                ctx.project = Some(crate::project::Project::open(&root, None).map_err(Refusal::new)?);
+            }
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no map to open.",
+                ));
+            };
+            // **A map with unsaved edits is not silently replaced.** The same guard the rest of the
+            // editor keeps: the person's work outranks an agent's convenience, and the route is to
+            // save it or open it again.
+            if let Some(previous) = ctx.open.as_ref()
+                && previous.dirty()
+                && previous.map.name != p.name
+            {
+                return Err(Refusal::new(format!(
+                    "`{}` has unsaved edits, so it was not replaced. Save it (map_save) and ask \
+                     again, or open it again to carry on.",
+                    previous.map.name
+                )));
+            }
+            let fresh = OpenMap::open(project, &p.name).map_err(Refusal::new)?;
+            let name = fresh.map.name.clone();
+            let placements = fresh.map.placements.len();
+            ctx.open = Some(fresh);
+            Ok(Outcome {
+                summary: format!("opened `{name}`"),
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(json!({
+                    "map": name,
+                    "placements": placements,
+                    "bounds": plan["bounds"],
+                })),
+            })
+        }
+    }
+}
+
+/// **Place one piece** — the click, and the agent's half of it (S2.1).
+///
+/// **No operation added a row.** Every push of a placement was in the key/mouse path, so an agent
+/// could turn a piece, pin it, or remove it, and could not put one down — which is the first thing
+/// any request needs. The acceptance script's `place` step failed on exactly this.
+///
+/// The work is `editor::plan_placement`, which is the click's own code split at the point where it
+/// stops describing and starts writing. One function, so an agent's placement and a person's cannot
+/// disagree about what is already there, what a piece mounts to, or which rows it replaces.
+///
+/// # Undo
+///
+/// `Undo::Inverse`: the inverse removes the row it added and puts back the rows it replaced, at their
+/// indices — the same [`RowDelta`] vocabulary every row-changing operation in this series uses.
+pub mod placement_add {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The piece, by descriptor id.
+        #[serde(default)]
+        pub piece: String,
+        /// **The piece's centre in map space, in metres**, used exactly as given — so a caller that
+        /// wants the 1 m grid must snap for itself. An absent `at` is the undo's form only.
+        #[serde(default)]
+        pub at: (f32, f32),
+        #[serde(default)]
+        pub yaw: f32,
+        #[serde(default)]
+        pub tip: (u8, u8),
+        /// **The undo's own form**: what to take away, and what to put back.
+        #[serde(default)]
+        pub delta: Option<RowDelta>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["piece", "at"],
+                "properties": {
+                    "piece": {
+                        "description": "The piece to place, by descriptor id. emerge_list_pieces lists them.",
+                        "type": "string"
+                    },
+                    "at": {
+                        "description": "The piece's centre in map space, in metres, as [x, z]. Used exactly as given, so snap it yourself if you want the 1 m grid pieces a generator reads sit on.",
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 2,
+                        "maxItems": 2
+                    },
+                    "yaw": {"type": "number", "description": "Facing in degrees. Omit for 0."},
+                    "tip": {
+                        "description": "Which variant of a tipped piece, as [a, b]. Omit for [0, 0].",
+                        "type": "array",
+                        "items": {"type": "integer", "minimum": 0},
+                        "minItems": 2,
+                        "maxItems": 2
+                    },
+                    "delta": {
+                        "description": "The rows an undo moves. Only an undo may set this.",
+                        "type": "object"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for placing a piece: {e}. The fields are `piece`, \
+                     `at`, `yaw`, `tip` and `delta`, and `piece` and `at` are required."
+                ))
+            })
+        }
+    }
+
+    pub struct PlacementAdd;
+
+    impl Operation for PlacementAdd {
+        fn name(&self) -> &'static str {
+            "placement_add"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).map(|p| p.delta.is_some()).unwrap_or(false)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_ref()) else {
+                return Err(Refusal::new("no map is open, so there is nowhere to place a piece."));
+            };
+            if let Some(delta) = &p.delta {
+                let mut trial = open.map.clone();
+                delta.apply(&mut trial)?;
+                return Ok(json!({
+                    "map": open.map.name,
+                    "placements": trial.placements.len(),
+                }));
+            }
+            let Some(descriptor) = project.library.get(&p.piece) else {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a piece in this project — emerge_list_pieces lists them",
+                    p.piece
+                )));
+            };
+            let planned = crate::editor::plan_placement(
+                project,
+                open,
+                descriptor,
+                p.at,
+                p.yaw,
+                p.tip,
+                crate::editor::next_id_after(&open.map) + 1,
+            )
+            .map_err(Refusal::new)?;
+            let replaced: Vec<&String> = planned
+                .replaces
+                .iter()
+                .filter_map(|i| open.map.placements.get(*i).map(|row| &row.id))
+                .collect();
+            Ok(json!({
+                "id": planned.placed.id,
+                "map": open.map.name,
+                "on": planned.placed.on,
+                "replaces": replaced,
+                "y": planned.y,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let plan = self.plan(ctx, params)?;
+            let Some(open) = ctx.open.as_mut() else {
+                return Err(Refusal::new("no map is open, so there is nowhere to place a piece."));
+            };
+            let before = open.map.clone();
+
+            if let Some(delta) = &p.delta {
+                let inverse = delta.apply(&mut open.map)?;
+                let taken = inverse.add_placements.len();
+                let Some(project) = ctx.project.as_ref() else {
+                    return Err(Refusal::new("no project is open."));
+                };
+                let saved = match open.save(project) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        open.map = before;
+                        return Err(Refusal::new(format!(
+                            "the rows were put back but the file refused them, so nothing was \
+                             written: {e}"
+                        )));
+                    }
+                };
+                return Ok(Outcome {
+                    summary: format!("took away {taken} row(s)"),
+                    affected: taken,
+                    saved,
+                    inverse: Some(json!({ "delta": inverse })),
+                    after: Some(json!({
+                        "map": open.map.name,
+                        "placements": open.map.placements.len(),
+                    })),
+                });
+            }
+
+            let (Some(project), Some(descriptor)) = (
+                ctx.project.as_ref(),
+                ctx.project
+                    .as_ref()
+                    .and_then(|pr| pr.library.get(&p.piece).cloned()),
+            ) else {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a piece in this project — emerge_list_pieces lists them",
+                    p.piece
+                )));
+            };
+            let planned = crate::editor::plan_placement(
+                project,
+                open,
+                &descriptor,
+                p.at,
+                p.yaw,
+                p.tip,
+                crate::editor::next_id_after(&open.map) + 1,
+            )
+            .map_err(Refusal::new)?;
+
+            // **The rows it replaces come out first, recorded with their indices** so the inverse can
+            // put each one back where it was rather than at the end of the file.
+            let replaced: Vec<Indexed<bevy_emerge_core::map::Placed>> = planned
+                .replaces
+                .iter()
+                .filter_map(|i| {
+                    open.map
+                        .placements
+                        .get(*i)
+                        .map(|row| Indexed { index: *i, row: row.clone() })
+                })
+                .collect();
+            for row in replaced.iter().rev() {
+                open.map.placements.remove(row.index);
+            }
+            let id = planned.placed.id.clone();
+            let on = planned.placed.on.clone();
+            let y = planned.y;
+            open.map.placements.push(planned.placed);
+
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map = before;
+                return Err(Refusal::new(format!(
+                    "the piece was placed but the file refused it, so nothing was written: {e}"
+                )));
+            }
+
+            // **The receipt is the click's own sentence**, word for word: a person and an agent
+            // reading the same act must read the same words, or one of the two is a different
+            // feature.
+            let summary = match (on.clone(), replaced.is_empty()) {
+                (_, false) => format!(
+                    "replaced {} with {id}",
+                    replaced
+                        .iter()
+                        .map(|r| format!("`{}`", r.row.id))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                (Some(host), true) => format!("placed {id} on {host}"),
+                (None, true) => format!("placed {id} at ({:.2}, {:.2})", p.at.0, p.at.1),
+            };
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({
+                    "delta": {
+                        "remove_placements": [id],
+                        "add_placements": replaced,
+                    }
+                })),
+                after: Some(json!({
+                    "map": plan["map"],
+                    "id": id,
+                    "removed": replaced.iter().map(|r| r.row.id.clone()).collect::<Vec<_>>(),
+                    "placements": open.map.placements.len(),
+                    "y": y,
+                })),
+            })
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            Some(json!({
+                "map": open.map.name,
+                "placements": open.map.placements.len(),
+            }))
+        }
+    }
 }
 
 /// **Every operation the editor knows, in one list.**
@@ -350,7 +2002,15 @@ pub trait Operation: 'static {
 /// from it, so they cannot disagree about what exists.
 pub fn registry() -> Vec<Box<dyn Operation>> {
     vec![
+        Box::new(map_create::MapCreate),
         Box::new(map_set_settings::MapSetSettings),
+        Box::new(layout_propose::LayoutPropose),
+        Box::new(layout_accept::LayoutAccept),
+        Box::new(layout_discard::LayoutDiscard),
+        Box::new(fill::Fill),
+        Box::new(map_save::MapSave),
+        Box::new(map_open::MapOpen),
+        Box::new(placement_add::PlacementAdd),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
@@ -441,7 +2101,7 @@ fn dispatch_as(
         outcome: "applied".to_owned(),
         refusal: None,
         result: Some(outcome.summary.clone()),
-        rng_seed: None,
+        rng_seed: op.rng_seed(params),
         rules_hash: None,
         undoes: undoes.map(str::to_owned),
         inverse: outcome.inverse.clone(),
@@ -677,49 +2337,78 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
         )));
     };
     // **Guard 2: the state is what the line left, or something changed it since.**
-    if let (Some(left), Some(now)) = (
-        line.after.as_ref(),
+    //
+    // **Compared on the keys `state_of` reports, on both sides.** The right side is the map now; the
+    // left is the logged `after`, and that carries fields the projection does not — a fill's
+    // `truncated`, a rename's `path`. Comparing the whole logged `after` against a projection
+    // refused an undo over a field that is a report and not a fact: measured on S1.5's own fill,
+    // `truncated is null and 0000-1764 left false`, which reads to an author as "somebody edited
+    // your map" when nobody did. What this guard means is *has the part of the map this change
+    // touched moved*, and that is a comparison of two projections.
+    if let (Some(now), Some(left)) = (
         line.after.as_ref().and_then(|a| op.state_of(ctx, a)),
-    ) && *left != now
-    {
-        // **A logged change is named first**: an undo or redo of another change to this map can
-        // be what moved the state, and blaming an edit outside the log would be false.
-        if let Some(later) = lines[newest[chain] + 1..]
-            .iter()
-            .rev()
-            .find(|l| same_scope(l))
-        {
+        line.after.as_ref(),
+    ) {
+        // The logged row, cut down to the fields this operation's projection describes.
+        let left = match now.as_object() {
+            Some(keys) => {
+                let mut projected = serde_json::Map::new();
+                for key in keys.keys() {
+                    projected.insert(
+                        key.clone(),
+                        left.get(key).cloned().unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                serde_json::Value::Object(projected)
+            }
+            // A projection that is not an object is the whole map, which is what it guarded before.
+            None => left.clone(),
+        };
+        if left != now {
+            // **A logged change is named first**: an undo or redo of another change to this map can
+            // be what moved the state, and blaming an edit outside the log would be false.
+            if let Some(later) = lines[newest[chain] + 1..]
+                .iter()
+                .rev()
+                .find(|l| same_scope(l))
+            {
+                return Err(Refusal::new(format!(
+                    "`{}` ({} by {:?}) changed {} after `{}`, so putting the old values back \
+                     would overwrite it. Take `{}` back, or put it back, first.",
+                    later.operation_id,
+                    later.op,
+                    later.source,
+                    changed,
+                    line.operation_id,
+                    later.operation_id
+                )));
+            }
+            let differs: Vec<String> = match (left.as_object(), now.as_object()) {
+                (Some(l), Some(n)) => l
+                    .keys()
+                    .filter(|k| l.get(*k) != n.get(*k))
+                    .map(|k| {
+                        format!(
+                            "{k} is {} and `{}` left {}",
+                            n.get(k.as_str()).unwrap_or(&serde_json::Value::Null),
+                            line.operation_id,
+                            l[k.as_str()]
+                        )
+                    })
+                    .collect(),
+                _ => vec![format!(
+                    "the state is {now} and `{}` left {left}",
+                    line.operation_id
+                )],
+            };
             return Err(Refusal::new(format!(
-                "`{}` ({} by {:?}) changed {} after `{}`, so putting the old values back \
-                 would overwrite it. Take `{}` back, or put it back, first.",
-                later.operation_id, later.op, later.source, changed, line.operation_id, later.operation_id
+                "the map has changed outside the operation log since `{}` ({}): a file edited by \
+                 hand, the menu, or a different map open. Putting the old values back would \
+                 overwrite that, so nothing was changed.",
+                line.operation_id,
+                differs.join("; ")
             )));
         }
-        let differs: Vec<String> = match (left.as_object(), now.as_object()) {
-            (Some(l), Some(n)) => l
-                .keys()
-                .filter(|k| l.get(*k) != n.get(*k))
-                .map(|k| {
-                    format!(
-                        "{k} is {} and `{}` left {}",
-                        n.get(k.as_str()).unwrap_or(&serde_json::Value::Null),
-                        line.operation_id,
-                        l[k.as_str()]
-                    )
-                })
-                .collect(),
-            _ => vec![format!(
-                "the state is {now} and `{}` left {left}",
-                line.operation_id
-            )],
-        };
-        return Err(Refusal::new(format!(
-            "the map has changed outside the operation log since `{}` ({}): a file edited by hand, \
-             the menu, or a different map open. Putting the old values back would overwrite that, \
-             so nothing was changed.",
-            line.operation_id,
-            differs.join("; ")
-        )));
     }
     let Some(inverse) = line.inverse.clone() else {
         return Err(Refusal::new(format!(
@@ -750,6 +2439,22 @@ pub fn undo(ctx: &mut Ctx, target: Option<&str>) -> Result<(UndoPlan, Applied), 
         Some(&plan.line.operation_id),
     )?;
     Ok((plan, applied))
+}
+
+/// **Every line of the operation log, parsed** — or an empty list when there is no log yet.
+///
+/// **One reader**, because the undo walk and `emerge/present` both need to know what the log holds
+/// and two parses would be two answers to "is this id real". A line that does not parse is skipped
+/// rather than failing the whole read: a log is append-only text, and one damaged line must not make
+/// every entry after it unreachable.
+pub fn read_entries(path: &std::path::Path) -> Vec<Entry> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<Entry>(l).ok())
+        .collect()
 }
 
 /// **The next sequence number** — the count of lines already in the log.
@@ -828,10 +2533,12 @@ fn civil_from_unix(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
 /// an earlier line by being rewritten — and the crate's own `ron_surgery::save_atomic` rules do
 /// not apply to it, because it is not a document anybody edits.
 fn append(ctx: &Ctx, entry: &Entry) -> Result<(), String> {
-    let Some(project) = ctx.project.as_ref() else {
+    // **A root is enough.** The log lives at a fixed place under it, and a change made from the menu
+    // has a root but no loaded `Project` — see `Ctx::root`.
+    let Some(root) = ctx.root_or_project() else {
         return Err("no project is open, so there is nowhere to write the log.".to_owned());
     };
-    let path = oplog_path(project);
+    let path = oplog_path_at(&root);
     // **A line that cannot be serialised is a failure, not a substitute.** A log line that says
     // "unloggable" is a line about the log, in a log about the work, and a reader cannot tell
     // the two apart.
@@ -3469,5 +5176,153 @@ pub mod map_rename {
                 after,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_emerge_core::composition::Stamped;
+    use bevy_emerge_core::map::{Map, Placed};
+
+    /// A map with three rows, so an index in the middle and an index at the end both exist.
+    fn three() -> Map {
+        let mut map = Map {
+            name: "t".to_owned(),
+            ..Map::default()
+        };
+        for (i, x) in [0.0, 3.0, 6.0].into_iter().enumerate() {
+            map.placements.push(Placed {
+                id: format!("wall@{i}"),
+                descriptor: "wall".to_owned(),
+                at: (x, 0.0),
+                ..Placed::default()
+            });
+        }
+        map
+    }
+
+    fn stamp(id: &str, x: f32) -> Stamped {
+        Stamped {
+            id: id.to_owned(),
+            of: "tile_floor".to_owned(),
+            at: (x, 0.0),
+            yaw: 0.0,
+            ..Stamped::default()
+        }
+    }
+
+    /// **Applying a delta and then its inverse restores the exact map**, order included.
+    ///
+    /// The order is the half that is easy to get wrong: a restoration that appended would move a row
+    /// from the middle of the file to its end on every undo/redo round trip, so `assert_eq` on the
+    /// whole `Map` is the assertion — comparing only the ids would pass while the file churned.
+    #[test]
+    fn a_placement_delta_undoes_itself_exactly() {
+        let mut map = three();
+        let before = map.clone();
+
+        // Remove the middle row, and add a new one at the end.
+        let delta = RowDelta {
+            remove_placements: vec!["wall@1".to_owned()],
+            add_placements: vec![Indexed {
+                index: 2,
+                row: Placed {
+                    id: "gen@1".to_owned(),
+                    descriptor: "wall".to_owned(),
+                    at: (9.0, 0.0),
+                    ..Placed::default()
+                },
+            }],
+            ..RowDelta::default()
+        };
+        let inverse = delta.apply(&mut map).expect("the delta applies");
+        assert_eq!(
+            map.placements.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["wall@0", "wall@2", "gen@1"],
+            "the removal and the addition did not land where they were asked to"
+        );
+
+        inverse.apply(&mut map).expect("the inverse applies");
+        assert_eq!(
+            map, before,
+            "applying a delta and then its inverse did not restore the map exactly — the rows are \
+             equal but their order is not, which moves a piece in the file on every round trip"
+        );
+    }
+
+    /// The same for stamps, which are a separate list and a separate bug surface.
+    #[test]
+    fn a_stamp_delta_undoes_itself_exactly() {
+        let mut map = Map {
+            name: "t".to_owned(),
+            stamps: vec![stamp("s@0", 0.0), stamp("s@1", 3.0), stamp("s@2", 6.0)],
+            ..Map::default()
+        };
+        let before = map.clone();
+
+        let delta = RowDelta {
+            remove_stamps: vec!["s@0".to_owned(), "s@2".to_owned()],
+            add_stamps: vec![Indexed {
+                index: 0,
+                row: stamp("s@9", 9.0),
+            }],
+            ..RowDelta::default()
+        };
+        let inverse = delta.apply(&mut map).expect("the delta applies");
+        assert_eq!(
+            map.stamps.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["s@9", "s@1"],
+            "two removals and one addition did not land as asked"
+        );
+
+        inverse.apply(&mut map).expect("the inverse applies");
+        assert_eq!(map, before, "the stamp round trip did not restore the map exactly");
+    }
+
+    /// **A row that is no longer there is refused, and nothing is changed.**
+    ///
+    /// The refusal is the whole point: a delta recorded against a map that has since lost a row
+    /// cannot be honoured, and half-applying it would leave the map in a state neither the undo stack
+    /// nor the author describes.
+    #[test]
+    fn a_missing_row_is_refused_and_the_map_is_untouched() {
+        let mut map = three();
+        let before = map.clone();
+        let delta = RowDelta {
+            remove_placements: vec!["wall@0".to_owned(), "wall@99".to_owned()],
+            ..RowDelta::default()
+        };
+        let refused = delta.apply(&mut map).expect_err("a missing row must be refused");
+        assert!(
+            refused.0.contains("wall@99"),
+            "the refusal does not name the row it could not find: {refused}"
+        );
+        assert_eq!(
+            map, before,
+            "the delta was applied in part before it was refused, so a refused undo changed the map"
+        );
+    }
+
+    /// An id that is already on the map is refused rather than duplicated.
+    #[test]
+    fn an_id_already_on_the_map_is_refused() {
+        let mut map = three();
+        let delta = RowDelta {
+            add_placements: vec![Indexed {
+                index: 0,
+                row: Placed {
+                    id: "wall@1".to_owned(),
+                    ..Placed::default()
+                },
+            }],
+            ..RowDelta::default()
+        };
+        let refused = delta.apply(&mut map).expect_err("a duplicate id must be refused");
+        assert!(
+            refused.0.contains("wall@1"),
+            "the refusal does not name the duplicate: {refused}"
+        );
+        assert_eq!(map.placements.len(), 3, "the duplicate was added anyway");
     }
 }

@@ -9195,9 +9195,16 @@ fn the_map_script_can_actually_be_followed() {
     );
 
     let (name, with) = guide_step(file, "save the map");
+    // **The guide's step is still true, and it is now true before the key rather than after it.**
+    // `layout_accept` saves, so keeping a proposal leaves the map clean — the checkpoint the script
+    // names ("the map is saved") holds the moment `Enter` lands. This assertion used to read
+    // `!checkpoint(..)` as *"keeping a proposal dirties the map"*, which was the behaviour until
+    // S-001: an operation that changed the map and left the file behind would have been the one bug
+    // in this series that could lose work, so it saves and says so.
     assert!(
-        !checkpoint(&mut app, &name, with.clone()),
-        "keeping a proposal dirties the map"
+        checkpoint(&mut app, &name, with.clone()),
+        "keeping a proposal must leave the map saved — `layout_accept` writes the file, so the \
+         guide's \"save the map\" step is already true when it is reached"
     );
     press(
         &mut app,

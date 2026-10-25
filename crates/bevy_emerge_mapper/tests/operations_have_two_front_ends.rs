@@ -65,6 +65,15 @@ const BRP_COMMANDS: &[&str] = &[
 /// the ones this run migrated. The list is a table rather than a scan, because a scan of the
 /// mapper's twenty thousand lines for "which key writes a map's origin" is a heuristic and a
 /// heuristic that finds nothing is not a proof.
+/// **The menu's own entry points.** The second screen, and the one where a project's maps begin —
+/// so the verb that makes one belongs here, because the editor has no map to make one from.
+const CHOOSER_ENTRY_POINTS: &[(&str, &str)] = &[
+    // **The new-map dialog**, whose Enter dispatches `map_create` through `make_it`. The dialog is
+    // a front end: it collects the four fields and hands them to the operation, so the naming rule,
+    // the refusal for a name in use and the write are one implementation (E-008).
+    ("map_create", "\"map_create\""),
+];
+
 const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
@@ -86,6 +95,22 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The palette click**, which arms a piece through `on_row_click`, which calls `arm_piece`
     // and dispatches `brush_arm`.
     ("brush_arm", "arm_piece("),
+    // **The three generate keys and the commit door** (S-001). `G`, `Shift+G` and `Cmd+G` all
+    // dispatch `layout_propose` through `propose_layout`; `Enter` dispatches `layout_accept`
+    // through `accept_layout`; `Esc` dispatches `layout_discard` through `discard_layout`.
+    ("layout_propose", "propose_layout("),
+    ("layout_accept", "accept_layout("),
+    ("layout_discard", "discard_layout("),
+    // **`F` floods** through `fill_at`, and **`Cmd+S` saves** through `save_map`; both dispatch the
+    // operation rather than calling `fill::flood` / `OpenMap::save` themselves.
+    ("fill", "fill_at("),
+    ("map_save", "save_map("),
+    // **The Map door's crossing** — `screen::cross` re-reads the map through `map_open`, so a person
+    // crossing to the Map door and an agent opening one by name are one operation.
+    ("map_open", "map_open",),
+    // **The placement click** — `place_one` calls `plan_placement` and dispatches
+    // `placement_add`, so a click and an agent put a piece down the same way (S2.1).
+    ("placement_add", "place_one("),
     // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
     // runs the `door_open` operation (item 1 of cycle 8).
     ("door_open", "open_door("),
@@ -271,7 +296,6 @@ const UNMIGRATED: &[Action] = &[
     Action::ComposeMemberNext,
     Action::CarouselPrev,
     Action::CarouselNext,
-    Action::Save,
     Action::MainMenu,
     Action::Undo,
     Action::Redo,
@@ -283,17 +307,12 @@ const UNMIGRATED: &[Action] = &[
     Action::TipZ,
     Action::LiftUp,
     Action::LiftDown,
-    Action::Fill,
     Action::MoveMode,
     Action::FrameView,
     Action::Straighten,
     Action::Cancel,
-    Action::Generate,
-    Action::GenerateDeclared,
-    Action::GenerateComposed,
     Action::CycleGrid,
     Action::AcceptEdges,
-    Action::AcceptProposal,
     Action::GroupFromSet,
     Action::PageEnter,
     Action::PageLeave,
@@ -394,7 +413,7 @@ const UNMIGRATED: &[Action] = &[
 // 124 -> 125: `FrameView` (E-021), camera state with no document change, so no operation names it.
 // 125 -> 123: `PalettePrev` and `PaletteNext` -> `brush_arm` (gap 1): the arrow walk arms through the operation a click uses.
 // 123 -> 119: `TabSlot1`, `TabSlot2`, `TabSlot3` and `SwitchDoor` -> `door_open` (cycle 8, item 1): every door and tab key opens through the operation.
-const UNMIGRATED_MAX: usize = 119;
+const UNMIGRATED_MAX: usize = 113;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///
@@ -506,9 +525,20 @@ fn every_operation_has_a_ui_entry_point_and_the_other_way_round() {
         !registry.is_empty(),
         "the registry is empty, so the parity rules are being enforced against nothing"
     );
+    // **Two screens, both scanned.** The chooser is a second place a person changes state, and the
+    // walk only read `editor.rs` — so `map_create` could have had a dialog that wrote the file
+    // itself and this test would not have seen it (E-008). A UI path is a UI path whichever screen
+    // it is on.
+    let editor = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
+    let chooser = std::fs::read_to_string("src/chooser.rs").expect("chooser.rs is there");
+    let ui: Vec<(&str, &str)> = UI_ENTRY_POINTS
+        .iter()
+        .chain(CHOOSER_ENTRY_POINTS.iter())
+        .copied()
+        .collect();
     let mut without = Vec::new();
     for op in &registry {
-        if !UI_ENTRY_POINTS.iter().any(|(name, _)| *name == op.name()) {
+        if !ui.iter().any(|(name, _)| *name == op.name()) {
             without.push(op.name());
         }
     }
@@ -519,8 +549,16 @@ fn every_operation_has_a_ui_entry_point_and_the_other_way_round() {
          is a second way to do one thing.",
         without
     );
+    // **And each entry point's place is in one of the two screens**, so an entry naming a function
+    // that no longer exists fails here rather than passing on a stale string.
+    for (name, place) in &ui {
+        assert!(
+            editor.contains(place) || chooser.contains(place),
+            "`{name}`'s UI path `{place}` is in neither editor.rs nor chooser.rs"
+        );
+    }
     let mut orphaned = Vec::new();
-    for (name, _) in UI_ENTRY_POINTS {
+    for (name, _) in &ui {
         if !registry.iter().any(|op| op.name() == *name) {
             orphaned.push(*name);
         }
@@ -581,11 +619,20 @@ fn every_brp_method_the_server_calls_is_registered_in_the_bridge() {
 #[test]
 fn every_ui_entry_point_is_in_the_source_and_dispatches_the_operation() {
     let editor = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
+    // **The UI is three files, and the scan read one.** `screen.rs` crosses doors and re-reads the
+    // map, `chooser.rs` makes projects and maps, `tiles.rs` owns the kit's shelf — so an entry point
+    // that lives in any of them was reported as missing, which is a scan that cannot see the thing
+    // it is checking for. The bounds count below stays on `editor.rs` alone: it asks where the map's
+    // size is written in the editor, and that is one file's question.
+    let ui: String = ["src/editor.rs", "src/screen.rs", "src/chooser.rs", "src/tiles.rs"]
+        .iter()
+        .filter_map(|f| std::fs::read_to_string(f).ok())
+        .collect();
     let mut missing = Vec::new();
     for (op, place) in UI_ENTRY_POINTS {
-        if !editor.contains(place) {
+        if !ui.contains(place) {
             missing.push(format!(
-                "the operation `{op}`'s entry point `{place}` is not in editor.rs, so the UI path \
+                "the operation `{op}`'s entry point `{place}` is not in the UI source, so the path \
                  it names is not there."
             ));
         }

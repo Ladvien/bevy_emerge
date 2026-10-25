@@ -146,6 +146,7 @@ fn a_human_edit_after_the_agents_blocks_the_older_undo() {
     // **The human's edit, through the same path the size field takes** (`editor.rs`'s size field
     // builds this context and dispatches this operation).
     let mut ctx = ops::Ctx {
+        root: None,
         project: Some(
             app.world()
                 .resource::<bevy_emerge_mapper::project::Project>()
@@ -154,6 +155,7 @@ fn a_human_edit_after_the_agents_blocks_the_older_undo() {
         open: Some(app.world().resource::<OpenMap>().clone()),
         source: ops::Source::Human,
         session: ops::session_id(),
+        proposal: None,
     };
     ops::dispatch(
         &mut ctx,
@@ -436,6 +438,7 @@ fn a_change_on_another_map_does_not_block_this_maps_undo() {
     other.name = "m2".to_owned();
     let other_path = here.map_path.with_file_name("m2.map.ron");
     let mut ctx = ops::Ctx {
+        root: None,
         project: Some(
             app.world()
                 .resource::<bevy_emerge_mapper::project::Project>()
@@ -444,6 +447,7 @@ fn a_change_on_another_map_does_not_block_this_maps_undo() {
         open: Some(OpenMap::new(other, other_path)),
         source: ops::Source::Human,
         session: ops::session_id(),
+        proposal: None,
     };
     ops::dispatch(
         &mut ctx,

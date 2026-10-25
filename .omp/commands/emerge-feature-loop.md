@@ -13,7 +13,7 @@ Read these first. They are repeated as a checklist at the end.
 1. **Evidence over claims.** Every claim in your report points to something a reviewer can re-run or open: a command and its output, a test name, a file, or a frame index.
 2. **Deterministic checks gate everything.** Build, clippy, tests, the parity test, and the protected checks must pass. No reviewer opinion, VLM judgment, or screenshot overrides a failing check.
 3. **Never weaken a check to pass it.** Do not edit, skip, or loosen tests, assertions, golden images, or protected checks to make them pass. Any diff to test code must be justified in the report.
-4. **At most one enhancement, and shipping nothing is allowed.** If you cannot verify the enhancement, commit only the bug fixes, log what blocked you, and stop.
+4. **At most one enhancement per iteration, or one step of the open series — and shipping nothing is allowed.** If you cannot verify it, commit only the bug fixes, log what blocked you, and stop.
 5. **Stop on repeated failure.** If two attempts at the same step fail, stop, log your hypothesis and the evidence, and end the iteration. The next iteration starts with a fresh context.
 6. **Human work is sacrosanct.** Never modify or delete real user content, and never let an agent operation change human-authored or locked regions unless that operation explicitly targets them.
 7. **Content is data, and data hot-reloads.** Anything a developer or agent authors or tunes is data. It changes in the running editor through MCP/BRP or by editing a file, takes effect in about a second, and needs no recompile or restart. Needing a rebuild to change content is a bug.
@@ -49,18 +49,31 @@ Values, in order when they conflict: usability, then performance, then aesthetic
 
 Focus for this iteration: `$ARGUMENTS`. If empty, choose based on the evidence you gather.
 
+## Direction
+
+**Bevy is the app; Blender is a tool.** Scenes are authored in bevy_emerge because that is where the game runs. Blender is driven through the golem MCP for what a DCC does (meshes, UVs, bakes, painting, rigging), and its results enter bevy_emerge as kit pieces. Do not fork Blender or rebuild DCC features in Bevy.
+
+**Collaborate the way Mixar does.** The agent shows what it is doing as steps narrated by measured effect (the oplog's `result` lines, never raw logs), hangs captures on the step that made them, groups a turn so one action takes it back, and hands results to the person with explicit keep/undo answers that come back to the agent. Before building any of it, follow `docs/loop/borrowing-from-mixar.md`: it has the licence rule, the pinned source, the procedure, and the catalogue of beats with their status.
+
+**Emergence at every scale.** Mesh → piece in a kit → composition (assembly with rules) → generated layout → scene. Every scale must be reachable by an agent through a registered operation. A scale an agent cannot reach is a parity gap of the first rank.
+
+**The headline number** is `reached` from `python3 tools/loop/accept.py`: how far an agent gets from "a mossy ruined courtyard with two exits" to a presented, saved result. Rank work that raises it above work that does not.
+
 ## Definition of done
 
 This iteration is done when all of the following are true, or when you have taken the "ship nothing" exit (Non-negotiable 4):
 
 1. Every confirmed must-fix bug (see "Phase 1") is fixed, or recorded as blocked with the reason.
-2. At most one usability enhancement is implemented, and it meets the user-facing goal written in its plan. "It builds" does not count as meeting the goal.
+2. At most one usability enhancement is implemented — or one step of the open series — and it meets the user-facing goal written in its plan. "It builds" does not count as meeting the goal.
 3. Each fix and the enhancement has evidence:
    - a check that **failed before the change and passes after it**, kept as a regression test;
    - for anything visible, before/after stills and frame sequences you have opened and inspected.
 4. All deterministic checks pass: build, `cargo clippy --all-targets -- -D warnings`, tests, MCP-client integration tests, the parity test, and the protected checks.
 5. The iteration report and its curated visuals are committed with the code (see "Documentation").
 6. If the iteration changed published crate code, a new version is published to crates.io and verified there (see "Phase 6"). Otherwise the report says why no release was made.
+7. `tools/loop/accept.py` ran before and after; both reached counts are in the report, and a lower count than the previous iteration's is a must-fix bug.
+8. `tools/loop/perf.py` ran before and after, and both are in the report.
+9. The independent review (Phase 4.4) ran. An iteration without it does not merge.
 
 Then stop. Log any further enhancement ideas as backlog candidates for a later iteration.
 
@@ -75,8 +88,9 @@ Then stop. Log any further enhancement ideas as backlog candidates for a later i
 
   A failed docs.rs build or a missing release is a must-fix bug for this iteration.
 - Run the baseline: build, clippy, and tests. If the baseline is red, that failure is your first bug.
-- Launch the editor. Start the MCP server, list its tools, and call the state, still-capture, and sequence-capture tools once each. Record frame time and input-to-present latency on a representative scene (see "Measuring responsiveness").
-- Record edit-to-visible latency for one file edit and one MCP change on the same scene (see "Data-driven and hot-reloadable").
+- Record `uptime` and `df -h /`. If the load average is above the core count, run tests with `-- --test-threads=4`. If free disk is under 20 GB, ask the human before deleting anything; a linker `errno=28` is a full disk, not a code failure.
+- Run `python3 tools/loop/perf.py --source ~/sanctuary/assets --out target/loop/<date>-<sha>/perf-before.json` and `python3 tools/loop/accept.py --source ~/sanctuary/assets --out target/loop/<date>-<sha>/accept-before.json`. If either cannot run, fixing it is this iteration's first must-fix bug.
+- Run `python3 tools/loop/backlog.py check`.
 
 If you cannot launch the editor, reach it through MCP, or capture stills and sequences, fix that first and treat it as a must-fix bug.
 
@@ -257,9 +271,16 @@ A bug is **must-fix** if Blocks is yes, or if any two answers are yes. If the ca
 - Fix the root cause. Do not silence warnings, swallow errors, or loosen assertions.
 - One commit per bug: `fix(<area>): <what broke>, <why>`.
 
+**Failure triage.** A red test in a full run is a suspect, not a verdict.
+- Rerun that test binary alone. Load-dependent failures are the commonest false attribution this loop makes.
+- If it passes alone, run it on the base commit: `git worktree add /tmp/emerge_base <sha>` with `CARGO_TARGET_DIR=/tmp/emerge_base_target`, then remove both. A failure the base also has is pre-existing: log it, and do not attribute it to this iteration's change.
+- Never use `git stash` or `git checkout -- <file>` over uncommitted work to recreate a "before". A worktree at the base commit is the only honest "before", and it cannot touch the tree you are working in.
+
 **Budget.** If there are more must-fix bugs than you can fix well (roughly five or more, or your context is getting heavy), fix the most damaging, log the rest, skip Phase 2, and say so in the report.
 
 ## Phase 2: Choose the enhancement
+
+If `backlog.json` holds an open item of kind `series`, its next open step is this iteration's enhancement; skip the candidate list.
 
 List 2–3 candidates drawn from:
 - the backlog;
@@ -277,6 +298,7 @@ Rank the candidates against each other and pick the top one. Record the others i
 
 Lenses (look for problems, not features):
 - **The describe → set up → inspect → present loop.** Phrase a realistic request the way a developer would ("a mossy ruined courtyard with two exits"). Find the step where manual work, guessing, unverified output, or an unhelpful presentation gets in the way.
+- **Collaboration (Mixar).** The first catalogue row in `docs/loop/borrowing-from-mixar.md` whose status is `backlog` or `unexamined` is a candidate. If it is chosen, the procedure in that file is part of the build.
 - **Parity:**
   - a UI path that bypasses the operation layer;
   - a missing MCP tool;
@@ -306,6 +328,15 @@ Before writing code, add a short plan to the iteration report:
 - the **user-facing goal** in one sentence;
 - the check that will prove it: one that fails now and passes after.
 
+### Series
+
+A series is a backlog item `{id: "S-###", kind: "series", title, goal, approved_by, acceptance: [accept.py step ids it must turn to pass], steps: [{id, title, status}]}`.
+
+- A series is opened only for work that cannot fit one iteration, and only with the human's approval recorded in `approved_by`. Without that string there is no series, whatever the plan says.
+- At most one series is open at a time. A second one is a second trunk, and the loop would have no rule left about breadth.
+- Each iteration does exactly one step, with its own failed-before check, report and merge. A step that cannot close is marked `blocked` with `last_failure`, and the series carries on with the next step only if it does not depend on the blocked one.
+- The series closes when its `acceptance` steps pass in `tools/loop/accept.py`. Closing it is a backlog edit, not a separate iteration.
+
 ## Phase 3: Build
 
 - Follow existing patterns. Reuse Feathers widgets and the editor's theme values.
@@ -319,25 +350,25 @@ Run these in order. Each later layer runs only after the earlier one passes.
 
 1. **Deterministic gate.**
    - Build, clippy, tests, parity test, MCP integration tests, and protected checks all pass.
-   - The plan's check failed before the change and passes after it.
+   - The plan's check failed before the change and passes after it. The failed-before run is captured when the test is written, before the fix, and its failing assertion is quoted in the report. A test that would have passed before the change is not a regression test.
    - Confirm the tests actually exercise the new behaviour, not just that they pass.
    - List every diff to test files or assertions, with its justification.
 2. **Visual proof.**
    - After stills and state dumps at the same state and window size as the baseline, at the default size and one smaller size.
    - A sequence of the changed workflow end to end, reviewed against the reference sequence using the checklist in "Visual capture".
    - The enhancement is not proven until a sequence shows it working across time.
-3. **Responsiveness and performance.** Measure frame time, input latency, and edit-to-visible latency without capture, and compare with the baseline. If the change touched data or assets, also prove hot reload with the editor running and no restart:
+3. **Responsiveness and performance.** Measure frame time, input latency, and edit-to-visible latency without capture, and compare with the baseline. Run `tools/loop/perf.py` again and compare with `perf-before.json`. If the change touched data or assets, also prove hot reload with the editor running and no restart:
    - edit the affected data file and capture a sequence showing the update;
    - make the same change through MCP and show the data file's diff on disk;
    - feed a malformed file and show the error report, with the last good state still loaded. A regression beyond run-to-run noise is a bug: fix it, or explain it with numbers.
-4. **Independent review.**
-   - Spawn a fresh-context subagent, using a different model family if one is available. Give it only:
+4. **Independent review.** This step is mandatory. Use the task tool's `reviewer` agent with the diff, the plan and the evidence paths. If no subagent can be spawned, ship nothing and say why. Give it only:
      - the diff and the plan;
      - the before/after stills, contact sheets, and state dumps;
      - the gate output.
    - It reports only gaps that affect correctness, the stated goal, or visual quality. Each gap must cite a frame index, crop, or diff hunk.
    - Then run a skeptic pass. For each reported gap, try to give a benign explanation. A gap blocks shipping only if it survives that pass.
    - Fix real gaps, with at most two review rounds. Reviewer approval never overrides a failing check.
+5. **Acceptance.** Run `tools/loop/accept.py` again and report `reached` before → after.
 
 If a still or sequence shows something wrong, it is wrong, whatever the tests say. If the enhancement cannot be proven, take the "ship nothing" exit.
 
@@ -347,10 +378,15 @@ If a still or sequence shows something wrong, it is wrong, whatever the tests sa
 - Commit as `feat(<area>): <user-visible change>`, with a body covering the problem, the change, and where the evidence is.
 - Write the iteration report and commit its curated visuals with the code (see "Documentation").
 - Regenerate `docs/mcp-tools.md`.
+- Write the report after the feature commit, and name it and its asset directory with that commit's short sha.
 - Add the iteration's line to `LOG.md` and update `backlog.json`.
+- Run `python3 tools/loop/backlog.py archive`, then `check`.
+- New backlog ids come from `python3 tools/loop/backlog.py next-id <B|E|S>`.
 - Go on to Phase 6. Do not push or open a PR except as Phase 6 describes, unless `AGENTS.md` says otherwise.
 
 ## Phase 6: Release to crates.io
+
+While `E-006` is open (nothing in this workspace is published), skip this phase and write "No release: E-006 open" in the report.
 
 Release when this iteration changed code or metadata of a published crate: a bug fix, the enhancement, or both. Do not release for docs-only or loop-state-only changes, or when nothing shipped. Say which case applies in the report.
 
@@ -437,6 +473,7 @@ Every iteration leaves a short written record, with visual proof, that a person 
 ## Guardrails
 
 - Never modify or delete real user content. Test on scratch copies.
+- Close an editor you launched by its pid; never `pkill` by name, because the human may have one open. Live checks use scratch copies of the project.
 - No destructive git operations: no `reset --hard`, force push, history rewriting, or moving or deleting a pushed tag.
 - Never yank, change crate ownership, or edit crates.io settings. Those are the human's decisions.
 - Do not add dependencies without a logged reason.
@@ -467,7 +504,16 @@ Keep state files short and focused on the next action. They are what the next fr
 }
 ```
 
-`kind` is `bug` or `enhancement`. `status` is one of `open`, `fixed`, `blocked`, `unconfirmed`, `deferred`, `rejected`. `last_failure` holds the hypothesis and evidence when an iteration stopped on repeated failure.
+`kind` is `bug`, `enhancement` or `series`. `status` is one of `open`, `fixed`, `blocked`, `unconfirmed`, `deferred`, `rejected`, `shipped`. `last_failure` holds the hypothesis and evidence when an iteration stopped on repeated failure.
+
+A series carries four more fields, described under Phase 2's "Series":
+
+```json
+{ "id": "S-001", "kind": "series", "title": "...", "goal": "...", "approved_by": "owner YYYY-MM-DD",
+  "acceptance": ["tools", "save"], "steps": [{ "id": "S1.1", "title": "...", "status": "open" }] }
+```
+
+A series step's `status` is `open`, `fixed` or `blocked`. `python3 tools/loop/backlog.py check` enforces all of this, and the loop gates on it.
 
 `docs/loop/LOG.md` is an index with one line per iteration, newest at the bottom:
 
@@ -500,12 +546,19 @@ Fix: ... (root cause: ...) · Regression check: `path::test_name` (failed before
 Plan: <change> · Files: <...> · Goal: <one sentence> · Proof: <check>
 Candidates considered: <the 2–3, one line each>
 MCP: <operations/tools added or changed, undo strategy, preview behaviour>
+
+## Borrowed from Mixar
+<the six-line behaviour note, or "none">
+
 | Before                                              | After                                             |
 | --------------------------------------------------- | ------------------------------------------------- |
 | ![before](assets/<YYYY-MM-DD>-<sha>/enh-before.gif) | ![after](assets/<YYYY-MM-DD>-<sha>/enh-after.gif) |
 
 ## Performance
-Frame time <n> → <n> ms; latency p95 <n> → <n> ms; edit-to-visible <n> → <n> ms; <runs> runs, no capture.
+`perf.py` before → after: frame <n> → <n> ms; key p95 <n> → <n> ms; file <n> → <n> ms; MCP <n> → <n> ms; load <n>.
+
+## Acceptance
+`reached <k>/10 → <k>/10`; first failure `<id>`.
 
 ## Review
 <Gaps reported (with frame or hunk), skeptic outcome, what was fixed.>
@@ -534,6 +587,9 @@ Package: <file count>, <size> · Changelog: <link to entry>
 - [ ] No step was retried more than twice. Repeated failures are logged in `last_failure`.
 - [ ] Human-authored and locked content was not touched by agent operations.
 - [ ] New authoring or tuning values are data, hot-reload without a restart, and persist when changed live. No content change needs a rebuild.
+- [ ] `accept.py` and `perf.py` ran before and after, and their numbers are in the report.
+- [ ] The independent review ran.
+- [ ] `backlog.py check` passes.
 - [ ] Capabilities a family crate provides came from that crate. Fixes to family crates were made, or logged, in their own canonical repos.
 - [ ] The report, curated visuals, `mcp-tools.md`, `LOG.md`, and `backlog.json` are committed with the code.
 - [ ] If published crate code changed:

@@ -761,6 +761,18 @@ impl OpenMap {
         self.map != self.saved
     }
 
+    /// **What the editor last saved or read** — the map as the file has it.
+    ///
+    /// The file watcher's whole question is *"does the file say something the editor does not?"*,
+    /// and there are two "the editor" it can mean: `map`, which holds the person's unsaved edits,
+    /// and this, which holds what the file said the last time the two agreed. **The second one is
+    /// the one a re-read may be compared against.** Comparing against `map` made every save
+    /// followed by an unsaved edit look like an outside change, and the poll then replaced the
+    /// person's edit with the file — see `watch::adopt_map`.
+    pub fn saved(&self) -> &Map {
+        &self.saved
+    }
+
     /// **Say that what is on disk is what the editor holds.**
     ///
     /// **Used by the file watcher**, which re-reads the map from disk and puts it in the editor.
