@@ -83,7 +83,13 @@ pub fn trim_metres(m: f32) -> String {
 /// working on a game needs to know what was done to that game's map, and a log in a shared
 /// location would answer a different question.
 pub fn oplog_path(project: &Project) -> PathBuf {
-    project.project_dir.join("oplog.jsonl")
+    oplog_path_at(&project.root)
+}
+
+/// **The log's path from a project root alone**, so a change made before a door is open — the menu's
+/// `map_create` — records itself in the same file the editor's changes do.
+pub fn oplog_path_at(root: &std::path::Path) -> PathBuf {
+    root.join("assets/emerge").join("oplog.jsonl")
 }
 
 /// **Who did it.**
@@ -271,12 +277,40 @@ pub enum Applied {
 pub struct Ctx {
     /// **The project**, for the library and the paths.
     pub project: Option<Project>,
+    /// **The project's root directory, when there is no loaded `Project` in hand.**
+    ///
+    /// The menu is the screen you are on *before* a door: it has a root and an unloaded library, and
+    /// opening the whole `Project` to make one map would parse every kit and require `vocab.ron`.
+    /// What a *change made from the menu* needs is the root — the log line goes in it, and a map goes
+    /// in its `maps/`. An operation that needs the library says so, which is the refusal it already
+    /// has; nothing dispatched from the menu does.
+    pub root: Option<PathBuf>,
     /// **The map being edited**, if there is one.
     pub open: Option<OpenMap>,
     /// **Who is doing it.**
     pub source: Source,
     /// **Which session.**
     pub session: String,
+}
+
+impl Ctx {
+    /// **Where a map goes** — the project's own directory when one is loaded, else the menu's.
+    ///
+    /// One question with one answer, so `map_create` does not have to know which screen called it.
+    pub fn maps_dir_or_project(&self) -> Option<PathBuf> {
+        self.project
+            .as_ref()
+            .map(|p| p.maps_dir.clone())
+            .or_else(|| self.root.as_ref().map(|r| r.join("assets/emerge/maps")))
+    }
+
+    /// **The project's root**, loaded or not, so a log line has somewhere to go.
+    pub fn root_or_project(&self) -> Option<PathBuf> {
+        self.project
+            .as_ref()
+            .map(|p| p.root.clone())
+            .or_else(|| self.root.clone())
+    }
 }
 
 /// **An operation, as the registry knows it.**
@@ -344,12 +378,213 @@ pub trait Operation: 'static {
     }
 }
 
+/// **Make a map** — the operation a developer's *"make me a courtyard"* becomes (E-008).
+///
+/// # Why this is an operation and not just the chooser's function
+///
+/// `chooser::create_map` writes a map's file, and it was the only way to make one: a person, at the
+/// keyboard, on the menu screen. The brief's second step is *"the in-editor agent turns that into
+/// typed editor operations"*, and the first thing anyone asks for is a place to work — so the
+/// simplest request in the whole loop had no tool behind it.
+///
+/// **The write itself is not duplicated.** This calls the same `chooser::create_map`, so the naming
+/// rule, the refusal for a name already in use, and the validate-then-atomic write are one
+/// implementation with two front ends rather than two that agree by habit.
+///
+/// # Undo
+///
+/// `Undo::Inverse`, and the inverse is the map's own **removal**: the delta a create leaves behind is
+/// a file that was not there. Undo does not restore anything — there was nothing before — it takes
+/// the new file away, which is the only truthful inverse of "this did not exist".
+pub mod map_create {
+    use super::*;
+    use serde_json::json;
+
+    /// **The map to make.**
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// **What it is called**, forced to snake_case by the same rule a file name uses.
+        pub name: String,
+        /// **How big, in metres on each axis.** Absent means a new map's default — 10 x 4 x 10 —
+        /// so an agent that only knows a name does not have to state a size it has no opinion about.
+        #[serde(default)]
+        pub bounds: Option<(f32, f32, f32)>,
+        /// **Where it sits in the world.** Absent means the origin.
+        #[serde(default)]
+        pub origin: Option<(f32, f32, f32)>,
+        /// **The header prose** — what the developer said they wanted, kept as data.
+        #[serde(default)]
+        pub note: Option<String>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                    "name": {
+                        "description": "What the map is called. Forced to snake_case: lowercase letters, digits and single underscores, starting with a letter.",
+                        "type": "string"
+                    },
+                    "bounds": {
+                        "description": "How big the map is, in metres on each axis, as [x, y, z]. Every axis is positive. Omit for a new map's default of 10 x 4 x 10.",
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3
+                    },
+                    "origin": {
+                        "description": "Where the map sits in the world, in metres, as [x, y, z]. Omit for the origin.",
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3
+                    },
+                    "note": {
+                        "description": "The map's note: what it is and why it is laid out this way, as data. This is where a request like 'a mossy ruined courtyard with two exits' is worth keeping.",
+                        "type": "string"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for making a map: {e}. The fields are `name`,                      `bounds`, `origin` and `note`, and `name` is required."
+                ))
+            })
+        }
+    }
+
+    pub struct MapCreate;
+
+    impl Operation for MapCreate {
+        fn name(&self) -> &'static str {
+            "map_create"
+        }
+
+        /// **No inverse, and the reason is a gap rather than a choice.**
+        ///
+        /// The truthful inverse of a create is the file's removal, and `take_back` applies an inverse
+        /// by calling **this same operation's `commit` with it** — so the inverse has to be this
+        /// operation's own parameters. There is no `map_remove` operation to carry that, and writing
+        /// one is a separate verb with its own refusals (what happens to the map another session has
+        /// open?), so this declares `Undo::None` the way `door_open` does and says so here rather
+        /// than inventing a parameter shape that would be refused on the way back.
+        ///
+        /// **What that costs, stated plainly:** Cmd+Z does not take a map away. The map is a file,
+        /// and deleting it is the chooser's `Delete` row. Logged as E-066.
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(maps_dir) = ctx.maps_dir_or_project() else {
+                return Err(Refusal::new("no project is open, so there is nowhere to put a map."));
+            };
+            let name = bevy_emerge_core::naming::to_snake_case(&p.name);
+            if name.is_empty() {
+                return Err(Refusal::new(format!(
+                    "`{}` leaves nothing usable as a name. Names are snake_case — lowercase                      letters, digits and single underscores, starting with a letter.",
+                    p.name
+                )));
+            }
+            // **The same refusal `create_map` makes, said before anything is written.** A preview
+            // that would fail at commit is not a preview of the change; it is a preview of a
+            // refusal, and saying so here is what makes `dry_run` worth calling.
+            let path = maps_dir.join(bevy_emerge_core::naming::map_file_name(&name));
+            if path.exists() {
+                return Err(Refusal::new(format!(
+                    "`{name}` already exists in this project. Pick another name, or open the one                      that is there."
+                )));
+            }
+            if let Some(b) = p.bounds
+                && (b.0 <= 0.0 || b.1 <= 0.0 || b.2 <= 0.0)
+            {
+                return Err(Refusal::new(format!(
+                    "a map's bounds are metres on each axis, and every one has to be positive —                      `{b:?}` is not."
+                )));
+            }
+            let default = bevy_emerge_core::map::Map::default();
+            let bounds = p.bounds.unwrap_or(default.bounds);
+            let origin = p.origin.unwrap_or(default.origin);
+            Ok(json!({
+                "name": name,
+                "map": name,
+                "bounds": [bounds.0, bounds.1, bounds.2],
+                "origin": [origin.0, origin.1, origin.2],
+                "note": p.note,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let name = plan["name"].as_str().unwrap_or_default().to_owned();
+            let read = |key: &str| -> (f32, f32, f32) {
+                let v = &plan[key];
+                (
+                    v[0].as_f64().unwrap_or(0.0) as f32,
+                    v[1].as_f64().unwrap_or(0.0) as f32,
+                    v[2].as_f64().unwrap_or(0.0) as f32,
+                )
+            };
+            let bounds = read("bounds");
+            let origin = read("origin");
+            let note = plan["note"].as_str().map(str::to_owned);
+
+            let Some(maps_dir) = ctx.maps_dir_or_project() else {
+                return Err(Refusal::new("no project is open, so there is nowhere to put a map."));
+            };
+            // **The chooser's own function, so the two front ends cannot drift.** Its refusals are
+            // already sentences an author can act on, and it is the write every other path uses.
+            let path = crate::chooser::create_map(&maps_dir, &name, bounds, origin, note.clone())
+                .map_err(Refusal::new)?;
+            let (x, y, z) = bounds;
+            Ok(Outcome {
+                summary: format!(
+                    "made map `{name}` — {} x {} x {} m, and the file was written",
+                    trim_metres(x),
+                    trim_metres(y),
+                    trim_metres(z)
+                ),
+                affected: 1,
+                saved: true,
+                // **No inverse**, for the reason `undo` gives: the faithful one is a `map_remove` that
+                // does not exist yet.
+                inverse: None,
+                after: Some(json!({
+                    "name": name,
+                    "map": name,
+                    "bounds": [x, y, z],
+                    "origin": [origin.0, origin.1, origin.2],
+                    "note": note,
+                    "path": path.to_string_lossy(),
+                })),
+            })
+        }
+    }
+}
+
 /// **Every operation the editor knows, in one list.**
 ///
 /// **The one list.** The MCP tool surface, the parity test and the log's vocabulary are all read
 /// from it, so they cannot disagree about what exists.
 pub fn registry() -> Vec<Box<dyn Operation>> {
     vec![
+        Box::new(map_create::MapCreate),
         Box::new(map_set_settings::MapSetSettings),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
@@ -828,10 +1063,12 @@ fn civil_from_unix(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
 /// an earlier line by being rewritten — and the crate's own `ron_surgery::save_atomic` rules do
 /// not apply to it, because it is not a document anybody edits.
 fn append(ctx: &Ctx, entry: &Entry) -> Result<(), String> {
-    let Some(project) = ctx.project.as_ref() else {
+    // **A root is enough.** The log lives at a fixed place under it, and a change made from the menu
+    // has a root but no loaded `Project` — see `Ctx::root`.
+    let Some(root) = ctx.root_or_project() else {
         return Err("no project is open, so there is nowhere to write the log.".to_owned());
     };
-    let path = oplog_path(project);
+    let path = oplog_path_at(&root);
     // **A line that cannot be serialised is a failure, not a substitute.** A log line that says
     // "unloggable" is a line about the log, in a log about the work, and a reader cannot tell
     // the two apart.

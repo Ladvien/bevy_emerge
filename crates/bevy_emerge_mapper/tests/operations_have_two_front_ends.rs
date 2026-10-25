@@ -65,6 +65,15 @@ const BRP_COMMANDS: &[&str] = &[
 /// the ones this run migrated. The list is a table rather than a scan, because a scan of the
 /// mapper's twenty thousand lines for "which key writes a map's origin" is a heuristic and a
 /// heuristic that finds nothing is not a proof.
+/// **The menu's own entry points.** The second screen, and the one where a project's maps begin —
+/// so the verb that makes one belongs here, because the editor has no map to make one from.
+const CHOOSER_ENTRY_POINTS: &[(&str, &str)] = &[
+    // **The new-map dialog**, whose Enter dispatches `map_create` through `make_it`. The dialog is
+    // a front end: it collects the four fields and hands them to the operation, so the naming rule,
+    // the refusal for a name in use and the write are one implementation (E-008).
+    ("map_create", "\"map_create\""),
+];
+
 const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
@@ -506,9 +515,20 @@ fn every_operation_has_a_ui_entry_point_and_the_other_way_round() {
         !registry.is_empty(),
         "the registry is empty, so the parity rules are being enforced against nothing"
     );
+    // **Two screens, both scanned.** The chooser is a second place a person changes state, and the
+    // walk only read `editor.rs` — so `map_create` could have had a dialog that wrote the file
+    // itself and this test would not have seen it (E-008). A UI path is a UI path whichever screen
+    // it is on.
+    let editor = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
+    let chooser = std::fs::read_to_string("src/chooser.rs").expect("chooser.rs is there");
+    let ui: Vec<(&str, &str)> = UI_ENTRY_POINTS
+        .iter()
+        .chain(CHOOSER_ENTRY_POINTS.iter())
+        .copied()
+        .collect();
     let mut without = Vec::new();
     for op in &registry {
-        if !UI_ENTRY_POINTS.iter().any(|(name, _)| *name == op.name()) {
+        if !ui.iter().any(|(name, _)| *name == op.name()) {
             without.push(op.name());
         }
     }
@@ -519,8 +539,16 @@ fn every_operation_has_a_ui_entry_point_and_the_other_way_round() {
          is a second way to do one thing.",
         without
     );
+    // **And each entry point's place is in one of the two screens**, so an entry naming a function
+    // that no longer exists fails here rather than passing on a stale string.
+    for (name, place) in &ui {
+        assert!(
+            editor.contains(place) || chooser.contains(place),
+            "`{name}`'s UI path `{place}` is in neither editor.rs nor chooser.rs"
+        );
+    }
     let mut orphaned = Vec::new();
-    for (name, _) in UI_ENTRY_POINTS {
+    for (name, _) in &ui {
         if !registry.iter().any(|op| op.name() == *name) {
             orphaned.push(*name);
         }

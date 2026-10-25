@@ -120,6 +120,7 @@ fn fifty() -> usize {
 fn context(
     project: Option<ResMut<crate::project::Project>>,
     open: Option<ResMut<crate::project::OpenMap>>,
+    menu: Option<Res<crate::chooser::MenuOpening>>,
 ) -> Ctx {
     Ctx {
         // **Cloned out, because the context owns what it carries.** The reason is the registry:
@@ -127,6 +128,11 @@ fn context(
         // `dyn` because a list of operations is looked up by name. One copy of a map's settings
         // is a price worth paying for that.
         project: project.map(|p| p.into_inner().clone()),
+        // **The menu's root, while the menu is the screen that is up.** There is no `Project`
+        // resource until a door opens, so without this every `emerge/…` command refused on the one
+        // screen where a project is chosen — including `map_create`, which is how a map gets made
+        // before any door exists.
+        root: menu.map(|m| m.root.clone()),
         open: open.map(|o| o.into_inner().clone()),
         source: Source::Agent,
         session: crate::ops::session_id(),
@@ -154,6 +160,7 @@ pub(crate) fn take(
 ) -> Ctx {
     Ctx {
         project: project.as_deref().cloned(),
+        root: None,
         open: open.as_deref().cloned(),
         source: Source::Agent,
         session: crate::ops::session_id(),
@@ -212,8 +219,20 @@ fn project_root(
     _: In<serde_json::Value>,
     project: Option<Res<crate::project::Project>>,
     open: Option<Res<crate::project::OpenMap>>,
+    menu: Option<Res<crate::chooser::MenuOpening>>,
 ) -> Result<Value, String> {
+    // **The menu's root counts.** The menu is the screen you are on before a door, and it knows
+    // which directory it is about — so the server's own "are we pointed at the same project" check
+    // can pass there, and `map_create` can be reached before any door is open. Without this the
+    // whole agent surface refused on the one screen where a project is chosen.
     let Some(project) = project else {
+        if let Some(menu) = menu {
+            return Ok(json!({
+                "project_root": menu.root.to_string_lossy(),
+                "map": serde_json::Value::Null,
+                "screen": "menu",
+            }));
+        }
         return Err("no project is open.".to_owned());
     };
     // **The open map's name, while a map is open.** A rename changes the open map and not the
@@ -605,6 +624,7 @@ fn operation_preview(
     In(p): In<PreviewParams>,
     project: Option<ResMut<crate::project::Project>>,
     open: Option<ResMut<crate::project::OpenMap>>,
+    menu: Option<Res<crate::chooser::MenuOpening>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -612,7 +632,7 @@ fn operation_preview(
             p.operation
         ));
     };
-    let ctx = context(project, open);
+    let ctx = context(project, open, menu);
     match ops::preview(&ctx, op.as_ref(), &p.parameters) {
         Ok(plan) => Ok(json!({
             "operation": p.operation,
@@ -689,6 +709,7 @@ fn operation_apply(
     mode: Option<Res<crate::tiles::Mode>>,
     filters: Option<Res<crate::filter::Filters>>,
     mut import: Option<ResMut<crate::tiles::ImportState>>,
+    menu: Option<Res<crate::chooser::MenuOpening>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -751,6 +772,7 @@ fn operation_apply(
         let read_project = project.as_deref();
         let read_open = open.as_deref();
         let ctx = Ctx {
+            root: menu.as_ref().map(|m| m.root.clone()),
             project: read_project.cloned(),
             open: read_open.cloned(),
             source: Source::Agent,
@@ -771,6 +793,8 @@ fn operation_apply(
     }
     // **And the real thing**, which takes the editor's own map and project and gives them back.
     let mut ctx = take(&project, &open);
+    // **The menu's root, when the menu is up**, so `map_create` has a directory before any door.
+    ctx.root = menu.as_ref().map(|m| m.root.clone());
     let applied = ops::dispatch(&mut ctx, &p.operation, &p.parameters);
     // **The map goes back either way** — changed, refused, or not — so the editor's own state is
     // never left holding a half-applied edit.
@@ -914,6 +938,7 @@ fn operation_undo(
     if p.dry_run {
         // **A preview reads the log and plans the inverse, and writes nothing.**
         let ctx = Ctx {
+            root: None,
             project: project.as_deref().cloned(),
             open: open.as_deref().cloned(),
             source: Source::Agent,

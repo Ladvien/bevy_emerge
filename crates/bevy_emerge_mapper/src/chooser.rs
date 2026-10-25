@@ -4889,11 +4889,17 @@ pub struct ChooserPlugin {
     pub preselect: Option<String>,
 }
 
-/// Where [`ChooserPlugin`] keeps its two arguments until the menu is entered.
+/// **Where [`ChooserPlugin`] keeps its arguments until the menu is entered — and where the agent
+/// bridge finds the project root while the menu is the screen that is up.**
+///
+/// The menu is the screen you are on *before* a door, so there is no `Project` resource yet, and
+/// every `emerge/…` command that needed one answered `no project is open` — which made the whole
+/// agent surface unavailable on the one screen where a project is *chosen*. `root` here is the same
+/// directory `Chooser::root` holds, so a command can still find the log and the maps directory.
 #[derive(Resource, Clone)]
-struct MenuOpening {
-    root: PathBuf,
-    preselect: Option<String>,
+pub struct MenuOpening {
+    pub root: PathBuf,
+    pub preselect: Option<String>,
 }
 
 impl Plugin for ChooserPlugin {
@@ -4942,6 +4948,9 @@ impl Plugin for ChooserPlugin {
                 paint_chooser,
                 // **After the paint**, because it measures rows the paint may have just respawned.
                 keep_the_chooser_selection_on_screen,
+                // **The list follows the directory**, so a map an agent made appears without the
+                // menu having been the one to make it.
+                follow_the_maps_directory,
                 // **After the drive**, so the border lights on the same frame the arrow moved the
                 // keyboard rather than one behind it. It reads `Chooser::focus` and writes nothing
                 // the paint depends on, so it is last for ordering's sake and not for the paint's.
@@ -5760,6 +5769,35 @@ fn paint_chooser(
     }
 }
 
+/// **The list follows the directory, whoever wrote it.**
+///
+/// The menu rescanned only when **it** acted: `make_it`, a delete, a rename. A map written by anything
+/// else — an agent through `map_create`, an editor in another window, a `cp` in a terminal — left the
+/// MAPS column showing the list from before. **Measured 2026-10-24**: an MCP client made `courtyard`
+/// and the file was on disk with its note, while the menu still drew `+ new map` alone. The screen said
+/// nothing had been made.
+///
+/// **A directory's mtime, not its contents.** Re-reading every map's header is the expensive half of
+/// `Catalog::scan`; the question here is only "has anything been added or removed", and the directory's
+/// own timestamp answers that in one `stat`.
+fn follow_the_maps_directory(
+    mut chooser: ResMut<Chooser>,
+    mut last: Local<Option<std::time::SystemTime>>,
+) {
+    let dir = chooser.root.join(EMERGE_DIR).join(MAPS_DIR);
+    let now = std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
+    // **The first frame records without rescanning.** `Chooser::new` has just scanned, so a rescan
+    // here would be the same work twice.
+    match (*last, now) {
+        (None, _) => *last = now,
+        (Some(before), Some(after)) if before != after => {
+            *last = Some(after);
+            rescan_keeping_place(&mut chooser, None);
+        }
+        _ => {}
+    }
+}
+
 /// **The field takes the keyboard first.** Mirrors `build.rs`'s name prompt, including the drain:
 /// while no field is open the stream is cleared, so the keystroke that *opens* one cannot become its
 /// first character (the `xseam` bug this crate already paid for once).
@@ -6027,8 +6065,42 @@ fn make_it(chooser: &mut Chooser, new: &New) -> Result<(), String> {
             // **The project's `maps/`, and no kit is consulted.** Making a map used to require a
             // selected kit — it was written beside that kit's library — and a map now resolves
             // against every bound kit merged, so there is nothing left for the selection to decide.
-            let dir = chooser.root.join(EMERGE_DIR).join(MAPS_DIR);
-            let path = create_map(&dir, &d.name, d.bounds, d.origin, d.note.clone())?;
+            // **`map_create`, the operation, so the dialog is a front end and not a second writer**
+            // (E-008). The chooser knew how to write a map and the registry did not, which is how a
+            // person could make one and an agent could not.
+            //
+            // **A context with the maps directory and nothing else.** The menu has no open map and
+            // no loaded library — it is the screen you are on *before* a door, and `Project::open`
+            // parses the whole library and requires `vocab.ron`. Making a map needs a directory to
+            // write in and a name, so that is what the context carries; an operation that needs
+            // more says so, and only `map_create` is dispatched from here.
+            let mut ctx = crate::ops::Ctx {
+                project: None,
+                root: Some(chooser.root.clone()),
+                open: None,
+                source: crate::ops::Source::Human,
+                session: "menu".to_owned(),
+            };
+            let applied = crate::ops::dispatch(
+                &mut ctx,
+                "map_create",
+                &serde_json::json!({
+                    "name": d.name,
+                    "bounds": [d.bounds.0, d.bounds.1, d.bounds.2],
+                    "origin": [d.origin.0, d.origin.1, d.origin.2],
+                    "note": d.note,
+                }),
+            )
+            .map_err(|e| e.0)?;
+            let path = match applied {
+                crate::ops::Applied::Done { outcome, .. } => outcome
+                    .after
+                    .as_ref()
+                    .and_then(|a| a["path"].as_str())
+                    .map(PathBuf::from)
+                    .ok_or_else(|| "the map was made but its path was not answered".to_owned())?,
+                crate::ops::Applied::Refused(e) => return Err(e.0),
+            };
             let name = d.name.clone();
             chooser.creating = None;
             rescan_keeping_place(chooser, Some(&name));

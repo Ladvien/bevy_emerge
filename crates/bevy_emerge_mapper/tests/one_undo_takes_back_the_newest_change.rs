@@ -215,6 +215,7 @@ fn cmd_z_does_not_undo_a_resize_the_agent_already_took_back() {
 
     // **The agent's undo, through the same registry function the MCP tool reaches.**
     let mut ctx = bevy_emerge_mapper::ops::Ctx {
+        root: None,
         project: Some(
             app.world()
                 .resource::<bevy_emerge_mapper::project::Project>()

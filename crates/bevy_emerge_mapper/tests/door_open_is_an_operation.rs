@@ -17,6 +17,7 @@ mod fixtures;
 
 fn empty_ctx() -> Ctx {
     Ctx {
+        root: None,
         project: None,
         open: None,
         source: Source::Human,
@@ -82,6 +83,7 @@ fn an_accepted_request_names_its_exact_target() {
     let root = fixtures::Fixture::new("door_open_accepted").build("m");
     let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
     let mut ctx = Ctx {
+        root: None,
         project: app.world_mut().remove_resource::<Project>(),
         open: app.world_mut().remove_resource::<OpenMap>(),
         source: Source::Human,
@@ -144,6 +146,7 @@ fn a_map_that_does_not_parse_is_refused_not_answered_as_applied() {
     std::fs::write(&map_path, "this is not a map").expect("the map file can be written");
     project.open_map_name = Some("m".to_owned());
     let mut ctx = Ctx {
+        root: None,
         project: Some(project),
         open: None,
         source: Source::Human,
@@ -171,6 +174,7 @@ fn a_dirty_map_asked_to_leave_says_it_waits_for_the_person() {
     open.map.note = Some("an edit that is not saved".to_owned());
     assert!(open.dirty(), "the test makes the map unsaved");
     let mut ctx = Ctx {
+        root: None,
         project: Some(project),
         open: Some(open),
         source: Source::Human,
@@ -198,6 +202,7 @@ fn a_dirty_map_asked_for_the_map_door_waits_for_nobody() {
     let mut open = app.world_mut().remove_resource::<OpenMap>().expect("a map is open");
     open.map.note = Some("an edit that is not saved".to_owned());
     let mut ctx = Ctx {
+        root: None,
         project: Some(project),
         open: Some(open),
         source: Source::Human,

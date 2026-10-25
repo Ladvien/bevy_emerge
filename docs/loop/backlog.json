@@ -724,12 +724,22 @@
    "first_seen": "2026-10-24"
   },
   {
-   "id": "E-059",
+   "id": "E-065",
    "kind": "enhancement",
    "area": "tests",
    "title": "Five sequencer tests fail under machine load: a real-time 20 s deadline spins without sleeping",
    "status": "open",
    "evidence": "2026-10-24, load average 30-37 on 10 cores: three consecutive `cargo test --workspace` runs each failed a DIFFERENT member of the family (a_sequence_takes_the_agents_checks, a_person_removes_a_piece_and_undoes_it, an_agent_turn_in_a_sequence_stands_on_the_screen, a_sequence_turn_is_on_the_receipt), and each passes alone (3/3 for the piece one). Clean main at 4b15d06 fails the same way, so this is pre-existing, not any one change. a_sequence_turn_is_on_the_receipt.rs:49 loops `app.update()` against a 20 s real-time deadline with NO thread::sleep; its siblings do sleep.",
+   "last_failure": "",
+   "first_seen": "2026-10-24"
+  },
+  {
+   "id": "E-066",
+   "kind": "enhancement",
+   "area": "editor",
+   "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
+   "status": "open",
+   "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal \u2014 which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
    "last_failure": "",
    "first_seen": "2026-10-24"
   }
