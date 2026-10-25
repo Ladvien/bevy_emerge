@@ -813,12 +813,38 @@ mod tests {
     use super::*;
     use bevy_emerge_core::map::Placed;
 
+    /// **Removes a directory when the test ends, however it ends.**
+    ///
+    /// A test that makes a sibling project writes it into `$TMPDIR`, which outlives the process — so
+    /// `create_project`'s own "already exists" refusal turns a leaked directory into a failure on the
+    /// *next* run. A guard covers the panic path too, which an explicit cleanup at the end does not.
+    struct CleanUpOnDrop(PathBuf);
+
+    impl Drop for CleanUpOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     /// A throwaway project root: `assets/emerge/` plus whatever kits a test asks for.
     struct Root(PathBuf);
 
     impl Root {
         fn new(name: &str) -> Root {
-            let dir = std::env::temp_dir().join(format!("chooser-{name}-{}", std::process::id()));
+            // **One parent per test, not one shared `$TMPDIR`.**
+            //
+            // `Catalog::scan` reads every *sibling* of the root as a project, so a fixture rooted
+            // straight in `$TMPDIR` made every chooser test a sibling of every other — scanned by
+            // each, and (worse) writable by each. Two runs in one process could then disagree about
+            // what is beside them, which is a test failing for a reason no diff explains.
+            //
+            // **Measured 2026-10-24**: `making_a_project_reports_the_command_that_opens_it` failed
+            // once in a full-workspace run and passed alone three times after, and `$TMPDIR` was
+            // littered with sibling test projects. The parent is the test's own now, so what it sees
+            // beside it is what it made.
+            let dir = std::env::temp_dir()
+                .join(format!("chooser-{name}-{}", std::process::id()))
+                .join("project");
             let _ = std::fs::remove_dir_all(&dir);
             let base = dir.join(EMERGE_DIR);
             std::fs::create_dir_all(&base).unwrap_or_else(|e| panic!("{}: {e}", base.display()));
@@ -1757,10 +1783,11 @@ mod tests {
         root.kit(Some("site"), 1);
         let vocab = root.0.join(EMERGE_DIR).join("vocab.ron");
         std::fs::write(&vocab, "(// kept\n)").unwrap_or_else(|e| panic!("{e}"));
+        // **The test's own parent**, which is what the fixture's new layout gives it.
         let parent = root
             .0
             .parent()
-            .unwrap_or_else(|| panic!("temp dir has a parent"))
+            .unwrap_or_else(|| panic!("the fixture gives the root a parent"))
             .to_path_buf();
         let _ = std::fs::remove_dir_all(parent.join("porch_flow"));
 
@@ -1784,6 +1811,12 @@ mod tests {
 
         assert!(c.creating.is_none(), "one Enter finishes it");
         let made = parent.join("porch_flow");
+        // **The made project goes with the test.** `create_project` refuses a directory that already
+        // exists, and this test only ever cleaned up *before* itself. The root cause of the 2026-10-24
+        // flake was the shared `$TMPDIR` parent (see `Root::new`), not this leak — but a test that
+        // leaves a directory in a place its own scan reads is a hazard either way, and the guard
+        // covers the panic path too.
+        let _cleanup = CleanUpOnDrop(made.clone());
         assert!(
             made.join(EMERGE_DIR).join(bevy_emerge_core::kits::KITS_FILE).is_file(),
             "the project landed beside this one: {}",
