@@ -129,6 +129,39 @@ fn map_open_on_the_menu_enters_the_editor_on_that_map() {
     );
 }
 
+/// **`emerge/state` says which screen, because the map cannot.**
+///
+/// This is the fact the acceptance script waits on, and it is asserted here because it is the half
+/// that would have hidden the bug: on the pre-fix build `map_open` applied on the menu installed
+/// `Project` and `OpenMap` and left the screen at `Menu`, so `emerge/state` reported
+/// `map.name == "courtyard"` while the person was looking at the MAPS column. **A predicate on the
+/// map alone passed on the defective build**, so `screen` is what the script reads, and this pins
+/// that the editor's own answer distinguishes the two.
+#[test]
+fn emerge_state_says_which_screen_and_the_map_alone_does_not() {
+    let (_root, mut app) = on_the_menu("agent-screen");
+
+    let before = call(&mut app, "emerge/state", serde_json::json!({}))
+        .unwrap_or_else(|e| panic!("emerge/state answers: {e}"));
+    assert_eq!(before["screen"], "menu", "the menu is the menu: {before}");
+    assert!(before["map"].is_null(), "and holds no map yet: {before}");
+
+    apply(
+        &mut app,
+        "map_create",
+        serde_json::json!({"name": "courtyard", "bounds": [12, 4, 12]}),
+    );
+    apply(&mut app, "map_open", serde_json::json!({"name": "courtyard"}));
+    for _ in 0..5 {
+        app.update();
+    }
+
+    let after = call(&mut app, "emerge/state", serde_json::json!({}))
+        .unwrap_or_else(|e| panic!("emerge/state answers: {e}"));
+    assert_eq!(after["screen"], "editor", "the entry is visible here: {after}");
+    assert_eq!(after["map"]["name"], "courtyard", "and so is the map: {after}");
+}
+
 /// **A `map_open` that is refused does not move the screen, and leaves nothing behind.**
 ///
 /// The refusal is the easy half. The half worth pinning is the world: `Chosen` is what makes a

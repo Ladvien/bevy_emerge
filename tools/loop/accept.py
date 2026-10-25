@@ -120,11 +120,20 @@ class Run:
         answer = self.op("map_open", {"name": MAP})
         if not self.ok(answer):
             return _record(self.steps, "open_map", "fail", self.why(answer), (time.time() - t0) * 1000)
-        # **The crossing is the screen's, and the map is what proves it happened.** `or {}` because
-        # `emerge/state` on the menu carries `"map": null`, and reading a key off None would be the
-        # script failing rather than the product.
+        # **The crossing is the screen's, so the screen is what is waited for.**
+        #
+        # A predicate on the map's name alone would pass on a build with the defect this step is
+        # here to catch: `map_open` on the menu inserted `Project` and `OpenMap` and left the screen
+        # at `Menu`, so `emerge/state` reported `map.name == courtyard` with the MAPS column in
+        # front of the person — measured 2026-10-25, and found by the review rather than by the
+        # script. `screen` is `emerge/state`'s own answer for exactly this, and the map's name is
+        # kept beside it because entering the *wrong* map is the other way to be wrong.
         try:
-            self.editor.wait_ready(lambda s: ((s.get("map") or {}).get("name")) == MAP, limit=60)
+            self.editor.wait_ready(
+                lambda s: s.get("screen") == "editor"
+                and ((s.get("map") or {}).get("name")) == MAP,
+                limit=60,
+            )
         except TimeoutError:
             return _record(
                 self.steps, "open_map", "fail",

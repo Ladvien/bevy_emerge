@@ -331,6 +331,13 @@ fn editor_state(
     door: Option<Res<crate::tiles::Door>>,
     mode: Option<Res<crate::tiles::Mode>>,
     presenting: Option<Res<crate::present::Presenting>>,
+    // **Which screen the editor is on, which nothing else here says (E-078).** The map, the door and
+    // the mode all read the same on the menu as in the editor — `Door` and `Mode` are `init_resource`d
+    // at build and a loaded `OpenMap` is a resource either way — so before this, an agent could not
+    // tell *"the map is loaded"* from *"the map is open in front of the person"*. Measured
+    // 2026-10-25: that is exactly the pair `tools/loop/accept.py`'s `open_map` step has to tell
+    // apart, and its predicate passed on the pre-fix build.
+    screen: Option<Res<State<crate::screen::Screen>>>,
 ) -> Result<Value, String> {
     let Loaded { project, open } = loaded;
     // **The agent's presentation, and the person's answer to it** (S1.7). `None` until an agent
@@ -476,6 +483,12 @@ fn editor_state(
         "selected": tiles.as_ref().map(|t| t.selected_library_id.clone()),
         "door": door.map(|d| d.label()),
         "mode": mode.map(|m| m.label()),
+        // **`"menu"` or `"editor"`.** A caller that needs "is the person looking at this map?" reads
+        // it here; nothing else in this answer can be told apart between the two screens.
+        "screen": screen.map(|s| match *s.get() {
+            crate::screen::Screen::Menu => "menu",
+            crate::screen::Screen::Editor => "editor",
+        }),
     }))
 }
 
