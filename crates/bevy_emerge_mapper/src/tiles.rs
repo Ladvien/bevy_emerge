@@ -5986,10 +5986,32 @@ fn commit_candidate(
     // in isolation would reject the pair that fixes each other.
     // `trial` is a clone, so `project.measured` is still the pre-edit state here.
     let before = state.snapshot(&project);
-    let mut trial = project.measured.clone();
-    trial.descriptors.push(descriptor.clone());
-    match commit_measured(&mut project, trial) {
-        Ok(path) => {
+    // **Through the registry** (S2.2). This wrote `commit_measured` on a trial library inline, and
+    // `piece_import` does the same thing for a mesh an agent names — so one of the two had to become
+    // the other. The operation takes the `.glb` path and re-measures, which is one extra mesh read on
+    // Enter and the price of having one door.
+    let mut ctx = crate::ops::Ctx {
+        project: Some((*project).clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(
+        &mut ctx,
+        "piece_import",
+        &serde_json::json!({
+            "glb": format!("assets/{}", candidate.mesh),
+            "id": descriptor.id,
+        }),
+    );
+    // **The library the operation wrote goes back into the resource.** `commit_measured` rewrites
+    // `measured` and every kit's layers, and this tab reads them from `Project`.
+    if let Some(fresh) = ctx.project.take() {
+        crate::editor::adopt_library(&mut project, &fresh);
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
             // Drop it from the candidate list: it is in the library now, and an importer that keeps
             // offering what you have already taken is one you cannot tell your progress from.
             let at = state.selected;
@@ -5997,19 +6019,82 @@ fn commit_candidate(
             state.selected = at.min(state.candidates.len().saturating_sub(1));
             state.summary = format!("{} mesh(es) left to import", state.candidates.len());
             state.record(before);
-            state.status.note(format!(
-                "added `{}` — it is in the palette now",
-                descriptor.id
-            ));
-            info!("added `{}` to {}", descriptor.id, path.display());
+            state.status.note(outcome.summary.clone());
+            info!("{}", outcome.summary);
         }
-        Err(e) => {
-            // Nothing was added and nothing was written — `commit_measured` refuses before it
-            // touches the disk — so this says the one thing that is true of both.
-            state.status.problem(format!("not added: {e}"));
-            error!("{e}");
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            // Nothing was added and nothing was written — the operation refuses before it touches
+            // the disk — so this says the one thing that is true of both.
+            state.status.problem(format!("not added: {}", e.0));
+            error!("{}", e.0);
         }
     }
+}
+
+/// **The commit door's own four refusals, for a mesh an agent names** (S2.2).
+///
+/// Steps 9 to 12 of `commit_candidate` — policy exclusion, an empty id, the namespace the kit is bound
+/// as, and a duplicate id — extracted so `ops::piece_import` runs **the same four refusals** rather
+/// than a second copy that agrees by habit. The strings are unchanged, deliberately: they are what an
+/// author reads on the Meshes tab, and an agent importing a mesh must read the same words.
+///
+/// **`commit_candidate` still writes its own commit inline**, and that is a stated limit rather than
+/// an oversight: the operation takes a `.glb` path and re-measures, while the tab holds a measured
+/// candidate whose id an author has edited. Making them one dispatch needs a parameter a caller
+/// cannot supply, so the shared half is the refusals — which is where the two doors could actually
+/// disagree.
+///
+/// Returns the descriptor the door would have pushed, or the refusal. **It writes nothing.**
+pub(crate) fn admit_candidate(
+    project: &Project,
+    candidate: &bevy_emerge_core::import::Candidate,
+    id: &str,
+) -> Result<bevy_emerge_core::descriptor::Descriptor, String> {
+    if project.policy.excludes(&candidate.mesh) {
+        return Err(format!(
+            "`{}` is excluded from this kit, so it cannot be imported into it. Shift+R on its \
+             pack puts the pack back.",
+            leaf(&candidate.mesh)
+        ));
+    }
+    let mut descriptor = candidate.proposed.clone();
+    descriptor.id = id.to_owned();
+    if descriptor.id.trim().is_empty() {
+        return Err("give it an id first (I)".to_owned());
+    }
+    if let Some((ns, _)) = descriptor.id.split_once('/')
+        && ns != project.namespace
+    {
+        return Err(format!(
+            "`{}` would join this kit as `{ns}/*`, but it is bound as `{}`. Name it `{}` — or \
+             `{}/{}` if you mean to qualify it.",
+            descriptor.id,
+            project.namespace,
+            descriptor.id.rsplit('/').next().unwrap_or(&descriptor.id),
+            project.namespace,
+            descriptor.id.rsplit('/').next().unwrap_or(&descriptor.id),
+        ));
+    }
+    if project.library.get(&descriptor.id).is_some() {
+        let mine = project.measured.get(&descriptor.id).is_some();
+        return Err(if mine {
+            format!(
+                "`{}` is already in the library — select it above to edit that tile, or rename \
+                 this candidate (I). Accepting it here would replace the tile and take its tags \
+                 and lattice with it.",
+                descriptor.id
+            )
+        } else {
+            format!(
+                "`{}` is already defined by `{}`. Rename this candidate (I) to import the mesh \
+                 into `{}` as well.",
+                descriptor.id,
+                project.kit_of(&descriptor.id).unwrap_or("another kit"),
+                project.namespace
+            )
+        });
+    }
+    Ok(descriptor)
 }
 
 /// **Send a mesh back out of the library, and land on it where it lands.**
@@ -6159,7 +6244,7 @@ struct StaleLabels<'w> {
 /// by the palette is the piece named here. `commit_measured` re-validates, which is what catches the
 /// interesting failure: removing a piece can strand another that rested on a surface only it
 /// offered, and it can leave a policy patch matching nothing.
-fn take_out_of_library(id: &str, project: &mut Project) -> Result<std::path::PathBuf, String> {
+pub(crate) fn take_out_of_library(id: &str, project: &mut Project) -> Result<std::path::PathBuf, String> {
     // **Every map in the project, not the one that happened to be open.** See
     // `Project::maps_that_place` for what the narrow version let through.
     let used = project.maps_that_place(id)?;

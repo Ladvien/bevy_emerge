@@ -260,6 +260,13 @@ class Run:
                        f"{placed} placements, {stamps} stamps, clean", ms)
 
     def step_import(self, glb):
+        """**A mesh becomes a placed piece** — the bridge from golem to the palette (S2.3).
+
+        Runs only when `--glb` is given, so a run without a mesh reports `of: 10` and a run with one
+        reports `of: 11`. The mesh is copied INTO the project first, because `piece_import` confines
+        its path to the project's assets folder — which is the brief's rule for a path parameter, and
+        the reason this step exists rather than an operation that takes any path on the disk.
+        """
         t0 = time.time()
         stem = Path(glb).stem
         inbox = Path(self.scratch) / "assets" / "inbox"

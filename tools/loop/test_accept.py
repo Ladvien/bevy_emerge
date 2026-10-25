@@ -62,3 +62,22 @@ class Skips(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheImportStep(unittest.TestCase):
+    """**`--glb` adds an eleventh step and moves `of`.**
+
+    The count is the loop's headline denominator, so a run with a mesh and a run without must be
+    told apart rather than both reporting "of 10".
+    """
+
+    def test_ten_steps_without_a_mesh_eleven_with_one(self):
+        without = [step(i, "pass") for i in ("tools", "make_map", "save")]
+        with_import = without + [step("import", "pass")]
+        self.assertEqual(summarize(without)["of"], 3)
+        self.assertEqual(summarize(with_import)["of"], 4)
+        self.assertEqual(summarize(with_import)["reached"], 4)
+
+    def test_a_failed_import_is_the_first_failure(self):
+        steps = [step("tools", "pass"), step("import", "fail")]
+        self.assertEqual(summarize(steps)["first_failure"], "import")

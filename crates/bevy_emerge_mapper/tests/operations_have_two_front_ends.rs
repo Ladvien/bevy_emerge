@@ -111,6 +111,10 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The placement click** — `place_one` calls `plan_placement` and dispatches
     // `placement_add`, so a click and an agent put a piece down the same way (S2.1).
     ("placement_add", "place_one("),
+    // **The Meshes tab's import door** — `commit_candidate` runs `admit_candidate` and dispatches
+    // `piece_import`, so an agent importing a .glb and a person accepting a scanned mesh are one
+    // operation (S2.2).
+    ("piece_import", "admit_candidate("),
     // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
     // runs the `door_open` operation (item 1 of cycle 8).
     ("door_open", "open_door("),
@@ -549,12 +553,19 @@ fn every_operation_has_a_ui_entry_point_and_the_other_way_round() {
          is a second way to do one thing.",
         without
     );
-    // **And each entry point's place is in one of the two screens**, so an entry naming a function
-    // that no longer exists fails here rather than passing on a stale string.
+    // **And each entry point's place is in the UI source**, so an entry naming a function that no
+    // longer exists fails here rather than passing on a stale string. **All four files**, because the
+    // UI is four files: `tiles.rs` owns the Meshes tab (where an import lands) and `screen.rs` owns
+    // the door crossing, and a scan that read editor.rs and chooser.rs reported a real entry point as
+    // missing — measured on `piece_import`'s `admit_candidate(`.
+    let ui_source: String = ["src/editor.rs", "src/chooser.rs", "src/tiles.rs", "src/screen.rs"]
+        .iter()
+        .filter_map(|f| std::fs::read_to_string(f).ok())
+        .collect();
     for (name, place) in &ui {
         assert!(
-            editor.contains(place) || chooser.contains(place),
-            "`{name}`'s UI path `{place}` is in neither editor.rs nor chooser.rs"
+            ui_source.contains(place),
+            "`{name}`'s UI path `{place}` is in none of the four UI source files"
         );
     }
     let mut orphaned = Vec::new();

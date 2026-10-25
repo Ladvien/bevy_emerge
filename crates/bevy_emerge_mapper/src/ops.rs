@@ -1996,6 +1996,265 @@ pub mod placement_add {
     }
 }
 
+/// **Import a `.glb` inside the project as a kit piece** — the bridge from golem to the palette (S2.2).
+///
+/// # This is a bridge, not a second importer
+///
+/// **golem is ours and it makes the mesh** (`AGENTS.md`, "Blender is a tool we own"). What this
+/// operation does is the step after that: take a `.glb` that is already inside the project, measure it
+/// with `import::measure`, run the Meshes tab's own four admissions (`tiles::admit_candidate`), and
+/// write it into the library. It shares no code with golem and neither project knows the other's
+/// schema — golem writes `kit.yaml` for kitbashing in Blender, and this writes a `library.ron`
+/// `Descriptor` for placing on a map. The duplication to refuse is a second *generator*, not a bridge.
+///
+/// # The path is confined to the project
+///
+/// The brief's rule for a file parameter, and the only shape it can take here: the `.glb` must resolve
+/// inside `<root>/assets`, which is the same directory `Descriptor::mesh` is relative to. A path that
+/// escapes is refused by name rather than canonicalized into somewhere unexpected.
+pub mod piece_import {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The `.glb`, relative to the project root — `assets/inbox/box.glb`.
+        #[serde(default)]
+        pub glb: Option<String>,
+        /// The id to import it under. Absent means the one the measurement proposes (the file stem).
+        #[serde(default)]
+        pub id: Option<String>,
+        /// **The undo's own form**: take this id out of the library.
+        #[serde(default)]
+        pub remove: Option<String>,
+        /// **The undo's own form**: put this descriptor back.
+        #[serde(default)]
+        pub restore: Option<bevy_emerge_core::descriptor::Descriptor>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "glb": {
+                        "description": "The mesh to import, as a path relative to the project root. It must be inside the project's assets folder and must be a .glb: a .gltf is refused, because a .gltf is a file plus its .bin and golem exports .glb.",
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "The id to import it under. Omit and the file's stem is used, in the project's snake_case. A kit's ids are one namespace, so an id already in the library is refused rather than replaced.",
+                        "type": "string"
+                    },
+                    "remove": {
+                        "description": "The id an undo takes out of the library. Only an undo may set this.",
+                        "type": "string"
+                    },
+                    "restore": {
+                        "description": "The descriptor an undo puts back. Only an undo may set this.",
+                        "type": "object"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for importing a mesh: {e}. The fields are `glb`, \
+                     `id`, `remove` and `restore`; give `glb` to import, or `remove`/`restore` as an \
+                     undo."
+                ))
+            })
+        }
+    }
+
+    pub struct PieceImport;
+
+    impl Operation for PieceImport {
+        fn name(&self) -> &'static str {
+            "piece_import"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params)
+                .map(|p| p.remove.is_some() || p.restore.is_some())
+                .unwrap_or(false)
+        }
+
+        /// **It writes the library**, so its logged change joins the Meshes history — the same rule
+        /// `label_set` follows, and the reason one Cmd+Z on that tab takes back the newest library
+        /// change whoever made it.
+        fn writes_library(&self) -> bool {
+            true
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to import into.",
+                ));
+            };
+            if let Some(id) = &p.remove {
+                // **A preview of a removal asks the same question the removal does**, through the
+                // project rather than by writing: what places this, what names it in a composition.
+                let used = project.maps_that_place(id).map_err(Refusal::new)?;
+                if !used.is_empty() {
+                    return Err(Refusal::new(format!(
+                        "`{id}` is placed by {} — remove those placements first",
+                        used.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")
+                    )));
+                }
+                return Ok(json!({"remove": id, "would": "take it out of the library"}));
+            }
+            if let Some(d) = &p.restore {
+                return Ok(json!({"restore": d.id, "would": "put it back"}));
+            }
+            let (abs, rel) = resolve(project, p.glb.as_deref())?;
+            let candidate = bevy_emerge_core::import::measure(&abs, &rel, &project.measured);
+            if candidate.blocked() {
+                return Err(Refusal::new(format!(
+                    "this mesh cannot be measured, so there is nothing to add: {}",
+                    candidate
+                        .findings
+                        .iter()
+                        .map(|f| f.message.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )));
+            }
+            let id = p.id.clone().unwrap_or_else(|| candidate.proposed.id.clone());
+            let descriptor = crate::tiles::admit_candidate(project, &candidate, &id)
+                .map_err(Refusal::new)?;
+            Ok(json!({
+                "id": descriptor.id,
+                "mesh": descriptor.mesh,
+                "triangles": candidate.triangles,
+                "kit": project.namespace,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let plan = self.plan(ctx, params)?;
+            let Some(project) = ctx.project.as_mut() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to import into.",
+                ));
+            };
+
+            // **The undo's two forms.** A removal hands back the descriptor it took out, so the
+            // inverse is this operation again with `restore`.
+            if let Some(id) = &p.remove {
+                let before = project
+                    .measured
+                    .descriptors
+                    .iter()
+                    .find(|d| &d.id == id)
+                    .cloned()
+                    .ok_or_else(|| Refusal::new(format!("`{id}` is not in the library")))?;
+                crate::tiles::take_out_of_library(id, project).map_err(Refusal::new)?;
+                return Ok(Outcome {
+                    summary: format!("took `{id}` out of the library"),
+                    affected: 1,
+                    saved: true,
+                    inverse: Some(json!({"restore": before})),
+                    after: Some(json!({"id": id})),
+                });
+            }
+            if let Some(d) = &p.restore {
+                let mut trial = project.measured.clone();
+                trial.descriptors.push(d.clone());
+                crate::tiles::commit_measured(project, trial).map_err(Refusal::new)?;
+                return Ok(Outcome {
+                    summary: format!("put `{}` back in the library", d.id),
+                    affected: 1,
+                    saved: true,
+                    inverse: Some(json!({"remove": d.id})),
+                    after: Some(json!({"id": d.id})),
+                });
+            }
+
+            let (abs, rel) = resolve(project, p.glb.as_deref())?;
+            let candidate = bevy_emerge_core::import::measure(&abs, &rel, &project.measured);
+            if candidate.blocked() {
+                return Err(Refusal::new(format!(
+                    "this mesh cannot be measured, so there is nothing to add: {}",
+                    candidate
+                        .findings
+                        .iter()
+                        .map(|f| f.message.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )));
+            }
+            let id = p.id.clone().unwrap_or_else(|| candidate.proposed.id.clone());
+            let descriptor = crate::tiles::admit_candidate(project, &candidate, &id)
+                .map_err(Refusal::new)?;
+            let imported = descriptor.id.clone();
+            let mut trial = project.measured.clone();
+            trial.descriptors.push(descriptor);
+            crate::tiles::commit_measured(project, trial).map_err(Refusal::new)?;
+            Ok(Outcome {
+                summary: format!("added `{imported}` — it is in the palette now"),
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({"remove": imported})),
+                after: Some(json!({
+                    "id": plan["id"],
+                    "kit": plan["kit"],
+                    "mesh": rel,
+                })),
+            })
+        }
+    }
+
+    /// **The mesh's absolute path and its project-relative one**, or a refusal.
+    ///
+    /// Two questions in one place: is the file inside `<root>/assets` (the brief's rule for a path
+    /// parameter), and is it a `.glb` (the only container `import::measure` reads — a `.gltf` is a
+    /// file plus its `.bin`, and golem exports `.glb`).
+    fn resolve(
+        project: &Project,
+        glb: Option<&str>,
+    ) -> Result<(std::path::PathBuf, String), Refusal> {
+        let Some(glb) = glb else {
+            return Err(Refusal::new(
+                "no mesh to import — give `glb`, a path to a .glb inside this project's assets folder",
+            ));
+        };
+        let assets = project.root.join("assets");
+        let joined = project.root.join(glb);
+        let abs = joined
+            .canonicalize()
+            .map_err(|e| Refusal::new(format!("`{glb}`: {e}")))?;
+        let canonical_assets = assets.canonicalize().unwrap_or(assets);
+        if !abs.starts_with(&canonical_assets) {
+            return Err(Refusal::new(format!(
+                "`{glb}` is not inside this project's assets folder"
+            )));
+        }
+        if abs.extension().is_none_or(|e| e != "glb") {
+            return Err(Refusal::new(format!("`{glb}` is not a .glb file")));
+        }
+        let rel = abs
+            .strip_prefix(&canonical_assets)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| glb.to_owned());
+        Ok((abs, rel))
+    }
+}
+
 /// **Every operation the editor knows, in one list.**
 ///
 /// **The one list.** The MCP tool surface, the parity test and the log's vocabulary are all read
@@ -2011,6 +2270,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(map_save::MapSave),
         Box::new(map_open::MapOpen),
         Box::new(placement_add::PlacementAdd),
+        Box::new(piece_import::PieceImport),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
