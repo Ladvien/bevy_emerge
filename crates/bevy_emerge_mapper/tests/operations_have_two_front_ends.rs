@@ -95,6 +95,12 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The palette click**, which arms a piece through `on_row_click`, which calls `arm_piece`
     // and dispatches `brush_arm`.
     ("brush_arm", "arm_piece("),
+    // **The three generate keys and the commit door** (S-001). `G`, `Shift+G` and `Cmd+G` all
+    // dispatch `layout_propose` through `propose_layout`; `Enter` dispatches `layout_accept`
+    // through `accept_layout`; `Esc` dispatches `layout_discard` through `discard_layout`.
+    ("layout_propose", "propose_layout("),
+    ("layout_accept", "accept_layout("),
+    ("layout_discard", "discard_layout("),
     // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
     // runs the `door_open` operation (item 1 of cycle 8).
     ("door_open", "open_door("),
@@ -297,12 +303,8 @@ const UNMIGRATED: &[Action] = &[
     Action::FrameView,
     Action::Straighten,
     Action::Cancel,
-    Action::Generate,
-    Action::GenerateDeclared,
-    Action::GenerateComposed,
     Action::CycleGrid,
     Action::AcceptEdges,
-    Action::AcceptProposal,
     Action::GroupFromSet,
     Action::PageEnter,
     Action::PageLeave,
@@ -403,7 +405,7 @@ const UNMIGRATED: &[Action] = &[
 // 124 -> 125: `FrameView` (E-021), camera state with no document change, so no operation names it.
 // 125 -> 123: `PalettePrev` and `PaletteNext` -> `brush_arm` (gap 1): the arrow walk arms through the operation a click uses.
 // 123 -> 119: `TabSlot1`, `TabSlot2`, `TabSlot3` and `SwitchDoor` -> `door_open` (cycle 8, item 1): every door and tab key opens through the operation.
-const UNMIGRATED_MAX: usize = 119;
+const UNMIGRATED_MAX: usize = 115;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

@@ -7398,6 +7398,9 @@ fn keys(
     }
     let (mode, import, confirm, transforms) = &mut tiles;
     let (move_drag, clone_drag, target, proposal, compose, clock) = &mut tools;
+    // `proposal` is a `&mut ResMut<Proposal>` here; the two layout helpers take a plain
+    // `&mut Proposal`, so the deref happens at the call rather than at the binding.
+    let proposal: &mut Proposal = &mut *proposal;
     // One clock for every key that repeats while held — see `keys::repeating`.
     let dt = time.delta_secs();
 
@@ -7559,10 +7562,8 @@ fn keys(
         // waiting for an answer: a generate can clear every unpinned row on the map. Discarding it
         // is not an undo — nothing was written — so there is nothing to record and nothing to put
         // back. That is the whole point of the door.
-        if proposal.0.take().is_some() {
-            state
-                .status
-                .note("layout thrown away — the map is as it was".to_owned());
+        if proposal.0.is_some() {
+            discard_layout(&mut open, &mut state, proposal);
             return;
         }
         if move_drag.held.is_some() {
@@ -7780,17 +7781,17 @@ fn keys(
     // **G continues the layout.** Learn the grammar from what is already placed, then fill the free
     // cells with more of it — see `bevy_emerge_core::grammar`.
     if keys::just_pressed(&keyboard, *live, Action::GenerateDeclared) {
-        propose_layout(&project, &open, &mut state, proposal, clock, LayoutSource::Declared);
+        propose_layout(&project, &mut open, &mut state, proposal, clock, LayoutSource::Declared);
     }
     // The three arms need no `return` between them and no ordering: `just_pressed` refuses a binding
     // whose modifier state does not match exactly (`keys.rs`, `b.needs_mod != mod_held || !shift_ok`),
     // so bare, Shift and the platform modifier are mutually exclusive by construction. `keys`'
     // `the_three_generate_sources_do_not_shadow_each_other` is what keeps that true.
     if keys::just_pressed(&keyboard, *live, Action::GenerateComposed) {
-        propose_layout(&project, &open, &mut state, proposal, clock, LayoutSource::Composed);
+        propose_layout(&project, &mut open, &mut state, proposal, clock, LayoutSource::Composed);
     }
     if keys::just_pressed(&keyboard, *live, Action::Generate) {
-        propose_layout(&project, &open, &mut state, proposal, clock, LayoutSource::Learned);
+        propose_layout(&project, &mut open, &mut state, proposal, clock, LayoutSource::Learned);
         return;
     }
 
@@ -11499,10 +11500,11 @@ fn pin_reason_keys(
 /// observed pairs — and `Declared` cannot answer for a library nobody has tokened. Each says so
 /// rather than quietly deferring to the other, because a generator that silently changed which
 /// grammar it used would produce output the author cannot account for.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LayoutSource {
     /// Learned from what is already placed. Continues the author's own corner of the room.
+    #[default]
     Learned,
     /// Read off the kit's declared edge tokens. Works on an empty map.
     Declared,
@@ -11539,29 +11541,65 @@ pub fn enclosure_wishes(map: &bevy_emerge_core::map::Map) -> bevy_emerge_core::g
 /// and one problem per refusal the proposer did not treat as fatal.
 fn propose_layout(
     project: &Project,
-    open: &OpenMap,
+    open: &mut OpenMap,
     state: &mut EditorState,
     proposal: &mut Proposal,
     clock: &mut ProposalClock,
     source: LayoutSource,
 ) {
-    match propose(project, open, source, state.next_seed()) {
-        Ok(laid) => {
-            let mut proposed = laid.proposed;
-            proposed.generation = clock.tick();
-            proposal.0 = Some(proposed);
-            state.status.note(laid.note);
-            for warning in laid.warnings {
-                state.status.problem(warning);
+    // **Through the registry, like `set_yaw` and every other migrated key.** The three generate keys
+    // dispatch `layout_propose` — the same operation an agent calls — so the seed, the receipts and
+    // the refusals are one implementation with two front ends rather than two that agree by habit.
+    // The one thing the key owns that the operation does not is *which seed*: the person's next press
+    // advances the state's counter, so two presses differ.
+    let seed = state.next_seed();
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        proposal: proposal.0.take(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(
+        &mut ctx,
+        "layout_propose",
+        &serde_json::json!({"source": source, "seed": seed}),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    // **The operation's answer is the editor's new state**: the proposal it made goes back into the
+    // resource the outline and the ghosts read.
+    let carried = ctx.proposal.take().map(|mut p| {
+        p.generation = clock.tick();
+        p
+    });
+    if carried.is_some() || proposal.0.is_none() {
+        proposal.0 = carried;
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            state.status.note(outcome.summary);
+            // **The warnings are problems**, not notes: a composition the kit cannot make a tile of
+            // is a refusal of part of the request, and it was shown that way before this was an
+            // operation.
+            if let Some(after) = outcome.after.as_ref()
+                && let Some(warnings) = after.get("warnings").and_then(|w| w.as_array())
+            {
+                for warning in warnings.iter().filter_map(|w| w.as_str()) {
+                    state.status.problem(warning.to_owned());
+                }
             }
         }
+        Ok(_) => {}
         Err(e) => {
             // **Logged as well as shown**, because the status line lives in a UI panel and the panel
             // is the one thing neither an offscreen mirror capture nor an unfocused devshot can see —
             // so without this an agent driving the editor cannot tell a refusal from a keystroke that
             // never arrived, which are opposite diagnoses.
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
+            error!("bevy_emerge_mapper: {}", e.0);
+            state.status.problem(e.0);
         }
     }
 }
@@ -12076,119 +12114,116 @@ fn sync_proposal_ghosts(
 
 /// **Take the proposal, or leave it** — the other half of the commit door.
 ///
-/// The write `generate_from` used to do inline. It reads the live map to decide what to clear, so a
-/// piece placed between the proposal and the acceptance is accounted for rather than being addressed
-/// by an index that has since moved.
+/// The write `generate_from` used to do inline, and since S-001 it is an operation like every other
+/// verb: `layout_accept` clears the unpinned rows, appends the layout, saves, and hands back the
+/// inverse that takes all of it back. This system is the key half — it decides *when*, and the
+/// operation decides *what*, which is the rule the whole registry exists to keep.
 fn apply_proposal(
-    mut commands: Commands,
-    assets: Res<AssetServer>,
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<keys::Live>,
     map: MapWrite,
     mut proposal: ResMut<Proposal>,
-    placed: Query<(Entity, &Placement)>,
 ) {
     let MapWrite { project, mut open, mut state } = map;
     if !keys::just_pressed(&keyboard, *live, Action::AcceptProposal) {
         return;
     }
+    accept_layout(&project, &mut open, &mut state, &mut proposal);
+}
+
+/// **`Enter`'s half, dispatchable without a system's argument budget.**
+///
+/// One function so the key and anything else that keeps a layout cannot come to disagree, and so the
+/// system above stays inside Bevy's parameter limit.
+fn accept_layout(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    proposal: &mut Proposal,
+) {
     // **A preview is refused before it is taken**, so it is still on screen to be looked at and
-    // cleared with Esc. Taking it first would throw it away on the very key that was meant to keep it.
+    // cleared with Esc. Taking it first would throw it away on the very key that was meant to keep
+    // it — and the operation makes the same refusal, so the sentence is written once.
     if proposal.0.as_ref().is_some_and(|p| p.preview_only) {
-        state.status.note(
-            "preview only — the game lays these blocks out itself. Esc clears it; to fix a cell, \
-             place a tile there and pin it with O."
-                .to_owned(),
-        );
+        state
+            .status
+            .note(crate::ops::layout_accept::PREVIEW_ONLY.to_owned());
         return;
     }
-    let Some(taken) = proposal.0.take() else {
-        return;
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        proposal: proposal.0.take(),
+        ..crate::ops::Ctx::default()
     };
-    let composes = taken.composes;
-
-    // **A grammar over descriptors lays placements, so it clears the unpinned placements; a grammar
-    // over compositions lays stamps, so it clears the unpinned stamps** and must leave the author's
-    // placements alone. Clearing both would make `Cmd+G` silently delete every piece hand-placed.
-    let removed: Vec<(usize, Box<Placed>)> = if composes {
-        Vec::new()
-    } else {
-        open
-            .map
-            .placements
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| !p.owned)
-            .map(|(i, p)| (i, Box::new(p.clone())))
-            .collect()
-    };
-    let unstamped: Vec<(usize, Box<bevy_emerge_core::composition::Stamped>)> = if composes {
-        open
-            .map
-            .stamps
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| !s.owned)
-            .map(|(i, s)| (i, Box::new(s.clone())))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    for (entity, marker) in &placed {
-        if removed.iter().any(|(_, p)| p.id == marker.0) {
-            commands.entity(entity).despawn();
+    let applied = crate::ops::dispatch(&mut ctx, "layout_accept", &serde_json::json!({}));
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    // **Whatever the operation did with the proposal goes back**, so a refusal that restored it
+    // leaves the outlines on screen.
+    if ctx.proposal.is_some() || proposal.0.is_none() {
+        proposal.0 = ctx.proposal.take();
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            state.record_logged(operation_id, outcome.summary.clone(), false);
+            state.status.note(outcome.summary);
+        }
+        Ok(_) => {}
+        Err(e) => {
+            error!("bevy_emerge_mapper: {e}");
+            state.status.problem(e.0);
         }
     }
-    // Descending, so removing an earlier row cannot shift a later one out from under us.
-    for (i, _) in removed.iter().rev() {
-        open.map.placements.remove(*i);
-    }
-    for (i, _) in unstamped.iter().rev() {
-        open.map.stamps.remove(*i);
-    }
+}
 
-    // **Into the map first, drawn second.** The solver lays pieces on the floor grid; how high each
-    // one ends up is a question about the finished map, so the map has to be finished before it is
-    // asked.
-    let count = taken.placements.len();
-    let first = open.map.placements.len();
-    open.map.placements.extend(taken.placements);
-    spawn_range(&mut commands, &assets, &project, &open, &mut state, first);
-
-    // **Stamps need no spawn call.** `redraw_stamps` rebuilds the whole stamped picture from
-    // `map.stamps` whenever it changes, so writing the rows is the whole job — unlike the placement
-    // path above, which owns its entities.
-    let stamped = taken.stamps.len();
-    open.map.stamps.extend(taken.stamps);
-
-    // One act, one entry: undoing a generate first strips the solver rows (the `Added`/`Stamped`),
-    // then puts the sketch back at its own indices (the `RemovedMany`/`UnstampedMany`) —
-    // [`Undo::Group`] applies in order and inverts by reversing.
-    let mut ops = Vec::new();
-    if count > 0 {
-        ops.push(Undo::Added { count });
+/// **`Esc`'s half**: dispatch `layout_discard` and report what it said.
+///
+/// The map is untouched by a proposal, so this writes nothing and records nothing to take back. It is
+/// a verb because *dropping the offer* is an act with a receipt, and because an agent that proposed a
+/// layout and thought better of it needs a way to say so.
+fn discard_layout(open: &mut OpenMap, state: &mut EditorState, proposal: &mut Proposal) {
+    let mut ctx = crate::ops::Ctx {
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        proposal: proposal.0.take(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(&mut ctx, "layout_discard", &serde_json::json!({}));
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
     }
-    if stamped > 0 {
-        ops.push(Undo::Stamped { count: stamped });
-    }
-    if !removed.is_empty() {
-        ops.push(Undo::RemovedMany { items: removed });
-    }
-    if !unstamped.is_empty() {
-        ops.push(Undo::UnstampedMany { items: unstamped });
-    }
-    if !ops.is_empty() {
-        state.record(Undo::Group { ops });
-    }
-
-    state.status.note(format!(
-        "kept the layout: {}",
-        if composes {
-            format!("{stamped} stamped")
-        } else {
-            format!("{count} placed")
+    // **A refusal puts the proposal back**, so `Esc` that could not dispatch does not silently eat
+    // the layout it was asked to clear.
+    proposal.0 = ctx.proposal.take();
+    match applied {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
+        Ok(_) => {}
+        Err(e) => {
+            error!("bevy_emerge_mapper: {e}");
+            state.status.problem(e.0);
         }
-    ));
+    }
+}
+
+/// **A map to swap out of an `OpenMap` while an operation holds the real one.**
+///
+/// `Ctx` takes the map **by value** — that is what makes the registry hold more than one operation —
+/// so a caller that wants to keep its own copy has to put something there. It is replaced before the
+/// function returns and is never read; making it a default keeps the swap cheap.
+fn empty_map_for_take() -> OpenMap {
+    OpenMap::new(
+        bevy_emerge_core::map::Map::default(),
+        std::path::PathBuf::new(),
+    )
 }
 
 /// The `F` handler, split out so `keys` stays readable.

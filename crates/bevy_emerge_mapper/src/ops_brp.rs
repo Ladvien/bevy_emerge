@@ -169,6 +169,43 @@ pub(crate) fn take(
     }
 }
 
+/// **Carry the standing proposal between the context and the editor's `Proposal` resource.**
+///
+/// A layout proposal is not map data, so it travels in [`Ctx`] rather than in `OpenMap` — and that
+/// means the two front ends have to move it across by hand, the way they move the map. Before the
+/// dispatch it is taken out of the resource (`dry_run` clones instead, because a preview must not
+/// change anything); after it, whatever the context holds is written back.
+///
+/// **Only the three layout operations are touched**, and that is deliberate: a `placement_set_yaw`
+/// that overwrote the resource with `None` would silently throw away a layout standing on screen,
+/// which is the kind of second-order loss this codebase keeps having to fix.
+///
+/// **Every write is compared first.** Storing the same `Option<Proposed>` through `as_deref_mut`
+/// marks the resource changed, and `tests/no_system_writes_every_frame.rs` fails on a system that
+/// writes what it did not change.
+pub(crate) fn carry_proposal(
+    name: &str,
+    ctx_proposal: Option<crate::editor::Proposed>,
+    proposal: Option<&mut crate::editor::Proposal>,
+    clock: Option<&mut crate::editor::ProposalClock>,
+) {
+    if !matches!(name, "layout_propose" | "layout_accept" | "layout_discard") {
+        return;
+    }
+    let (Some(proposal), Some(clock)) = (proposal, clock) else {
+        return;
+    };
+    // **A fresh proposal gets a fresh generation**, so `sync_proposal_ghosts` can tell a second
+    // layout from the first one even when they are the same length.
+    let fresh = ctx_proposal.map(|mut p| {
+        p.generation = clock.tick();
+        p
+    });
+    if proposal.0 != fresh {
+        proposal.0 = fresh;
+    }
+}
+
 /// **Put the operation's map back into the editor's own resource.**
 ///
 /// **The map, and the rules when an operation changed them.** Most operations read the library and
@@ -712,6 +749,8 @@ fn operation_apply(
     filters: Option<Res<crate::filter::Filters>>,
     mut import: Option<ResMut<crate::tiles::ImportState>>,
     menu: Option<Res<crate::chooser::MenuOpening>>,
+    mut proposal: Option<ResMut<crate::editor::Proposal>>,
+    mut clock: Option<ResMut<crate::editor::ProposalClock>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -779,7 +818,9 @@ fn operation_apply(
             open: read_open.cloned(),
             source: Source::Agent,
             session: crate::ops::session_id(),
-            proposal: None,
+            // **Cloned, not taken**, because a preview must not change anything — including the
+            // layout standing on screen, which `layout_accept` reads.
+            proposal: proposal.as_deref().and_then(|r| r.0.clone()),
         };
         return match ops::preview(&ctx, op.as_ref(), &p.parameters) {
             Ok(plan) => Ok(json!({
@@ -798,10 +839,29 @@ fn operation_apply(
     let mut ctx = take(&project, &open);
     // **The menu's root, when the menu is up**, so `map_create` has a directory before any door.
     ctx.root = menu.as_ref().map(|m| m.root.clone());
-    let applied = ops::dispatch(&mut ctx, &p.operation, &p.parameters);
+    // **The proposal travels by value**, in and out, because it is not map data.
+    ctx.proposal = proposal.as_deref_mut().and_then(|r| r.0.take());
+    // **A proposal with no seed named gets the editor's own next one.** This is what makes two
+    // `layout_propose` calls differ the way two `G` presses do; a caller that names a seed gets
+    // exactly that seed, which is what makes a layout reproducible.
+    let mut params = p.parameters.clone();
+    if p.operation == "layout_propose"
+        && params.get("seed").is_none()
+        && let Some(state) = state.as_deref_mut()
+    {
+        params["seed"] = json!(state.next_seed());
+    }
+    let applied = ops::dispatch(&mut ctx, &p.operation, &params);
+    let carried = ctx.proposal.take();
     // **The map goes back either way** — changed, refused, or not — so the editor's own state is
     // never left holding a half-applied edit.
     put_back(&mut project, &mut open, ctx);
+    carry_proposal(
+        &p.operation,
+        carried,
+        proposal.as_deref_mut(),
+        clock.as_deref_mut(),
+    );
     // **The screen is redrawn when the write-back saved.** The watcher adopts a file whose
     // contents already match the open map and does nothing, so nothing else would tell the
     // screen; a piece the agent turned stayed where it was until the editor was reopened.

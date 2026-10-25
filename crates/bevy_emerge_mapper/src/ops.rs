@@ -515,6 +515,13 @@ pub trait Operation: 'static {
     fn writes_library(&self) -> bool {
         false
     }
+
+    /// **The RNG seed this operation ran under, for the log.** `None` unless the operation's result
+    /// depends on one — a proposal without its seed is a layout nobody can reproduce, which is the
+    /// complaint the brief already makes about a WFC run recorded without its RNG.
+    fn rng_seed(&self, _params: &serde_json::Value) -> Option<u64> {
+        None
+    }
 }
 
 /// **Make a map** — the operation a developer's *"make me a courtyard"* becomes (E-008).
@@ -717,6 +724,479 @@ pub mod map_create {
     }
 }
 
+/// **Propose a layout, change nothing, and let the person or the agent decide.**
+///
+/// The generate keys (`G`, `Shift+G`, `Cmd+G`) have always worked this way for a person: a layout is
+/// *offered*, drawn as outlines, and kept with `Enter` or thrown away with `Esc`. But the offer was
+/// `editor`'s own private act — five functions taking `&mut EditorState` — so an agent could not ask
+/// for one at all, and an agent is exactly who the brief's *"a mossy ruined courtyard with two
+/// exits"* is supposed to reach.
+///
+/// This is that offer with a name in the registry. It calls [`crate::editor::propose`], which reads a
+/// `Project` and an `OpenMap` and nothing else.
+///
+/// # It writes nothing, and says so
+///
+/// `undo()` is [`Undo::None`] because there is no change to take back: the map, the file and the
+/// library are untouched, and `after` carries `"preview_only": true` beside the rows so a caller
+/// cannot mistake the offer for the change. A standing proposal is taken away by
+/// [`layout_discard`], which is a different verb because it is a different act.
+pub mod layout_propose {
+    use super::*;
+    use serde_json::json;
+
+    /// **Where the rules come from, and the seed.**
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// Which of the three sources lays the layout.
+        pub source: crate::editor::LayoutSource,
+        /// **The solver's seed.** Absent means the editor picks a fresh one per call.
+        ///
+        /// Named rather than hidden so the same seed on the same map lays the same layout — which is
+        /// what makes a proposal something an agent can talk about, and what a test can assert.
+        #[serde(default)]
+        pub seed: Option<u64>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source"],
+                "properties": {
+                    "source": {
+                        "description": "Where the rules come from. `learned` continues what is already placed on the map (refuses an empty map); `declared` reads the kit's declared edge tokens (works on an empty map); `composed` builds from the kit's compositions and is the only source that lays stamps rather than pieces.",
+                        "type": "string",
+                        "enum": ["learned", "declared", "composed"]
+                    },
+                    "seed": {
+                        "description": "The solver's seed. Omit it and the editor picks a fresh one per call; the same seed on the same map lays the same layout.",
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for proposing a layout: {e}. The fields are \
+                     `source` (learned, declared or composed) and `seed`, and `source` is required."
+                ))
+            })
+        }
+    }
+
+    pub struct LayoutPropose;
+
+    impl Operation for LayoutPropose {
+        fn name(&self) -> &'static str {
+            "layout_propose"
+        }
+
+        /// **Nothing to undo**: a proposal is an offer, and the map is untouched. Taking a standing
+        /// proposal away is [`super::layout_discard`], which is its own verb.
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        /// **The seed goes in the log.** Without it an agent's proposal is a layout nobody can
+        /// reproduce — the same complaint the brief makes about a WFC run recorded without its RNG.
+        fn rng_seed(&self, params: &serde_json::Value) -> Option<u64> {
+            serde_json::from_value::<Params>(params.clone())
+                .ok()
+                .and_then(|p| p.seed)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_ref()) else {
+                return Err(Refusal::new(
+                    "no map is open, so there is nowhere to propose a layout.",
+                ));
+            };
+            let laid = crate::editor::propose(project, open, p.source, p.seed.unwrap_or(1))
+                .map_err(Refusal::new)?;
+            Ok(json!({
+                "map": open.map.name,
+                "source": p.source,
+                "seed": p.seed,
+                "laid": laid.proposed.placements.len() + laid.proposed.stamps.len(),
+                "placements": laid.proposed.placements.len(),
+                "stamps": laid.proposed.stamps.len(),
+                "composes": laid.proposed.composes,
+                "preview_only": laid.proposed.preview_only,
+                "note": laid.note,
+                "warnings": laid.warnings,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let after = self.plan(ctx, params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_ref()) else {
+                return Err(Refusal::new(
+                    "no map is open, so there is nowhere to propose a layout.",
+                ));
+            };
+            // **The same computation the plan made**, so what was previewed is what stands — the
+            // preview is this operation's own plan thrown away, and it must not be a second opinion.
+            let laid = crate::editor::propose(project, open, p.source, p.seed.unwrap_or(1))
+                .map_err(Refusal::new)?;
+            let note = laid.note.clone();
+            ctx.proposal = Some(laid.proposed);
+            Ok(Outcome {
+                summary: note,
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(after),
+            })
+        }
+    }
+}
+
+/// **Keep the layout on screen** — `Enter`, and the agent's half of the same door.
+///
+/// The person's arm used to live inline in `apply_proposal`; this is the same write with a name, so
+/// an agent that proposed a layout can finish the job instead of leaving it on screen for somebody
+/// to press a key at.
+///
+/// # What it clears, and when that is decided
+///
+/// A grammar over descriptors lays pieces, so it clears the **unpinned placements**; a grammar over
+/// compositions lays stamps, so it clears the **unpinned stamps** and leaves the author's pieces
+/// alone. Which rows those are is read from the **live map at the moment of commitment**, never
+/// captured when the layout was proposed: an index held across the gap is a stale-index bug waiting
+/// for the first author who places something while a proposal is up.
+///
+/// The removed rows are recorded with their indices in the inverse, so `Cmd+Z` puts the sketch back
+/// where it was rather than at the end of the file.
+///
+/// # Undo
+///
+/// `Undo::Inverse`, and the inverse is this operation's own `delta` parameter — the vocabulary
+/// [`RowDelta`] gives every row-changing operation here. The `delta` form is marked
+/// [`Operation::only_as_undo`], so a bare `layout_accept {"delta": ...}` from an agent is refused:
+/// putting rows back is the undo stack's job, not something an agent may do directly.
+pub mod layout_accept {
+    use super::*;
+    use serde_json::json;
+
+    /// **Keep the proposal, or (as an undo) put rows back.**
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// **The undo's own form.** Present only when this is being called to take a keep back.
+        #[serde(default)]
+        pub delta: Option<RowDelta>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "delta": {
+                        "description": "The rows an undo puts back. Only an undo may set this: to keep the layout on screen, call with no parameters.",
+                        "type": "object"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for keeping a layout: {e}. Call with no \
+                     parameters to keep the proposal on screen."
+                ))
+            })
+        }
+    }
+
+    /// **The preview-only sentence, in one place.** The key path and the operation both say it, and a
+    /// message that differs between them is a message one of them got wrong.
+    pub const PREVIEW_ONLY: &str = "preview only — the game lays these blocks out itself. Esc clears \
+                                    it; to fix a cell, place a tile there and pin it with O.";
+
+    pub struct LayoutAccept;
+
+    impl Operation for LayoutAccept {
+        fn name(&self) -> &'static str {
+            "layout_accept"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).map(|p| p.delta.is_some()).unwrap_or(false)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new("no map is open, so there is nothing to lay a layout on."));
+            };
+            if let Some(delta) = &p.delta {
+                // **Planned against a copy**, so the plan stays pure: the rows are counted, not moved.
+                let mut trial = open.map.clone();
+                delta.apply(&mut trial)?;
+                return Ok(json!({
+                    "map": open.map.name,
+                    "placements": trial.placements.len(),
+                    "stamps": trial.stamps.len(),
+                }));
+            }
+            let Some(proposed) = ctx.proposal.as_ref() else {
+                return Err(Refusal::new(
+                    "there is no layout to keep — propose one first (layout_propose)",
+                ));
+            };
+            if proposed.preview_only {
+                return Err(Refusal::new(PREVIEW_ONLY));
+            }
+            // **What it would clear**, read now. The count is the whole of `docs/ui.md` §3.2's delta:
+            // what changes, beside what is there.
+            let clears = if proposed.composes {
+                open.map.stamps.iter().filter(|s| !s.owned).count()
+            } else {
+                open.map.placements.iter().filter(|p| !p.owned).count()
+            };
+            Ok(json!({
+                "map": open.map.name,
+                "laid": if proposed.composes {
+                    json!({"stamps": proposed.stamps.len()})
+                } else {
+                    json!({"placements": proposed.placements.len()})
+                },
+                "clears": clears,
+                "composes": proposed.composes,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_mut() else {
+                return Err(Refusal::new("no map is open, so there is nothing to lay a layout on."));
+            };
+            let before = open.map.clone();
+
+            // **The undo's form: put the rows back, save, and hand back the delta that undoes it.**
+            if let Some(delta) = &p.delta {
+                let inverse = delta.apply(&mut open.map)?;
+                let (some, taken) = (
+                    inverse.add_placements.len() + inverse.add_stamps.len(),
+                    delta.remove_placements.len(),
+                );
+                let Some(project) = ctx.project.as_ref() else {
+                    return Err(Refusal::new("no project is open."));
+                };
+                let saved = match open.save(project) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        // **The rows go back before the refusal**: the in-memory map and the file
+                        // must not disagree, or the dirty flag says "unsaved" about a change nobody
+                        // made.
+                        open.map = before;
+                        return Err(Refusal::new(format!(
+                            "the rows were put back but the file refused them, so nothing was \
+                             written: {e}"
+                        )));
+                    }
+                };
+                return Ok(Outcome {
+                    summary: format!("put back {some} row(s) and took away {taken}"),
+                    affected: some + delta.remove_placements.len(),
+                    saved,
+                    inverse: Some(json!({ "delta": inverse })),
+                    after: Some(json!({
+                        "map": open.map.name,
+                        "placements": open.map.placements.len(),
+                        "stamps": open.map.stamps.len(),
+                    })),
+                });
+            }
+
+            // **The keep.** Take the proposal, then reproduce the map edit it describes.
+            let Some(taken) = ctx.proposal.take() else {
+                return Err(Refusal::new(
+                    "there is no layout to keep — propose one first (layout_propose)",
+                ));
+            };
+            if taken.preview_only {
+                // **Put it back**, so the screen still has something to clear with Esc: the refusal
+                // must not throw away the very thing it refused to keep.
+                ctx.proposal = Some(taken);
+                return Err(Refusal::new(PREVIEW_ONLY));
+            }
+
+            // **Which rows go, read from the live map.** See the type's documentation for why this is
+            // not captured at propose time.
+            let removed: Vec<Indexed<bevy_emerge_core::map::Placed>> = if taken.composes {
+                Vec::new()
+            } else {
+                open.map
+                    .placements
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| !p.owned)
+                    .map(|(index, row)| Indexed { index, row: row.clone() })
+                    .collect()
+            };
+            let unstamped: Vec<Indexed<bevy_emerge_core::composition::Stamped>> = if taken.composes {
+                open.map
+                    .stamps
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| !s.owned)
+                    .map(|(index, row)| Indexed { index, row: row.clone() })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            // Descending, so removing an earlier row cannot shift a later one out from under us.
+            for row in removed.iter().rev() {
+                open.map.placements.remove(row.index);
+            }
+            for row in unstamped.iter().rev() {
+                open.map.stamps.remove(row.index);
+            }
+
+            let count = taken.placements.len();
+            let stamped = taken.stamps.len();
+            let added: Vec<String> = taken.placements.iter().map(|p| p.id.clone()).collect();
+            let added_stamps: Vec<String> = taken.stamps.iter().map(|s| s.id.clone()).collect();
+            open.map.placements.extend(taken.placements);
+            open.map.stamps.extend(taken.stamps);
+
+            // **A save failure restores the map AND the proposal**, so a refusal leaves the screen
+            // exactly as it was and the person can try again or fix the file.
+            let Some(project) = ctx.project.as_ref() else {
+                open.map = before;
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map = before;
+                // The rows are back in the proposal, rebuilt from what was just written into it.
+                ctx.proposal = Some(crate::editor::Proposed {
+                    composes: taken.composes,
+                    placements: added
+                        .iter()
+                        .filter_map(|id| open.map.placements.iter().find(|p| &p.id == id).cloned())
+                        .collect(),
+                    stamps: added_stamps
+                        .iter()
+                        .filter_map(|id| open.map.stamps.iter().find(|s| &s.id == id).cloned())
+                        .collect(),
+                    cell: taken.cell,
+                    preview_only: taken.preview_only,
+                    generation: taken.generation,
+                });
+                return Err(Refusal::new(format!(
+                    "the layout was laid but the file refused it, so nothing was written: {e}"
+                )));
+            }
+
+            let inverse = RowDelta {
+                remove_placements: added,
+                remove_stamps: added_stamps,
+                add_placements: removed,
+                add_stamps: unstamped,
+            };
+            Ok(Outcome {
+                summary: if taken.composes {
+                    format!("kept the layout: {stamped} stamped")
+                } else {
+                    format!("kept the layout: {count} placed")
+                },
+                affected: count + stamped,
+                saved: true,
+                inverse: Some(json!({ "delta": inverse })),
+                after: Some(json!({
+                    "map": open.map.name,
+                    "placements": open.map.placements.len(),
+                    "stamps": open.map.stamps.len(),
+                })),
+            })
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            Some(json!({
+                "map": open.map.name,
+                "placements": open.map.placements.len(),
+                "stamps": open.map.stamps.len(),
+            }))
+        }
+    }
+}
+
+/// **Throw the layout away** — `Esc`, and the agent's half of the same door.
+///
+/// The map is untouched by a proposal, so throwing one away is not an undo: it writes nothing and
+/// records nothing to take back. It is a verb because *dropping the offer* is an act with a receipt,
+/// and because an agent that proposed a layout and thought better of it needs a way to say so.
+pub mod layout_discard {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {}
+
+    pub struct LayoutDiscard;
+
+    impl Operation for LayoutDiscard {
+        fn name(&self) -> &'static str {
+            "layout_discard"
+        }
+
+        /// Nothing is written, so there is nothing to take back.
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({"type": "object", "additionalProperties": false, "properties": {}})
+        }
+
+        fn plan(&self, ctx: &Ctx, _params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            if ctx.proposal.is_none() {
+                return Err(Refusal::new("there is no layout to throw away"));
+            }
+            Ok(json!({"map": ctx.open.as_ref().map(|o| o.map.name.clone())}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, _params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            if ctx.proposal.take().is_none() {
+                return Err(Refusal::new("there is no layout to throw away"));
+            }
+            Ok(Outcome {
+                summary: "layout thrown away — the map is as it was".to_owned(),
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(json!({"map": ctx.open.as_ref().map(|o| o.map.name.clone())})),
+            })
+        }
+    }
+}
+
 /// **Every operation the editor knows, in one list.**
 ///
 /// **The one list.** The MCP tool surface, the parity test and the log's vocabulary are all read
@@ -725,6 +1205,9 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
     vec![
         Box::new(map_create::MapCreate),
         Box::new(map_set_settings::MapSetSettings),
+        Box::new(layout_propose::LayoutPropose),
+        Box::new(layout_accept::LayoutAccept),
+        Box::new(layout_discard::LayoutDiscard),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
@@ -815,7 +1298,7 @@ fn dispatch_as(
         outcome: "applied".to_owned(),
         refusal: None,
         result: Some(outcome.summary.clone()),
-        rng_seed: None,
+        rng_seed: op.rng_seed(params),
         rules_hash: None,
         undoes: undoes.map(str::to_owned),
         inverse: outcome.inverse.clone(),

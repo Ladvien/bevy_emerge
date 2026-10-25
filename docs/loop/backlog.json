@@ -1007,6 +1007,22 @@
           "status": "open"
         }
       ]
+    },
+    {
+      "id": "E-076",
+      "kind": "enhancement",
+      "area": "undo",
+      "title": "An agent's undo leaves nothing to redo: the person cannot put back what an agent took back",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Found writing S1.4's test: after `emerge/operation_undo`, `redo_for_test` answers 'nothing to redo'. `operation_undo` calls `state.forget_line(..)` when a change is taken back instead of joining the history (B-019's rule: the next Cmd+Z should reach the newest change still in effect, not one the log no longer holds), and the redo stack is therefore empty. For the person's own Cmd+Z the inverse goes on the redo stack as a `Logged` entry, so a person can redo their own undo and cannot redo an agent's."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs::operation_undo (the `forget_line` branch); measured in crates/bevy_emerge_mapper/tests/an_agent_can_generate_a_layout.rs, where the test was narrowed to the inverse's own contract rather than asserting a redo that does not exist",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
     }
   ]
 }
