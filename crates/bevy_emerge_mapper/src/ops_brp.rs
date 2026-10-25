@@ -890,7 +890,17 @@ fn operation_apply(
     {
         params["seed"] = json!(state.next_seed());
     }
+    // **What the change broke is measured against what was already there (E-074).** Taken before the
+    // dispatch because `ctx` still holds the project and the map it is about to change, and consumed
+    // by `put_back` below.
+    let checked = crate::checks::wanted(&p.operation);
+    let before = crate::checks::before(&p.operation, &ctx);
     let applied = ops::dispatch(&mut ctx, &p.operation, &params);
+    // **And what is there now**, while `ctx` still owns both. `None` unless the operation applied and
+    // changes a document: a refusal changed nothing, and a preview never reaches here.
+    let checks = (checked && matches!(applied, Ok(ops::Applied::Done { .. })))
+        .then(|| crate::checks::find(&ctx).map(|after| crate::checks::report(before.as_ref(), &after)))
+        .flatten();
     let carried = ctx.proposal.take();
     // **A project the operation LOADED is installed here, before the map goes back.** `map_open` can
     // load the project from the menu's root — that is what lets an agent make a map and then work in
@@ -1085,6 +1095,10 @@ fn operation_apply(
                 "summary": outcome.summary,
                 "affected": outcome.affected,
                 "saved": outcome.saved,
+                // **The brief's "validators run after every mutation; their failures appear in the
+                // tool result" (E-074).** `null` means the operation changes no document, or no map
+                // is open. A finding is not a refusal — the change happened and `outcome` says so.
+                "checks": checks,
                 // **The id the agent cites and the human reverts by.** The brief asks for it on every
                 // mutating tool, and an operation whose id nobody can name is an operation nobody can
                 // present.

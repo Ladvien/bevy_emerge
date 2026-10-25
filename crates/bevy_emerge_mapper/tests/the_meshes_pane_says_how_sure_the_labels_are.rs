@@ -192,22 +192,37 @@ fn ancestors(world: &World, mut e: Entity) -> Vec<Entity> {
 /// **The labels row's laid-out box and the INSPECTOR panel's box, in physical pixels**, as
 /// `(left, right)` pairs, with the panel's padding already taken off its right edge.
 ///
-/// The panel is the first `Ground` ancestor of the INSPECTOR title. The labels row must be inside it.
+/// The panel is derived **from the row**, not from a title: the Kit door spawns **two** panels titled
+/// exactly `"INSPECTOR"` — the Tiles panel (`tiles.rs`:4339) and the Anim panel (`anim_tab.rs`:343),
+/// which is spawned `Display::None` and stays in the world. Looking the title up by string took
+/// whichever came first in ECS order, and after a door crossing's teardown that was sometimes the
+/// hidden Anim panel, so the assertion compared the row against a panel it never sat in.
 fn labels_row_and_inspector_x(app: &mut App) -> ((f32, f32), (f32, f32)) {
     let world = app.world_mut();
     let find_text = |world: &mut World, want: &dyn Fn(&str) -> bool| {
         let mut q = world.query::<(Entity, &Text)>();
         q.iter(world).find(|(_, t)| want(&t.0)).map(|(e, _)| e)
     };
-    let title = find_text(world, &|t| t == "INSPECTOR").expect("the INSPECTOR title is drawn");
     let labels = find_text(world, &|t| t.contains("confidence ")).expect("the labels row is drawn");
-    let panel = ancestors(world, title)
+    let panel = ancestors(world, labels)
         .into_iter()
         .find(|&a| world.get::<bevy_emerge_mapper::chrome::Ground>(a).is_some())
-        .expect("the INSPECTOR title sits in a panel");
+        .expect("the labels row sits in a panel");
+    // The panel the row is in must be the one whose title a person can read, so the two
+    // `INSPECTOR` titles are told apart by having a laid-out size: zero size is this crate's
+    // visibility test (`tests/headless.rs`).
+    let titles: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &Text, &ComputedNode)>();
+        q.iter(world)
+            .filter(|(_, t, node)| t.0 == "INSPECTOR" && node.size() != Vec2::ZERO)
+            .map(|(e, _, _)| e)
+            .collect()
+    };
     assert!(
-        ancestors(world, labels).contains(&panel),
-        "the labels row is not inside the INSPECTOR panel"
+        titles
+            .iter()
+            .any(|&e| ancestors(world, e).contains(&panel)),
+        "the labels row's panel is not the visible INSPECTOR"
     );
     let x_span = |e: Entity| {
         let node = world.get::<ComputedNode>(e).expect("a laid-out node");

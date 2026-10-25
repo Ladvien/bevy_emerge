@@ -347,6 +347,11 @@ fn drive_sequencer(
         run.applied = true;
         if let Some(op) = run.operation.clone() {
             let mut ctx = crate::ops_brp::take(&operated.project, &operated.open);
+            // **What the turn broke, measured as `emerge/operation_apply` measures it (E-074).** The
+            // two front ends answer the same question with the same words, so a sequence's frames and
+            // its answer cannot disagree about what the change introduced.
+            let checked = crate::checks::wanted(&op.name);
+            let before = crate::checks::before(&op.name, &ctx);
             // **Through the registry, and not around it.** The sequencer is a way of *when* an
             // operation happens, and it must not be a second way of *what* happens.
             // **A door is refused before its plan, as `emerge/operation_apply` refuses it (cycle 8).**
@@ -375,6 +380,12 @@ fn drive_sequencer(
                 Some(why) => Ok(crate::ops::Applied::Refused(crate::ops::Refusal::new(why))),
                 None => crate::ops::dispatch(&mut ctx, &op.name, &op.parameters),
             };
+            let checks = (checked && matches!(outcome, Ok(crate::ops::Applied::Done { .. })))
+                .then(|| {
+                    crate::checks::find(&ctx)
+                        .map(|after| crate::checks::report(before.as_ref(), &after))
+                })
+                .flatten();
             // **Redrawn, as `emerge/operation_apply` is.** The write-back is the watcher's own
             // write and the watcher ignores it, so a saved turn would stay off the screen until
             // some unrelated redraw. The sequence's frames are the proof, and they would show
@@ -440,7 +451,7 @@ fn drive_sequencer(
                         .as_ref()
                         .and_then(|after| after["waiting"].as_str())
                         .filter(|_| op.name == "door_open");
-                    json!({"outcome": if waiting.is_some() { "waiting" } else { "applied" }, "waiting_on": waiting, "summary": outcome.summary, "saved": outcome.saved})
+                    json!({"outcome": if waiting.is_some() { "waiting" } else { "applied" }, "waiting_on": waiting, "summary": outcome.summary, "saved": outcome.saved, "checks": checks})
                 }
                 Ok(crate::ops::Applied::Refused(e)) => {
                     json!({"outcome": "refused", "refusal": e.0})

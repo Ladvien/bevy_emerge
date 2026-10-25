@@ -50,6 +50,7 @@ pub mod args;
 pub mod badges;
 pub mod build;
 pub mod chooser;
+pub mod checks;
 pub mod chrome;
 pub mod compass;
 pub mod compose;

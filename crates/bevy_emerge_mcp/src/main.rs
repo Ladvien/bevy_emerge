@@ -507,6 +507,10 @@ impl Emerge {
                        appends a line to the operation log. Set dry_run to true to see \
                        what would change without changing it. Returns the operation's id, which \
                        can be cited in a report to the developer, and the log's own record of it. \
+                       When the operation changes a document and a map is open, the answer's \
+                       checks field names the edge faults and overlapping placements the change \
+                       introduced (new, at most 20 of each) with new_total, and each kind's total \
+                       on the whole map; it is null otherwise. \
                        The operation replaces the values it names rather than adding to them, \
                        so it is marked destructive. Take a change back with \
                        emerge_undo_operation and the returned id.",
