@@ -333,7 +333,11 @@ pub struct Fault {
 }
 
 /// N, E, S, W as an author reads them.
-fn dir_name(dir: Dir) -> &'static str {
+///
+/// Public because a report that names a fault's direction must spell it the one way this crate
+/// spells it: a second copy in the editor is a second spelling, and the two drift the first time
+/// one of them gains a word.
+pub fn dir_name(dir: Dir) -> &'static str {
     match dir {
         N => "N",
         E => "E",

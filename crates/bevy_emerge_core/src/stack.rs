@@ -630,6 +630,62 @@ pub fn blockers(
     blocker_indices(map, library, d, at, yaw, tip, on).collect()
 }
 
+/// **Every pair of placements whose plans interpenetrate on the same layer** — the overlap rule,
+/// over the whole map, as `(i, j)` indices into `map.placements` with `i < j`, ascending.
+///
+/// The rule [`blocking`] applies to a piece that is about to be placed, asked of what is already
+/// there. A map can hold an overlap that the click path would have refused: a map written by a
+/// generator, a patch or a hand edit, a piece turned after its neighbour was laid, a kit whose
+/// measurement changed under a map that was authored against the old one. Nothing asked this
+/// question before, so an overlap that was already on disk was invisible.
+///
+/// # Why not `blockers` per placement
+///
+/// That is the same rule, and it is the wrong shape here: `blockers` resolves a guest descriptor
+/// once and every other placement once per call, so asking it about each placement resolves every
+/// descriptor `n` times and does `n²` separating-axis tests. This does `n` resolutions and then
+/// `n²` cheap tests, which is the same answer for a fraction of the work.
+///
+/// # Pairs, not placements
+///
+/// A pair, because an overlap is a property of two placements and naming one of them would make the
+/// answer depend on which end was asked about. `i < j` and ascending, so two runs over the same map
+/// produce the same list, and a caller can diff two maps' answers as sets.
+///
+/// A placement whose descriptor the library does not have, or whose extents are unmeasured, takes
+/// part in no pair — the same "unknown is not everywhere" rule [`covers`] states. Reporting it is
+/// [`crate::vocab::validate_library`]'s job, not this one's.
+pub fn overlaps(map: &Map, library: &Library) -> Vec<(usize, usize)> {
+    // **Resolved once each**, because a descriptor's plan box depends on its own extents and yaw and
+    // on nothing else. `None` is a placement this pass cannot speak about, kept in step with the
+    // index so a pair names the map's own order.
+    let resolved: Vec<Option<(std::borrow::Cow<'_, Descriptor>, PlanRect)>> = map
+        .placements
+        .iter()
+        .map(|p| {
+            let d = descriptor_of(library, p)?;
+            let plan = plan_box(&d, p.at, p.yaw, p.tip)?;
+            Some((d, plan))
+        })
+        .collect();
+    let mut out = Vec::new();
+    for i in 0..map.placements.len() {
+        let Some((di, bi)) = &resolved[i] else {
+            continue;
+        };
+        for j in (i + 1)..map.placements.len() {
+            let Some((dj, bj)) = &resolved[j] else {
+                continue;
+            };
+            let (pi, pj) = (&map.placements[i], &map.placements[j]);
+            if same_layer(di, pi.on.as_deref(), dj, pj.on.as_deref()) && plans_overlap(*bi, *bj) {
+                out.push((i, j));
+            }
+        }
+    }
+    out
+}
+
 fn blocker_indices<'a>(
     map: &'a Map,
     library: &'a Library,
@@ -1474,6 +1530,47 @@ mod tests {
         let first = blocking(&m, &l, &table(), (0.5, 0.0), 0.0, (0, 0), None);
         assert_eq!(first.map(|p| p.id.as_str()), Some("t1"));
         assert!(blockers(&m, &l, &table(), (3.0, 0.0), 0.0, (0, 0), None).is_empty());
+    }
+
+    /// **The whole-map pass names a lapped pair once, in map order.** A table is 1.6 wide, so a
+    /// second at x = 1.0 is inside it; the answer is the one pair, and no piece with itself.
+    #[test]
+    fn the_overlap_pass_names_a_lapped_pair_once() {
+        let m = map(vec![
+            at("t1", "table", None),
+            Placed { at: (1.0, 0.0), ..at("t2", "table", None) },
+        ]);
+        let l = lib(vec![table(), lamp()]);
+        assert_eq!(overlaps(&m, &l), vec![(0, 1)]);
+    }
+
+    /// **Flush is legal here too**, because it is the same rule `blocking` applies to a placed piece:
+    /// kitbashing lays wall segments exactly end to end, and a whole-map pass that called those an
+    /// overlap would report every assembled wall in the project.
+    #[test]
+    fn the_overlap_pass_lets_flush_pieces_be() {
+        let m = map(vec![
+            at("t1", "table", None),
+            Placed { at: (1.6, 0.0), ..at("t2", "table", None) },
+        ]);
+        let l = lib(vec![table(), lamp()]);
+        assert!(overlaps(&m, &l).is_empty(), "flush end-to-end is not an overlap");
+    }
+
+    /// **A rider and its host are not an overlap.** The lamp's plan sits inside the table's, which is
+    /// the ordinary case: a surface piece is *meant* to be over its host. `same_layer` is what makes
+    /// the pass silent here, and this test is the one that fails if that table ever changes.
+    #[test]
+    fn the_overlap_pass_ignores_a_rider_on_its_host() {
+        let m = map(vec![
+            at("t1", "table", None),
+            Placed { at: (0.0, 0.0), ..at("l1", "lamp", Some("t1")) },
+        ]);
+        let l = lib(vec![table(), lamp()]);
+        assert!(
+            overlaps(&m, &l).is_empty(),
+            "a lamp on a table is not a table inside a table"
+        );
     }
 
     /// Layers pass each other: the floor tile a crate stands on is not in its way, two lamps
