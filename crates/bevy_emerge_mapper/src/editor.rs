@@ -7309,7 +7309,7 @@ pub fn send_to_tiles_for_test(
 
 /// The tail of a descriptor id, so a generated placement id reads as `crate@7` rather than
 /// `kenney_prototype-kit/crate@7`.
-fn short_id(descriptor_id: &str) -> &str {
+pub fn short_id(descriptor_id: &str) -> &str {
     descriptor_id.rsplit('/').next().unwrap_or(descriptor_id)
 }
 
@@ -7644,18 +7644,7 @@ fn keys(
     // tab that only committed the composition answered "saved" to an author who had twenty unsaved
     // Map edits behind them.
     if keys::just_pressed(&keyboard, *live, Action::Save) && live.0 != keys::Context::Tiles {
-        match open.save(&project) {
-            Ok(()) => {
-                let path = open.map_path.display().to_string();
-                state.status.note(format!("saved {path}"));
-                info!("saved {path}");
-            }
-            // The save refuses on an invalid map rather than writing one, and says which rule.
-            Err(e) => {
-                state.status.problem(format!("NOT SAVED: {e}"));
-                error!("{e}");
-            }
-        }
+        save_map(&project, &mut open, &mut state);
         return;
     }
 
@@ -12184,6 +12173,110 @@ fn accept_layout(
     }
 }
 
+/// **`Cmd+S`'s half**: dispatch `map_save` and report what it said.
+///
+/// The save itself is `OpenMap::save`, unchanged — it validates and expands the stamps the way the
+/// game does, so a map the game could not load is refused here rather than written. What changed is
+/// that the act has a name an agent can call, and that the two front ends cannot drift.
+fn save_map(project: &Project, open: &mut OpenMap, state: &mut EditorState) {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(&mut ctx, "map_save", &serde_json::json!({}));
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            state.status.note(outcome.summary.clone());
+            info!("{}", outcome.summary);
+        }
+        Ok(_) => {}
+        // The save refuses on an invalid map rather than writing one, and says which rule.
+        Err(e) => {
+            state.status.problem(e.0.clone());
+            error!("{}", e.0);
+        }
+    }
+}
+
+/// **`F`'s half**: dispatch `fill` from the cursor's map-space point.
+///
+/// The brush, its facing and its tip are the key path's; the flood, its refusals and the cap's route
+/// are the operation's. The pieces are spawned here rather than by the operation, because an
+/// operation does not own entities — the same split every placement operation makes.
+// The same budget note as `flood_from_cursor`: the six things a fill needs are genuinely six — the
+// entities to spawn, the map and project to change, the state for the receipt, the brush it is
+// about, and where. Bundling them into a struct would hide them from the ratchet tests that read
+// system signatures, which is the reason `keys` keeps its own `SystemParam`s named in the source.
+#[allow(clippy::too_many_arguments)]
+fn fill_at(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    brush: &bevy_emerge_core::descriptor::Descriptor,
+    at: (f32, f32),
+    pitch: f32,
+) {
+    let first = open.map.placements.len();
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, empty_map_for_take())),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let applied = crate::ops::dispatch(
+        &mut ctx,
+        "fill",
+        &serde_json::json!({
+            "piece": brush.id,
+            "at": [at.0, at.1],
+            "yaw": state.brush_yaw,
+            "tip": [state.brush_tip.0, state.brush_tip.1],
+            "pitch": pitch,
+        }),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match applied {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            spawn_range(commands, assets, project, open, state, first);
+            state.next_id = next_id_after(&open.map);
+            state.record_logged(operation_id, outcome.summary.clone(), false);
+            // **A capped fill is a problem, not a receipt**: it looks exactly like a finished one,
+            // and the only thing that tells them apart is this sentence.
+            let truncated = outcome
+                .after
+                .as_ref()
+                .and_then(|a| a.get("truncated"))
+                .and_then(|t| t.as_bool())
+                .unwrap_or(false);
+            if truncated {
+                state.status.problem(outcome.summary);
+            } else {
+                state.status.note(outcome.summary);
+            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            error!("bevy_emerge_mapper: {}", e.0);
+            state.status.problem(e.0);
+        }
+    }
+}
+
 /// **`Esc`'s half**: dispatch `layout_discard` and report what it said.
 ///
 /// The map is untouched by a proposal, so this writes nothing and records nothing to take back. It is
@@ -12255,78 +12348,23 @@ fn flood_from_cursor(
             .note("nothing armed to fill with — pick a piece from the palette".to_owned());
         return;
     };
-
-    let start_id = state.next_id;
-    let mut n = start_id;
-    let short = short_id(&brush.id).to_owned();
-    let filled = match crate::fill::flood(
-        &open.map,
+    // **The brush, the facing and the tip are the key's; the flood is the operation's.** One
+    // function for both front ends, so an agent's fill and a person's cannot disagree about what a
+    // fill is, what it refuses, or where the cap's route leads.
+    // **The point is read before the map is handed over**, because `fill_at` takes the `OpenMap`
+    // mutably and holding a read of it across the call is the borrow conflict this line avoids.
+    let at = open.map.to_map_space((hit.x, hit.z));
+    // `project`, `open` and `state` are already `&`/`&mut` here, so no re-borrow.
+    fill_at(
+        commands,
+        assets,
+        project,
+        open,
+        state,
         &brush,
-        open.map.to_map_space((hit.x, hit.z)),
-        state.brush_yaw,
-        state.brush_tip,
+        at,
         pitch,
-        || {
-            n += 1;
-            format!("{short}@{n}")
-        },
-    ) {
-        Ok(f) => f,
-        // **A refusal is a `problem`, not a receipt.** "Outside the map" and "something is already
-        // here" are both things the author **needs told** rather than worked around — and a
-        // receipt is the wrong place to tell them, because a receipt is one dim row that the next
-        // receipt overwrites and that a tab switch erases.
-        //
-        // **And this one was measured invisible.** The flood refused; the INSPECTOR's `Field::Last`
-        // row was empty in a capture; and the author had no way to know the fill had not happened.
-        // The ghost's refusal for the same piece — the same fact, from the same piece — was plainly
-        // visible in the amber hint line of the receipt row, because the ghost writes a different field.
-        Err(e) => {
-            state.status.problem(e);
-            return;
-        }
-    };
-    state.next_id = n;
-
-    let count = filled.placements.len();
-    let first = open.map.placements.len();
-    open.map.placements.extend(filled.placements);
-    spawn_range(commands, assets, project, &*open, state, first);
-    // **One undo entry for the whole fill.** A fill is one act to the person who performed it, and an
-    // undo stack that made them press Ctrl+Z 1,408 times would be a stack that models the code rather
-    // than the work.
-    if count > 0 {
-        state.record(Undo::Added { count });
-    }
-    // A cap that stopped the fill has to say so — a truncated fill looks exactly like a finished one,
-    // which is the whole argument for it being the loud slot rather than the quiet one.
-    if filled.truncated {
-        // **The message names a route that works.**
-        //
-        // It used to say *"fill again to continue"*, and **the second fill could not continue**:
-        // the flood will not start on a cell that already holds something, and the cell the author
-        // clicks is exactly the cell the first fill filled. So the author was told to do a thing
-        // that was refused — and the refusal went to the receipt slot, so **they were told nothing
-        // at all**. Measured, and pinned by `fill::tests::the_caps_promise_cannot_be_kept_by_a_second_fill`.
-        //
-        // **The route that works is a fill from a new cell**, because the flood stops at anything
-        // already placed — and the first fill's pieces are anything already placed. A second flood
-        // from a different empty cell lays the next {MAX_CELLS} and truncates again. Measured: 4,096
-        // more.
-        //
-        // **This is the same sentence the box fill says** (`fill::CAP_ROUTE`), because the two
-        // fills are the same operation and a message that differs between them is a message one
-        // of them got wrong.
-        state.status.problem(format!(
-            "filled {count} and STOPPED at the {} cell cap. {}",
-            crate::fill::MAX_CELLS,
-            crate::fill::CAP_ROUTE
-        ));
-    } else {
-        state
-            .status
-            .note(format!("filled {count} with {}", brush.id));
-    }
+    );
 }
 
 // ── the ghost ────────────────────────────────────────────────────────────────────────────────────

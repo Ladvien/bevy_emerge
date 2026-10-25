@@ -900,6 +900,8 @@ impl Action {
                 Some("layout_propose")
             }
             Action::AcceptProposal => Some("layout_accept"),
+            Action::Fill => Some("fill"),
+            Action::Save => Some("map_save"),
             _ => None,
         }
     }

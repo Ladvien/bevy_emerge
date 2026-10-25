@@ -162,12 +162,19 @@ fn the_caps_message_names_a_route_that_works() {
 /// wrong** — and this run's measurement is that the flood's was wrong.
 #[test]
 fn the_two_fills_say_the_same_kind_of_thing() {
-    let src = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
-    let route_uses = src.matches("crate::fill::CAP_ROUTE").count();
+    // **Both files, because the flood's message moved.** Since S-001 the flood's cap sentence is
+    // written by `ops::fill` — one operation with two front ends — so counting only `editor.rs`
+    // would report one use and fail on the consolidation rather than on a disagreement. What this
+    // guards is unchanged: *both* fills name the same route. The box fill's is still in `editor.rs`.
+    let src: String = ["src/editor.rs", "src/ops.rs"]
+        .iter()
+        .map(|f| std::fs::read_to_string(f).unwrap_or_else(|e| panic!("{f}: {e}")))
+        .collect();
+    let route_uses = src.matches("fill::CAP_ROUTE").count();
     assert!(
         route_uses >= 2,
-        "the two fills' cap messages do not both name `fill::CAP_ROUTE` — they use it {route_uses} \\
-         times. A message that differs between two ways of doing the same thing is a message one \\
+        "the two fills' cap messages do not both name `fill::CAP_ROUTE` — they use it {route_uses} \
+         times. A message that differs between two ways of doing the same thing is a message one \
          of them got wrong."
     );
 }

@@ -1197,6 +1197,358 @@ pub mod layout_discard {
     }
 }
 
+/// **Flood fill from a cell** — `F`, and the agent's half of it.
+///
+/// The fill itself is `fill::flood`, unchanged: it refuses a piece that mounts on something, it stops
+/// at anything already placed, and it stops at `MAX_CELLS` with a route to carry on. What was missing
+/// was a name in the registry, so an agent could not lay a floor.
+///
+/// # `at` is a cell, not a pixel
+///
+/// The start point is **the same value the click passes to `flood`** — `open.map.to_map_space((x, z))`
+/// from the cursor — so a caller is speaking map space in metres. A generator that reads placements
+/// sits on the 1 m grid; a person's brush may be on a finer one, and the pitch argument is theirs.
+pub mod fill {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// **What to lay.** A descriptor id from the project's library.
+        ///
+        /// **Optional in the type and required in practice**, because the undo's form carries only
+        /// `delta` — `take_back` re-dispatches an operation with the inverse its log line recorded,
+        /// and a `required` field would make the undo unparseable. The refusal is made by `plan`, by
+        /// name, when a fill is asked for without a piece.
+        #[serde(default)]
+        pub piece: String,
+        /// **Where the flood starts**, in map space in metres. Absent only in the undo's form.
+        #[serde(default)]
+        pub at: (f32, f32),
+        #[serde(default)]
+        pub yaw: f32,
+        #[serde(default)]
+        pub tip: (u8, u8),
+        /// The cell pitch. Omitted means the project's default snap.
+        #[serde(default)]
+        pub pitch: Option<f32>,
+        /// **The undo's own form**: the placements a fill added, to be taken away again.
+        #[serde(default)]
+        pub delta: Option<RowDelta>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["piece", "at"],
+                "properties": {
+                    "piece": {
+                        "description": "The piece to lay, by descriptor id. emerge_list_pieces lists them. A piece that mounts on a surface or a wall cannot be filled with, because a fill covers open floor.",
+                        "type": "string"
+                    },
+                    "at": {
+                        "description": "Where the flood starts, in map space in metres, as [x, z]. The same value a click passes: not a screen position.",
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 2,
+                        "maxItems": 2
+                    },
+                    "yaw": {
+                        "description": "The facing every filled piece takes, in degrees. Omit for 0.",
+                        "type": "number"
+                    },
+                    "tip": {
+                        "description": "Which variant of a tipped piece to lay, as [a, b]. Omit for [0, 0].",
+                        "type": "array",
+                        "items": {"type": "integer", "minimum": 0},
+                        "minItems": 2,
+                        "maxItems": 2
+                    },
+                    "pitch": {
+                        "description": "The cell pitch in metres. Omit for the project's default snap.",
+                        "type": "number"
+                    },
+                    "delta": {
+                        "description": "The rows an undo takes away. Only an undo may set this: to fill, call with `piece` and `at`.",
+                        "type": "object"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for a fill: {e}. The fields are `piece`, `at`, \
+                     `yaw`, `tip`, `pitch` and `delta`, and `piece` and `at` are required."
+                ))
+            })
+        }
+    }
+
+    pub struct Fill;
+
+    impl Operation for Fill {
+        fn name(&self) -> &'static str {
+            "fill"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).map(|p| p.delta.is_some()).unwrap_or(false)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_ref()) else {
+                return Err(Refusal::new("no map is open, so there is nowhere to fill."));
+            };
+            if let Some(delta) = &p.delta {
+                let mut trial = open.map.clone();
+                delta.apply(&mut trial)?;
+                return Ok(json!({
+                    "map": open.map.name,
+                    "placements": trial.placements.len(),
+                }));
+            }
+            let Some(descriptor) = project.library.get(&p.piece) else {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a piece in this project — emerge_list_pieces lists them",
+                    p.piece
+                )));
+            };
+            let pitch = p
+                .pitch
+                .unwrap_or_else(|| default_pitch(project.lattice.snap_divisor));
+            // **A dry run counts the cells and writes nothing.** The mint is the same shape the click
+            // uses, so the count is the count the fill would really lay.
+            let short = crate::editor::short_id(&descriptor.id).to_owned();
+            let mut n = crate::editor::next_id_after(&open.map);
+            let filled = crate::fill::flood(
+                &open.map,
+                descriptor,
+                p.at,
+                p.yaw,
+                p.tip,
+                pitch,
+                || {
+                    n += 1;
+                    format!("{short}@{n}")
+                },
+            )
+            .map_err(Refusal::new)?;
+            Ok(json!({
+                "map": open.map.name,
+                "would_fill": filled.placements.len(),
+                "truncated": filled.truncated,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_mut() else {
+                return Err(Refusal::new("no map is open, so there is nowhere to fill."));
+            };
+            let before = open.map.clone();
+
+            if let Some(delta) = &p.delta {
+                let inverse = delta.apply(&mut open.map)?;
+                let taken = inverse.add_placements.len();
+                let Some(project) = ctx.project.as_ref() else {
+                    return Err(Refusal::new("no project is open."));
+                };
+                let saved = match open.save(project) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        open.map = before;
+                        return Err(Refusal::new(format!(
+                            "the fill was taken away but the file refused it, so nothing was \
+                             written: {e}"
+                        )));
+                    }
+                };
+                return Ok(Outcome {
+                    summary: format!("took the fill away: {taken} piece(s)"),
+                    affected: taken,
+                    saved,
+                    inverse: Some(json!({ "delta": inverse })),
+                    after: Some(json!({
+                        "map": open.map.name,
+                        "placements": open.map.placements.len(),
+                        "truncated": false,
+                    })),
+                });
+            }
+
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            let Some(descriptor) = project.library.get(&p.piece).cloned() else {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a piece in this project — emerge_list_pieces lists them",
+                    p.piece
+                )));
+            };
+            let pitch = p
+                .pitch
+                .unwrap_or_else(|| default_pitch(project.lattice.snap_divisor));
+            let short = crate::editor::short_id(&descriptor.id).to_owned();
+            let mut n = crate::editor::next_id_after(&open.map);
+            let filled = crate::fill::flood(
+                &open.map,
+                &descriptor,
+                p.at,
+                p.yaw,
+                p.tip,
+                pitch,
+                || {
+                    n += 1;
+                    format!("{short}@{n}")
+                },
+            )
+            .map_err(Refusal::new)?;
+            let count = filled.placements.len();
+            let added: Vec<String> = filled.placements.iter().map(|p| p.id.clone()).collect();
+            open.map.placements.extend(filled.placements);
+
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map = before;
+                return Err(Refusal::new(format!(
+                    "the fill was laid but the file refused it, so nothing was written: {e}"
+                )));
+            }
+            // **The cap's route is carried in the summary**, because a truncated fill looks exactly
+            // like a finished one and the message that says so is the only thing that distinguishes
+            // them. `CAP_ROUTE` names a route that works: a fill from a *new* cell.
+            let summary = if filled.truncated {
+                format!(
+                    "filled {count} and STOPPED at the {} cell cap. {}",
+                    crate::fill::MAX_CELLS,
+                    crate::fill::CAP_ROUTE
+                )
+            } else {
+                format!("filled {count} with {}", p.piece)
+            };
+            Ok(Outcome {
+                summary,
+                affected: count,
+                saved: true,
+                inverse: Some(json!({ "delta": { "remove_placements": added } })),
+                after: Some(json!({
+                    "map": open.map.name,
+                    "placements": open.map.placements.len(),
+                    "truncated": filled.truncated,
+                })),
+            })
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            Some(json!({
+                "map": open.map.name,
+                "placements": open.map.placements.len(),
+            }))
+        }
+
+    }
+
+    /// The project's own default cell pitch, so an omitted `pitch` fills on the grid the kits are
+    /// authored on rather than on whatever the last brush used.
+    fn default_pitch(snap_divisor: u32) -> f32 {
+        bevy_emerge_core::grid::SnapLevel::default().pitch(snap_divisor)
+    }
+}
+
+/// **Save the open map** — `Cmd+S` on the Map door, and the agent's half of it.
+///
+/// The save is `OpenMap::save`, unchanged: it validates, expands the stamps the way the game does,
+/// and refuses rather than writing a file the game cannot load. The value of the operation is that an
+/// agent can *finish*: every mutating operation already writes, but a proposal that was kept and a
+/// brush that was armed are different acts, and "save now" is what a person presses when they are
+/// done.
+///
+/// # Undo
+///
+/// `Undo::None`: a save changes no document. There is nothing to take back, and taking it back would
+/// mean restoring a file the author had already replaced.
+pub mod map_save {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {}
+
+    pub struct MapSave;
+
+    impl Operation for MapSave {
+        fn name(&self) -> &'static str {
+            "map_save"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({"type": "object", "additionalProperties": false, "properties": {}})
+        }
+
+        fn plan(&self, ctx: &Ctx, _params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open, so there is nothing to save."));
+            };
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new("no map is open, so there is nothing to save."));
+            };
+            let path = project
+                .maps_dir
+                .join(bevy_emerge_core::naming::map_file_name(&open.map.name));
+            Ok(json!({
+                "map": open.map.name,
+                "path": path.to_string_lossy(),
+                "dirty": open.dirty(),
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_mut()) else {
+                return Err(Refusal::new("no map is open, so there is nothing to save."));
+            };
+            match open.save(project) {
+                Ok(()) => Ok(Outcome {
+                    summary: format!("saved {}", plan["path"].as_str().unwrap_or_default()),
+                    affected: 0,
+                    saved: true,
+                    inverse: None,
+                    after: Some(json!({
+                        "map": open.map.name,
+                        "path": plan["path"],
+                        "dirty": false,
+                    })),
+                }),
+                // **A refusal of the whole operation**, not a half-applied change that reports
+                // success: the map is unchanged and the file is unchanged.
+                Err(e) => Err(Refusal::new(format!("NOT SAVED: {e}"))),
+            }
+        }
+    }
+}
+
 /// **Every operation the editor knows, in one list.**
 ///
 /// **The one list.** The MCP tool surface, the parity test and the log's vocabulary are all read
@@ -1208,6 +1560,8 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(layout_propose::LayoutPropose),
         Box::new(layout_accept::LayoutAccept),
         Box::new(layout_discard::LayoutDiscard),
+        Box::new(fill::Fill),
+        Box::new(map_save::MapSave),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
@@ -1534,49 +1888,78 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
         )));
     };
     // **Guard 2: the state is what the line left, or something changed it since.**
-    if let (Some(left), Some(now)) = (
-        line.after.as_ref(),
+    //
+    // **Compared on the keys `state_of` reports, on both sides.** The right side is the map now; the
+    // left is the logged `after`, and that carries fields the projection does not — a fill's
+    // `truncated`, a rename's `path`. Comparing the whole logged `after` against a projection
+    // refused an undo over a field that is a report and not a fact: measured on S1.5's own fill,
+    // `truncated is null and 0000-1764 left false`, which reads to an author as "somebody edited
+    // your map" when nobody did. What this guard means is *has the part of the map this change
+    // touched moved*, and that is a comparison of two projections.
+    if let (Some(now), Some(left)) = (
         line.after.as_ref().and_then(|a| op.state_of(ctx, a)),
-    ) && *left != now
-    {
-        // **A logged change is named first**: an undo or redo of another change to this map can
-        // be what moved the state, and blaming an edit outside the log would be false.
-        if let Some(later) = lines[newest[chain] + 1..]
-            .iter()
-            .rev()
-            .find(|l| same_scope(l))
-        {
+        line.after.as_ref(),
+    ) {
+        // The logged row, cut down to the fields this operation's projection describes.
+        let left = match now.as_object() {
+            Some(keys) => {
+                let mut projected = serde_json::Map::new();
+                for key in keys.keys() {
+                    projected.insert(
+                        key.clone(),
+                        left.get(key).cloned().unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                serde_json::Value::Object(projected)
+            }
+            // A projection that is not an object is the whole map, which is what it guarded before.
+            None => left.clone(),
+        };
+        if left != now {
+            // **A logged change is named first**: an undo or redo of another change to this map can
+            // be what moved the state, and blaming an edit outside the log would be false.
+            if let Some(later) = lines[newest[chain] + 1..]
+                .iter()
+                .rev()
+                .find(|l| same_scope(l))
+            {
+                return Err(Refusal::new(format!(
+                    "`{}` ({} by {:?}) changed {} after `{}`, so putting the old values back \
+                     would overwrite it. Take `{}` back, or put it back, first.",
+                    later.operation_id,
+                    later.op,
+                    later.source,
+                    changed,
+                    line.operation_id,
+                    later.operation_id
+                )));
+            }
+            let differs: Vec<String> = match (left.as_object(), now.as_object()) {
+                (Some(l), Some(n)) => l
+                    .keys()
+                    .filter(|k| l.get(*k) != n.get(*k))
+                    .map(|k| {
+                        format!(
+                            "{k} is {} and `{}` left {}",
+                            n.get(k.as_str()).unwrap_or(&serde_json::Value::Null),
+                            line.operation_id,
+                            l[k.as_str()]
+                        )
+                    })
+                    .collect(),
+                _ => vec![format!(
+                    "the state is {now} and `{}` left {left}",
+                    line.operation_id
+                )],
+            };
             return Err(Refusal::new(format!(
-                "`{}` ({} by {:?}) changed {} after `{}`, so putting the old values back \
-                 would overwrite it. Take `{}` back, or put it back, first.",
-                later.operation_id, later.op, later.source, changed, line.operation_id, later.operation_id
+                "the map has changed outside the operation log since `{}` ({}): a file edited by \
+                 hand, the menu, or a different map open. Putting the old values back would \
+                 overwrite that, so nothing was changed.",
+                line.operation_id,
+                differs.join("; ")
             )));
         }
-        let differs: Vec<String> = match (left.as_object(), now.as_object()) {
-            (Some(l), Some(n)) => l
-                .keys()
-                .filter(|k| l.get(*k) != n.get(*k))
-                .map(|k| {
-                    format!(
-                        "{k} is {} and `{}` left {}",
-                        n.get(k.as_str()).unwrap_or(&serde_json::Value::Null),
-                        line.operation_id,
-                        l[k.as_str()]
-                    )
-                })
-                .collect(),
-            _ => vec![format!(
-                "the state is {now} and `{}` left {left}",
-                line.operation_id
-            )],
-        };
-        return Err(Refusal::new(format!(
-            "the map has changed outside the operation log since `{}` ({}): a file edited by hand, \
-             the menu, or a different map open. Putting the old values back would overwrite that, \
-             so nothing was changed.",
-            line.operation_id,
-            differs.join("; ")
-        )));
     }
     let Some(inverse) = line.inverse.clone() else {
         return Err(Refusal::new(format!(

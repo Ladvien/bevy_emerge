@@ -101,6 +101,10 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("layout_propose", "propose_layout("),
     ("layout_accept", "accept_layout("),
     ("layout_discard", "discard_layout("),
+    // **`F` floods** through `fill_at`, and **`Cmd+S` saves** through `save_map`; both dispatch the
+    // operation rather than calling `fill::flood` / `OpenMap::save` themselves.
+    ("fill", "fill_at("),
+    ("map_save", "save_map("),
     // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
     // runs the `door_open` operation (item 1 of cycle 8).
     ("door_open", "open_door("),
@@ -286,7 +290,6 @@ const UNMIGRATED: &[Action] = &[
     Action::ComposeMemberNext,
     Action::CarouselPrev,
     Action::CarouselNext,
-    Action::Save,
     Action::MainMenu,
     Action::Undo,
     Action::Redo,
@@ -298,7 +301,6 @@ const UNMIGRATED: &[Action] = &[
     Action::TipZ,
     Action::LiftUp,
     Action::LiftDown,
-    Action::Fill,
     Action::MoveMode,
     Action::FrameView,
     Action::Straighten,
@@ -405,7 +407,7 @@ const UNMIGRATED: &[Action] = &[
 // 124 -> 125: `FrameView` (E-021), camera state with no document change, so no operation names it.
 // 125 -> 123: `PalettePrev` and `PaletteNext` -> `brush_arm` (gap 1): the arrow walk arms through the operation a click uses.
 // 123 -> 119: `TabSlot1`, `TabSlot2`, `TabSlot3` and `SwitchDoor` -> `door_open` (cycle 8, item 1): every door and tab key opens through the operation.
-const UNMIGRATED_MAX: usize = 115;
+const UNMIGRATED_MAX: usize = 113;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///
