@@ -1341,6 +1341,22 @@
       "evidence": "crates/bevy_emerge_mapper/tests/the_meshes_pane_says_how_sure_the_labels_are.rs (labels_row_and_inspector_x derives the panel from the row; two INSPECTOR titles exist, anim_tab.rs:343 hidden)",
       "last_failure": "2026-10-25",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-073",
+      "kind": "enhancement",
+      "area": "wfc",
+      "title": "An agent cannot read or change the rules a layout is generated from",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "rules.ron holds BlockRules (weights, footprints, seed) and no registered operation reads or writes it, so the one input that decides what a generator produces is the one an agent cannot see."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mcp/src/main.rs::list_rules (emerge_list_rules); crates/bevy_emerge_mcp/tests/an_agent_calls_the_server.rs::an_agent_can_read_the_rules_a_layout_is_generated_from and a_broken_rules_file_is_refused_by_name (both failed before, pass after); live on Sanctuary's own rules.ron: 1 block, cell 2.0, size [17,17], border town/street, weights [(town/house_, 100.0)], attempts 64, seed 600",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
     }
   ]
 }

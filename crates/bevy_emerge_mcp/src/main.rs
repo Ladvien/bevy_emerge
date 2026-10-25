@@ -986,22 +986,30 @@ impl Emerge {
     /// **`emerge_list_rules` -- the rules a layout is generated from, as the project states them.**
     ///
     /// **A read of a project file.** `rules.ron` sits beside `kits.ron` under `assets/emerge`, and
-    /// the editor's own `Project::open` reads it there; this reads the same file the same way, so it
-    /// needs no editor running and changes nothing. The loop's Inspect step asks an agent to say how
+    /// the editor's own `Project::open` reads it there; this reads the same file, with the same
+    /// parser and the same library-free validation ([`bevy_emerge_core::rules::Rules::validate`]),
+    /// so it needs no editor running and changes nothing.
+    ///
+    /// **It does not check descriptor ids against the library**, because the server has no library:
+    /// `Project::open` loads the kits and then calls `validate_against`, and this tool cannot. So a
+    /// block naming a piece the project does not have is answered here and refused by the editor, and
+    /// the description says so rather than implying the two agree in every case. The loop's Inspect step asks an agent to say how
     /// varied a generated layout is and which constraint shaped it, and neither question can be
     /// answered by an agent that cannot read what the rules say.
     #[tool(
         name = "emerge_list_rules",
         description = "The block rules the project states for generating layouts, read from \
-                       assets/emerge/rules.ron: for each block, the example map its grammar is \
-                       learned from, the region descriptors that ask for a block, the cell size \
-                       and block size in cells, the border piece, no_empty, the weight \
-                       multipliers, the footprint rules, attempts and seed. Returns the blocks \
-                       and the path of the file read. A project that states no rules file \
-                       answers with no blocks, because an absent file means no rules -- not a \
-                       broken project. A file that does not parse is refused with its path and \
-                       the parser's reason, and nothing is written. It reads a file, so it needs \
-                       no editor running and changes nothing.",
+                       assets/emerge/rules.ron: for each block, the example map its grammar is learned from, the \
+                       region descriptors that ask for a block, the cell size and block size in cells, the border \
+                       piece, no_empty, the weight multipliers, the footprint rules, attempts and seed. Returns the \
+                       blocks and the path of the file read. A project with no rules.ron answers with no blocks, \
+                       because an absent file means no rules -- not a broken project. A file that is present but \
+                       does not parse, or states a version this program does not read or a number it cannot \
+                       generate from (no attempts, a cell that is not a usable step, a footprint under 2x2, a yaw \
+                       other than 0 or 180), is refused with its path and the reason, and nothing is written. It \
+                       parses the file but does not check that the descriptor ids it names exist in the project's \
+                       library -- the editor's own open does that, so a block naming a missing piece is answered \
+                       here and refused there. It reads a file, so it needs no editor running and changes nothing.",
         annotations(
             title = "List the block rules a layout is generated from",
             read_only_hint = true,
@@ -1022,8 +1030,21 @@ impl Emerge {
             Ok(text) => text,
             // **An absent file is no rules, not a failure.** `Project::open` treats it the same way:
             // a project without rules behaves as it always did, and an agent that asks must not get
-            // a refusal that reads like a broken project.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            // a refusal that reads like a broken project. **A file that is present and blank is a
+            // different case** and falls through to the parser below, which refuses it — the editor
+            // refuses to open such a project, so answering "no rules" would call it clean.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let answer = json!({
+                    "path": path.to_string_lossy(),
+                    "version": bevy_emerge_core::rules::RULES_VERSION,
+                    "blocks": [],
+                });
+                return Ok(CallToolResult::success(vec![
+                    rmcp::model::ContentBlock::text(
+                        serde_json::to_string_pretty(&answer).unwrap_or_default(),
+                    ),
+                ]));
+            }
             Err(e) => {
                 return Ok(refusal(&format!(
                     "{} could not be read: {e}",
@@ -1031,20 +1052,24 @@ impl Emerge {
                 )));
             }
         };
-        let rules = match if text.trim().is_empty() {
-            Ok(bevy_emerge_core::rules::Rules {
-                version: bevy_emerge_core::rules::RULES_VERSION,
-                blocks: Vec::new(),
-            })
-        } else {
-            bevy_emerge_core::rules::Rules::parse(&text)
-        } {
+        // **A blank file is refused, not read as "no rules".** `Project::open` parses whatever is
+        // there, so a blank `rules.ron` fails the editor's open — and a reader that answered "no
+        // blocks" would tell an agent the project is clean when the editor cannot start on it.
+        let rules = match bevy_emerge_core::rules::Rules::parse(&text) {
             Ok(rules) => rules,
             // **Refused by name, with the parser's reason.** An agent told "no rules" when the file
             // is broken would generate against nothing and report a result that had nothing to do
             // with what the person wrote.
             Err(e) => return Ok(refusal(&format!("{}: {e}", path.display()))),
         };
+        // **And every number the editor would refuse it for.** `Rules::parse` is `ron::from_str`
+        // and nothing else, so a file can parse and still be one `Project::open` rejects: a version
+        // this program does not read, `attempts: 0`, a `cell` that is not a usable step, a footprint
+        // size under 2x2, or a yaw that is not 0/180. Answering those as valid would hand an agent
+        // numbers the editor will not generate from.
+        if let Err(e) = rules.validate() {
+            return Ok(refusal(&format!("{}: {e}", path.display())));
+        }
         let answer = json!({
             "path": path.to_string_lossy(),
             "version": rules.version,

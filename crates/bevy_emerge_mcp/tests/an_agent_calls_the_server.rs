@@ -1155,10 +1155,20 @@ fn an_agent_can_read_the_rules_a_layout_is_generated_from() {
         "the answer does not name the file it read: {body}"
     );
 
+    // **Every field the description promises is in the answer**, not a sample of them: an agent
+    // reads this to decide which number to change, and a field silently missing from the JSON is
+    // one it cannot cite.
+    for field in ["example", "regions", "cell", "size", "border", "no_empty", "weights", "footprints", "attempts", "seed"] {
+        assert!(
+            block.get(field).is_some(),
+            "`{field}` is promised by the description but absent from the block: {block}"
+        );
+    }
+
     // **A project that states no rules says so, rather than failing.** An absent file is no rules —
     // the same rule `Project::open` applies — and an agent that asks must not get a refusal that
     // reads like a broken project.
-    let (bare, _) = project_with_rules("empty", "");
+    let (bare, _) = project_with_rules("absent", "");
     std::fs::remove_file(bare.join("assets/emerge/rules.ron")).expect("the file is removed");
     let mut server = Server::start_with(&["--project", bare.to_str().expect("a UTF-8 path")]);
     let answer = server.call("emerge_list_rules", json!({}));
@@ -1168,6 +1178,65 @@ fn an_agent_can_read_the_rules_a_layout_is_generated_from() {
         Some(0),
         "a project with no rules file must answer with no blocks, not a refusal: {body}"
     );
+}
+
+/// **A file the editor would refuse to open is refused here too, whatever the reason.**
+///
+/// `Rules::parse` is `ron::from_str` and nothing else, so "it parsed" is not "the editor will open
+/// it": a blank file does not parse at all, and a file that parses can still state a version this
+/// program does not read, no attempts, a cell that is not a usable step, a footprint smaller than its
+/// own front and back rows, or a yaw that is not implemented. An agent handed any of those as valid
+/// would report numbers the editor cannot generate from.
+#[test]
+fn rules_the_editor_would_refuse_are_refused_here() {
+    // **Each case is one the editor refuses**, and the four are the four shapes `Rules::validate`
+    // separates: a parse error, a version, a number, and a shape.
+    let cases: &[(&str, &str, &str)] = &[
+        // (name, the file, a word the refusal must carry)
+        ("blank", "", "rules.ron"),
+        (
+            "version",
+            r#"( version: 99, blocks: [] )"#,
+            "version 99",
+        ),
+        (
+            "attempts",
+            r#"( version: 1, blocks: [ ( example: "m", cell: 2.0, size: (4, 4), attempts: 0, seed: 1 ) ] )"#,
+            "at least one attempt",
+        ),
+        (
+            "cell",
+            r#"( version: 1, blocks: [ ( example: "m", cell: 0.0, size: (4, 4), attempts: 1, seed: 1 ) ] )"#,
+            "not a usable step",
+        ),
+        (
+            "footprint",
+            r#"( version: 1, blocks: [ ( example: "m", cell: 2.0, size: (4, 4), attempts: 1, seed: 1,
+                footprints: [ ( prefix: "p", sizes: [(1, 2)], yaws: [0.0], gap: 0, min_count: 1 ) ] ) ] )"#,
+            "at least 2x2",
+        ),
+        (
+            "yaw",
+            r#"( version: 1, blocks: [ ( example: "m", cell: 2.0, size: (4, 4), attempts: 1, seed: 1,
+                footprints: [ ( prefix: "p", sizes: [(2, 2)], yaws: [90.0], gap: 0, min_count: 1 ) ] ) ] )"#,
+            "0 or 180",
+        ),
+    ];
+    for (name, rules, word) in cases {
+        let (root, _dir) = project_with_rules(name, rules);
+        let mut server = Server::start_with(&["--project", root.to_str().expect("a UTF-8 path")]);
+        let answer = server.call("emerge_list_rules", json!({}));
+        let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+        let text = serde_json::to_string(&body).unwrap_or_default();
+        assert!(
+            body.get("refused").is_some(),
+            "the `{name}` rules were answered as valid, and the editor will not open them: {body}"
+        );
+        assert!(
+            text.contains(word),
+            "the `{name}` refusal does not say `{word}`, so an agent cannot tell what to fix: {body}"
+        );
+    }
 }
 
 /// **A rules file that does not parse is refused by name, with the reason.**
