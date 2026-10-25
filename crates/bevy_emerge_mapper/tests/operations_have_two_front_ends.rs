@@ -533,8 +533,7 @@ fn every_operation_has_a_ui_entry_point_and_the_other_way_round() {
     // walk only read `editor.rs` — so `map_create` could have had a dialog that wrote the file
     // itself and this test would not have seen it (E-008). A UI path is a UI path whichever screen
     // it is on.
-    let editor = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
-    let chooser = std::fs::read_to_string("src/chooser.rs").expect("chooser.rs is there");
+    // Both are read by `ui_source` below; the two bindings were the scan's old shape and are gone.
     let ui: Vec<(&str, &str)> = UI_ENTRY_POINTS
         .iter()
         .chain(CHOOSER_ENTRY_POINTS.iter())
