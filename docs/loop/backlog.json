@@ -559,45 +559,6 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "S-002",
-      "kind": "series",
-      "area": "assets",
-      "title": "A golem mesh becomes a placed piece",
-      "goal": "A .glb golem exported lands as a labelled palette piece and is placed on the map, all through registered operations.",
-      "approved_by": "owner 2026-10-25",
-      "acceptance": [
-        "place",
-        "propose",
-        "accept"
-      ],
-      "status": "open",
-      "evidence": "golem stays the tool that makes the mesh (AGENTS.md, 'Blender is a tool we own'); this series is the bridge, not a second importer.",
-      "last_failure": "",
-      "first_seen": "2026-10-25",
-      "steps": [
-        {
-          "id": "S2.1",
-          "title": "placement_add: an agent can place one piece",
-          "status": "open"
-        },
-        {
-          "id": "S2.2",
-          "title": "piece_import: an agent can turn a .glb inside the project into a kit piece",
-          "status": "open"
-        },
-        {
-          "id": "S2.3",
-          "title": "Put the bridge into the acceptance script (--glb)",
-          "status": "open"
-        },
-        {
-          "id": "S2.4",
-          "title": "Live proof through golem, and close S-002",
-          "status": "open"
-        }
-      ]
-    },
-    {
       "id": "E-076",
       "kind": "enhancement",
       "area": "undo",
