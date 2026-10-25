@@ -527,22 +527,6 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "E-074",
-      "kind": "enhancement",
-      "area": "validators",
-      "title": "Mutations do not report what they broke: no overlap pass, no edge faults, no variety measurement",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "The brief requires validators to run after every mutation and their failures to be in the tool result. stack::blocking, EdgeFaults and range::measure all exist and none is reported: an agent can place a piece that blocks a doorway and every answer says 'applied'."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/stack.rs (blocking), crates/bevy_emerge_mapper/src/editor.rs (EdgeFaults), crates/bevy_emerge_core/src/range.rs::measure",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
       "id": "E-075",
       "kind": "enhancement",
       "area": "collaboration",
@@ -575,19 +559,35 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "B-051",
-      "kind": "bug",
-      "area": "mapper",
-      "title": "The labels row's laid-out span falls outside the INSPECTOR panel when the model stem is long",
+      "id": "E-079",
+      "kind": "enhancement",
+      "area": "validators",
+      "title": "A piece standing in a doorway is not reported: no check reads an opening's clearance",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "crates/bevy_emerge_core/src/stack.rs:589-596 says it in its own doc: `same_layer` returns false for every heterogeneous pair, so `plans_overlap` compares only within a layer — 'neither can a door and a crate standing in the doorway'. crates/bevy_emerge_core/src/descriptor.rs:667 records it as a ruling that nothing reads `Clearance`. No fixture setter writes `Mount::InOpening { clear }`, so the field has never been exercised."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_core/src/stack.rs (same_layer/blocking doc bounding the rule to within a layer), crates/bevy_emerge_core/src/descriptor.rs (Clearance, unread), crates/bevy_emerge_mapper/tests/fixtures (no Mount::InOpening writer)",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-080",
+      "kind": "enhancement",
+      "area": "validators",
+      "title": "A layout proposal does not report how varied it is: range::measure has no Map adapter and the solver's grid is discarded",
       "must_fix": {
         "blocks": false,
         "common": false,
-        "no_workaround": true,
-        "evidence": "`the_meshes_pane_says_how_sure_the_labels_are::a_long_model_stem_wraps_inside_the_inspector_and_keeps_the_confidence_first` fails on `:208` with \"the labels row is not inside the INSPECTOR panel\": the row drawn for a long model stem is not a descendant of the panel the INSPECTOR title sits in, so the wrap the test exists to prove is not happening. Measured 2026-10-25 on BOTH mac_air (arm64, clean rebuild) and big (Linux x86_64), and on MAIN's own tree on big in a separate CARGO_TARGET_DIR (`~/target/emerge-main-probe`, exit=101, same assertion), so it is not platform geometry and not an artifact of the E-078 branch — whose diff does not name the file. It asserts a laid-out `UiGlobalTransform` span, so it is a layout regression from the labels work (`2ca3173`, `e49b39a`), and it leaves `cargo test --workspace` red: 103 binaries green, this one failing."
+        "no_workaround": false,
+        "evidence": "crates/bevy_emerge_core/src/range.rs:211 `measure` takes the solver's grid, and `grammar::learn` hands the editor back only the `Grammar`, so the grid a proposal was solved on is gone by the time anything could measure it. The brief asks for variety at :30 and :321."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/tests/the_meshes_pane_says_how_sure_the_labels_are.rs:208 (`labels_row_and_inspector_x`); reproduced on main via `git archive main` + separate target dir on big",
-      "last_failure": "2026-10-25",
+      "evidence": "crates/bevy_emerge_core/src/range.rs:211 (measure), crates/bevy_emerge_core/src/grammar.rs (learn returns the Grammar only), .omp/commands/emerge-feature-loop.md:30,:321",
+      "last_failure": "",
       "first_seen": "2026-10-25"
     }
   ]
