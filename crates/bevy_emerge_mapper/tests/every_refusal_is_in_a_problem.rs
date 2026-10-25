@@ -91,9 +91,14 @@ const REFUSALS: &[Site] = &[
         file: "tiles.rs",
         marker: "give it an id first (I)",
     },
+    // **The `let` binding is not the refusal; the call under it is.** Measured 2026-10-25: this
+    // marker occurs twice in `tiles.rs`, and only the first — `commit_candidate`'s — has a slot to
+    // read. The second is `admit_candidate`'s, which returns `Err` for the operation layer to file,
+    // so there is nothing there to check. Naming the refusal it guards keeps the row pointing at
+    // the site the rule is about, and leaves the twin out of it.
     Site {
         file: "tiles.rs",
-        marker: "let mine = project.measured.get(&descriptor.id).is_some();",
+        marker: "is already in the library — select it above to edit that tile",
     },
     Site {
         file: "tiles.rs",
@@ -124,7 +129,7 @@ const REFUSALS: &[Site] = &[
 /// **The whitespace between `status` and the slot is not fixed**, because the crate formats a long
 /// chain over several lines — `state\n.status\n.problem(...)` — so the search is over the
 /// whitespace-stripped text and the offsets are mapped back through it.
-fn slot_of_call_containing(src: &str, marker_at: usize) -> Option<String> {
+fn slot_of_call_containing(src: &str, marker_at: usize, as_call_site: bool) -> Option<String> {
     // **The marker may BE the call.** Some sites are named by their own slot call —
     // `state.status.problem(remedy)` — and for those the slot is the marker's own text, not
     // something to be found around it. **So the marker's own text is read first**, and only if it
@@ -176,6 +181,31 @@ fn slot_of_call_containing(src: &str, marker_at: usize) -> Option<String> {
         }
     }
 
+    // **The marker's nesting depth, from the file's own parentheses.**
+    //
+    // The fallback below has to know whether a `status.` call is in the same block as the marker,
+    // and a depth is what "the same block" means here: a refusal filed inside `if ... { }` sits one
+    // level deeper than the function body, and a call after the function has closed sits at zero
+    // again. Comments and string literals are not parsed — that would be a Rust front end — so this
+    // is a heuristic. It is only ever used to REFUSE the fallback (a marker with no depth gets no
+    // call site at all), and the exact path above does not use it.
+    // **One vector, indexed like the flat text**, because two vectors indexed differently is how
+    // the byte/char bug above happened the first time. `flat_depth[i]` is the depth *before* the
+    // flat character at `i`, so a marker that IS a call's first token reads the depth it was opened
+    // at.
+    let mut flat_depth: Vec<i32> = Vec::with_capacity(flat.len() + 1);
+    let mut running = 0i32;
+    for c in flat.iter() {
+        flat_depth.push(running);
+        match c {
+            '(' => running += 1,
+            ')' => running -= 1,
+            _ => {}
+        }
+    }
+    flat_depth.push(running);
+    let call_depth_at_marker = flat_depth.get(flat_marker_at).copied();
+
     // **Every `status.` in the file, with the span of its argument list.**
     let needle: Vec<char> = "status.".chars().collect();
     let mut from = 0usize;
@@ -192,6 +222,9 @@ fn slot_of_call_containing(src: &str, marker_at: usize) -> Option<String> {
             .iter()
             .take_while(|c| c.is_ascii_alphabetic())
             .collect();
+        // **This call's own depth**, read from the same vector as the marker's.
+        let call_depth = flat_depth.get(at).copied();
+
         // **The argument list: from the `(` to its matching `)`.**
         let open = flat[after..]
             .iter()
@@ -225,7 +258,22 @@ fn slot_of_call_containing(src: &str, marker_at: usize) -> Option<String> {
         // **Otherwise the nearest call after the marker**, which is the case where the marker
         // names the *call site* rather than the message: `placement_at(&open.map` is the call,
         // and the slot is a few lines below it.
-        if !slot.is_empty() && at > flat_marker_at {
+        //
+        // **But only a call in the same BLOCK.** The fallback has no way to tell "a few lines
+        // below" from "the next `status.` in the file", and that is not a hypothetical: two rows
+        // here name text that occurs twice in `tiles.rs`, the second time inside `admit_candidate`
+        // where the refusal is `Err(...)` for the operation layer and no slot exists. Measured
+        // 2026-10-25, the fallback attached both to `status.note("select a library mesh to send it
+        // back")` — **15 000 characters away**, past the end of the function — and the test
+        // reported two refusals in the editor that the editor files as `problem`. **A fallback that
+        // can reach any later call is a test that will one day pass for a refusal in the wrong
+        // slot**, because some `problem` further down will satisfy it.
+        //
+        // **`depth_after` is `None` when the marker is not inside any call at all** (a function
+        // body, a bare `let`), and then the fallback is off entirely: the marker is not a call site
+        // and the search has nothing to say about it.
+        let same_block = call_depth.is_some_and(|d| call_depth_at_marker == Some(d));
+        if as_call_site && !slot.is_empty() && at > flat_marker_at && same_block {
             let nearer = match &nearest_after {
                 Some((best, _)) => at < *best,
                 None => true,
@@ -255,10 +303,41 @@ fn every_refusal_is_a_problem_and_not_a_receipt() {
         // **Every occurrence of the marker, checked.** A marker can name two sites — the
         // labeller's config check is in both the `L` key's handler and the script sentinel — and
         // the table lists each of them, so every occurrence has to satisfy the rule.
+        // **A marker is checked where it is a REFUSAL, and a file may hold it where it is not.**
+        //
+        // Two rows here name text that appears twice in `tiles.rs`: once in `commit_candidate`,
+        // which refuses with `state.status.problem`, and once in `admit_candidate`, which returns
+        // `Err(...)` for the operation layer to file. Both occurrences reach the author as a
+        // `problem` — the second because the operation layer files what it returns there — so a
+        // second occurrence outside a `status.` call is not a site with a slot, it is the same
+        // refusal in its second form.
+        //
+        // **It used to be read as a site anyway**, and the fallback below — *"the nearest call
+        // after the marker"* — attached it to whatever `status.note` came next in the file, here
+        // 15 000 characters later. The test then reported two refusals *in the editor* that the
+        // editor files correctly: a false positive, and it would have been a false NEGATIVE the day
+        // a real refusal moved into the note slot past the end of a function, because any later
+        // `note` would have satisfied it.
         let mut checked = 0usize;
         for (at, _) in src.match_indices(site.marker) {
+            // **The fallback is only for a marker that is CODE.** The table names two kinds of
+            // thing: a **message** — the refusal's own text, which always carries a quote — and a
+            // **call site**, which never does (`if wrote == 0 {`, `placement_at(&open.map`,
+            // `let mine = project.measured...;`). The call sites are the ones whose slot is a few
+            // lines below, and that is the case the fallback was written for.
+            //
+            // **A message marker gets the exact answer or nothing**, because a message occurs
+            // wherever it is minted, including in the operation-layer twin that returns `Err` for a
+            // caller to file. Reading a call site as evidence for one of those is what attached
+            // `tiles.rs`'s `give it an id first (I)` — and the `let mine = ...;` binding beside it,
+            // whose second occurrence has no slot either — to `status.note("select a library mesh
+            // to send it back")` **15 000 characters away**, past the end of the function.
+            let as_call_site = !site.marker.contains('"') && !site.marker.contains('\'');
+            let Some(slot) = slot_of_call_containing(&src, at, as_call_site) else {
+                continue;
+            };
             checked += 1;
-            match slot_of_call_containing(&src, at).as_deref() {
+            match Some(slot.as_str()) {
                 Some("problem") => {}
                 Some(other) => wrong_slot.push(format!(
                     "{}: `{}` files its refusal in the `{other}` slot, not the problem slot. A \
@@ -267,16 +346,13 @@ fn every_refusal_is_a_problem_and_not_a_receipt() {
                      switch.",
                     site.file, site.marker
                 )),
-                None => wrong_slot.push(format!(
-                    "{}: `{}` is not inside any `status.` call, so the slot cannot be read. The \
-                     marker is wrong, or the call is written in a shape this test does not know.",
-                    site.file, site.marker
-                )),
+                None => unreachable!("the `let Some` above filtered every `None` out"),
             }
         }
         if checked == 0 {
             not_found.push(format!(
-                "{}: `{}` is not there any more — the wording changed, and the table is stale.",
+                "{}: `{}` is not inside any `status.` call any more — the wording changed, or the \
+                 refusal moved, and the table is stale.",
                 site.file, site.marker
             ));
         }

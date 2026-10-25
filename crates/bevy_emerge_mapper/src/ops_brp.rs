@@ -331,6 +331,13 @@ fn editor_state(
     door: Option<Res<crate::tiles::Door>>,
     mode: Option<Res<crate::tiles::Mode>>,
     presenting: Option<Res<crate::present::Presenting>>,
+    // **Which screen the editor is on, which nothing else here says (E-078).** The map, the door and
+    // the mode all read the same on the menu as in the editor — `Door` and `Mode` are `init_resource`d
+    // at build and a loaded `OpenMap` is a resource either way — so before this, an agent could not
+    // tell *"the map is loaded"* from *"the map is open in front of the person"*. Measured
+    // 2026-10-25: that is exactly the pair `tools/loop/accept.py`'s `open_map` step has to tell
+    // apart, and its predicate passed on the pre-fix build.
+    screen: Option<Res<State<crate::screen::Screen>>>,
 ) -> Result<Value, String> {
     let Loaded { project, open } = loaded;
     // **The agent's presentation, and the person's answer to it** (S1.7). `None` until an agent
@@ -476,6 +483,12 @@ fn editor_state(
         "selected": tiles.as_ref().map(|t| t.selected_library_id.clone()),
         "door": door.map(|d| d.label()),
         "mode": mode.map(|m| m.label()),
+        // **`"menu"` or `"editor"`.** A caller that needs "is the person looking at this map?" reads
+        // it here; nothing else in this answer can be told apart between the two screens.
+        "screen": screen.map(|s| match *s.get() {
+            crate::screen::Screen::Menu => "menu",
+            crate::screen::Screen::Editor => "editor",
+        }),
     }))
 }
 
@@ -770,6 +783,13 @@ fn operation_apply(
     menu: Option<Res<crate::chooser::MenuOpening>>,
     mut proposal: Option<ResMut<crate::editor::Proposal>>,
     mut clock: Option<ResMut<crate::editor::ProposalClock>>,
+    // **Which screen the operation is being applied on (E-078).** `map_open` means two different
+    // things and only the screen tells them apart: from a door it asks for the Map door, and from the
+    // menu it is an *entry* — the same crossing the MAPS column's Enter makes. **Read the state, not
+    // the presence of a resource**: `MenuOpening` is inserted at plugin build and is on every screen,
+    // and `EditorState`'s absence is a fact about the editor, not a name for the menu.
+    screen: Option<Res<State<crate::screen::Screen>>>,
+    mut screen_next: Option<ResMut<NextState<crate::screen::Screen>>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -896,7 +916,50 @@ fn operation_apply(
     // **The map goes back either way** — changed, refused, or not — so the editor's own state is
     // never left holding a half-applied edit.
     put_back(&mut project, &mut open, ctx);
-    if matches!(&applied, Ok(ops::Applied::Done { .. })) {
+    // **On the menu, `map_open` enters the editor (E-078)** — and it does it the way the MAPS
+    // column's Enter does, not by installing resources and hoping the screen follows.
+    //
+    // `Chosen` is what a crossing carries: `screen::open_the_door` consumes it on `OnExit(Menu)` and
+    // installs the project and the map through `Opened::insert_into`, an exclusive system, so
+    // `OnEnter(Editor)` — the very next schedule — finds them. Inserting `Project` here instead would
+    // put a loaded project on a screen that has no door, and a `NextState` read one pass late would
+    // run `OnEnter(Editor)` against a world with no project: the panic `open_the_door`'s own note
+    // records. **So there is exactly one way into the editor, and this is it.**
+    let on_menu = screen
+        .as_deref()
+        .is_some_and(|s| *s.get() == crate::screen::Screen::Menu);
+    let entering = matches!(&applied, Ok(ops::Applied::Done { .. }))
+        && on_menu
+        && p.operation == "map_open";
+    if entering {
+        match (loaded, opened) {
+            (Some(mut fresh), Some(map)) => {
+                // **The project remembers the map's name**, mirroring `args::open`: a crossing from
+                // the Kit door back to Maps reads it to know which map to reopen.
+                fresh.open_map_name = Some(map.map.name.clone());
+                commands.insert_resource(crate::chooser::Chosen(crate::args::Opened {
+                    project: fresh,
+                    open_map: Some(map),
+                    door: crate::tiles::Door::Map,
+                    mode: crate::tiles::Door::Map.opens_on(),
+                }));
+                if let Some(next) = screen_next.as_deref_mut() {
+                    next.set(crate::screen::Screen::Editor);
+                }
+            }
+            // **Refused rather than half-entered.** `map_open::commit` sets both on the menu, so this
+            // is the shape of a defect, not of a use — and an entry that installed a project without
+            // its map is the one state the editor cannot be entered in.
+            _ => {
+                return Ok(json!({
+                    "operation": p.operation,
+                    "outcome": "refused",
+                    "refusal": "map_open applied but the project or the map was not loaded, so the \
+                                editor was not entered",
+                }));
+            }
+        }
+    } else if matches!(&applied, Ok(ops::Applied::Done { .. })) {
         if let Some(fresh) = loaded {
             commands.insert_resource(fresh);
         }
@@ -932,15 +995,11 @@ fn operation_apply(
     {
         crate::editor::request_door(state, outcome.after.as_ref());
     }
-    // **`map_open` asks for the Map door when the editor is already up.** From a door, that is the
-    // same crossing `door_open` makes. **From the menu it is not enough**, and saying so matters more
-    // than a workaround: `EditorState` does not exist on the menu, and `apply_pending_door` runs
-    // `in_state(Screen::Editor)` — so the editor cannot be *entered* by an operation at all. The menu
-    // enters the editor through `Chooser::open_the_selection` -> `launch_args` -> `NextState`, which
-    // needs the screen. An agent that made a map from the menu therefore still has to ask again once
-    // the editor is up; E-078 records the gap.
+    // **From a door, `map_open` asks for the Map door.** From the menu, it has already entered the
+    // editor through `Chosen`, as Enter on the MAPS column does (E-078).
     if let (Ok(ops::Applied::Done { .. }), Some(state)) = (&applied, state.as_deref_mut())
         && p.operation == "map_open"
+        && !on_menu
     {
         state.door_request = Some(crate::editor::DoorRequest {
             door: crate::tiles::Door::Map,

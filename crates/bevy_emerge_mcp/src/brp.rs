@@ -161,3 +161,84 @@ impl Brp {
             .ok_or_else(|| format!("{method}: the editor's answer had no result"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **A listener that accepts one connection and then says nothing, for `hold`.** The port is
+    /// read back from the bound socket, so the test never guesses one.
+    fn a_silent_editor(hold: std::time::Duration) -> (u16, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+        let port = listener.local_addr().expect("a bound address").port();
+        let held = std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                // **Held open, never written to** — the shape of an editor that is working, not one
+                // that is gone.
+                std::thread::sleep(hold);
+                drop(stream);
+            }
+        });
+        (port, held)
+    }
+
+    /// **B-050: a slow editor must not be reported as a missing one.**
+    ///
+    /// The read budget is five seconds and the stub holds the connection for eight without
+    /// answering, so the call times out with the editor plainly up. The failure this pins is not
+    /// "it timed out" — it is *what the timeout says*: the refusal must name the work taking
+    /// longer, and must not send the agent to check whether the editor is running.
+    #[test]
+    fn a_slow_editor_is_not_blamed_on_the_connection() {
+        let (port, held) = a_silent_editor(std::time::Duration::from_secs(8));
+        let started = std::time::Instant::now();
+        let answer = Brp::call_blocking(
+            &format!("http://127.0.0.1:{port}/"),
+            "emerge/state",
+            1,
+            json!({}),
+        );
+        let took = started.elapsed();
+        held.join().expect("the stub thread");
+
+        let refusal = answer.expect_err("a stub that never answers must not produce an answer");
+        assert!(
+            refusal.contains("did not finish `emerge/state` within 5 s"),
+            "the refusal must name the work and its budget, and read: {refusal}"
+        );
+        assert!(
+            !refusal.contains("Is it running"),
+            "a slow editor is running — the refusal must not ask, and read: {refusal}"
+        );
+        assert!(
+            took >= READ_TIMEOUT && took < std::time::Duration::from_secs(8),
+            "the read budget of 5 s is what abandoned the call, and it took {took:?}"
+        );
+    }
+
+    /// **B-050's other half: an editor that is not there IS named as missing.**
+    ///
+    /// Without this, "never blame the connection" would be satisfied by never mentioning the
+    /// connection at all — and then a port with nothing behind it would be reported as slow work.
+    #[test]
+    fn a_missing_editor_is_named_as_missing() {
+        // **A port that was bound and released, not one that is held open.** A held-open listener
+        // accepts the connection and answers nothing — that is the slow case above; missing is a
+        // port with no listener behind it. Held open, this test hung on the stub's own `accept`.
+        let port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+            listener.local_addr().expect("a bound address").port()
+        };
+        let answer = Brp::call_blocking(
+            &format!("http://127.0.0.1:{port}/"),
+            "emerge/state",
+            1,
+            json!({}),
+        );
+        let refusal = answer.expect_err("nothing is listening, so there must be no answer");
+        assert!(
+            refusal.contains("Is it running"),
+            "a missing editor must be named as one, and read: {refusal}"
+        );
+    }
+}

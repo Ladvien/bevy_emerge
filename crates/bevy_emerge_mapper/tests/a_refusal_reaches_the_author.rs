@@ -27,7 +27,11 @@
 //!
 //! - **A refusal is a `problem`**, and a problem survives a receipt and a tab switch.
 //! - **The cap's message names a route that works**, and the route is followed in a test.
-//! - **The two fills say the same kind of thing.**
+//! - **The two fills say the same kind of thing**, and that a stopped fill does not look like a
+//!   finished one — both live in `a_fill_tells_the_truth.rs`, which reads `editor.rs` *and*
+//!   `ops.rs`. They were duplicated here reading `editor.rs` alone and **passed** while the
+//!   flood's sentence moved into `ops::fill`, then failed on `main` once it had. Removed rather
+//!   than re-pinned: a copy of a test is a place for two answers to disagree.
 
 mod fixtures;
 
@@ -112,42 +116,5 @@ fn the_caps_message_names_a_route_that_works() {
         "the cap's message must not promise 'fill again to continue', because the second fill in \\
          the same cell is refused: the flood will not start on a cell that already holds a piece. \\
          It said `{route}`"
-    );
-}
-
-/// **The two fills say the same kind of thing.**
-///
-/// The box fill said *"stopped at the 4096 cell cap"* and the flood said *"fill again to continue"*.
-/// **A message that differs between two ways of doing the same thing is a message one of them got
-/// wrong** — and this run's measurement is that the flood's was wrong.
-#[test]
-fn the_two_fills_say_the_same_kind_of_thing() {
-    let src = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
-    // --- Both cap messages name the same route, by name.
-    let route_uses = src.matches("crate::fill::CAP_ROUTE").count();
-    assert!(
-        route_uses >= 2,
-        "the two fills' cap messages do not both name `fill::CAP_ROUTE` — they use it {route_uses} \\
-         times. A message that differs between two ways of doing the same thing is a message one \\
-         of them got wrong."
-    );
-}
-
-/// **A fill that finished and a fill that stopped are distinguishable.**
-///
-/// AIP-158's rule for a resumable cursor: *"If the end of the collection has been reached… the
-/// `next_page_token` field must be empty. This is the only way to communicate 'end-of-collection' to
-/// users."* A stopped fill must never look like a finished one.
-#[test]
-fn a_stopped_fill_and_a_finished_fill_say_different_things() {
-    let src = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
-    assert!(
-        src.contains("and STOPPED at the {} cell cap"),
-        "the flood's cap message must say it stopped, in the words that say it. A fill that \\
-         stopped must never look like one that finished."
-    );
-    assert!(
-        src.contains("filled {count}{over}"),
-        "the box fill's receipt must stay as it was — a finished fill says it filled."
     );
 }

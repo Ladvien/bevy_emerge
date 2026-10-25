@@ -13,6 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import ast  # noqa: E402
+
+import accept  # noqa: E402
 from accept import summarize, steps_ok, _skip  # noqa: E402
 
 
@@ -81,3 +84,55 @@ class TheImportStep(unittest.TestCase):
     def test_a_failed_import_is_the_first_failure(self):
         steps = [step("tools", "pass"), step("import", "fail")]
         self.assertEqual(summarize(steps)["first_failure"], "import")
+
+
+class TheOpenMapStep(unittest.TestCase):
+    """**The step that measures the product carries no workaround (E-078).**
+
+    `open_map` used to relaunch the editor on the map and pass on that, recording `workaround` in the
+    row. A row with a workaround is a row that says the agent could not do it — so once `map_open`
+    enters the editor, the honest record has no such field at all, and this pins that: a relaunch
+    creeping back in would show up as the key returning rather than as a passing step.
+    """
+
+    def step_code(self):
+        """**`step_open_map`'s executable body**, read from the script.
+
+        The first version of these tests built a row with `_record` and asserted the dict it had just
+        built, which cannot fail for the regression it names: putting `workaround="relaunched the
+        editor on the map"` back at the real `_record` call left it green. A test about a script has
+        to read the script.
+
+        **Code and not the whole function**, because the docstring records this step's history on
+        purpose — it says in words that the relaunch is gone, and a test that grepped the prose would
+        fail on the explanation of the fix. The docstring is dropped by taking the body without its
+        first statement, which is what a docstring is.
+        """
+        tree = ast.parse(Path(accept.__file__).read_text())
+        run = next(n for n in tree.body
+                   if isinstance(n, ast.ClassDef) and n.name == "Run")
+        step = next(n for n in run.body
+                    if isinstance(n, ast.FunctionDef) and n.name == "step_open_map")
+        body = step.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+            body = body[1:]
+        return "\n".join(ast.get_source_segment(Path(accept.__file__).read_text(), n) or ""
+                          for n in body)
+
+    def test_the_open_map_step_records_no_workaround(self):
+        self.assertNotIn("workaround", self.step_code(),
+                         "the open_map step must pass on the product, not on a workaround")
+
+    def test_the_open_map_step_starts_no_editor(self):
+        # The relaunch is the workaround: a second `Editor(...)` here is a second process, a second
+        # client and a leaked process per failed run.
+        body = self.step_code()
+        self.assertNotIn("Editor(", body, "the open_map step must not relaunch the editor")
+        self.assertNotIn("relaunch", body, "nor describe one as what it does")
+
+    def test_the_open_map_step_waits_for_the_screen_and_not_only_the_map(self):
+        # **The map's name is not evidence the editor was entered** — a build with the defect this
+        # step catches reports `map.name` on the menu. The screen is what tells them apart.
+        body = self.step_code()
+        self.assertIn('s.get("screen") == "editor"', body,
+                      "the step must wait for the screen, or it passes on a map loaded on the menu")
