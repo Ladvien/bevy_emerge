@@ -669,14 +669,10 @@ pub fn overlaps(map: &Map, library: &Library) -> Vec<(usize, usize)> {
         })
         .collect();
     let mut out = Vec::new();
-    for i in 0..map.placements.len() {
-        let Some((di, bi)) = &resolved[i] else {
-            continue;
-        };
-        for j in (i + 1)..map.placements.len() {
-            let Some((dj, bj)) = &resolved[j] else {
-                continue;
-            };
+    for (i, left) in resolved.iter().enumerate() {
+        let Some((di, bi)) = left else { continue };
+        for (j, right) in resolved.iter().enumerate().skip(i + 1) {
+            let Some((dj, bj)) = right else { continue };
             let (pi, pj) = (&map.placements[i], &map.placements[j]);
             if same_layer(di, pi.on.as_deref(), dj, pj.on.as_deref()) && plans_overlap(*bi, *bj) {
                 out.push((i, j));
