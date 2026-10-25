@@ -45,6 +45,14 @@ pub const NEW_CAP: usize = 20;
 
 /// The map's findings at one moment.
 pub struct Found {
+    /// **Which map these are findings about**, as its file path.
+    ///
+    /// A `before` and an `after` are only comparable when they are the same map. Two maps from one
+    /// kit both hold `wall@0` and `pane@1`, so comparing across a `map_open` would match a fault in
+    /// the map that was closed against an unrelated one in the map that was opened and call the
+    /// second *old* — a silent under-report, which is the one failure mode a checks field cannot
+    /// afford. See [`report`].
+    pub map: std::path::PathBuf,
     /// Every place the map disagrees with its tiles' declared edge tokens, in the pass's own order.
     pub faults: Vec<Fault>,
     /// Pairs of placement ids, each pair sorted (smaller id first) so a reorder is not a change.
@@ -91,7 +99,11 @@ pub fn find(ctx: &crate::ops::Ctx) -> Option<Found> {
             if a <= b { (a, b) } else { (b, a) }
         })
         .collect();
-    Some(Found { faults, overlaps })
+    Some(Found {
+        map: open.map_path.clone(),
+        faults,
+        overlaps,
+    })
 }
 
 /// The `checks` value of an answer: what `after` has that `before` did not.
@@ -99,7 +111,14 @@ pub fn find(ctx: &crate::ops::Ctx) -> Option<Found> {
 /// `before == None` means everything in `after` is new. That is `map_open` from the menu, where the
 /// map that was open before does not exist — and it is also the honest answer for a caller that
 /// could not be asked (no project loaded), because the finding is new to the answer either way.
+///
+/// **A `before` from a different map is discarded, not compared.** `map_open` hands this the findings
+/// of the map it is about to replace, and findings are matched by placement **id** — which two maps
+/// from one kit share. So every finding in the newly opened map would be checked against an unrelated
+/// piece that happened to have the same id, and a real fault would be reported as nothing new. A
+/// different map means nothing in this one is old.
 pub fn report(before: Option<&Found>, after: &Found) -> Value {
+    let before = before.filter(|b| b.map == after.map);
     let is_new_fault = |f: &Fault| {
         !before.is_some_and(|b| {
             b.faults
@@ -177,10 +196,12 @@ mod tests {
             message: format!("wall@0 and {b} disagree"),
         };
         let before = Found {
+            map: "m.map.ron".into(),
             faults: vec![fault("pane@1", E)],
             overlaps: vec![("a".into(), "b".into())],
         };
         let after = Found {
+            map: "m.map.ron".into(),
             faults: vec![fault("pane@1", E)],
             overlaps: vec![("a".into(), "b".into()), ("c".into(), "d".into())],
         };
@@ -190,5 +211,41 @@ mod tests {
         assert_eq!(r["overlaps"]["new"][0], json!({"a": "c", "b": "d"}));
         assert_eq!(r["edge_faults"]["new_total"], 0, "the standing fault is not new");
         assert_eq!(r["edge_faults"]["total"], 1);
+    }
+
+    /// **A `before` from another map is not compared.** `map_open` takes its `before` from the map it
+    /// is about to replace, and two maps from one kit share their placement ids — so comparing them
+    /// would match a fault in the closed map against an unrelated piece in the opened one and call a
+    /// real fault *old*. The one failure mode a checks field cannot afford is a silent under-report.
+    #[test]
+    fn a_before_from_another_map_is_not_compared() {
+        let fault = |b: &str| Fault {
+            a: "wall@0".into(),
+            b: b.into(),
+            dir: E,
+            a_face: vec![None],
+            b_face: vec![None],
+            message: String::new(),
+        };
+        let closed = Found {
+            map: "closed.map.ron".into(),
+            faults: vec![fault("pane@1")],
+            overlaps: vec![("a".into(), "b".into())],
+        };
+        // The same ids, a different piece of the project: this map's fault is new to this answer.
+        let opened = Found {
+            map: "opened.map.ron".into(),
+            faults: vec![fault("pane@1")],
+            overlaps: vec![("a".into(), "b".into())],
+        };
+        let r = report(Some(&closed), &opened);
+        assert_eq!(
+            r["edge_faults"]["new_total"], 1,
+            "the opened map's fault is its own, not the closed map's"
+        );
+        assert_eq!(r["overlaps"]["new_total"], 1);
+        // And the same map still diffs, which is the case above; this only pins the discard.
+        let r = report(Some(&opened), &opened);
+        assert_eq!(r["edge_faults"]["new_total"], 0);
     }
 }
