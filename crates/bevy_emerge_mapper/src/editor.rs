@@ -12344,13 +12344,28 @@ fn discard_layout(open: &mut OpenMap, state: &mut EditorState, proposal: &mut Pr
 /// **A map to swap out of an `OpenMap` while an operation holds the real one.**
 ///
 /// `Ctx` takes the map **by value** — that is what makes the registry hold more than one operation —
-/// so a caller that wants to keep its own copy has to put something there. It is replaced before the
-/// function returns and is never read; making it a default keeps the swap cheap.
+/// so a caller that wants to keep its own copy has to put something there.
+///
+/// # The rule this placeholder keeps, and the review that found it
+///
+/// **Every caller of this function MUST put `ctx.open` back before returning**, including on the
+/// refusal path — and the consequence of forgetting is that the placeholder becomes the author's map.
+/// `layout_discard` changes no map at all, so its context carried the placeholder straight back; that
+/// it happened to be harmless is because `commit` receives `ctx.open` and hands the same value on.
+/// **A future operation whose `commit` does not touch `ctx.open` would empty the map on `Esc`.**
+///
+/// So the placeholder is **small and identifiable rather than empty**: a default map with a name no
+/// map may have. If one ever reaches the editor, `assert!` in the callers' write-back says so by name
+/// instead of showing an empty world. `tests/an_agent_can_generate_a_layout.rs::
+/// discarding_a_proposal_does_not_wipe_the_map` is the guard on the path that has this shape today.
 fn empty_map_for_take() -> OpenMap {
-    OpenMap::new(
-        bevy_emerge_core::map::Map::default(),
-        std::path::PathBuf::new(),
-    )
+    // **A name `naming::is_id` refuses**, so a file written from this could never be opened and a
+    // `map_save` on it would fail at validate rather than overwrite a real map.
+    let map = bevy_emerge_core::map::Map {
+        name: "the-placeholder-an-operation-holds".to_owned(),
+        ..bevy_emerge_core::map::Map::default()
+    };
+    OpenMap::new(map, std::path::PathBuf::new())
 }
 
 /// The `F` handler, split out so `keys` stays readable.

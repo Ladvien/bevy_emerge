@@ -438,3 +438,33 @@ fn an_agent_opens_a_map_by_name() {
         "opening a map that does not exist invented one: {refused}"
     );
 }
+
+/// **11. `Esc` must not wipe the map.**
+///
+/// `discard_layout` swaps the real map out for an empty one while the operation holds it, and writes
+/// back whatever the operation left. `layout_discard` changes no map at all — so the context still
+/// held the empty placeholder, and the write-back installed it. `Esc` on a proposal therefore
+/// **emptied the open map**. Found by review of the Esc path; the same shape applies to any operation
+/// whose commit never touches `ctx.open`.
+#[test]
+fn discarding_a_proposal_does_not_wipe_the_map() {
+    let (_root, mut app) = ready("propdiscardmap");
+    let before = app.world().resource::<OpenMap>().map.clone();
+    assert!(
+        !before.placements.is_empty(),
+        "the fixture must hold a placement for a wipe to be observable"
+    );
+
+    apply(
+        &mut app,
+        "layout_propose",
+        serde_json::json!({"source": "composed", "seed": 7}),
+    );
+    apply(&mut app, "layout_discard", serde_json::json!({}));
+
+    assert_eq!(
+        app.world().resource::<OpenMap>().map, before,
+        "discarding a proposal changed the map — and the shape that does it is the placeholder an \
+         operation is given while it holds the real one"
+    );
+}
