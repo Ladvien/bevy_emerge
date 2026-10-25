@@ -216,3 +216,36 @@ fn every_tool_is_prefixed() {
         );
     }
 }
+
+/// **The module doc's tool table and its count are the server's, not a copy that drifted.**
+///
+/// `main.rs` opens with a table of every tool and a sentence saying how many there are. Both are
+/// documentation a reader trusts, and both had gone stale: two tools (`emerge_present`,
+/// `emerge_list_pieces`) were missing rows, and the sentence said twelve while the server declared
+/// fourteen. A count nobody checks is a count that is wrong once and stays wrong.
+#[test]
+fn the_tool_table_and_its_count_are_the_servers() {
+    let (rows, count_word) = bevy_emerge_mcp::docs::tool_table_and_count();
+    assert_eq!(
+        rows,
+        bevy_emerge_mcp::docs::TOOLS.len(),
+        "the module doc lists {rows} tools and the reference lists {}",
+        bevy_emerge_mcp::docs::TOOLS.len()
+    );
+    let words = [
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+        "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+        "twenty",
+    ];
+    let said = words
+        .iter()
+        .position(|w| *w == count_word)
+        .map(|i| i + 1)
+        .unwrap_or_else(|| panic!("the sentence counts the tools as `{count_word}`, which is not a number"));
+    assert_eq!(
+        said,
+        bevy_emerge_mcp::docs::TOOLS.len(),
+        "the module doc says there are {said} tools and the server declares {}",
+        bevy_emerge_mcp::docs::TOOLS.len()
+    );
+}

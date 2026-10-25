@@ -283,6 +283,27 @@ pub fn render() -> String {
 /// **The parameter schema, generated from the same types the server deserialises into.** A
 /// schema that is written by hand is a schema that can be wrong, and an agent that sends the
 /// wrong shape gets a refusal it cannot act on.
+/// **The module doc's own summary of how many tools there are, and the rows it lists.**
+///
+/// The server's `main.rs` opens with a table of every tool and a sentence counting them. Both had
+/// drifted: the table was missing two rows and the sentence said twelve while the server declared
+/// fourteen. A number nobody checks is a number that is wrong once and stays wrong, so the two are
+/// read out of the source here and compared with [`TOOLS`].
+pub fn tool_table_and_count() -> (usize, String) {
+    let source = include_str!("main.rs");
+    let rows = source
+        .lines()
+        .filter(|line| line.starts_with("//! | `emerge_"))
+        .count();
+    let count_word = source
+        .lines()
+        .find(|line| line.contains(", and the set is small on purpose."))
+        .and_then(|line| line.split("**").nth(1))
+        .map(|s| s.split_whitespace().next().unwrap_or_default().to_lowercase())
+        .unwrap_or_default();
+    (rows, count_word)
+}
+
 pub fn schemas() -> Value {
     serde_json::json!({
         "emerge_present": {

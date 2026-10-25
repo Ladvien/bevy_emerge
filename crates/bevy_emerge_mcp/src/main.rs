@@ -24,10 +24,12 @@
 //! | `emerge_capture_still` | one picture of the editor, plus the state |
 //! | `emerge_capture_sequence` | frames at 4 fps by default (2 to 15 a second), with an optional operation after frame 0 |
 //! | `emerge_snip` | one rectangle of the picture, cut out and written as a crop with its metadata |
+//! | `emerge_present` | put a result in front of the person and take their Keep or Undo all |
+//! | `emerge_list_pieces` | the library's pieces, a page at a time, with their label provenance |
 //! | `emerge_list_snips` | the snips the person took, newest first, with the newest picture |
 //! | `emerge_list_rules` | the block rules a layout is generated from, as the project states them |
 //!
-//! **Twelve tools, and the set is small on purpose.** An agent's context is spent on the tools it
+//! **Fourteen tools, and the set is small on purpose.** An agent's context is spent on the tools it
 //! is offered, and a catalogue of ninety-six verbs is a catalogue of ninety-six things to choose
 //! badly from. **The operation tools are a discovery surface**: the first names what exists, and
 //! the others preview, run and take back what it names. Later iterations add one tool per
