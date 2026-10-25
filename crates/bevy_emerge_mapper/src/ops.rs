@@ -3856,8 +3856,10 @@ mod tests {
 
     /// A map with three rows, so an index in the middle and an index at the end both exist.
     fn three() -> Map {
-        let mut map = Map::default();
-        map.name = "t".to_owned();
+        let mut map = Map {
+            name: "t".to_owned(),
+            ..Map::default()
+        };
         for (i, x) in [0.0, 3.0, 6.0].into_iter().enumerate() {
             map.placements.push(Placed {
                 id: format!("wall@{i}"),
@@ -3921,9 +3923,11 @@ mod tests {
     /// The same for stamps, which are a separate list and a separate bug surface.
     #[test]
     fn a_stamp_delta_undoes_itself_exactly() {
-        let mut map = Map::default();
-        map.name = "t".to_owned();
-        map.stamps = vec![stamp("s@0", 0.0), stamp("s@1", 3.0), stamp("s@2", 6.0)];
+        let mut map = Map {
+            name: "t".to_owned(),
+            stamps: vec![stamp("s@0", 0.0), stamp("s@1", 3.0), stamp("s@2", 6.0)],
+            ..Map::default()
+        };
         let before = map.clone();
 
         let delta = RowDelta {
