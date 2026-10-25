@@ -320,7 +320,7 @@
     },
     {
       "id": "E-025",
-      "kind": "decision",
+      "kind": "enhancement",
       "area": "mcp",
       "status": "fixed",
       "title": "Decide how a migrated keys::Action leaves the enum without bypassing the Typing guard (E-024 is blocked on this)",
@@ -564,9 +564,7 @@
         "evidence": "Home frames the whole map, but a rectangle cannot be framed as asked."
       },
       "status": "fixed",
-      "evidence": "Fixed in 7c37ca0: the frame's height is the height of the pieces inside the rectangle, and ground level when nothing stands in it. Failing before: frame_the_view, 3 m rectangle framed at 164.4 m, 10 m rectangle at 165.3 m. Regression: a_rectangle_frames_what_stands_in_it (crates/bevy_emerge_mapper/tests/). Expected box in an_agent_frames_a_rectangle_in_map_space changed (justified in the commit body). Live captures: docs/loop/iterations/assets/2026-10-23-cycle3-52d7f84/cycle3_rect.gif and cycle3_rect-sheet.png.",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
+      "evidence": "Fixed in 7c37ca0: the frame's height is the height of the pieces inside the rectangle, and ground level when nothing stands in it. Failing before: frame_the_view, 3 m rectangle framed at 164.4 m, 10 m rectangle at 165.3 m. Regression: a_rectangle_frames_what_stands_in_it (crates/bevy_emerge_mapper/tests/). Expected box in an_agent_frames_a_rectangle_in_map_space changed (justified in the commit body). Live captures: docs/loop/iterations/assets/2026-10-23-cycle3-52d7f84/cycle3_rect.gif and cycle3_rect-sheet.png."
     },
     {
       "last_failure": "",
@@ -584,9 +582,9 @@
       "id": "B-036",
       "kind": "bug",
       "area": "capture",
-      "status": "merged",
+      "status": "fixed",
       "title": "A 20 fps capture sequence hung once on a warm editor (not reproduced)",
-      "evidence": "Merged into B-038 in cycle 3 (52d7f84): the same wait (a run never reports done when a screenshot is skipped), so B-038 carries it. The 20 fps hang itself is not re-observed, and the same cause is not reproduced; see B-038 for the next steps."
+      "evidence": "Merged into B-038 in cycle 3 (52d7f84) and closed there: the same wait (a run never reports done when a screenshot is skipped), so B-038 carried it. The 20 fps hang itself was not re-observed and the same cause was not reproduced. Status `merged` became `fixed`, because the working list has no `merged`: B-038's fix is the fix for this one too."
     },
     {
       "last_failure": "",
@@ -620,7 +618,6 @@
       "status": "fixed",
       "evidence": "Fixed in 3b3c8ff (cycle 4, report 0286624): the test builds its own temporary project through fixtures::Fixture, as the other mapper tests do; assertions unchanged (1536x864, 800x600). Failing before on Linux (xvfb-run, big): 'kits.ron: No such file or directory' at line 226, 1 passed / 1 failed, exit 101. Passing after: Linux 2 passed, macOS 2 passed. The probe example probe_surface_resize hardcoded the same path; fixed in 0286624."
     },
-
     {
       "id": "B-012",
       "kind": "bug",
