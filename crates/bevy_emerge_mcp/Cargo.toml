@@ -22,6 +22,7 @@ path = "src/main.rs"
 
 [dependencies]
 # The crop the editor and this server share, so a snip and an `emerge_snip` cut the same way.
+bevy_emerge_core = { path = "../bevy_emerge_core" }
 bevy_emerge_snip = { path = "../bevy_emerge_snip" }
 # **The official Rust SDK for the Model Context Protocol.**
 #

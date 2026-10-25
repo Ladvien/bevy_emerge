@@ -25,8 +25,9 @@
 //! | `emerge_capture_sequence` | frames at 4 fps by default (2 to 15 a second), with an optional operation after frame 0 |
 //! | `emerge_snip` | one rectangle of the picture, cut out and written as a crop with its metadata |
 //! | `emerge_list_snips` | the snips the person took, newest first, with the newest picture |
+//! | `emerge_list_rules` | the block rules a layout is generated from, as the project states them |
 //!
-//! **Eleven tools, and the set is small on purpose.** An agent's context is spent on the tools it
+//! **Twelve tools, and the set is small on purpose.** An agent's context is spent on the tools it
 //! is offered, and a catalogue of ninety-six verbs is a catalogue of ninety-six things to choose
 //! badly from. **The operation tools are a discovery surface**: the first names what exists, and
 //! the others preview, run and take back what it names. Later iterations add one tool per
@@ -980,6 +981,80 @@ impl Emerge {
             serde_json::to_string_pretty(&answer).unwrap_or_default(),
         ));
         Ok(CallToolResult::success(content))
+    }
+
+    /// **`emerge_list_rules` -- the rules a layout is generated from, as the project states them.**
+    ///
+    /// **A read of a project file.** `rules.ron` sits beside `kits.ron` under `assets/emerge`, and
+    /// the editor's own `Project::open` reads it there; this reads the same file the same way, so it
+    /// needs no editor running and changes nothing. The loop's Inspect step asks an agent to say how
+    /// varied a generated layout is and which constraint shaped it, and neither question can be
+    /// answered by an agent that cannot read what the rules say.
+    #[tool(
+        name = "emerge_list_rules",
+        description = "The block rules the project states for generating layouts, read from \
+                       assets/emerge/rules.ron: for each block, the example map its grammar is \
+                       learned from, the region descriptors that ask for a block, the cell size \
+                       and block size in cells, the border piece, no_empty, the weight \
+                       multipliers, the footprint rules, attempts and seed. Returns the blocks \
+                       and the path of the file read. A project that states no rules file \
+                       answers with no blocks, because an absent file means no rules -- not a \
+                       broken project. A file that does not parse is refused with its path and \
+                       the parser's reason, and nothing is written. It reads a file, so it needs \
+                       no editor running and changes nothing.",
+        annotations(
+            title = "List the block rules a layout is generated from",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn list_rules(&self) -> Result<CallToolResult, ErrorData> {
+        // **The file the editor's own `Project::open` reads**, computed the same way, so the two
+        // cannot disagree about where rules live.
+        let path = self
+            .project
+            .join("assets")
+            .join("emerge")
+            .join(bevy_emerge_core::rules::FILE);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            // **An absent file is no rules, not a failure.** `Project::open` treats it the same way:
+            // a project without rules behaves as it always did, and an agent that asks must not get
+            // a refusal that reads like a broken project.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => {
+                return Ok(refusal(&format!(
+                    "{} could not be read: {e}",
+                    path.display()
+                )));
+            }
+        };
+        let rules = match if text.trim().is_empty() {
+            Ok(bevy_emerge_core::rules::Rules {
+                version: bevy_emerge_core::rules::RULES_VERSION,
+                blocks: Vec::new(),
+            })
+        } else {
+            bevy_emerge_core::rules::Rules::parse(&text)
+        } {
+            Ok(rules) => rules,
+            // **Refused by name, with the parser's reason.** An agent told "no rules" when the file
+            // is broken would generate against nothing and report a result that had nothing to do
+            // with what the person wrote.
+            Err(e) => return Ok(refusal(&format!("{}: {e}", path.display()))),
+        };
+        let answer = json!({
+            "path": path.to_string_lossy(),
+            "version": rules.version,
+            "blocks": serde_json::to_value(&rules.blocks).unwrap_or(Value::Null),
+        });
+        Ok(CallToolResult::success(vec![
+            rmcp::model::ContentBlock::text(
+                serde_json::to_string_pretty(&answer).unwrap_or_default(),
+            ),
+        ]))
     }
 
     /// **`emerge_capture_sequence` — a sequence of frames, with an action in the middle.**

@@ -1079,3 +1079,119 @@ fn emerge_present_is_listed_and_refuses_readably_with_no_editor() {
         "the refusal does not say the editor was not there: {text}"
     );
 }
+
+/// **A project with a `rules.ron` in it, and the path that holds it.**
+///
+/// The rules a layout is generated from are project data at `<root>/assets/emerge/rules.ron`, beside
+/// `kits.ron`. The editor is not needed to read them: they are a file, so the server answers with the
+/// editor closed, as `emerge_list_snips` does.
+fn project_with_rules(name: &str, rules: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is after 1970")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "emerge_rules_{name}_{}_{nanos}",
+        std::process::id()
+    ));
+    let dir = root.join("assets/emerge");
+    std::fs::create_dir_all(&dir).expect("the emerge folder can be made");
+    std::fs::write(dir.join("rules.ron"), rules).expect("the rules file is written");
+    (root, dir)
+}
+
+/// **The rules a layout is generated from, as the project states them.**
+///
+/// The loop's Inspect step says *"for generated content, the agent runs several seeds and reports how
+/// varied the results are"*, and the loop log records that the brief's own Generate lens asks whether
+/// one constraint collapses the variety. None of that is possible while the rules are a file only a
+/// person can read: an agent that generates a layout cannot say what shaped it, and cannot try one
+/// number without opening a text editor.
+///
+/// **Why this test exists at all.** `emerge_list_pieces` and `emerge_state` do not carry rules, and
+/// the agent's own tool list had no word for them; the rules were reachable only by reading a file off
+/// disk, which is the parity gap this tool closes.
+#[test]
+fn an_agent_can_read_the_rules_a_layout_is_generated_from() {
+    let rules = r#"(
+    version: 1,
+    blocks: [
+        (
+            example: "town_block",
+            regions: ["town/houses_brick"],
+            cell: 2.0,
+            size: (16, 16),
+            border: Some("town/wall_segment"),
+            no_empty: true,
+            weights: [ ( prefix: "town/road", times: 2.5 ) ],
+            attempts: 40,
+            seed: 1234,
+        ),
+    ],
+)"#;
+    let (root, _dir) = project_with_rules("read", rules);
+    let mut server = Server::start_with(&["--project", root.to_str().expect("a UTF-8 path")]);
+
+    let answer = server.call("emerge_list_rules", json!({}));
+    assert!(
+        answer.get("error").is_none(),
+        "the call was refused at the protocol level, so an agent cannot read why: {answer}"
+    );
+    assert!(
+        answer["result"]["isError"].as_bool() != Some(true),
+        "reading the rules was refused: {answer}"
+    );
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    let blocks = body["blocks"].as_array().expect("blocks is a list");
+    assert_eq!(blocks.len(), 1, "the one stated block is not listed: {body}");
+    let block = &blocks[0];
+    assert_eq!(block["example"], "town_block", "{body}");
+    assert_eq!(block["weights"][0]["prefix"], "town/road", "{body}");
+    assert_eq!(block["weights"][0]["times"], 2.5, "{body}");
+    assert_eq!(block["attempts"], 40, "{body}");
+    // **The path is in the answer**, so an agent can cite the file it read and the person can open it.
+    assert!(
+        body["path"].as_str().unwrap_or_default().ends_with("rules.ron"),
+        "the answer does not name the file it read: {body}"
+    );
+
+    // **A project that states no rules says so, rather than failing.** An absent file is no rules —
+    // the same rule `Project::open` applies — and an agent that asks must not get a refusal that
+    // reads like a broken project.
+    let (bare, _) = project_with_rules("empty", "");
+    std::fs::remove_file(bare.join("assets/emerge/rules.ron")).expect("the file is removed");
+    let mut server = Server::start_with(&["--project", bare.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_rules", json!({}));
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    assert_eq!(
+        body["blocks"].as_array().map(Vec::len),
+        Some(0),
+        "a project with no rules file must answer with no blocks, not a refusal: {body}"
+    );
+}
+
+/// **A rules file that does not parse is refused by name, with the reason.**
+///
+/// The loop's rule is that bad data never takes the editor down and never reads as an empty answer: an
+/// agent told "no rules" when the file is broken would generate against nothing and report a result
+/// that had nothing to do with what the person wrote.
+#[test]
+fn a_broken_rules_file_is_refused_by_name() {
+    let (root, dir) = project_with_rules("broken", "( version: 1, blocks: [ oops");
+    let mut server = Server::start_with(&["--project", root.to_str().expect("a UTF-8 path")]);
+    let answer = server.call("emerge_list_rules", json!({}));
+    let body = answer_text(answer["result"]["content"].as_array().expect("content"));
+    assert!(
+        body.get("refused").is_some() || answer["result"]["isError"].as_bool() == Some(true),
+        "a rules file that does not parse answered as if it were fine: {body}"
+    );
+    let text = serde_json::to_string(&body).unwrap_or_default();
+    assert!(
+        text.contains("rules.ron"),
+        "the refusal does not name the file, so an agent cannot tell which data is wrong: {body}"
+    );
+    assert!(
+        dir.join("rules.ron").is_file(),
+        "the refused file must be left exactly as it was"
+    );
+}

@@ -182,6 +182,22 @@ pub const TOOLS: &[ToolDoc] = &[
         idempotent: true,
     },
     ToolDoc {
+        name: "emerge_list_rules",
+        description: "The block rules the project states for generating layouts, read from \
+                      assets/emerge/rules.ron: for each block, the example map its grammar is \
+                      learned from, the region descriptors that ask for a block, the cell size and \
+                      block size in cells, the border piece, no_empty, the weight multipliers, the \
+                      footprint rules, attempts and seed. Returns the blocks and the path of the \
+                      file read. A project that states no rules file answers with no blocks, \
+                      because an absent file means no rules -- not a broken project. A file that \
+                      does not parse is refused with its path and the parser's reason, and nothing \
+                      is written. It reads a file, so it needs no editor running and changes \
+                      nothing.",
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+    },
+    ToolDoc {
         name: "emerge_capture_sequence",
         description: "A sequence of frames of the editor, with an optional operation applied \
                        once the first frame is in -- so frame 0 is the state before the action and \
@@ -388,6 +404,11 @@ pub fn schemas() -> Value {
             "properties": {
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "How many snips to list, newest first. The default is 5."}
             }
+        },
+        "emerge_list_rules": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
         },
         "emerge_frame_view": {
             "type": "object",
