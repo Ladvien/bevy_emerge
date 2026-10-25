@@ -1293,6 +1293,22 @@
       "evidence": "crates/bevy_emerge_mcp/src/brp.rs (MUTATING_TIMEOUT, cec92c1); tests brp::tests::a_slow_editor_is_not_blamed_on_the_connection, a_missing_editor_is_named_as_missing",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-078",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "An agent cannot enter the editor: an operation cannot move the screen, so a map made from the menu cannot be worked in without a relaunch",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Measured 2026-10-25 with the S1 live proof: `map_create` then `map_open` both apply from the menu, and the editor stays on the menu — a 3 s capture sequence taken afterwards shows the MAPS column, not the viewport. `apply_pending_door` runs `in_state(Screen::Editor)` and `EditorState` does not exist on the menu, so the door-request mechanism cannot cross an editor boundary; the menu enters the editor through `Chooser::open_the_selection` -> `launch_args` -> `NextState`, which is the screen's, not an operation's. `tools/loop/accept.py` works around it by relaunching the editor on the map, and records the workaround."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/tests/an_agent_can_enter_the_map_it_made.rs (map_open_on_the_menu_enters_the_editor_on_that_map, a_refused_map_open_on_the_menu_stays_on_the_menu, emerge_state_says_which_screen_and_the_map_alone_does_not)",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
     }
   ]
 }

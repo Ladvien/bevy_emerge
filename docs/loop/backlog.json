@@ -575,19 +575,19 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "E-078",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "An agent cannot enter the editor: an operation cannot move the screen, so a map made from the menu cannot be worked in without a relaunch",
+      "id": "B-051",
+      "kind": "bug",
+      "area": "mapper",
+      "title": "The labels row's laid-out span falls outside the INSPECTOR panel when the model stem is long",
       "must_fix": {
         "blocks": false,
-        "common": true,
+        "common": false,
         "no_workaround": true,
-        "evidence": "Measured 2026-10-25 with the S1 live proof: `map_create` then `map_open` both apply from the menu, and the editor stays on the menu — a 3 s capture sequence taken afterwards shows the MAPS column, not the viewport. `apply_pending_door` runs `in_state(Screen::Editor)` and `EditorState` does not exist on the menu, so the door-request mechanism cannot cross an editor boundary; the menu enters the editor through `Chooser::open_the_selection` -> `launch_args` -> `NextState`, which is the screen's, not an operation's. `tools/loop/accept.py` works around it by relaunching the editor on the map, and records the workaround."
+        "evidence": "`the_meshes_pane_says_how_sure_the_labels_are::a_long_model_stem_wraps_inside_the_inspector_and_keeps_the_confidence_first` fails on `:208` with \"the labels row is not inside the INSPECTOR panel\": the row drawn for a long model stem is not a descendant of the panel the INSPECTOR title sits in, so the wrap the test exists to prove is not happening. Measured 2026-10-25 on BOTH mac_air (arm64, clean rebuild) and big (Linux x86_64), and on MAIN's own tree on big in a separate CARGO_TARGET_DIR (`~/target/emerge-main-probe`, exit=101, same assertion), so it is not platform geometry and not an artifact of the E-078 branch — whose diff does not name the file. It asserts a laid-out `UiGlobalTransform` span, so it is a layout regression from the labels work (`2ca3173`, `e49b39a`), and it leaves `cargo test --workspace` red: 103 binaries green, this one failing."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::apply_pending_door (the `in_state(Screen::Editor)` run condition); tools/loop/accept.py step `open_map`",
-      "last_failure": "",
+      "evidence": "crates/bevy_emerge_mapper/tests/the_meshes_pane_says_how_sure_the_labels_are.rs:208 (`labels_row_and_inspector_x`); reproduced on main via `git archive main` + separate target dir on big",
+      "last_failure": "2026-10-25",
       "first_seen": "2026-10-25"
     }
   ]
