@@ -540,9 +540,17 @@ fn drive_sequencer(
     // for. The readback lands a frame or two after the spawn, so a run that finished on the ask
     // would report itself done while its last PNG was still on its way — and a caller that read
     // the files then would find one missing, for no reason it could see.
+    //
+    // **And not while its operation is still pending (E-065).** The gate above waits for
+    // `next >= 1`, so a run whose first tick is already past the last frame's time asks for every
+    // frame in that one tick with `next == 0`. Finishing here would close the run with
+    // `operation_result: None` and the operation could never apply: the caller is told the sequence
+    // is done and the change it asked for silently never happened. On the next tick `next >= 1` and
+    // the gate applies it, so the only thing missing was one more update.
     let all_asked = run.asked.len() as u32 >= total;
     let all_written = run.written.len() as u32 >= total;
-    if all_asked && (all_written || !can_render) {
+    let operation_pending = run.operation.is_some() && !run.applied;
+    if all_asked && (all_written || !can_render) && !operation_pending {
         // **And a headless run says why there is no picture**, rather than finishing as though the
         // frames were there. A caller that is told "done" and then finds no file is owed an
         // answer; a caller that is told "no render world" knows exactly what happened.
