@@ -115,7 +115,15 @@ class Run:
             listed = self.client.json_call("emerge_list_operations")
         except Exception as e:  # noqa: BLE001
             listed = {"refused": str(e)}
-        names = [o.get("name") for o in listed.get("operations", [])] if isinstance(listed, dict) else []
+        # **The rows name the operation under `operation`**, not `name` — read from
+        # `ops_brp::operation_list`, which builds `{operation, undo, parameters}`. Reading `name` made
+        # this step report "no operation opens a map by name" for an operation that was published, so
+        # the script measured its own bug and called it a product gap.
+        names = (
+            [o.get("operation") for o in listed.get("operations", [])]
+            if isinstance(listed, dict)
+            else []
+        )
         has_map_open = "map_open" in names
         self.editor.close()
         self.editor = Editor(self.scratch, MAP, "--door", "map")

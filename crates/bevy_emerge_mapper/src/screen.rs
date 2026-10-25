@@ -223,16 +223,37 @@ pub fn cross(world: &mut World, to: crate::tiles::Door) -> Result<(), String> {
                 world.insert_resource(project);
                 return Err("the Map door needs a map, and none has been open".to_owned());
             };
-            match crate::project::OpenMap::open(&project, &name) {
-                Ok(m) => {
+            // **Through the registry, and that is what makes an agent's `map_open` and a person's
+            // crossing one thing.** This read the file itself (`OpenMap::open`) while `map_open`
+            // did the same — two answers to "what does opening a map mean", which is the second
+            // front end the parity rule forbids. The context is built from clones and the result is
+            // written back, the way `ops_brp::take`/`put_back` do it: a crossing is not a place to
+            // move the `Project` into a context and hope.
+            let mut ctx = crate::ops::Ctx {
+                project: Some(project.clone()),
+                root: None,
+                open: None,
+                source: crate::ops::Source::Human,
+                session: crate::ops::session_id(),
+                ..crate::ops::Ctx::default()
+            };
+            match crate::ops::dispatch(&mut ctx, "map_open", &serde_json::json!({"name": name})) {
+                Ok(crate::ops::Applied::Done { outcome, .. })
+                    if outcome.after.as_ref().is_some_and(|a| a.get("map").is_some()) =>
+                {
                     // **And the project remembers it**, so the next crossing back knows.
-                    project.open_map_name = Some(name);
-                    (Some(m), crate::tiles::Mode::Map)
+                    project.open_map_name = Some(name.clone());
+                    let fresh = ctx.open.clone();
+                    (fresh, crate::tiles::Mode::Map)
                 }
-                Err(e) => {
+                Ok(crate::ops::Applied::Done { .. }) => {
+                    world.insert_resource(project);
+                    return Err(format!("`{name}` could not be opened"));
+                }
+                Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
                     // **The project goes back.** The crossing failed and the editor is untouched.
                     world.insert_resource(project);
-                    return Err(e);
+                    return Err(e.0);
                 }
             }
         }

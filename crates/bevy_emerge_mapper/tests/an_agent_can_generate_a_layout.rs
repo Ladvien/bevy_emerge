@@ -396,3 +396,45 @@ fn discarding_leaves_the_map_alone() {
         "the proposal is still standing after it was thrown away"
     );
 }
+
+/// **10. An agent opens a map by name** — the verb that was missing (E-067).
+///
+/// `map_create` could make a map and then there was no way in: `door_open` takes a door and a tab.
+/// The acceptance script's third step failed on exactly this.
+#[test]
+fn an_agent_opens_a_map_by_name() {
+    let (_root, mut app) = ready("propopenn");
+    let listed = call(&mut app, "emerge/operation_list", serde_json::json!({}))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let names: Vec<&str> = listed["operations"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|o| o.get("operation").and_then(|n| n.as_str()))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        names.contains(&"map_open"),
+        "no operation opens a map by name, so an agent that made one cannot work in it. The \
+         registry holds: {names:?}"
+    );
+
+    // **Opening the map that is already open is a no-op that answers.** This is the observable the
+    // test can make in one process: the editor it was built with is already on `m`.
+    let opened = apply(&mut app, "map_open", serde_json::json!({"name": "m"}));
+    assert_eq!(opened["outcome"], "applied", "the open did not apply: {opened}");
+    assert!(
+        opened["summary"].as_str().unwrap_or_default().contains('m'),
+        "the receipt does not name the map: {opened}"
+    );
+
+    // **A name that is not there is refused**, rather than starting an empty map on a name nobody
+    // chose. `OpenMap::open` starts one when the file is absent, which is right for the editor's own
+    // "new map" path and wrong for this verb's caller — so it is checked here.
+    let refused = apply(&mut app, "map_open", serde_json::json!({"name": "no_such_map"}));
+    assert_eq!(
+        refused["outcome"], "refused",
+        "opening a map that does not exist invented one: {refused}"
+    );
+}

@@ -900,6 +900,18 @@ fn operation_apply(
     {
         crate::editor::request_door(state, outcome.after.as_ref());
     }
+    // **And `map_open` crosses to the Map door as well** (E-067). Opening a map from the menu means
+    // entering the editor on it, and from the Kit door means getting back to the map — and both are
+    // the same crossing `door_open` asks the editor to make. Without this an agent could set the map
+    // and be looking at the menu it started on.
+    if let (Ok(ops::Applied::Done { .. }), Some(state)) = (&applied, state.as_deref_mut())
+        && p.operation == "map_open"
+    {
+        state.door_request = Some(crate::editor::DoorRequest {
+            door: crate::tiles::Door::Map,
+            tab: None,
+        });
+    }
 
     // **An agent's selection is the row a click would be (E-044).** The answer names the piece, and
     // the Meshes shelf holds it as a click holds it.

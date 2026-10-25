@@ -105,6 +105,9 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // operation rather than calling `fill::flood` / `OpenMap::save` themselves.
     ("fill", "fill_at("),
     ("map_save", "save_map("),
+    // **The Map door's crossing** — `screen::cross` re-reads the map through `map_open`, so a person
+    // crossing to the Map door and an agent opening one by name are one operation.
+    ("map_open", "map_open",),
     // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
     // runs the `door_open` operation (item 1 of cycle 8).
     ("door_open", "open_door("),
@@ -613,11 +616,20 @@ fn every_brp_method_the_server_calls_is_registered_in_the_bridge() {
 #[test]
 fn every_ui_entry_point_is_in_the_source_and_dispatches_the_operation() {
     let editor = std::fs::read_to_string("src/editor.rs").expect("editor.rs is there");
+    // **The UI is three files, and the scan read one.** `screen.rs` crosses doors and re-reads the
+    // map, `chooser.rs` makes projects and maps, `tiles.rs` owns the kit's shelf — so an entry point
+    // that lives in any of them was reported as missing, which is a scan that cannot see the thing
+    // it is checking for. The bounds count below stays on `editor.rs` alone: it asks where the map's
+    // size is written in the editor, and that is one file's question.
+    let ui: String = ["src/editor.rs", "src/screen.rs", "src/chooser.rs", "src/tiles.rs"]
+        .iter()
+        .filter_map(|f| std::fs::read_to_string(f).ok())
+        .collect();
     let mut missing = Vec::new();
     for (op, place) in UI_ENTRY_POINTS {
-        if !editor.contains(place) {
+        if !ui.contains(place) {
             missing.push(format!(
-                "the operation `{op}`'s entry point `{place}` is not in editor.rs, so the UI path \
+                "the operation `{op}`'s entry point `{place}` is not in the UI source, so the path \
                  it names is not there."
             ));
         }

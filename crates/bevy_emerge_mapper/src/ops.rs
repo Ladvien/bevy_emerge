@@ -1549,6 +1549,154 @@ pub mod map_save {
     }
 }
 
+/// **Open a map by name** — the verb an agent needs the moment it has made one (E-067).
+///
+/// `map_create` could make a map and then the agent had no way in: `door_open` takes a door and a
+/// tab, and nothing took a map's name. The acceptance script's own third step failed on exactly this
+/// and had to relaunch the editor as a workaround — which is not something an agent can to do to a
+/// person's session.
+///
+/// # What it does, and what it does not
+///
+/// It reads the file through `OpenMap::open` — the same door the Map tab uses, so the naming rule and
+/// the refusal for a file that calls itself something else are one implementation — puts it in the
+/// context, and asks for the Map door. The crossing itself is the editor's, in the next frame, for
+/// the same reason `door_open` waits: a map with unsaved edits asks the person before it is replaced.
+///
+/// **It is not `door_open` with a parameter.** Crossing doors and choosing a map are two questions,
+/// and folding them would make a caller state a door it has no opinion about.
+pub mod map_open {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The map's name, as `emerge_list_pieces`-style listings and `map_create` spell it.
+        pub name: String,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                    "name": {
+                        "description": "The map to open, by name. The name IS its file (maps/<name>.map.ron), so a name that does not exist is refused rather than started.",
+                        "type": "string"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for opening a map: {e}. The field is `name`, and \
+                     it is required."
+                ))
+            })
+        }
+    }
+
+    pub struct MapOpen;
+
+    impl Operation for MapOpen {
+        fn name(&self) -> &'static str {
+            "map_open"
+        }
+
+        /// **`Undo::None`, and the honest reason is that opening a map is not an edit.** It changes
+        /// which document the editor is holding, not the document — the same argument `door_open`
+        /// makes. Undoing it would mean putting the previous map back, which is `map_open` with the
+        /// other name.
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no map to open.",
+                ));
+            };
+            // **A map that does not exist is refused, and this is the one place that differs from
+            // the editor's own "new map" path.** `OpenMap::open` *starts* a map when the file is
+            // absent, which is exactly right for `map_create`'s caller and an author pressing `+ new
+            // map` — and wrong here: an agent asking to open a map it has not made would silently
+            // get an empty one under a name nobody chose, and would then work in the wrong document
+            // without ever being told. Measured: the first version of this operation did exactly
+            // that and answered `opened `no_such_map``.
+            let name = bevy_emerge_core::naming::to_snake_case(&p.name);
+            let path = project
+                .maps_dir
+                .join(bevy_emerge_core::naming::map_file_name(&name));
+            if !path.is_file() {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a map in this project, so there is nothing to open. `map_create` \
+                     makes one; the maps directory holds the rest.",
+                    p.name
+                )));
+            }
+            // **The same reader the Map tab uses**, so a file that calls itself something else is
+            // refused here exactly as it is there. A refusal changes nothing.
+            let open = OpenMap::open(project, &p.name).map_err(Refusal::new)?;
+            Ok(json!({
+                "map": open.map.name,
+                "bounds": [open.map.bounds.0, open.map.bounds.1, open.map.bounds.2],
+                "placements": open.map.placements.len(),
+                "stamps": open.map.stamps.len(),
+                "dirty": open.dirty(),
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let p = Params::parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no map to open.",
+                ));
+            };
+            // **A map with unsaved edits is not silently replaced.** The same guard the rest of the
+            // editor keeps: the person's work outranks an agent's convenience, and the route is to
+            // save it or open it again.
+            if let Some(previous) = ctx.open.as_ref()
+                && previous.dirty()
+                && previous.map.name != p.name
+            {
+                return Err(Refusal::new(format!(
+                    "`{}` has unsaved edits, so it was not replaced. Save it (map_save) and ask \
+                     again, or open it again to carry on.",
+                    previous.map.name
+                )));
+            }
+            let fresh = OpenMap::open(project, &p.name).map_err(Refusal::new)?;
+            let name = fresh.map.name.clone();
+            let placements = fresh.map.placements.len();
+            ctx.open = Some(fresh);
+            Ok(Outcome {
+                summary: format!("opened `{name}`"),
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(json!({
+                    "map": name,
+                    "placements": placements,
+                    "bounds": plan["bounds"],
+                })),
+            })
+        }
+    }
+}
+
 /// **Every operation the editor knows, in one list.**
 ///
 /// **The one list.** The MCP tool surface, the parity test and the log's vocabulary are all read
@@ -1562,6 +1710,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(layout_discard::LayoutDiscard),
         Box::new(fill::Fill),
         Box::new(map_save::MapSave),
+        Box::new(map_open::MapOpen),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
