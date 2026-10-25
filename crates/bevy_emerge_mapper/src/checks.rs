@@ -17,7 +17,9 @@
 //! Two more the scope names are *not* here, and each is filed as its own item rather than half-built:
 //!
 //! - **A piece standing in a doorway.** [`bevy_emerge_core::stack::blocking`]'s own doc bounds the
-//!   claim to *within* a layer, so nothing compares a crate against an opening's clearance (E-079).
+//!   claim to *within* a layer, so nothing compares a crate against an opening's clearance — and
+//!   `Descriptor::clearance`, documented as *"space that must stay free around the piece"*, is read
+//!   only by validation and the composition hash, never by anything that decides space (E-079).
 //! - **How varied a layout is.** `range::measure` needs a solver grid and the editor discards it
 //!   on the way back from `grammar::learn` (E-080).
 //!
@@ -45,14 +47,6 @@ pub const NEW_CAP: usize = 20;
 
 /// The map's findings at one moment.
 pub struct Found {
-    /// **Which map these are findings about**, as its file path.
-    ///
-    /// A `before` and an `after` are only comparable when they are the same map. Two maps from one
-    /// kit both hold `wall@0` and `pane@1`, so comparing across a `map_open` would match a fault in
-    /// the map that was closed against an unrelated one in the map that was opened and call the
-    /// second *old* — a silent under-report, which is the one failure mode a checks field cannot
-    /// afford. See [`report`].
-    pub map: std::path::PathBuf,
     /// Every place the map disagrees with its tiles' declared edge tokens, in the pass's own order.
     pub faults: Vec<Fault>,
     /// Pairs of placement ids, each pair sorted (smaller id first) so a reorder is not a change.
@@ -78,6 +72,34 @@ pub fn wanted(operation: &str) -> bool {
         || operation == "map_open"
 }
 
+/// **The snapshot a change is measured against, or `None` when there is nothing to compare.**
+///
+/// `None` has two causes, and both mean the same thing to a reader: nothing in this answer's map was
+/// already there. Either no document exists yet (the menu has no map), or the operation **replaced**
+/// the document wholesale.
+///
+/// # Why `map_open` is not compared, and a path could not decide it
+///
+/// Findings are matched by placement **id**, and every map of a kit holds `wall@0`, `pane@1`,
+/// `crate@0`. Opening map B therefore cannot be diffed against map A: B's fault on `pane@1` would be
+/// matched against A's unrelated piece of the same id and reported as *nothing new* — a silent
+/// under-report, the one failure mode a checks field cannot afford.
+///
+/// The obvious guard, comparing the open map's file path, is wrong in the other direction: `map_rename`
+/// keeps the same document and points `OpenMap::map_path` at the new file, so a path comparison would
+/// call an unchanged map a different one and report every standing finding on it as introduced —
+/// renaming Sanctuary's `town` would answer `overlaps.new_total: 781`, "your rename broke 781
+/// things". Measured on this crate: `open.save` sets `self.map_path = path` (`project.rs`).
+///
+/// So the rule is the operation's own: **`map_open` replaces the map; nothing else does.** One
+/// function answers it, and both front ends call this rather than repeating the name.
+pub fn before(operation: &str, ctx: &crate::ops::Ctx) -> Option<Found> {
+    if !wanted(operation) || operation == "map_open" {
+        return None;
+    }
+    find(ctx)
+}
+
 /// The findings for the map in `ctx`, or `None` when `ctx.project` or `ctx.open` is `None`.
 ///
 /// Both are needed and neither is optional: a check compares placements against the library that
@@ -99,26 +121,14 @@ pub fn find(ctx: &crate::ops::Ctx) -> Option<Found> {
             if a <= b { (a, b) } else { (b, a) }
         })
         .collect();
-    Some(Found {
-        map: open.map_path.clone(),
-        faults,
-        overlaps,
-    })
+    Some(Found { faults, overlaps })
 }
 
 /// The `checks` value of an answer: what `after` has that `before` did not.
 ///
-/// `before == None` means everything in `after` is new. That is `map_open` from the menu, where the
-/// map that was open before does not exist — and it is also the honest answer for a caller that
-/// could not be asked (no project loaded), because the finding is new to the answer either way.
-///
-/// **A `before` from a different map is discarded, not compared.** `map_open` hands this the findings
-/// of the map it is about to replace, and findings are matched by placement **id** — which two maps
-/// from one kit share. So every finding in the newly opened map would be checked against an unrelated
-/// piece that happened to have the same id, and a real fault would be reported as nothing new. A
-/// different map means nothing in this one is old.
+/// `before == None` means everything in `after` is new — which is what [`before`] answers for an
+/// operation that **replaced** the map rather than editing it.
 pub fn report(before: Option<&Found>, after: &Found) -> Value {
-    let before = before.filter(|b| b.map == after.map);
     let is_new_fault = |f: &Fault| {
         !before.is_some_and(|b| {
             b.faults
@@ -196,12 +206,10 @@ mod tests {
             message: format!("wall@0 and {b} disagree"),
         };
         let before = Found {
-            map: "m.map.ron".into(),
             faults: vec![fault("pane@1", E)],
             overlaps: vec![("a".into(), "b".into())],
         };
         let after = Found {
-            map: "m.map.ron".into(),
             faults: vec![fault("pane@1", E)],
             overlaps: vec![("a".into(), "b".into()), ("c".into(), "d".into())],
         };
@@ -213,39 +221,33 @@ mod tests {
         assert_eq!(r["edge_faults"]["total"], 1);
     }
 
-    /// **A `before` from another map is not compared.** `map_open` takes its `before` from the map it
-    /// is about to replace, and two maps from one kit share their placement ids — so comparing them
-    /// would match a fault in the closed map against an unrelated piece in the opened one and call a
-    /// real fault *old*. The one failure mode a checks field cannot afford is a silent under-report.
+    /// **`before` decides comparability from the operation, not from a file path.**
+    ///
+    /// Two rules that look right and are each wrong:
+    ///
+    /// - Comparing `map_open` against the map it replaces under-reports, because findings match by
+    ///   placement id and every map of a kit shares them (`wall@0`, `pane@1`).
+    /// - Comparing a file path over-reports on `map_rename`, which keeps the document and points
+    ///   `OpenMap::map_path` at the new file — the same unchanged map would come back with every
+    ///   standing finding called new.
+    ///
+    /// So the answer is the operation's own: `map_open` replaces the map and has nothing to compare
+    /// against; every other checked operation edits the map it was given.
     #[test]
-    fn a_before_from_another_map_is_not_compared() {
-        let fault = |b: &str| Fault {
-            a: "wall@0".into(),
-            b: b.into(),
-            dir: E,
-            a_face: vec![None],
-            b_face: vec![None],
-            message: String::new(),
-        };
-        let closed = Found {
-            map: "closed.map.ron".into(),
-            faults: vec![fault("pane@1")],
-            overlaps: vec![("a".into(), "b".into())],
-        };
-        // The same ids, a different piece of the project: this map's fault is new to this answer.
-        let opened = Found {
-            map: "opened.map.ron".into(),
-            faults: vec![fault("pane@1")],
-            overlaps: vec![("a".into(), "b".into())],
-        };
-        let r = report(Some(&closed), &opened);
-        assert_eq!(
-            r["edge_faults"]["new_total"], 1,
-            "the opened map's fault is its own, not the closed map's"
+    fn before_is_the_operation_s_question_not_a_path_s_question() {
+        let ctx = crate::ops::Ctx::default();
+        assert!(
+            before("map_open", &ctx).is_none(),
+            "a replaced map has nothing in it that was already there"
         );
-        assert_eq!(r["overlaps"]["new_total"], 1);
-        // And the same map still diffs, which is the case above; this only pins the discard.
-        let r = report(Some(&opened), &opened);
-        assert_eq!(r["edge_faults"]["new_total"], 0);
+        assert!(
+            before("brush_arm", &ctx).is_none(),
+            "an operation that changes no document has nothing to compare"
+        );
+        // **A rename keeps its document**, so it is comparable and must be: `wanted` says yes, and
+        // it is not `map_open`. With no project loaded `find` answers `None`, which is the only
+        // reason this is `None` here — the guard is what `wanted` and the `map_open` test above pin.
+        assert!(before("map_rename", &ctx).is_none(), "no project is loaded in this context");
+        assert!(wanted("map_rename"), "a rename changes a document and must be checked");
     }
 }

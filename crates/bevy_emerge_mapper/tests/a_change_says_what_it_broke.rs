@@ -219,6 +219,43 @@ fn a_preview_and_a_read_carry_no_checks() {
     );
 }
 
+/// **A rename keeps its document, so it reports nothing as new.**
+///
+/// The bug this pins was real and was introduced by the first version of the cross-map guard: a
+/// finding is matched by placement id, so comparing `map_open` against the map it replaces would
+/// under-report — but guarding that with the open map's **file path** made `map_rename` over-report
+/// instead, because a rename keeps the same document and points `OpenMap::map_path` at the new file.
+/// Renaming Sanctuary's `town` would have answered `overlaps.new_total: 781`, "your rename broke 781
+/// things".
+///
+/// The fixture carries the same two-crate overlap the `opening_a_map_that_overlaps_says_so` test
+/// uses, so the totals here are the crowded map's own.
+#[test]
+fn a_rename_reports_nothing_as_new() {
+    let root = fixtures::Fixture::new("checks-rename")
+        .side(8.0)
+        .descriptor("crate", "alpha")
+        .place("crate", (1.0, 1.0))
+        .place("crate", (1.0, 1.0))
+        .build("before_name");
+    let mut app = editor_with_bridge(&root, "before_name");
+
+    let renamed = apply(
+        &mut app,
+        "map_rename",
+        serde_json::json!({"name": "after_name"}),
+    );
+    assert_eq!(renamed["outcome"], "applied", "{renamed}");
+    assert_eq!(
+        renamed["checks"]["overlaps"]["new_total"], 0,
+        "a rename changed the name, not the map: {renamed}"
+    );
+    assert_eq!(
+        renamed["checks"]["overlaps"]["total"], 1,
+        "and the map still holds its one overlap, unchanged: {renamed}"
+    );
+}
+
 /// **A capture sequence reports the same checks**, because it is the same change through a second
 /// front end and the two answering differently is the drift this crate's parity tests exist for.
 #[test]

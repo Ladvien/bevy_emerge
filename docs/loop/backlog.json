@@ -567,10 +567,10 @@
         "blocks": false,
         "common": true,
         "no_workaround": true,
-        "evidence": "crates/bevy_emerge_core/src/stack.rs:589-596 says it in its own doc: `same_layer` returns false for every heterogeneous pair, so `plans_overlap` compares only within a layer — 'neither can a door and a crate standing in the doorway'. crates/bevy_emerge_core/src/descriptor.rs:667 records it as a ruling that nothing reads `Clearance`. No fixture setter writes `Mount::InOpening { clear }`, so the field has never been exercised."
+        "evidence": "crates/bevy_emerge_core/src/stack.rs:589-596 says it in its own doc: `same_layer` returns false for every heterogeneous pair, so `plans_overlap` compares only within a layer — 'neither can a door and a crate standing in the doorway'. `Descriptor::clearance` (`descriptor.rs`:46) is documented as 'space that must stay free around the piece' and `descriptor.rs`:678 says it 'is the field that decides anything about space', but nothing in `stack.rs` reads it: grep for `clearance` there returns nothing, and its only non-descriptor readers are validation (`descriptor.rs`:1368) and the composition hash (`composition.rs`:1039). No fixture setter writes `Mount::InOpening { clear }`, so that field has never been exercised either."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/stack.rs (same_layer/blocking doc bounding the rule to within a layer), crates/bevy_emerge_core/src/descriptor.rs (Clearance, unread), crates/bevy_emerge_mapper/tests/fixtures (no Mount::InOpening writer)",
+      "evidence": "crates/bevy_emerge_core/src/stack.rs (same_layer/blocking doc bounding the rule to within a layer; no `clearance` reader), crates/bevy_emerge_core/src/descriptor.rs:46 and :678 (declared and documented, read only by validate and the composition hash), crates/bevy_emerge_mapper/tests/fixtures (no Mount::InOpening writer)",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },

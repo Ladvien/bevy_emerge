@@ -894,7 +894,7 @@ fn operation_apply(
     // dispatch because `ctx` still holds the project and the map it is about to change, and consumed
     // by `put_back` below.
     let checked = crate::checks::wanted(&p.operation);
-    let before = if checked { crate::checks::find(&ctx) } else { None };
+    let before = crate::checks::before(&p.operation, &ctx);
     let applied = ops::dispatch(&mut ctx, &p.operation, &params);
     // **And what is there now**, while `ctx` still owns both. `None` unless the operation applied and
     // changes a document: a refusal changed nothing, and a preview never reaches here.

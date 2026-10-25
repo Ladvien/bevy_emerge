@@ -351,7 +351,7 @@ fn drive_sequencer(
             // two front ends answer the same question with the same words, so a sequence's frames and
             // its answer cannot disagree about what the change introduced.
             let checked = crate::checks::wanted(&op.name);
-            let before = if checked { crate::checks::find(&ctx) } else { None };
+            let before = crate::checks::before(&op.name, &ctx);
             // **Through the registry, and not around it.** The sequencer is a way of *when* an
             // operation happens, and it must not be a second way of *what* happens.
             // **A door is refused before its plan, as `emerge/operation_apply` refuses it (cycle 8).**
