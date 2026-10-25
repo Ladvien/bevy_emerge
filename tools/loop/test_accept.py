@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from accept import summarize, steps_ok, _skip  # noqa: E402
+from accept import summarize, steps_ok, _skip, _record  # noqa: E402
 
 
 def step(step_id, status):
@@ -81,3 +81,27 @@ class TheImportStep(unittest.TestCase):
     def test_a_failed_import_is_the_first_failure(self):
         steps = [step("tools", "pass"), step("import", "fail")]
         self.assertEqual(summarize(steps)["first_failure"], "import")
+
+
+class TheOpenMapStep(unittest.TestCase):
+    """**The step that measures the product carries no workaround (E-078).**
+
+    `open_map` used to relaunch the editor on the map and pass on that, recording `workaround` in the
+    row. A row with a workaround is a row that says the agent could not do it — so once `map_open`
+    enters the editor, the honest record has no such field at all, and this pins that: a relaunch
+    creeping back in would show up as the key returning rather than as a passing step.
+    """
+
+    def test_a_passing_open_map_records_no_workaround(self):
+        steps = []
+        row = _record(steps, "open_map", "pass",
+                      "an operation opens the map it made, and the editor entered it", 12.0)
+        self.assertNotIn("workaround", row)
+        self.assertEqual(summarize(steps), {"reached": 1, "of": 1, "first_failure": None})
+
+    def test_the_row_is_the_step_and_not_a_copy(self):
+        # `_record` appends and returns the same object; a test that built its own dict would pass
+        # while the script recorded something else.
+        steps = []
+        row = _record(steps, "open_map", "pass", "", 1.0)
+        self.assertIs(steps[0], row)

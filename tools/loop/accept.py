@@ -65,9 +65,9 @@ class Run:
         self.editor = editor
         self.scratch = scratch
         self.steps = []
-        # **Every editor this run has started**, so `run()`'s `finally` can reap them all. `accept.py`
-        # relaunches once, and a failure between the two assignments leaked a live editor per failed
-        # run — nine of them, holding this machine at load 33.
+        # **Every editor this run has started**, so `run()`'s `finally` can reap them all. Nothing
+        # relaunches any more (E-078 removed the one that did), but a list survives the next step that
+        # needs a second process, and an editor left behind holds this machine at load 33.
         self.editors = [editor]
 
     def op(self, name, params):
@@ -107,56 +107,34 @@ class Run:
         return _record(self.steps, "make_map", "pass", f"made `{MAP}` with the request as its note", ms)
 
     def step_open_map(self):
-        """Can an agent start working in the map it just made?
+        """Can an agent start working in the map it just made — on the editor it already has?
 
-        This is the step that found E-067: `door_open` takes a door and a tab, and nothing takes a
-        map's name. The relaunch below is what a person would have to do instead, and it is recorded
-        as a `workaround` rather than hidden — the step still fails, because the agent could not do
-        it and a script that papered over that would be measuring the script.
+        This step found E-067 (`door_open` takes a door and a tab, and nothing took a map's name) and
+        then E-078 (`map_open` exists and applies from the menu, and the window stayed on the menu).
+        Until E-078 it **relaunched the editor on the map** and passed on that, recording the relaunch
+        as a `workaround` — which meant the loop's headline number measured the script rather than the
+        product. The relaunch is gone: `map_open` applied on the menu now enters the editor on that
+        map, and the map arriving is what the step waits for on the **same** editor.
         """
         t0 = time.time()
+        answer = self.op("map_open", {"name": MAP})
+        if not self.ok(answer):
+            return _record(self.steps, "open_map", "fail", self.why(answer), (time.time() - t0) * 1000)
+        # **The crossing is the screen's, and the map is what proves it happened.** `or {}` because
+        # `emerge/state` on the menu carries `"map": null`, and reading a key off None would be the
+        # script failing rather than the product.
         try:
-            listed = self.client.json_call("emerge_list_operations")
-        except Exception as e:  # noqa: BLE001
-            listed = {"refused": str(e)}
-        # **The rows name the operation under `operation`**, not `name` — read from
-        # `ops_brp::operation_list`, which builds `{operation, undo, parameters}`. Reading `name` made
-        # this step report "no operation opens a map by name" for an operation that was published, so
-        # the script measured its own bug and called it a product gap.
-        names = (
-            [o.get("operation") for o in listed.get("operations", [])]
-            if isinstance(listed, dict)
-            else []
-        )
-        has_map_open = "map_open" in names
-        # **The relaunch happens whether or not `map_open` exists.** The workaround is what a person
-        # would do, and it is recorded as a workaround rather than hidden. A first version built the
-        # new client here and left the old one unclosed; the next step then spoke to a dead process
-        # and reported it as a BRP timeout — a script bug wearing a product failure's clothes.
-        # **The old process is closed before the new one starts**, and the field is replaced after —
-        # not the other way round. `run()`'s `finally` closes `self.editor`, so an exception between
-        # the two assignments left the *new* editor leaked and the old one closed: measured on
-        # 2026-10-25, nine of them were still running from failed runs, which is what put this
-        # machine at load 33 and made every later measurement fail.
-        self.editor.close()
-        self.editor = Editor(self.scratch, MAP, "--door", "map")
-        self.editors.append(self.editor)
-        # **The new process has to be ready before anything talks to it.** `wait_ready` polls
-        # `emerge/state`, which answers only once the Map door has a world — and a first version of
-        # this step then called `emerge/project_root` through the *client*, which spawns its own
-        # process and uses the server's 5 s read budget. On a machine at load 32 a freshly started
-        # editor does not answer inside 5 s, and the step reported a timeout on a healthy process.
-        self.editor.wait_ready(lambda s: s.get("map", {}).get("name") == MAP)
-        if self.client is not None:
-            self.client.close()
-        self.client = Client(str(binary("bevy_emerge_mcp")), str(self.scratch), self.editor.port, "accept")
-        ms = (time.time() - t0) * 1000
-        if has_map_open:
-            return _record(self.steps, "open_map", "pass", "an operation opens a map by name", ms)
+            self.editor.wait_ready(lambda s: ((s.get("map") or {}).get("name")) == MAP, limit=60)
+        except TimeoutError:
+            return _record(
+                self.steps, "open_map", "fail",
+                "map_open applied but the editor stayed on the menu",
+                (time.time() - t0) * 1000,
+            )
         return _record(
-            self.steps, "open_map", "fail",
-            "no operation opens a map by name (door_open takes a door and tab only)",
-            ms, workaround="relaunched the editor on the map",
+            self.steps, "open_map", "pass",
+            "an operation opens the map it made, and the editor entered it",
+            (time.time() - t0) * 1000,
         )
 
     def step_place(self):
@@ -292,8 +270,8 @@ def run(source, out, glb=None):
               "load_avg_1m": os.getloadavg()[0], "request": REQUEST}
 
     editor = Editor(scratch)  # the menu: no door, because the map does not exist yet
-    # **Every editor this run starts, so a failure closes all of them.** `Run` may replace its own
-    # `editor` when it relaunches, and one field is not enough to reap both.
+    # **Every editor this run starts, so a failure closes all of them.** `Run` holds its list, and a
+    # step that ever starts a second process is reaped by the same loop.
     run_ = None
     client = None
     try:
@@ -349,9 +327,9 @@ def run(source, out, glb=None):
     finally:
         if client is not None:
             client.close()
-        # **Every editor this run started.** The relaunched one is not the one this function holds,
-        # and closing only that left the live process behind — measured: nine leaked editors from
-        # failed runs, which is what held the machine at load 33.
+        # **Every editor this run started**, not just the one this function holds. Closing only that
+        # left live processes behind — measured: nine leaked editors from failed runs, which is what
+        # held the machine at load 33.
         for e in (run_.editors if run_ is not None else [editor]):
             try:
                 e.close()
