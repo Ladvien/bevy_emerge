@@ -253,6 +253,17 @@ pub struct EditorState {
 }
 
 impl EditorState {
+    /// **The solver's seed for the next proposal**, advanced by exactly one.
+    ///
+    /// A generator that cannot be asked again is one the author has to undo to disagree with, so
+    /// every press advances this. It lives on the state rather than in the proposer so that a
+    /// proposal made by an agent (which supplies its own seed) and one made by a key behave the
+    /// same way on the *next* press.
+    pub fn next_seed(&mut self) -> u64 {
+        self.seed = self.seed.wrapping_add(1);
+        self.seed
+    }
+
     /// **How many steps back are available**, for a test that needs to assert an act recorded
     /// *nothing* — discarding a proposal, for one, which writes nothing and so must take nothing
     /// back. The stack itself stays private: this answers a question, it does not hand over the rows.
@@ -3430,12 +3441,16 @@ pub struct Rung(pub SnapLevel);
 
 /// **A generated layout that has not been written to the map.**
 ///
-/// See [`keys::Stance::Proposed`] for why this is a phase rather than a flag, and `generate_from`
-/// for the measured reason it exists at all.
+/// See [`keys::Stance::Proposed`] for why this is a phase rather than a flag, and [`propose`] for
+/// the measured reason it exists at all.
 ///
-/// It holds only what the solver produced. What the layout would *clear* is decided by
-/// [`apply_proposal`] against the live map, because an index captured now and used later is a bug
-/// waiting for the first author who places a piece while a proposal is up.
+/// It holds only what the solver produced. What the layout would *clear* is decided when it is
+/// taken, against the live map, because an index captured now and used later is a bug waiting for
+/// the first author who places a piece while a proposal is up.
+///
+/// **`PartialEq` because a proposal is compared, not just drawn**: `layout_propose` answers a test
+/// with two layouts and the question "did the same seed lay the same thing" has to be answerable.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Proposed {
     /// True when the source was `Composed`, which lays stamps rather than placements — and therefore
     /// clears the unpinned stamps rather than the unpinned placements.
@@ -7760,17 +7775,17 @@ fn keys(
     // **G continues the layout.** Learn the grammar from what is already placed, then fill the free
     // cells with more of it — see `bevy_emerge_core::grammar`.
     if keys::just_pressed(&keyboard, *live, Action::GenerateDeclared) {
-        generate_from(&project, &open, &mut state, proposal, clock, Source::Declared);
+        propose_layout(&project, &open, &mut state, proposal, clock, LayoutSource::Declared);
     }
     // The three arms need no `return` between them and no ordering: `just_pressed` refuses a binding
     // whose modifier state does not match exactly (`keys.rs`, `b.needs_mod != mod_held || !shift_ok`),
     // so bare, Shift and the platform modifier are mutually exclusive by construction. `keys`'
     // `the_three_generate_sources_do_not_shadow_each_other` is what keeps that true.
     if keys::just_pressed(&keyboard, *live, Action::GenerateComposed) {
-        generate_from(&project, &open, &mut state, proposal, clock, Source::Composed);
+        propose_layout(&project, &open, &mut state, proposal, clock, LayoutSource::Composed);
     }
     if keys::just_pressed(&keyboard, *live, Action::Generate) {
-        generate(&project, &open, &mut state, proposal, clock);
+        propose_layout(&project, &open, &mut state, proposal, clock, LayoutSource::Learned);
         return;
     }
 
@@ -11472,8 +11487,9 @@ fn pin_reason_keys(
 /// observed pairs — and `Declared` cannot answer for a library nobody has tokened. Each says so
 /// rather than quietly deferring to the other, because a generator that silently changed which
 /// grammar it used would produce output the author cannot account for.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Source {
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutSource {
     /// Learned from what is already placed. Continues the author's own corner of the room.
     Learned,
     /// Read off the kit's declared edge tokens. Works on an empty map.
@@ -11486,12 +11502,6 @@ enum Source {
     Composed,
 }
 
-fn generate(project: &Project,
-    open: &OpenMap, state: &mut EditorState, proposal: &mut Proposal,
-    clock: &mut ProposalClock) {
-    generate_from(project, open, state, proposal, clock, Source::Learned);
-}
-
 /// **The wishes a generation asks for, read off the map** — E-005.
 ///
 /// It was `ENCLOSURE_WISH` / `ENCLOSURE_WEIGHT`, constants in this file, so an author who wanted a
@@ -11499,10 +11509,10 @@ fn generate(project: &Project,
 /// it something a developer tunes while looking at a result: an agent sets it through
 /// `map_set_settings` and a file edit sets the same field.
 ///
-/// **Public so the reading is testable without a generator.** `generate_from` needs a project, a
-/// proposal and a clock; what an author can get wrong is *which number the generator is told*, and
-/// that is this function's whole job. A test that had to run a solve to check it would be proving
-/// the solver rather than the wiring.
+/// **Public so the reading is testable without a generator.** `propose` needs a project and a map;
+/// what an author can get wrong is *which number the generator is told*, and that is this function's
+/// whole job. A test that had to run a solve to check it would be proving the solver rather than the
+/// wiring.
 pub fn enclosure_wishes(map: &bevy_emerge_core::map::Map) -> bevy_emerge_core::grammar::Wishes {
     bevy_emerge_core::grammar::Wishes {
         enclosure: map.enclosure.wish,
@@ -11510,45 +11520,154 @@ pub fn enclosure_wishes(map: &bevy_emerge_core::map::Map) -> bevy_emerge_core::g
     }
 }
 
-fn generate_from(project: &Project,
+/// **Every generate key's one line: propose, then put the answer where the editor reads it.**
+///
+/// The key path and the agent's `layout_propose` run the same [`propose`]; this is the half that
+/// needs a running editor — a seed from the state, a generation number from the clock, the receipt,
+/// and one problem per refusal the proposer did not treat as fatal.
+fn propose_layout(
+    project: &Project,
     open: &OpenMap,
     state: &mut EditorState,
     proposal: &mut Proposal,
     clock: &mut ProposalClock,
-    source: Source,
+    source: LayoutSource,
 ) {
-    // **The project's rules answer first when they apply**, and only for `Learned` — `Declared` and
-    // `Composed` read other things and a rule has nothing to say to them. When a rule applies it
-    // is the whole answer, refusals included: falling back to the 1 m learned path after a rule
-    // refused would show the author a layout the game will never build.
-    if source == Source::Learned && generate_by_rules(project, open, state, proposal, clock) {
-        return;
+    match propose(project, open, source, state.next_seed()) {
+        Ok(laid) => {
+            let mut proposed = laid.proposed;
+            proposed.generation = clock.tick();
+            proposal.0 = Some(proposed);
+            state.status.note(laid.note);
+            for warning in laid.warnings {
+                state.status.problem(warning);
+            }
+        }
+        Err(e) => {
+            // **Logged as well as shown**, because the status line lives in a UI panel and the panel
+            // is the one thing neither an offscreen mirror capture nor an unfocused devshot can see —
+            // so without this an agent driving the editor cannot tell a refusal from a keystroke that
+            // never arrived, which are opposite diagnoses.
+            error!("bevy_emerge_mapper: {e}");
+            state.status.problem(e);
+        }
     }
+}
+
+/// **The three things a proposer answers with.**
+///
+/// Nothing is written: a layout is *offered*, and whether it becomes rows on the map is
+/// [`crate::ops::layout_accept`]'s decision (or the person's `Enter`). This struct is what makes the
+/// offering one function instead of three that each wrote to a different place.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Laid {
+    /// The layout itself — placements, stamps, preview-only, and the cell it is drawn at.
+    pub proposed: Proposed,
+    /// The one line the receipt shows: what was offered, replacing what, and the two chords that
+    /// answer it.
+    pub note: String,
+    /// **Refusals that are not failures.** A composition the kit cannot make a tile of is named and
+    /// the rest of the layout still stands, so these are shown one per line rather than taking the
+    /// whole proposal down.
+    pub warnings: Vec<String>,
+}
+
+/// **One pure layout proposer behind every generate key, every source, and the agent's
+/// `layout_propose`.**
+///
+/// It was five functions — `generate`, `generate_from`, `generate_by_rules`,
+/// `generate_example_block`, `generate_region_blocks` — each of which read `EditorState` for a seed
+/// and an id counter, wrote the receipt with `state.status`, and stored the result in a `Proposal`
+/// resource. So *what a layout is* was only reachable through *who asked for it*, and an agent could
+/// not ask: the operation registry has no `&mut EditorState` and no viewport.
+///
+/// This is that logic with the three side effects turned into arguments and return values. It reads
+/// a `Project` and an `OpenMap` and nothing else, which is what makes it testable without an `App`
+/// and callable from an operation.
+///
+/// `seed` is the caller's, not the state's: `layout_propose` names it so the same seed on the same
+/// map lays the same layout, and the key path passes [`EditorState::next_seed`] so two presses
+/// differ. The id counter is seeded from the map (`next_id_after`), so a proposal cannot mint an id
+/// that is already taken.
+pub fn propose(
+    project: &Project,
+    open: &OpenMap,
+    source: LayoutSource,
+    seed: u64,
+) -> Result<Laid, String> {
+    // **A rule answers first, and only for `Learned`.** `Declared` and `Composed` read other things
+    // and a rule has nothing to say to them. When a rule applies it is the whole answer, refusals
+    // included: falling back to the 1 m learned path after a rule refused would show the author a
+    // layout the game will never build.
+    if source == LayoutSource::Learned
+        && let Some(laid) = propose_by_rules(project, open, seed)?
+    {
+        return Ok(laid);
+    }
+    propose_from_grammar(project, open, source, seed)
+}
+
+/// **`G` under the project's block rules**, for the one case where they apply.
+///
+/// `Ok(None)` means "no rule is about this map" and the ordinary path runs unchanged — the
+/// distinction the `bool` return used to carry, made explicit so `propose` reads as the decision it
+/// is.
+fn propose_by_rules(
+    project: &Project,
+    open: &OpenMap,
+    seed: u64,
+) -> Result<Option<Laid>, String> {
+    if let Some(rule) = project
+        .rules
+        .blocks
+        .iter()
+        .find(|r| r.example == open.map.name)
+    {
+        return propose_example_block(rule, open, seed).map(Some);
+    }
+    let asks = open
+        .map
+        .placements
+        .iter()
+        .any(|p| project.rules.blocks.iter().any(|r| r.regions.contains(&p.descriptor)));
+    if asks {
+        return propose_region_blocks(project, open).map(Some);
+    }
+    Ok(None)
+}
+
+/// The ordinary path: build a grammar from the source, solve, and offer the result.
+fn propose_from_grammar(
+    project: &Project,
+    open: &OpenMap,
+    source: LayoutSource,
+    seed: u64,
+) -> Result<Laid, String> {
     // One metre: the tile the kits are authored on, and coarse enough that a 32 m map is a grid the
     // solver finishes rather than 4,096 cells of half-metre noise.
 
     // `from_compositions` also reports what it could not make a tile of, by name. `learn` and
     // `declared` refuse whole or succeed whole, so they carry an empty report rather than a different
-    // shape — one type here, and the refusals reach the status line either way.
+    // shape — one type here, and the refusals reach the warnings either way.
     //
     // **The interfaces travel with the grammar**, and that is what makes rooms possible. Only
     // `from_compositions` derives them, and `solve_constrained` needs them to know which face of a
     // tile presents a wall — so an enclosure wish is expressible for the composition source and for
-    // no other. `learn` and `declared` carry an empty list rather than a different shape.
+    // no other.
     type Built = (
         bevy_emerge_core::grammar::Grammar,
         Vec<String>,
         Vec<Option<bevy_emerge_core::composition::Interface>>,
     );
     let built: Result<Built, String> = match source {
-        Source::Learned => {
+        LayoutSource::Learned => {
             bevy_emerge_core::grammar::learn(&open.map, CELL).map(|g| (g, Vec::new(), Vec::new()))
         }
-        Source::Declared => {
+        LayoutSource::Declared => {
             bevy_emerge_core::grammar::declared(&project.library, project.lattice.face_bands, CELL)
                 .map(|g| (g, Vec::new(), Vec::new()))
         }
-        Source::Composed => bevy_emerge_core::grammar::from_compositions(
+        LayoutSource::Composed => bevy_emerge_core::grammar::from_compositions(
             &project.compositions.compositions,
             &project.library,
             project.lattice.face_bands,
@@ -11557,108 +11676,52 @@ fn generate_from(project: &Project,
         )
         .map(|c| (c.grammar, c.skipped, c.faces)),
     };
-    let (grammar, skipped, faces) = match built {
-        Ok(g) => g,
-        Err(e) => {
-            // **Logged as well as shown, and that is not belt-and-braces.** The status line lives in
-            // a UI panel, and the panel is the one thing neither an offscreen mirror capture nor an
-            // unfocused devshot can see — so without this an agent driving the editor cannot tell a
-            // refusal from a keystroke that never arrived, which are opposite diagnoses.
-            // `redraw_stamps` has paired the two since it was written; this path had not.
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
-            return;
-        }
-    };
-    state.seed = state.seed.wrapping_add(1);
-    let mut n = state.next_id;
+    let (grammar, skipped, faces) = built?;
+
+    let mut n = next_id_after(&open.map);
 
     // **The solver has to see the stamps, or an owned group protects nothing.**
     //
     // `solve` builds its pinned set from `map.placements.iter().filter(|p| p.owned)`, and stamped
-    // rows are deliberately never in `placements` — so a composition an author marked owned, whose whole
-    // documented meaning is *"a generator routes around the whole group"*, was invisible and the
-    // collapser filled straight through it. Expanding into a scratch map is what makes the pin real:
-    // `expand` already propagates `Stamped::owned` to every row it produces, so the cells come back
-    // as the unary constraints they were always supposed to be.
+    // rows are deliberately never in `placements` — so a composition an author marked owned, whose
+    // whole documented meaning is *"a generator routes around the whole group"*, was invisible and
+    // the collapser filled straight through it. Expanding into a scratch map is what makes the pin
+    // real: `expand` already propagates `Stamped::owned` to every row it produces.
     //
-    // A scratch copy rather than the real map, because the expansion must not become authored rows —
-    // that invariant is what keeps the reference model a reference.
+    // A scratch copy rather than the real map, because the expansion must not become authored rows.
     let mut scratch = open.map.clone();
     if !scratch.stamps.is_empty() {
-        match bevy_emerge_core::composition::expand(
+        let expanded = bevy_emerge_core::composition::expand(
             &open.map,
             &open.map.stamps,
             &project.compositions.compositions,
             &project.library,
-        ) {
-            Ok(e) => scratch.placements.extend(e.placements),
-            Err(e) => {
-                error!("bevy_emerge_mapper: cannot generate around the stamps: {e}");
-                state
-                    .status
-                    .problem(format!("cannot generate around the stamps: {e}"));
-                return;
-            }
-        }
+        )
+        .map_err(|e| format!("cannot generate around the stamps: {e}"))?;
+        scratch.placements.extend(expanded.placements);
     }
+
     // **The composition source solves under constraints; the other two collapse.**
     //
     // Not two ways to do one thing — two sources with different information. A grammar learned from
     // placements derives no interfaces, so it has no walls to close and nothing to ask for; the
-    // composition grammar does, and asking is the whole point. `docs/research/2026-08-10-expressive-range.md`
-    // measured the collapse at zero enclosed regions in 128 solves and falsified both the vocabulary
-    // and the weight explanations for it — a closed boundary is a property over distance, and local
-    // adjacency has no term for it.
+    // composition grammar does. `docs/research/2026-08-10-expressive-range.md` measured the collapse
+    // at zero enclosed regions in 128 solves and falsified both the vocabulary and the weight
+    // explanations for it.
     let mut mint = || {
         n += 1;
         format!("gen@{n}")
     };
     let enclosure = enclosure_wishes(&open.map);
-    let outcome = match source {
-        Source::Composed => {
-            bevy_emerge_core::grammar::solve_constrained(
-                &scratch, &grammar, &faces, &enclosure, CELL, state.seed, &mut mint,
-            )
+    let solved = match source {
+        LayoutSource::Composed => bevy_emerge_core::grammar::solve_constrained(
+            &scratch, &grammar, &faces, &enclosure, CELL, seed, &mut mint,
+        ),
+        LayoutSource::Learned | LayoutSource::Declared => {
+            bevy_emerge_core::grammar::solve(&scratch, &grammar, CELL, seed, &mut mint)
         }
-        Source::Learned | Source::Declared => {
-            bevy_emerge_core::grammar::solve(&scratch, &grammar, CELL, state.seed, &mut mint)
-        }
-    };
-    let solved = match outcome {
-        Ok(s) => s,
-        Err(e) => {
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
-            return;
-        }
-    };
-    state.next_id = n;
+    }?;
 
-    // Everything unpinned is the sketch; the solve is the drawing. Despawn it and rebuild —
-    // **keeping what was removed, with its indices**, because this is an edit like any other and the
-    // history must be able to put it back. This used a bare `retain()` and recorded only the solver
-    // rows, which was two defects in one line: the author's sketch was unrecoverable (Cmd+Z drained
-    // the solver output and stopped, with a success message), and every index-based entry already on
-    // the stack — Moved, Turned, Pinned, RemoveAt — was left pointing at rows that had shifted, so a
-    // second Cmd+Z rewrote whatever now sat at those indices with the dead sketch's data.
-    // **A solve replaces the sketch in the medium it draws in.** A grammar over descriptors lays
-    // placements, so it clears the unpinned placements; a grammar over compositions lays stamps, so it
-    // clears the unpinned stamps and must leave the author's placements alone. Clearing both would
-    // make `Shift+G` silently delete every group an author had stamped.
-    let composes = matches!(source, Source::Composed);
-
-    // **Nothing is written. The layout becomes a proposal, and the author decides.**
-    //
-    // `G` used to rewrite the map on the keypress. Alvarez et al. 2018 (FDG,
-    // `10.1145/3235765.3235815`) put a two-step commit into the Evolutionary Dungeon Designer for
-    // exactly that, and said why: apply-on-click was **"occasionally causing work loss due to
-    // accidental replacements"**. A generate here can clear every unpinned row on the map, which is
-    // the largest single act the editor has — and it was the one with no way back except undo.
-    //
-    // **What to clear is decided at apply time, not here.** Holding indices captured now and using
-    // them later would be a stale-index bug waiting for the first author who places something while
-    // a proposal is up; `apply_proposal` reads the live map instead.
     let shortfall = if solved.unmet > 0 {
         format!(
             " — but does not reach the {}% enclosure it aims for; the kit's rules do not allow more \
@@ -11668,14 +11731,16 @@ fn generate_from(project: &Project,
     } else {
         String::new()
     };
-    for s in &skipped {
-        state.status.problem(format!("not a tile: {s}"));
-    }
 
+    // **A solve replaces the sketch in the medium it draws in.** A grammar over descriptors lays
+    // placements, so it clears the unpinned placements; a grammar over compositions lays stamps, so
+    // it clears the unpinned stamps and must leave the author's placements alone. Clearing both
+    // would make `Shift+G` silently delete every group an author had stamped.
+    let composes = matches!(source, LayoutSource::Composed);
     let count = solved.placements.len();
     let stamped = solved.stamps.len();
-    // **The delta, not the absolute** — `docs/ui.md` §3.2, and the same thing EDD's suggestion panel
-    // shows: what would change if this were taken, next to what is there now.
+    // **The delta, not the absolute** — what would change if this were taken, next to what is there
+    // now. `layout_accept` recomputes it against the live map at the moment of commitment.
     let replaces = if composes {
         open.map.stamps.iter().filter(|s| !s.owned).count()
     } else {
@@ -11686,67 +11751,27 @@ fn generate_from(project: &Project,
     } else {
         format!("{count} piece(s)")
     };
-    state.status.note(format!(
-        "proposed: {laid} replacing {replaces}, around {} pinned cell(s), from {} prototype(s)\
-         {shortfall} — {} keeps it, {} throws it away",
-        solved.owned_cells,
-        grammar.len() - 1,
-        keys::chord(Action::AcceptProposal),
-        keys::chord(Action::Cancel),
-    ));
-
-    proposal.0 = Some(Proposed {
-        composes,
-        placements: solved.placements,
-        stamps: solved.stamps,
-        cell: CELL,
-        preview_only: false,
-        // The seed the solve ran under, which is already monotonic and already advanced per generate.
-        generation: clock.tick(),
-    });
-}
-
-/// **`G` under the project's block rules**, for the one case where they apply. Returns whether it
-/// handled the press — proposed, or refused by name — so `false` means "no rule is about this map"
-/// and the ordinary learned path runs unchanged.
-///
-/// Two shapes, both through `bevy_emerge_core::rules`, the same code the game runs, so what is drawn
-/// here is what the game builds:
-///
-/// - **The example.** The open map *is* a rule's example. Learn from it at the rule's cell, pin its
-///   owned cells, solve one block centred on the map, and propose the result like any other
-///   generate — Enter replaces the unowned rows.
-/// - **Regions.** The map holds placements a rule names in `regions`, each asking for a block. Learn
-///   from the example map on disk, solve every block around its region, and propose all of them as
-///   a **preview only**: the game lays these blocks out itself.
-fn generate_by_rules(
-    project: &Project,
-    open: &OpenMap,
-    state: &mut EditorState,
-    proposal: &mut Proposal,
-    clock: &mut ProposalClock,
-) -> bool {
-    if let Some(rule) = project
-        .rules
-        .blocks
-        .iter()
-        .find(|r| r.example == open.map.name)
-    {
-        generate_example_block(rule, open, state, proposal, clock);
-        return true;
-    }
-    let asks = open.map.placements.iter().any(|p| {
-        project
-            .rules
-            .blocks
-            .iter()
-            .any(|r| r.regions.contains(&p.descriptor))
-    });
-    if asks {
-        generate_region_blocks(project, open, state, proposal, clock);
-        return true;
-    }
-    false
+    Ok(Laid {
+        note: format!(
+            "proposed: {laid} replacing {replaces}, around {} pinned cell(s), from {} prototype(s)\
+             {shortfall} — {} keeps it, {} throws it away",
+            solved.owned_cells,
+            grammar.len() - 1,
+            keys::chord(Action::AcceptProposal),
+            keys::chord(Action::Cancel),
+        ),
+        warnings: skipped.iter().map(|s| format!("not a tile: {s}")).collect(),
+        proposed: Proposed {
+            composes,
+            placements: solved.placements,
+            stamps: solved.stamps,
+            cell: CELL,
+            preview_only: false,
+            // Filled by the caller, which owns the clock: this function is a function of its
+            // arguments, so a clock here would be a fifth thing it depends on.
+            generation: 0,
+        },
+    })
 }
 
 /// What a rule's example lays: the new placements, the pinned cells it kept and the prototypes it
@@ -11773,43 +11798,35 @@ fn solve_example_block(
     Ok((placed, pins.len(), alphabet.grammar.len().saturating_sub(1)))
 }
 
-fn generate_example_block(
+fn propose_example_block(
     rule: &bevy_emerge_core::rules::BlockRules,
     open: &OpenMap,
-    state: &mut EditorState,
-    proposal: &mut Proposal,
-    clock: &mut ProposalClock,
-) {
+    seed: u64,
+) -> Result<Laid, String> {
     // Seeded like the ordinary path — every press a different layout — but from the rule's own seed.
-    state.seed = state.seed.wrapping_add(1);
-    let seed_base = rule.seed.wrapping_add(state.seed.wrapping_mul(1000));
-    let mut n = state.next_id;
-    match solve_example_block(rule, open, seed_base, &mut n) {
-        Ok((placements, pinned, prototypes)) => {
-            state.next_id = n;
-            let replaces = open.map.placements.iter().filter(|p| !p.owned).count();
-            state.status.note(format!(
-                "proposed: {} piece(s) replacing {replaces}, around {pinned} pinned cell(s), from \
-                 {prototypes} prototype(s), by the rules for `{}` — {} keeps it, {} throws it away",
-                placements.len(),
-                rule.example,
-                keys::chord(Action::AcceptProposal),
-                keys::chord(Action::Cancel),
-            ));
-            proposal.0 = Some(Proposed {
-                composes: false,
-                placements,
-                stamps: Vec::new(),
-                cell: rule.cell,
-                preview_only: false,
-                generation: clock.tick(),
-            });
-        }
-        Err(e) => {
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
-        }
-    }
+    let seed_base = rule.seed.wrapping_add(seed.wrapping_mul(1000));
+    let mut n = next_id_after(&open.map);
+    let (placements, pinned, prototypes) = solve_example_block(rule, open, seed_base, &mut n)?;
+    let replaces = open.map.placements.iter().filter(|p| !p.owned).count();
+    Ok(Laid {
+        note: format!(
+            "proposed: {} piece(s) replacing {replaces}, around {pinned} pinned cell(s), from \
+             {prototypes} prototype(s), by the rules for `{}` — {} keeps it, {} throws it away",
+            placements.len(),
+            rule.example,
+            keys::chord(Action::AcceptProposal),
+            keys::chord(Action::Cancel),
+        ),
+        warnings: Vec::new(),
+        proposed: Proposed {
+            composes: false,
+            placements,
+            stamps: Vec::new(),
+            cell: rule.cell,
+            preview_only: false,
+            generation: 0,
+        },
+    })
 }
 
 /// What every region on the open map lays: the placements, the number of blocks, the blocks that
@@ -11852,8 +11869,9 @@ fn solve_region_blocks(
             let path = project
                 .maps_dir
                 .join(bevy_emerge_core::naming::map_file_name(&rule.example));
-            let text = std::fs::read_to_string(&path)
-                .map_err(|e| format!("the example map for `{}`: {}: {e}", region.id, path.display()))?;
+            let text = std::fs::read_to_string(&path).map_err(|e| {
+                format!("the example map for `{}`: {}: {e}", region.id, path.display())
+            })?;
             let example = bevy_emerge_core::map::Map::parse(&text)
                 .map_err(|e| format!("{}: {e}", path.display()))?;
             slot.insert(rules::learn(rule, &example)?);
@@ -11878,51 +11896,39 @@ fn solve_region_blocks(
     Ok((placements, blocks, failed, cell.unwrap_or(CELL)))
 }
 
-fn generate_region_blocks(
-    project: &Project,
-    open: &OpenMap,
-    state: &mut EditorState,
-    proposal: &mut Proposal,
-    clock: &mut ProposalClock,
-) {
-    // Not `state.seed`: the game seeds a region from its id, so a second press must show the same
-    // layout, or the preview would stop being a preview of anything.
-    match solve_region_blocks(project, open, state.next_id) {
-        Ok((placements, blocks, failed, cell)) => {
-            let laid = blocks - failed.len();
-            if !failed.is_empty() {
-                let message = format!(
-                    "no layout for {} of {blocks} block(s): {}",
-                    failed.len(),
-                    failed.join("; ")
-                );
-                error!("bevy_emerge_mapper: {message}");
-                state.status.problem(message);
-            } else {
-                state.status.note(format!(
-                    "previewing {} piece(s) in {blocks} block(s) by the rules — the game lays \
-                     these out itself, so {} will not keep them; {} clears the preview",
-                    placements.len(),
-                    keys::chord(Action::AcceptProposal),
-                    keys::chord(Action::Cancel),
-                ));
-            }
-            if laid > 0 {
-                proposal.0 = Some(Proposed {
-                    composes: false,
-                    placements,
-                    stamps: Vec::new(),
-                    cell,
-                    preview_only: true,
-                    generation: clock.tick(),
-                });
-            }
-        }
-        Err(e) => {
-            error!("bevy_emerge_mapper: {e}");
-            state.status.problem(e);
-        }
+fn propose_region_blocks(project: &Project, open: &OpenMap) -> Result<Laid, String> {
+    // Not the state's seed: the game seeds a region from its id, so a second press must show the
+    // same layout, or the preview would stop being a preview of anything.
+    let (placements, blocks, failed, cell) =
+        solve_region_blocks(project, open, next_id_after(&open.map))?;
+    let laid = blocks - failed.len();
+    // **No layout at all is a refusal**, not a receipt for an empty preview: there is nothing on
+    // screen to answer, and `Enter` on it would say "kept" about nothing.
+    if laid == 0 {
+        return Err(format!(
+            "no layout for {} of {blocks} block(s): {}",
+            failed.len(),
+            failed.join("; ")
+        ));
     }
+    Ok(Laid {
+        note: format!(
+            "previewing {} piece(s) in {blocks} block(s) by the rules — the game lays \
+             these out itself, so {} will not keep them; {} clears the preview",
+            placements.len(),
+            keys::chord(Action::AcceptProposal),
+            keys::chord(Action::Cancel),
+        ),
+        warnings: failed.iter().map(|f| format!("no layout for {f}")).collect(),
+        proposed: Proposed {
+            composes: false,
+            placements,
+            stamps: Vec::new(),
+            cell,
+            preview_only: true,
+            generation: 0,
+        },
+    })
 }
 
 /// **What the proposal would put down, drawn where it would go.**
