@@ -1697,6 +1697,282 @@ pub mod map_open {
     }
 }
 
+/// **Place one piece** — the click, and the agent's half of it (S2.1).
+///
+/// **No operation added a row.** Every push of a placement was in the key/mouse path, so an agent
+/// could turn a piece, pin it, or remove it, and could not put one down — which is the first thing
+/// any request needs. The acceptance script's `place` step failed on exactly this.
+///
+/// The work is `editor::plan_placement`, which is the click's own code split at the point where it
+/// stops describing and starts writing. One function, so an agent's placement and a person's cannot
+/// disagree about what is already there, what a piece mounts to, or which rows it replaces.
+///
+/// # Undo
+///
+/// `Undo::Inverse`: the inverse removes the row it added and puts back the rows it replaced, at their
+/// indices — the same [`RowDelta`] vocabulary every row-changing operation in this series uses.
+pub mod placement_add {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The piece, by descriptor id.
+        #[serde(default)]
+        pub piece: String,
+        /// **The piece's centre in map space, in metres**, used exactly as given — so a caller that
+        /// wants the 1 m grid must snap for itself. An absent `at` is the undo's form only.
+        #[serde(default)]
+        pub at: (f32, f32),
+        #[serde(default)]
+        pub yaw: f32,
+        #[serde(default)]
+        pub tip: (u8, u8),
+        /// **The undo's own form**: what to take away, and what to put back.
+        #[serde(default)]
+        pub delta: Option<RowDelta>,
+    }
+
+    impl Params {
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["piece", "at"],
+                "properties": {
+                    "piece": {
+                        "description": "The piece to place, by descriptor id. emerge_list_pieces lists them.",
+                        "type": "string"
+                    },
+                    "at": {
+                        "description": "The piece's centre in map space, in metres, as [x, z]. Used exactly as given, so snap it yourself if you want the 1 m grid pieces a generator reads sit on.",
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 2,
+                        "maxItems": 2
+                    },
+                    "yaw": {"type": "number", "description": "Facing in degrees. Omit for 0."},
+                    "tip": {
+                        "description": "Which variant of a tipped piece, as [a, b]. Omit for [0, 0].",
+                        "type": "array",
+                        "items": {"type": "integer", "minimum": 0},
+                        "minItems": 2,
+                        "maxItems": 2
+                    },
+                    "delta": {
+                        "description": "The rows an undo moves. Only an undo may set this.",
+                        "type": "object"
+                    }
+                }
+            })
+        }
+
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not the parameters for placing a piece: {e}. The fields are `piece`, \
+                     `at`, `yaw`, `tip` and `delta`, and `piece` and `at` are required."
+                ))
+            })
+        }
+    }
+
+    pub struct PlacementAdd;
+
+    impl Operation for PlacementAdd {
+        fn name(&self) -> &'static str {
+            "placement_add"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).map(|p| p.delta.is_some()).unwrap_or(false)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let (Some(project), Some(open)) = (ctx.project.as_ref(), ctx.open.as_ref()) else {
+                return Err(Refusal::new("no map is open, so there is nowhere to place a piece."));
+            };
+            if let Some(delta) = &p.delta {
+                let mut trial = open.map.clone();
+                delta.apply(&mut trial)?;
+                return Ok(json!({
+                    "map": open.map.name,
+                    "placements": trial.placements.len(),
+                }));
+            }
+            let Some(descriptor) = project.library.get(&p.piece) else {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a piece in this project — emerge_list_pieces lists them",
+                    p.piece
+                )));
+            };
+            let planned = crate::editor::plan_placement(
+                project,
+                open,
+                descriptor,
+                p.at,
+                p.yaw,
+                p.tip,
+                crate::editor::next_id_after(&open.map) + 1,
+            )
+            .map_err(Refusal::new)?;
+            let replaced: Vec<&String> = planned
+                .replaces
+                .iter()
+                .filter_map(|i| open.map.placements.get(*i).map(|row| &row.id))
+                .collect();
+            Ok(json!({
+                "id": planned.placed.id,
+                "map": open.map.name,
+                "on": planned.placed.on,
+                "replaces": replaced,
+                "y": planned.y,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let plan = self.plan(ctx, params)?;
+            let Some(open) = ctx.open.as_mut() else {
+                return Err(Refusal::new("no map is open, so there is nowhere to place a piece."));
+            };
+            let before = open.map.clone();
+
+            if let Some(delta) = &p.delta {
+                let inverse = delta.apply(&mut open.map)?;
+                let taken = inverse.add_placements.len();
+                let Some(project) = ctx.project.as_ref() else {
+                    return Err(Refusal::new("no project is open."));
+                };
+                let saved = match open.save(project) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        open.map = before;
+                        return Err(Refusal::new(format!(
+                            "the rows were put back but the file refused them, so nothing was \
+                             written: {e}"
+                        )));
+                    }
+                };
+                return Ok(Outcome {
+                    summary: format!("took away {taken} row(s)"),
+                    affected: taken,
+                    saved,
+                    inverse: Some(json!({ "delta": inverse })),
+                    after: Some(json!({
+                        "map": open.map.name,
+                        "placements": open.map.placements.len(),
+                    })),
+                });
+            }
+
+            let (Some(project), Some(descriptor)) = (
+                ctx.project.as_ref(),
+                ctx.project
+                    .as_ref()
+                    .and_then(|pr| pr.library.get(&p.piece).cloned()),
+            ) else {
+                return Err(Refusal::new(format!(
+                    "`{}` is not a piece in this project — emerge_list_pieces lists them",
+                    p.piece
+                )));
+            };
+            let planned = crate::editor::plan_placement(
+                project,
+                open,
+                &descriptor,
+                p.at,
+                p.yaw,
+                p.tip,
+                crate::editor::next_id_after(&open.map) + 1,
+            )
+            .map_err(Refusal::new)?;
+
+            // **The rows it replaces come out first, recorded with their indices** so the inverse can
+            // put each one back where it was rather than at the end of the file.
+            let replaced: Vec<Indexed<bevy_emerge_core::map::Placed>> = planned
+                .replaces
+                .iter()
+                .filter_map(|i| {
+                    open.map
+                        .placements
+                        .get(*i)
+                        .map(|row| Indexed { index: *i, row: row.clone() })
+                })
+                .collect();
+            for row in replaced.iter().rev() {
+                open.map.placements.remove(row.index);
+            }
+            let id = planned.placed.id.clone();
+            let on = planned.placed.on.clone();
+            let y = planned.y;
+            open.map.placements.push(planned.placed);
+
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map = before;
+                return Err(Refusal::new(format!(
+                    "the piece was placed but the file refused it, so nothing was written: {e}"
+                )));
+            }
+
+            // **The receipt is the click's own sentence**, word for word: a person and an agent
+            // reading the same act must read the same words, or one of the two is a different
+            // feature.
+            let summary = match (on.clone(), replaced.is_empty()) {
+                (_, false) => format!(
+                    "replaced {} with {id}",
+                    replaced
+                        .iter()
+                        .map(|r| format!("`{}`", r.row.id))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                (Some(host), true) => format!("placed {id} on {host}"),
+                (None, true) => format!("placed {id} at ({:.2}, {:.2})", p.at.0, p.at.1),
+            };
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({
+                    "delta": {
+                        "remove_placements": [id],
+                        "add_placements": replaced,
+                    }
+                })),
+                after: Some(json!({
+                    "map": plan["map"],
+                    "id": id,
+                    "removed": replaced.iter().map(|r| r.row.id.clone()).collect::<Vec<_>>(),
+                    "placements": open.map.placements.len(),
+                    "y": y,
+                })),
+            })
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            Some(json!({
+                "map": open.map.name,
+                "placements": open.map.placements.len(),
+            }))
+        }
+    }
+}
+
 /// **Every operation the editor knows, in one list.**
 ///
 /// **The one list.** The MCP tool surface, the parity test and the log's vocabulary are all read
@@ -1711,6 +1987,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(fill::Fill),
         Box::new(map_save::MapSave),
         Box::new(map_open::MapOpen),
+        Box::new(placement_add::PlacementAdd),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),

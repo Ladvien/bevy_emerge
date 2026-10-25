@@ -108,6 +108,9 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Map door's crossing** — `screen::cross` re-reads the map through `map_open`, so a person
     // crossing to the Map door and an agent opening one by name are one operation.
     ("map_open", "map_open",),
+    // **The placement click** — `place_one` calls `plan_placement` and dispatches
+    // `placement_add`, so a click and an agent put a piece down the same way (S2.1).
+    ("placement_add", "place_one("),
     // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
     // runs the `door_open` operation (item 1 of cycle 8).
     ("door_open", "open_door("),

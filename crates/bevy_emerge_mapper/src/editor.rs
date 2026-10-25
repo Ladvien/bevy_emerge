@@ -6523,76 +6523,40 @@ fn place_one(
     at: (f32, f32),
     free: bool,
 ) {
-    // **What it lands on.** A piece that mounts on a surface must find one under the cursor; the same
-    // question the ghost has been answering while the author moved the mouse here, asked once more at
-    // the moment it matters.
-    let ys = match heights(project, open) {
-        Ok(ys) => ys,
-        Err(e) => {
-            state.status.problem(e);
-            return;
-        }
-    };
-    let (y, host) =
-        match bevy_emerge_core::stack::placement_at(&open.map, &project.library, &ys, d, at) {
-            Ok(found) => found,
-            // Refused, not floored. Dropping it at floor level is the behaviour this replaced: the
-            // piece appears, in the wrong place, and looks like an authoring mistake.
-            Err(e) => {
-                state.status.problem(e);
-                return;
-            }
-        };
-    let on = host.map(|h| h.id.clone());
-
-    // **Occupied space is replaced, and the author is told what went.** Flush is fine — kitbashing
-    // lays pieces end to end, and `stack::OVERLAP_EPS` is what keeps "touching" from reading as
-    // "overlapping" — but a piece INSIDE another is an accident that otherwise surfaces as a doubled
-    // draw call nobody can see. Same-layer only: the floor a crate stands on is not in its way.
-    //
-    // It used to refuse, which made repainting a tile a two-step (remove, then place) on every cell.
-    // Replacing is one act and one undo. What still refuses is a piece that carries another: taking
-    // it away would strand its rider, so the author removes the rider first.
-    let blockers = bevy_emerge_core::stack::blockers(
-        &open.map,
-        &project.library,
+    // **The click is the operation's own reasoning, called with the click's own numbers.** Everything
+    // up to the write is `plan_placement`; what follows is the entity work an operation does not own.
+    // This used to be the other way round — the plan existed only here — which is why an agent could
+    // not place a piece at all (S2.1).
+    state.next_id += 1;
+    let planned = match plan_placement(
+        project,
+        open,
         d,
         at,
         state.brush_yaw,
         state.brush_tip,
-        on.as_deref(),
-    );
-    if let [only] = blockers.as_slice()
-        && let Some(p) = open.map.placements.get(*only)
-        && p.descriptor == d.id
-        && p.patch.is_none()
-        && p.at == at
-        && p.yaw == state.brush_yaw
-        && p.tip == state.brush_tip
-    {
-        // Exactly what is there: replacing it would mint a new id and change the file for no change on screen.
-        state.status.note(format!("`{}` is already there", p.id));
-        return;
-    }
-    if let Err(e) = riders_refuse(&open.map, &blockers) {
-        state.status.note(e);
-        return;
-    }
+        state.next_id,
+    ) {
+        Ok(p) => p,
+        // **"Already there" is a note; everything else is a problem.** The distinction is the
+        // crate's own: clicking a cell that already holds this exact piece is an answer, and a piece
+        // whose host is missing is a refusal the author has to act on.
+        Err(e) => {
+            if e.ends_with("is already there") {
+                state.status.note(e);
+            } else {
+                state.status.problem(e);
+            }
+            return;
+        }
+    };
+    let y = planned.y;
+    let on = planned.placed.on.clone();
+    let blockers = planned.replaces.clone();
     let removed = take_rows(commands, placed, &mut open.map, &blockers);
 
-    state.next_id += 1;
-    let id = format!("{}@{}", short_id(&d.id), state.next_id);
-
-    let placed_row = Placed {
-        id: id.clone(),
-        descriptor: d.id.clone(),
-        at,
-        yaw: state.brush_yaw,
-        tip: state.brush_tip,
-        on: on.clone(),
-        ..Placed::default()
-    };
-    open.map.placements.push(placed_row);
+    let id = planned.placed.id.clone();
+    open.map.placements.push(planned.placed);
     let replaced: Vec<String> = removed.iter().map(|(_, p)| p.id.clone()).collect();
     state.record(record_added(1, removed));
 
@@ -6617,6 +6581,76 @@ fn place_one(
         (Some(host), true) => format!("placed {id} on {host}{how}"),
         (None, true) => format!("placed {id} at ({:.2}, {:.2}){how}", at.0, at.1),
     });
+}
+
+/// **What a placement would be, before anything is written** — the click's own reasoning, split out
+/// so an agent's `placement_add` and a person's click cannot disagree (S2.1).
+///
+/// It is the first half of `place_one`, moved rather than copied: which layer the piece lands on, what
+/// is already in its way, whether it carries a rider, and the id it would take. **Nothing here writes**
+/// — no row is pushed, no entity despawned, no id counter advanced — which is what lets it answer a
+/// `dry_run` and what lets the operation own the write.
+pub(crate) struct PlannedPlacement {
+    /// The row that would be appended.
+    pub placed: Placed,
+    /// The rows it would replace, ascending. Occupied space is replaced rather than refused; a piece
+    /// that carries another is still refused, and that happens here.
+    pub replaces: Vec<usize>,
+    /// **The height it would sit at.** The solver lays pieces on the floor grid; how high one ends up
+    /// is a question about the finished map, so the click needs this to draw it and the operation
+    /// needs it to report.
+    pub y: f32,
+}
+
+pub(crate) fn plan_placement(
+    project: &Project,
+    open: &OpenMap,
+    d: &bevy_emerge_core::descriptor::Descriptor,
+    at: (f32, f32),
+    yaw: f32,
+    tip: (u8, u8),
+    n: u32,
+) -> Result<PlannedPlacement, String> {
+    // **What it lands on.** A piece that mounts on a surface must find one under the cursor; the same
+    // question the ghost has been answering while the author moved the mouse here, asked once more at
+    // the moment it matters.
+    let ys = heights(project, open)?;
+    let (y, host) = bevy_emerge_core::stack::placement_at(&open.map, &project.library, &ys, d, at)?;
+    let on = host.map(|h| h.id.clone());
+
+    // **Occupied space is replaced, and the author is told what went.** Flush is fine — kitbashing
+    // lays pieces end to end, and `stack::OVERLAP_EPS` is what keeps "touching" from reading as
+    // "overlapping" — but a piece INSIDE another is an accident that otherwise surfaces as a doubled
+    // draw call nobody can see. Same-layer only: the floor a crate stands on is not in its way.
+    let blockers =
+        bevy_emerge_core::stack::blockers(&open.map, &project.library, d, at, yaw, tip, on.as_deref());
+    if let [only] = blockers.as_slice()
+        && let Some(p) = open.map.placements.get(*only)
+        && p.descriptor == d.id
+        && p.patch.is_none()
+        && p.at == at
+        && p.yaw == yaw
+        && p.tip == tip
+    {
+        // Exactly what is there: replacing it would mint a new id and change the file for no change
+        // on screen. This is a note rather than a problem — the click path says so too.
+        return Err(format!("`{}` is already there", p.id));
+    }
+    riders_refuse(&open.map, &blockers)?;
+
+    Ok(PlannedPlacement {
+        placed: Placed {
+            id: format!("{}@{n}", short_id(&d.id)),
+            descriptor: d.id.clone(),
+            at,
+            yaw,
+            tip,
+            on,
+            ..Placed::default()
+        },
+        replaces: blockers,
+        y,
+    })
 }
 
 /// `` `a`, `b` `` — ids for a status line.
