@@ -40,6 +40,18 @@ pub struct ToolDoc {
 /// other fails a test rather than a reader's trust.
 pub const TOOLS: &[ToolDoc] = &[
     ToolDoc {
+        name: "emerge_present",
+        description: "Put a result in front of the person: a title, a one-paragraph summary, what they \
+                      specified, what you inferred, up to three places worth checking, and the operation \
+                      ids it covers. The editor shows it as a question: Keep, or Undo all (which undoes \
+                      every listed operation, newest first). This call returns at once; read the person's \
+                      answer from emerge_state's presentation.answer (\"kept\", \"undone\", or why the undo \
+                      stopped). It does not change the map by itself.",
+        read_only: false,
+        destructive: false,
+        idempotent: false,
+    },
+    ToolDoc {
         name: "emerge_list_operations",
         description: "Every operation the running bevy_emerge editor knows, with each one's parameters' \
                       JSON schema and how it is undone. Call this before emerge_apply_operation so the \
@@ -251,6 +263,31 @@ pub fn render() -> String {
 /// wrong shape gets a refusal it cannot act on.
 pub fn schemas() -> Value {
     serde_json::json!({
+        "emerge_present": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "summary"],
+            "properties": {
+                "title": {"type": "string"},
+                "summary": {"type": "string"},
+                "specified": {"type": "array", "items": {"type": "string"}},
+                "inferred": {"type": "array", "items": {"type": "string"}},
+                "check": {
+                    "type": "array",
+                    "maxItems": 3,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["what"],
+                        "properties": {
+                            "what": {"type": "string"},
+                            "placements": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                },
+                "operation_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
         "emerge_list_operations": {"type": "object", "additionalProperties": false},
         "emerge_preview_operation": {
             "type": "object",

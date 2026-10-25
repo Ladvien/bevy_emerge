@@ -126,6 +126,10 @@ pub fn add_editor_plugins(app: &mut App) -> &mut App {
     // The `#[cfg]` is on the module rather than on a tuple element, so the list above stays one list.
     #[cfg(feature = "debugger")]
     app.add_plugins(crate::guided::GuidePlugin);
+    // **The agent's presentation question** (S1.7). Its own `add_plugins` call rather than a tuple
+    // element: the list above is one element away from Bevy's fifteen-plugin cap, and a plugin that
+    // owns one question and one system does not need to be in that list.
+    app.add_plugins(crate::present::PresentPlugin);
     app
 }
 

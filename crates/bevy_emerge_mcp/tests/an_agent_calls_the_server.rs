@@ -1035,3 +1035,47 @@ fn the_fingerprint_distinguishes_pictures_by_their_bytes() {
         );
     }
 }
+
+/// **`emerge_present` is listed, and refuses readably with no editor** (S1.7).
+///
+/// The brief's test for a new tool: list it, read only its description, call it, and check the answer
+/// is usable with no project knowledge. The description has to say what it returns *and* that the
+/// answer is not immediate — an agent that expects the person's decision in the same reply would call
+/// it again and put up a second question.
+#[test]
+fn emerge_present_is_listed_and_refuses_readably_with_no_editor() {
+    let mut server = Server::start();
+    let listed = server.request("tools/list", json!({}));
+    let present = listed["result"]["tools"]
+        .as_array()
+        .expect("tools/list answers a list")
+        .iter()
+        .find(|t| t["name"] == "emerge_present")
+        .unwrap_or_else(|| panic!("emerge_present is not published, so an agent cannot present: {listed}"));
+    let description = present["description"].as_str().unwrap_or_default();
+    assert!(
+        description.contains("Keep") && description.contains("presentation.answer"),
+        "the description does not say how the person answers or where the agent reads it, so an \
+         agent will expect the decision in the same reply: {description:?}"
+    );
+    assert_eq!(
+        present["annotations"]["readOnlyHint"], false,
+        "a presentation puts a question on screen, so it is not read-only"
+    );
+
+    let answer = server.call(
+        "emerge_present",
+        json!({"title": "a courtyard", "summary": "nothing was made"}),
+    );
+    assert!(
+        answer.get("error").is_none(),
+        "the call was refused at the protocol level, so the agent cannot read why: {answer}"
+    );
+    let text = answer["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        text.contains("editor") || text.contains("BEVY_BRP_PORT"),
+        "the refusal does not say the editor was not there: {text}"
+    );
+}

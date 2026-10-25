@@ -6,6 +6,16 @@ The server speaks the Model Context Protocol over **stdio**, and reaches the run
 
 ## The tools
 
+### `emerge_present`
+
+Put a result in front of the person: a title, a one-paragraph summary, what they specified, what you inferred, up to three places worth checking, and the operation ids it covers. The editor shows it as a question: Keep, or Undo all (which undoes every listed operation, newest first). This call returns at once; read the person's answer from emerge_state's presentation.answer ("kept", "undone", or why the undo stopped). It does not change the map by itself.
+
+| annotation | value |
+|---|---|
+| `readOnlyHint` | false |
+| `destructiveHint` | false |
+| `idempotentHint` | false |
+
 ### `emerge_list_operations`
 
 Every operation the running bevy_emerge editor knows, with each one's parameters' JSON schema and how it is undone. Call this before emerge_apply_operation so the parameters are the ones the operation actually takes. Returns the list; it does not change anything. The undo column names the strategy an operation declares; emerge_undo_operation performs it.

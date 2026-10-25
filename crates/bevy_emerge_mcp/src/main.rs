@@ -231,6 +231,42 @@ pub struct StateParams {
     pub pinned_from: usize,
 }
 
+/// **The parameters of `emerge_present`.** A result, handed back for review.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PresentParams {
+    /// What the result is called. Required: a presentation without a title is a mystery.
+    pub title: String,
+    /// One paragraph saying what was made.
+    pub summary: String,
+    /// **What the person asked for**, quoted back to them.
+    #[serde(default)]
+    pub specified: Vec<String>,
+    /// **What you decided on your own.** The brief asks for this distinction by name: a person who
+    /// cannot see it cannot correct the right half of the result.
+    #[serde(default)]
+    pub inferred: Vec<String>,
+    /// **Up to three places worth checking.** More than three is not a short list; the editor
+    /// refuses a fourth.
+    #[serde(default)]
+    pub check: Vec<CheckItemParam>,
+    /// **The operations this covers**, as `emerge_apply_operation` returned them. Undo all walks
+    /// them newest first, so an id the log does not hold is refused.
+    #[serde(default)]
+    pub operation_ids: Vec<String>,
+}
+
+/// **One place worth a look**, as the agent states it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CheckItemParam {
+    /// What to look at, in your own words.
+    pub what: String,
+    /// Placement ids to frame in the viewport first, if any.
+    #[serde(default)]
+    pub placements: Vec<String>,
+}
+
 /// **The parameters of `emerge_list_pieces`.** Every filter is optional and they combine.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -558,6 +594,63 @@ impl Emerge {
             .call("emerge/state", json!({"pinned_from": p.pinned_from}))
             .await
         {
+            Ok(v) => Ok(CallToolResult::structured(v)),
+            Err(e) => Ok(refusal(&e)),
+        }
+    }
+
+    /// **`emerge_present` — hand the result back for review (S1.7).**
+    ///
+    /// **The brief's fourth step, in one call.** A tool that only reports leaves the person to work
+    /// out what changed; this puts the result in front of them as a Keep / Undo all question, with
+    /// what they asked for beside what was assumed, and the operations it covers.
+    ///
+    /// **It returns at once.** An MCP call that blocked on a person would deadlock with the editor's
+    /// own frame, so the answer is read later from `emerge_state`'s `presentation.answer`.
+    #[tool(
+        name = "emerge_present",
+        description = "Put a result in front of the person: a title, a one-paragraph summary, what \
+                       they specified, what you inferred, up to three places worth checking, and the \
+                       operation ids it covers. The editor shows it as a question: Keep, or Undo all \
+                       (which undoes every listed operation, newest first). This call returns at \
+                       once; read the person's answer from emerge_state's presentation.answer \
+                       (\"kept\", \"undone\", or why the undo stopped). It does not change the map by \
+                       itself.",
+        annotations(
+            title = "Present a result for review",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn present(
+        &self,
+        Parameters(p): Parameters<PresentParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // **The first place to check is framed before the question goes up.** Reusing
+        // `emerge/frame_view` rather than adding a second framing mechanism: the beat is "look here",
+        // and the editor already has one way to look somewhere.
+        if let Some(first) = p.check.first()
+            && !first.placements.is_empty()
+        {
+            let _ = self
+                .editor
+                .call(
+                    "emerge/frame_view",
+                    json!({"target": {"placements": first.placements}}),
+                )
+                .await;
+        }
+        let body = json!({
+            "title": p.title,
+            "summary": p.summary,
+            "specified": p.specified,
+            "inferred": p.inferred,
+            "check": p.check.iter().map(|c| json!({"what": c.what, "placements": c.placements})).collect::<Vec<_>>(),
+            "operation_ids": p.operation_ids,
+        });
+        match self.editor.call("emerge/present", body).await {
             Ok(v) => Ok(CallToolResult::structured(v)),
             Err(e) => Ok(refusal(&e)),
         }

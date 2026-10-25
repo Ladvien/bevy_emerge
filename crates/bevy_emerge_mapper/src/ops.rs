@@ -1992,6 +1992,22 @@ pub fn undo(ctx: &mut Ctx, target: Option<&str>) -> Result<(UndoPlan, Applied), 
     Ok((plan, applied))
 }
 
+/// **Every line of the operation log, parsed** — or an empty list when there is no log yet.
+///
+/// **One reader**, because the undo walk and `emerge/present` both need to know what the log holds
+/// and two parses would be two answers to "is this id real". A line that does not parse is skipped
+/// rather than failing the whole read: a log is append-only text, and one damaged line must not make
+/// every entry after it unreachable.
+pub fn read_entries(path: &std::path::Path) -> Vec<Entry> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<Entry>(l).ok())
+        .collect()
+}
+
 /// **The next sequence number** — the count of lines already in the log.
 ///
 /// **Counted, not tracked**, so a log edited by hand does not desynchronise the count.

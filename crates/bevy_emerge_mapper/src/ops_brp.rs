@@ -318,6 +318,10 @@ pub struct StateParams {
 ///
 /// **And it is cheap.** Everything here is already in memory, so the whole command is a read and
 /// a `json!` — no scanning, no measuring, no rendering.
+// The presentation resource is an eighth parameter. Bundling it into `Loaded` would hide it from the
+// ratchet tests that read this signature and would tie a read-only summary to a resource that only
+// S1.7 introduced — the same reason every other resource here is its own parameter.
+#[allow(clippy::too_many_arguments)]
 fn editor_state(
     In(params): In<StateParams>,
     loaded: Loaded,
@@ -326,8 +330,19 @@ fn editor_state(
     armed: Option<Res<crate::compose::Armed>>,
     door: Option<Res<crate::tiles::Door>>,
     mode: Option<Res<crate::tiles::Mode>>,
+    presenting: Option<Res<crate::present::Presenting>>,
 ) -> Result<Value, String> {
     let Loaded { project, open } = loaded;
+    // **The agent's presentation, and the person's answer to it** (S1.7). `None` until an agent
+    // presents something; then an object whose `answer` is `null` while the question is up. This is
+    // the only channel an agent has for what a person did after its call returned.
+    let presentation = presenting.as_ref().and_then(|p| p.0.as_ref()).map(|p| {
+        json!({
+            "id": p.id,
+            "title": p.title,
+            "answer": p.answer,
+        })
+    });
     // **The pins, named by id and reason.** A pin is the one thing an agent cannot see in the state
     // today, and the list is capped so a state dump stays a summary. `pinned_total` is the true
     // count, so a reader can tell a full list from a cut one.
@@ -456,6 +471,7 @@ fn editor_state(
         "map": map,
         "project": project_summary,
         "editor": editor,
+        "presentation": presentation,
         "armed_composition": armed.and_then(|a| a.id().map(|s| s.to_owned())),
         "selected": tiles.as_ref().map(|t| t.selected_library_id.clone()),
         "door": door.map(|d| d.label()),
@@ -1435,7 +1451,108 @@ impl Plugin for OpsBridgePlugin {
             .example(json!({"target": {"rect": [200.0, 100.0, 400.0, 300.0]}})),
             frame_view,
         );
+        app.add_debug_command(
+            DebugCommandInfo::new(
+                "emerge/present",
+                "Put a result in front of the person: a title, what was made, what they asked for, \
+                 what you decided on your own, and the operations it covers. The editor asks them \
+                 Keep or Undo all, and their answer comes back in emerge/state's \
+                 presentation.answer. This returns at once and changes no map data. Parameters: \
+                 title and summary (required); specified and inferred (strings); check, up to \
+                 three {what, placements}; operation_ids, the operations it covers.",
+            )
+            .example(json!({
+                "title": "courtyard",
+                "summary": "A 12 x 4 x 12 m courtyard with two exits, floor filled and walls placed.",
+                "specified": ["a courtyard", "two exits"],
+                "inferred": ["12 x 4 x 12 m"],
+                "check": [{"what": "the east exit is clear", "placements": []}],
+                "operation_ids": [],
+            })),
+            editor_present,
+        );
     }
+}
+
+/// **`emerge/present`** — put a result in front of the person.
+///
+/// **It returns at once**, because an MCP call that blocked on a person would deadlock with the
+/// editor's own frame. The answer is read from `emerge/state`, which is the only channel an agent
+/// has for what happened after its call returned.
+fn editor_present(
+    In(p): In<crate::present::PresentParams>,
+    project: Option<Res<crate::project::Project>>,
+    mut confirm: Option<ResMut<crate::confirm::Confirm>>,
+    mut presenting: Option<ResMut<crate::present::Presenting>>,
+) -> Result<Value, String> {
+    let Some(confirm) = confirm.as_mut() else {
+        return Err("this editor has no confirm modal, so nothing can be asked".to_owned());
+    };
+    if confirm.is_open() {
+        return Err("another question is on screen — answer it first".to_owned());
+    }
+    if p.title.trim().is_empty() {
+        return Err("a presentation needs a title".to_owned());
+    }
+    if p.check.len() > crate::present::MAX_CHECKS {
+        return Err(format!(
+            "at most {} places to check — pick the ones most worth a look",
+            crate::present::MAX_CHECKS
+        ));
+    }
+    // **Every operation id has to be in the log**, because Undo all walks them and an id the log does
+    // not hold would make the walk stop on something that never happened.
+    //
+    // **The log is read through `ops::read_entries`**, the same parse `emerge/oplog_read` makes one
+    // screen over — two parses would be two answers to "is this id real".
+    let log = project
+        .as_ref()
+        .map(|p| ops::read_entries(&ops::oplog_path(p)))
+        .unwrap_or_default();
+    for id in &p.operation_ids {
+        if !log.iter().any(|e| &e.operation_id == id) {
+            return Err(format!("`{id}` is not in the operation log"));
+        }
+    }
+    // **The steps are the log's own `result` lines**, never raw logs: that is the rule the Mixar beat
+    // carries, and it is why the agent cites ids rather than describing what it did. The order is the
+    // caller's, so the person reads the turn as the agent narrated it.
+    let steps: Vec<String> = p
+        .operation_ids
+        .iter()
+        .filter_map(|id| {
+            log.iter()
+                .find(|e| &e.operation_id == id)
+                .and_then(|e| e.result.clone())
+        })
+        .collect();
+    let body = crate::present::body(&p, &steps);
+    confirm.ask(
+        crate::confirm::Asked::Presentation,
+        p.title.clone(),
+        body,
+        // **Yes is the destructive answer**, so the button is red and Enter answers nothing.
+        "Undo all",
+        "Keep",
+    );
+    let Some(presenting) = presenting.as_mut() else {
+        return Err("this editor has no presentation slot".to_owned());
+    };
+    let n = presenting
+        .0
+        .as_ref()
+        .and_then(|prev| prev.id.rsplit('-').next())
+        .and_then(|n| n.parse::<u32>().ok())
+        .map(|n| n + 1)
+        .unwrap_or(1);
+    let id = format!("present-{n}");
+    presenting.0 = Some(crate::present::Presented {
+        id: id.clone(),
+        title: p.title.clone(),
+        operation_ids: p.operation_ids.clone(),
+        answer: None,
+    });
+    Ok(json!({"presentation": id, "steps": steps.len()}))
 }
 
 /// **Which history a logged change joins (cycle 9 gap 1).** A library write joins the Meshes history,
