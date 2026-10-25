@@ -136,6 +136,7 @@ fn context(
         open: open.map(|o| o.into_inner().clone()),
         source: Source::Agent,
         session: crate::ops::session_id(),
+        proposal: None,
     }
 }
 
@@ -164,6 +165,7 @@ pub(crate) fn take(
         open: open.as_deref().cloned(),
         source: Source::Agent,
         session: crate::ops::session_id(),
+        proposal: None,
     }
 }
 
@@ -777,6 +779,7 @@ fn operation_apply(
             open: read_open.cloned(),
             source: Source::Agent,
             session: crate::ops::session_id(),
+            proposal: None,
         };
         return match ops::preview(&ctx, op.as_ref(), &p.parameters) {
             Ok(plan) => Ok(json!({
@@ -943,6 +946,7 @@ fn operation_undo(
             open: open.as_deref().cloned(),
             source: Source::Agent,
             session: crate::ops::session_id(),
+            proposal: None,
         };
         let resolved = ops::undo_target(&ctx, p.operation_id.as_deref()).and_then(|plan| {
             let op = ops::find(&plan.line.op).ok_or_else(|| {

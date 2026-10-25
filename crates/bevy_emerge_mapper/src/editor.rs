@@ -2155,6 +2155,7 @@ pub fn open_door(world: &mut World, door: crate::tiles::Door, tab: Option<crate:
         source: crate::ops::Source::Human,
         root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let applied = crate::ops::dispatch(&mut ctx, "door_open", &params);
     match applied {
@@ -3013,6 +3014,7 @@ pub fn arm_piece(
         source: crate::ops::Source::Human,
         root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let params = serde_json::json!({"descriptor": descriptor});
     match crate::ops::dispatch(&mut ctx, "brush_arm", &params) {
@@ -3074,6 +3076,7 @@ pub fn select_piece(import: &mut crate::tiles::ImportState, project: &Project, i
         source: crate::ops::Source::Human,
         root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let params = serde_json::json!({"id": id});
     match crate::ops::dispatch(&mut ctx, "piece_select", &params) {
@@ -3105,6 +3108,7 @@ pub fn set_label(
         source: crate::ops::Source::Human,
         root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let params = serde_json::json!({"id": id, "axis": axis, "tokens": tokens});
     match crate::ops::dispatch(&mut ctx, "label_set", &params) {
@@ -3237,6 +3241,7 @@ fn size_edit_keys(
                     source: crate::ops::Source::Human,
                     root: None,
                     session: crate::ops::session_id(),
+                    proposal: None,
                 };
                 let outcome = crate::ops::dispatch(
                     &mut ctx,
@@ -7850,6 +7855,7 @@ fn remove_through(
         source: crate::ops::Source::Human,
         root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let outcome = crate::ops::dispatch(&mut ctx, operation, &params);
     if let Some(fresh) = ctx.open.take() {
@@ -8480,6 +8486,7 @@ fn apply(
                 source: crate::ops::Source::Human,
                 root: None,
                 session: crate::ops::session_id(),
+                proposal: None,
             };
             let undone = crate::ops::undo(&mut ctx, Some(&line));
             if let Some(fresh) = ctx.open.take() {
@@ -8530,6 +8537,7 @@ fn apply(
                 source: crate::ops::Source::Human,
                 root: None,
                 session: crate::ops::session_id(),
+                proposal: None,
             };
             let undone = crate::ops::undo(&mut ctx, Some(&line));
             if let Some(fresh) = ctx.open.take() {
@@ -8584,6 +8592,7 @@ fn apply(
                 source: crate::ops::Source::Human,
                 root: None,
                 session: crate::ops::session_id(),
+                proposal: None,
             };
             let undone = crate::ops::undo(&mut ctx, Some(&line));
             if let Some(fresh) = ctx.open.take() {
@@ -8696,6 +8705,7 @@ fn set_pin(
         source: crate::ops::Source::Human,
         root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let outcome = crate::ops::dispatch(
         &mut ctx,
@@ -8769,6 +8779,7 @@ fn rename_map(
         source: crate::ops::Source::Human,
         root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let outcome = crate::ops::dispatch(&mut ctx, "map_rename", &serde_json::json!({"name": raw}));
     if let Some(fresh) = ctx.open.take() {
@@ -8823,6 +8834,7 @@ fn set_yaw(
         source: crate::ops::Source::Human,
         root: None,
         session: crate::ops::session_id(),
+        proposal: None,
     };
     let outcome = crate::ops::dispatch(
         &mut ctx,

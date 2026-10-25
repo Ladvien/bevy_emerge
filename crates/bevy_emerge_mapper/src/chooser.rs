@@ -6113,6 +6113,7 @@ fn make_it(chooser: &mut Chooser, new: &New) -> Result<(), String> {
                 open: None,
                 source: crate::ops::Source::Human,
                 session: "menu".to_owned(),
+                proposal: None,
             };
             let applied = crate::ops::dispatch(
                 &mut ctx,

@@ -215,6 +215,137 @@ impl Refusal {
     }
 }
 
+/// **One row of a map, with where it sits** — so a removal can be put back exactly where it was.
+///
+/// An index and not just the row, because a map's order is meaningful: `at` decides nothing about
+/// precedence, but the file is a list an author reads, and a restoration that appended would move a
+/// piece from the middle of the file to its end on every undo/redo round trip.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Indexed<T> {
+    pub index: usize,
+    pub row: T,
+}
+
+/// **A change to a map's rows that can be undone by applying its own inverse.**
+///
+/// The shape every row-changing operation in this series shares, because the undo path re-dispatches
+/// an operation with its logged `inverse` as the parameters — so the inverse has to be expressible
+/// as *this operation's own parameters*. `RowDelta` is that vocabulary: what to take away, and what
+/// to put back, each with its index.
+///
+/// **It is pure and it does not save.** Applying it edits the map in memory and hands back the delta
+/// that would undo it; the caller decides when that map is written, which is what lets a save failure
+/// restore both.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RowDelta {
+    #[serde(default)]
+    pub remove_placements: Vec<String>,
+    #[serde(default)]
+    pub remove_stamps: Vec<String>,
+    #[serde(default)]
+    pub add_placements: Vec<Indexed<bevy_emerge_core::map::Placed>>,
+    #[serde(default)]
+    pub add_stamps: Vec<Indexed<bevy_emerge_core::composition::Stamped>>,
+}
+
+impl RowDelta {
+    /// **Apply this delta to `map`, and return the delta that undoes it.**
+    ///
+    /// Three steps, in this order and for stated reasons:
+    ///
+    /// 1. **Find every row to remove before removing anything.** A missing id is refused with the id
+    ///    named — it means something else has changed the map since this delta was recorded, and a
+    ///    partial application followed by a refusal is worse than no application at all.
+    /// 2. **Record each removed row with its index, then remove in descending order**, so removing an
+    ///    earlier row cannot shift a later one out from under the loop.
+    /// 3. **Insert the additions in ascending order**, at `index.min(len)` — clamped because a delta
+    ///    recorded against a map that has since shrunk is still answerable: the row goes at the end
+    ///    rather than vanishing.
+    ///
+    /// An added id that is already on the map is refused: two rows with one id is a map the editor
+    /// cannot address, and nothing downstream would say so.
+    pub fn apply(&self, map: &mut bevy_emerge_core::map::Map) -> Result<RowDelta, Refusal> {
+        // 1 — find, and refuse before touching anything.
+        let mut doomed_placements: Vec<(usize, bevy_emerge_core::map::Placed)> = Vec::new();
+        for id in &self.remove_placements {
+            let at = map
+                .placements
+                .iter()
+                .position(|p| &p.id == id)
+                .ok_or_else(|| {
+                    Refusal::new(format!(
+                        "`{id}` is not on the map any more, so this cannot be taken back — \
+                         something changed it since"
+                    ))
+                })?;
+            doomed_placements.push((at, map.placements[at].clone()));
+        }
+        let mut doomed_stamps: Vec<(usize, bevy_emerge_core::composition::Stamped)> = Vec::new();
+        for id in &self.remove_stamps {
+            let at = map
+                .stamps
+                .iter()
+                .position(|s| &s.id == id)
+                .ok_or_else(|| {
+                    Refusal::new(format!(
+                        "`{id}` is not on the map any more, so this cannot be taken back — \
+                         something changed it since"
+                    ))
+                })?;
+            doomed_stamps.push((at, map.stamps[at].clone()));
+        }
+        for add in &self.add_placements {
+            if map.placements.iter().any(|p| p.id == add.row.id) {
+                return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
+            }
+        }
+        for add in &self.add_stamps {
+            if map.stamps.iter().any(|s| s.id == add.row.id) {
+                return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
+            }
+        }
+
+        // 2 — remove descending, so indices stay valid.
+        doomed_placements.sort_by_key(|(i, _)| *i);
+        doomed_stamps.sort_by_key(|(i, _)| *i);
+        for (i, _) in doomed_placements.iter().rev() {
+            map.placements.remove(*i);
+        }
+        for (i, _) in doomed_stamps.iter().rev() {
+            map.stamps.remove(*i);
+        }
+
+        // 3 — add ascending, clamping to the map that is there now.
+        let mut added_placements = self.add_placements.clone();
+        added_placements.sort_by_key(|a| a.index);
+        for add in &added_placements {
+            let at = add.index.min(map.placements.len());
+            map.placements.insert(at, add.row.clone());
+        }
+        let mut added_stamps = self.add_stamps.clone();
+        added_stamps.sort_by_key(|a| a.index);
+        for add in &added_stamps {
+            let at = add.index.min(map.stamps.len());
+            map.stamps.insert(at, add.row.clone());
+        }
+
+        // **The inverse: what was added comes out, what was removed goes back at its index.**
+        Ok(RowDelta {
+            remove_placements: added_placements.iter().map(|a| a.row.id.clone()).collect(),
+            remove_stamps: added_stamps.iter().map(|a| a.row.id.clone()).collect(),
+            add_placements: doomed_placements
+                .into_iter()
+                .map(|(index, row)| Indexed { index, row })
+                .collect(),
+            add_stamps: doomed_stamps
+                .into_iter()
+                .map(|(index, row)| Indexed { index, row })
+                .collect(),
+        })
+    }
+}
+
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -291,6 +422,14 @@ pub struct Ctx {
     pub source: Source,
     /// **Which session.**
     pub session: String,
+    /// **The layout standing on screen, when an operation needs to see it.**
+    ///
+    /// A proposal is not map data — nothing is written until the person or an agent keeps it — so it
+    /// travels in the context rather than in `OpenMap`. `layout_propose` writes one here, and
+    /// `layout_accept` / `layout_discard` take it away; every other operation leaves it alone, which
+    /// is why it defaults to `None` and why the front ends carry it across as a value rather than
+    /// reaching into a resource.
+    pub proposal: Option<crate::editor::Proposed>,
 }
 
 impl Ctx {
@@ -3706,5 +3845,149 @@ pub mod map_rename {
                 after,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_emerge_core::composition::Stamped;
+    use bevy_emerge_core::map::{Map, Placed};
+
+    /// A map with three rows, so an index in the middle and an index at the end both exist.
+    fn three() -> Map {
+        let mut map = Map::default();
+        map.name = "t".to_owned();
+        for (i, x) in [0.0, 3.0, 6.0].into_iter().enumerate() {
+            map.placements.push(Placed {
+                id: format!("wall@{i}"),
+                descriptor: "wall".to_owned(),
+                at: (x, 0.0),
+                ..Placed::default()
+            });
+        }
+        map
+    }
+
+    fn stamp(id: &str, x: f32) -> Stamped {
+        Stamped {
+            id: id.to_owned(),
+            of: "tile_floor".to_owned(),
+            at: (x, 0.0),
+            yaw: 0.0,
+            ..Stamped::default()
+        }
+    }
+
+    /// **Applying a delta and then its inverse restores the exact map**, order included.
+    ///
+    /// The order is the half that is easy to get wrong: a restoration that appended would move a row
+    /// from the middle of the file to its end on every undo/redo round trip, so `assert_eq` on the
+    /// whole `Map` is the assertion — comparing only the ids would pass while the file churned.
+    #[test]
+    fn a_placement_delta_undoes_itself_exactly() {
+        let mut map = three();
+        let before = map.clone();
+
+        // Remove the middle row, and add a new one at the end.
+        let delta = RowDelta {
+            remove_placements: vec!["wall@1".to_owned()],
+            add_placements: vec![Indexed {
+                index: 2,
+                row: Placed {
+                    id: "gen@1".to_owned(),
+                    descriptor: "wall".to_owned(),
+                    at: (9.0, 0.0),
+                    ..Placed::default()
+                },
+            }],
+            ..RowDelta::default()
+        };
+        let inverse = delta.apply(&mut map).expect("the delta applies");
+        assert_eq!(
+            map.placements.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["wall@0", "wall@2", "gen@1"],
+            "the removal and the addition did not land where they were asked to"
+        );
+
+        inverse.apply(&mut map).expect("the inverse applies");
+        assert_eq!(
+            map, before,
+            "applying a delta and then its inverse did not restore the map exactly — the rows are \
+             equal but their order is not, which moves a piece in the file on every round trip"
+        );
+    }
+
+    /// The same for stamps, which are a separate list and a separate bug surface.
+    #[test]
+    fn a_stamp_delta_undoes_itself_exactly() {
+        let mut map = Map::default();
+        map.name = "t".to_owned();
+        map.stamps = vec![stamp("s@0", 0.0), stamp("s@1", 3.0), stamp("s@2", 6.0)];
+        let before = map.clone();
+
+        let delta = RowDelta {
+            remove_stamps: vec!["s@0".to_owned(), "s@2".to_owned()],
+            add_stamps: vec![Indexed {
+                index: 0,
+                row: stamp("s@9", 9.0),
+            }],
+            ..RowDelta::default()
+        };
+        let inverse = delta.apply(&mut map).expect("the delta applies");
+        assert_eq!(
+            map.stamps.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["s@9", "s@1"],
+            "two removals and one addition did not land as asked"
+        );
+
+        inverse.apply(&mut map).expect("the inverse applies");
+        assert_eq!(map, before, "the stamp round trip did not restore the map exactly");
+    }
+
+    /// **A row that is no longer there is refused, and nothing is changed.**
+    ///
+    /// The refusal is the whole point: a delta recorded against a map that has since lost a row
+    /// cannot be honoured, and half-applying it would leave the map in a state neither the undo stack
+    /// nor the author describes.
+    #[test]
+    fn a_missing_row_is_refused_and_the_map_is_untouched() {
+        let mut map = three();
+        let before = map.clone();
+        let delta = RowDelta {
+            remove_placements: vec!["wall@0".to_owned(), "wall@99".to_owned()],
+            ..RowDelta::default()
+        };
+        let refused = delta.apply(&mut map).expect_err("a missing row must be refused");
+        assert!(
+            refused.0.contains("wall@99"),
+            "the refusal does not name the row it could not find: {refused}"
+        );
+        assert_eq!(
+            map, before,
+            "the delta was applied in part before it was refused, so a refused undo changed the map"
+        );
+    }
+
+    /// An id that is already on the map is refused rather than duplicated.
+    #[test]
+    fn an_id_already_on_the_map_is_refused() {
+        let mut map = three();
+        let delta = RowDelta {
+            add_placements: vec![Indexed {
+                index: 0,
+                row: Placed {
+                    id: "wall@1".to_owned(),
+                    ..Placed::default()
+                },
+            }],
+            ..RowDelta::default()
+        };
+        let refused = delta.apply(&mut map).expect_err("a duplicate id must be refused");
+        assert!(
+            refused.0.contains("wall@1"),
+            "the refusal does not name the duplicate: {refused}"
+        );
+        assert_eq!(map.placements.len(), 3, "the duplicate was added anyway");
     }
 }

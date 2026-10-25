@@ -155,6 +155,7 @@ fn a_human_edit_after_the_agents_blocks_the_older_undo() {
         open: Some(app.world().resource::<OpenMap>().clone()),
         source: ops::Source::Human,
         session: ops::session_id(),
+        proposal: None,
     };
     ops::dispatch(
         &mut ctx,
@@ -446,6 +447,7 @@ fn a_change_on_another_map_does_not_block_this_maps_undo() {
         open: Some(OpenMap::new(other, other_path)),
         source: ops::Source::Human,
         session: ops::session_id(),
+        proposal: None,
     };
     ops::dispatch(
         &mut ctx,

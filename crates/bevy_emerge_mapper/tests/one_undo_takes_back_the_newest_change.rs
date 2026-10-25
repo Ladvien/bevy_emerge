@@ -224,6 +224,7 @@ fn cmd_z_does_not_undo_a_resize_the_agent_already_took_back() {
         open: Some(app.world().resource::<OpenMap>().clone()),
         source: bevy_emerge_mapper::ops::Source::Agent,
         session: bevy_emerge_mapper::ops::session_id(),
+        proposal: None,
     };
     bevy_emerge_mapper::ops::undo(&mut ctx, None)
         .unwrap_or_else(|e| panic!("the agent's undo: {e}"));
