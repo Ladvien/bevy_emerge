@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import Client, Editor, binary, make_scratch  # noqa: E402
+from common import Client, Editor, binary, brp, make_scratch  # noqa: E402
 
 REQUEST = "a mossy ruined courtyard with two exits"
 MAP = "courtyard"
@@ -65,6 +65,10 @@ class Run:
         self.editor = editor
         self.scratch = scratch
         self.steps = []
+        # **Every editor this run has started**, so `run()`'s `finally` can reap them all. `accept.py`
+        # relaunches once, and a failure between the two assignments leaked a live editor per failed
+        # run — nine of them, holding this machine at load 33.
+        self.editors = [editor]
 
     def op(self, name, params):
         """Apply one registered operation, and return its answer."""
@@ -125,10 +129,26 @@ class Run:
             else []
         )
         has_map_open = "map_open" in names
+        # **The relaunch happens whether or not `map_open` exists.** The workaround is what a person
+        # would do, and it is recorded as a workaround rather than hidden. A first version built the
+        # new client here and left the old one unclosed; the next step then spoke to a dead process
+        # and reported it as a BRP timeout — a script bug wearing a product failure's clothes.
+        # **The old process is closed before the new one starts**, and the field is replaced after —
+        # not the other way round. `run()`'s `finally` closes `self.editor`, so an exception between
+        # the two assignments left the *new* editor leaked and the old one closed: measured on
+        # 2026-10-25, nine of them were still running from failed runs, which is what put this
+        # machine at load 33 and made every later measurement fail.
         self.editor.close()
         self.editor = Editor(self.scratch, MAP, "--door", "map")
+        self.editors.append(self.editor)
+        # **The new process has to be ready before anything talks to it.** `wait_ready` polls
+        # `emerge/state`, which answers only once the Map door has a world — and a first version of
+        # this step then called `emerge/project_root` through the *client*, which spawns its own
+        # process and uses the server's 5 s read budget. On a machine at load 32 a freshly started
+        # editor does not answer inside 5 s, and the step reported a timeout on a healthy process.
         self.editor.wait_ready(lambda s: s.get("map", {}).get("name") == MAP)
-        self.client.close()
+        if self.client is not None:
+            self.client.close()
         self.client = Client(str(binary("bevy_emerge_mcp")), str(self.scratch), self.editor.port, "accept")
         ms = (time.time() - t0) * 1000
         if has_map_open:
@@ -265,9 +285,24 @@ def run(source, out, glb=None):
               "load_avg_1m": os.getloadavg()[0], "request": REQUEST}
 
     editor = Editor(scratch)  # the menu: no door, because the map does not exist yet
+    # **Every editor this run starts, so a failure closes all of them.** `Run` may replace its own
+    # `editor` when it relaunches, and one field is not enough to reap both.
+    run_ = None
     client = None
     try:
-        editor.wait_ready()
+        # **Ready means the operation surface answers, not just the port.** `emerge/project_root`
+        # is registered by the bridge and answers as soon as the plugin is added, while
+        # `emerge/operation_apply` needs the world's resources — so waiting only for the former
+        # raced the first frame and the first step reported a BRP timeout under load. The
+        # predicate is the call the next step actually makes.
+        # `emerge/project_root` answers from the moment the bridge's plugin is added, and that is
+        # this editor's own definition of "the menu is up" — the same predicate the project-root guard
+        # uses. Waiting on `emerge/operation_list` instead made the script give up after 120 s while
+        # the editor was still starting: a method that is not registered yet raises on every poll, and
+        # the loop treated "not yet" as "never".
+        editor.wait_ready(lambda s: True)
+        report["editor_port"] = editor.port
+        report["ready_at_s"] = round(time.time() - stamp, 1)
         client = Client(str(binary("bevy_emerge_mcp")), str(scratch), editor.port, "accept")
         run_ = Run(client, editor, scratch)
 
@@ -307,8 +342,16 @@ def run(source, out, glb=None):
     finally:
         if client is not None:
             client.close()
-        editor.close()
-        steps = run_.steps if client is not None else steps
+        # **Every editor this run started.** The relaunched one is not the one this function holds,
+        # and closing only that left the live process behind — measured: nine leaked editors from
+        # failed runs, which is what held the machine at load 33.
+        for e in (run_.editors if run_ is not None else [editor]):
+            try:
+                e.close()
+            except Exception:  # noqa: BLE001 — a close that fails must not hide the run's result
+                pass
+        if run_ is not None:
+            steps = run_.steps
 
     summary = summarize(steps)
     report.update(summary)

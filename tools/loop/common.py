@@ -46,8 +46,13 @@ def free_port():
         return s.getsockname()[1]
 
 
+# **Directories a live check never reads.** Reference art and DCC sources: no editor path opens
+# them, and on a real game project they are the bulk of the tree.
+SKIP_DIRS = ("third_party", "sources", ".git")
+
+
 def make_scratch(source, dest):
-    """A throwaway copy of a project: `dest/assets` is `source`, and nothing else is copied.
+    """A throwaway copy of a project: `dest/assets` holds what `source` holds, minus `SKIP_DIRS`.
 
     A project root is a directory holding `assets/emerge`, so copying `assets` is what makes one.
     The source is only ever read — a live check that wrote to a person's project would be the one
@@ -56,7 +61,22 @@ def make_scratch(source, dest):
     dest = Path(dest)
     if dest.exists():
         sys.exit(f"{dest} already exists; refusing to write into a directory this run did not make")
-    shutil.copytree(Path(source), dest / "assets")
+    src = Path(source)
+    assets = dest / "assets"
+    # **What a run reads, and not the whole tree.** Sanctuary's `assets` is 1.5 GB and the acceptance
+    # touches `emerge/` (the kit, the maps, the vocabulary — under a megabyte) and `models/` (the
+    # meshes the palette draws). `third_party/` and `sources/` are 1.4 GB of reference art and
+    # `.blend` files no editor path reads, and copying them filled the disk twice — `errno=28`
+    # mid-run, which is a full disk and not a failure of the thing being measured.
+    assets.mkdir(parents=True)
+    for entry in sorted(src.iterdir()):
+        if entry.name in SKIP_DIRS:
+            continue
+        target = assets / entry.name
+        if entry.is_dir():
+            shutil.copytree(entry, target, symlinks=True)
+        else:
+            shutil.copy2(entry, target)
     return dest
 
 
@@ -103,7 +123,11 @@ class Editor:
                 raise RuntimeError(f"the editor exited before it was ready (see {self.log_path})\n{tail}")
             try:
                 last = brp(self.port, "emerge/state", {})["result"]
-            except (urllib.error.URLError, ConnectionError, OSError):
+            # **A refused connection and a method that is not registered yet are both "not ready".**
+            # `brp` raises `RuntimeError` for a JSON-RPC error, which at this point means the bridge is
+            # up and its handlers are not — and treating that as fatal made the script give up while
+            # the editor was still starting, under load, intermittently.
+            except (urllib.error.URLError, ConnectionError, OSError, RuntimeError):
                 time.sleep(0.25)
                 continue
             if pred(last):

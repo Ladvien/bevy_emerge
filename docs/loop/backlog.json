@@ -1023,6 +1023,38 @@
       "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs::operation_undo (the `forget_line` branch); measured in crates/bevy_emerge_mapper/tests/an_agent_can_generate_a_layout.rs, where the test was narrowed to the inverse's own contract rather than asserting a redo that does not exist",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "B-050",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "A BRP call that takes longer than 5 s is reported as \"is the editor running?\"",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Measured 2026-10-25 at load average 32: `emerge/operation_apply` for `map_create` on Sanctuary's project exceeded the server's 5 s global BRP timeout and the answer read `the editor did not answer `emerge/operation_apply` ... Is it running, and is BEVY_BRP_PORT the same on both sides?` while the editor was up and answered `emerge/project_root` 6.7 s after launch. The timeout is in bevy_emerge_mcp/src/brp.rs (`timeout_global(5 s)`) and it is a considered choice — a tool call an agent waits on should not hang — but the refusal's words blame the wrong thing, and an operation that parses a project (or a fill that lays 4096 cells, or a capture's landing wait) legitimately takes longer."
+      },
+      "status": "open",
+      "evidence": "tools/loop/accept.py's `make_map` step fails on it at high load and passes when the machine is quieter; the acceptance runs recorded 1/10 and 9/10 on the same binary within ten minutes",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-078",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "An agent cannot enter the editor: an operation cannot move the screen, so a map made from the menu cannot be worked in without a relaunch",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "Measured 2026-10-25 with the S1 live proof: `map_create` then `map_open` both apply from the menu, and the editor stays on the menu — a 3 s capture sequence taken afterwards shows the MAPS column, not the viewport. `apply_pending_door` runs `in_state(Screen::Editor)` and `EditorState` does not exist on the menu, so the door-request mechanism cannot cross an editor boundary; the menu enters the editor through `Chooser::open_the_selection` -> `launch_args` -> `NextState`, which is the screen's, not an operation's. `tools/loop/accept.py` works around it by relaunching the editor on the map, and records the workaround."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::apply_pending_door (the `in_state(Screen::Editor)` run condition); tools/loop/accept.py step `open_map`",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
     }
   ]
 }

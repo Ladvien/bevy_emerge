@@ -755,6 +755,9 @@ pub(crate) fn piece_select_refusal(
 #[allow(clippy::too_many_arguments)]
 fn operation_apply(
     In(p): In<ApplyParams>,
+    // **For the one thing a `ResMut` cannot do: put a resource where there was none.** `map_open` can
+    // load a project from the menu's root, and installing it is `Commands::insert_resource`.
+    mut commands: Commands,
     mut project: Option<ResMut<crate::project::Project>>,
     mut open: Option<ResMut<crate::project::OpenMap>>,
     mut due: Option<ResMut<crate::watch::Due>>,
@@ -869,9 +872,38 @@ fn operation_apply(
     }
     let applied = ops::dispatch(&mut ctx, &p.operation, &params);
     let carried = ctx.proposal.take();
+    // **A project the operation LOADED is installed here, before the map goes back.** `map_open` can
+    // load the project from the menu's root — that is what lets an agent make a map and then work in
+    // it — and a write-back that skipped it left the editor holding a map and no project, which no
+    // door can show. `put_back` cannot do it: it holds `Option<ResMut>`, and a `ResMut` cannot be
+    // built outside a world. Measured: `map_create` applied, `map_open` applied, and the next call
+    // reported an empty library because `Project` was still absent.
+    // **A project the operation LOADED is installed, before the map goes back.** `map_open` can load
+    // the project from the menu's root — that is what lets an agent make a map and then work in it —
+    // and a write-back that skipped it left the editor holding a map and no project, which no door
+    // can show. `put_back` cannot do it: it holds `Option<ResMut>`, and a `ResMut` cannot be built
+    // outside a world. Measured: `map_create` applied, `map_open` applied, and the next call
+    // reported an empty library because `Project` was still absent.
+    //
+    // The project and the map are taken together, because the map is a resource the editor can only
+    // show *with* its project.
+    let loaded = if project.is_none() {
+        ctx.project.clone()
+    } else {
+        None
+    };
+    let opened = if open.is_none() { ctx.open.clone() } else { None };
     // **The map goes back either way** — changed, refused, or not — so the editor's own state is
     // never left holding a half-applied edit.
     put_back(&mut project, &mut open, ctx);
+    if matches!(&applied, Ok(ops::Applied::Done { .. })) {
+        if let Some(fresh) = loaded {
+            commands.insert_resource(fresh);
+        }
+        if let Some(fresh) = opened {
+            commands.insert_resource(fresh);
+        }
+    }
     carry_proposal(
         &p.operation,
         carried,
@@ -900,10 +932,13 @@ fn operation_apply(
     {
         crate::editor::request_door(state, outcome.after.as_ref());
     }
-    // **And `map_open` crosses to the Map door as well** (E-067). Opening a map from the menu means
-    // entering the editor on it, and from the Kit door means getting back to the map — and both are
-    // the same crossing `door_open` asks the editor to make. Without this an agent could set the map
-    // and be looking at the menu it started on.
+    // **`map_open` asks for the Map door when the editor is already up.** From a door, that is the
+    // same crossing `door_open` makes. **From the menu it is not enough**, and saying so matters more
+    // than a workaround: `EditorState` does not exist on the menu, and `apply_pending_door` runs
+    // `in_state(Screen::Editor)` — so the editor cannot be *entered* by an operation at all. The menu
+    // enters the editor through `Chooser::open_the_selection` -> `launch_args` -> `NextState`, which
+    // needs the screen. An agent that made a map from the menu therefore still has to ask again once
+    // the editor is up; E-078 records the gap.
     if let (Ok(ops::Applied::Done { .. }), Some(state)) = (&applied, state.as_deref_mut())
         && p.operation == "map_open"
     {

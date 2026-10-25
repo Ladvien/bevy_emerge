@@ -20,6 +20,30 @@ pub struct Brp {
     next_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
+/// **How long a read may take.** The editor answers a registered command in a frame or two, so this
+/// is already generous; it exists so a dead editor is reported in seconds rather than never.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// **How long a change may take**, and why it is not the read budget (B-050).
+///
+/// `emerge/operation_apply` can parse a project, lay a fill to `MAX_CELLS`, or keep a layout that
+/// saves every row. Measured on 2026-10-25 at load average 32: `map_create` on a real project passed
+/// five seconds, and the refusal told the agent to check whether the editor was running. A budget
+/// that is right for a read is wrong for work.
+const MUTATING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// **The methods that do work**, so they get [`MUTATING_TIMEOUT`]. Everything else is a read.
+const MUTATING_METHODS: &[&str] = &[
+    "emerge/operation_apply",
+    "emerge/operation_undo",
+    "emerge/capture_sequence_start",
+    // **The project guard runs before every mutation, so it is on the mutation's clock.** It is a
+    // read of two strings, but it is asked *of an editor that is about to be asked to do work that
+    // takes tens of seconds* — and a freshly started editor at load 32 answered it in more than five
+    // seconds, which made `placement_add` report a timeout before it had been tried.
+    "emerge/project_root",
+];
+
 impl Brp {
     /// **A client for the editor at `url`.**
     pub fn new(url: impl Into<String>) -> Brp {
@@ -67,19 +91,45 @@ impl Brp {
             "method": method,
             "params": params,
         });
-        // **A five-second cap, because a tool call an agent is waiting on should not hang.** The
-        // editor answers a registered command in a frame or two; five seconds is a long time to
-        // wait for one.
+        // **A cap, because a tool call an agent is waiting on should not hang — but the cap is not
+        // the same for every method** (B-050).
+        //
+        // Five seconds is a long time to wait for a read that the editor answers in a frame or two,
+        // and much too short for work that legitimately parses a project or lays four thousand
+        // cells. Measured 2026-10-25 at load average 32: `map_create` on Sanctuary's project
+        // exceeded five seconds, and the refusal read *"the editor did not answer ... Is it running,
+        // and is BEVY_BRP_PORT the same on both sides?"* — sending an agent to check a process that
+        // was up and healthy. **A timeout must not blame the connection.**
+        let budget = if MUTATING_METHODS.contains(&method) {
+            MUTATING_TIMEOUT
+        } else {
+            READ_TIMEOUT
+        };
         let agent = ureq::Agent::new_with_config(
-            ureq::Agent::config_builder()
-                .timeout_global(Some(std::time::Duration::from_secs(5)))
-                .build(),
+            ureq::Agent::config_builder().timeout_global(Some(budget)).build(),
         );
         let response = agent.post(url).send_json(&body).map_err(|e| {
-            format!(
-                "the editor did not answer `{method}` at {url}: {e}. Is it running, and is \
-                 BEVY_BRP_PORT the same on both sides?"
-            )
+            // **Two sentences, because there are two causes.** `TimedOut` is the editor taking too
+            // long over the work; anything else is the transport. Telling an agent to look at its
+            // port for a slow operation is the misattribution this constant exists to end.
+            let timed_out = match &e {
+                ureq::Error::Timeout(_) => true,
+                ureq::Error::Io(io) => io.kind() == std::io::ErrorKind::TimedOut,
+                _ => false,
+            };
+            if timed_out {
+                format!(
+                    "the editor did not finish `{method}` within {} s, so the call was abandoned. \
+                     It is running — this is the work taking longer than the budget, not a missing \
+                     editor. Ask for less at once, or check emerge/state to see what it is doing.",
+                    budget.as_secs()
+                )
+            } else {
+                format!(
+                    "the editor did not answer `{method}` at {url}: {e}. Is it running, and is \
+                     BEVY_BRP_PORT the same on both sides?"
+                )
+            }
         })?;
         let text = response
             .into_body()

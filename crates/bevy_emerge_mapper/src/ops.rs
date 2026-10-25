@@ -1622,10 +1622,23 @@ pub mod map_open {
 
         fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
             let p = Params::parse(params)?;
-            let Some(project) = ctx.project.as_ref() else {
-                return Err(Refusal::new(
-                    "no project is open, so there is no map to open.",
-                ));
+            // **The menu's root is enough, and that is the whole point of this verb.** An agent makes
+            // a map from the menu (where there is a root and no loaded `Project`) and then wants in —
+            // so this loads the project from the root when nothing is loaded, exactly as the editor
+            // does on a door crossing. Measured: without this, `map_open` right after `map_create`
+            // refused with *"no project is open"*, which is the same dead end E-067 described.
+            let loaded;
+            let project = match (ctx.project.as_ref(), ctx.root.as_ref()) {
+                (Some(p), _) => p,
+                (None, Some(root)) => {
+                    loaded = crate::project::Project::open(root, None).map_err(Refusal::new)?;
+                    &loaded
+                }
+                (None, None) => {
+                    return Err(Refusal::new(
+                        "no project is open, so there is no map to open.",
+                    ));
+                }
             };
             // **A map that does not exist is refused, and this is the one place that differs from
             // the editor's own "new map" path.** `OpenMap::open` *starts* a map when the file is
@@ -1660,6 +1673,16 @@ pub mod map_open {
         fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
             let plan = self.plan(ctx, params)?;
             let p = Params::parse(params)?;
+            // **The project is loaded here too, and KEPT.** The plan may have loaded it from the
+            // menu's root; a commit that then refused because `ctx.project` was still `None` was the
+            // same dead end one step later — measured: `map_create` applied, `map_open` refused with
+            // "no project is open". Loading it into the context is what a crossing needs anyway: the
+            // editor cannot show a map without the project it belongs to.
+            if ctx.project.is_none()
+                && let Some(root) = ctx.root.clone()
+            {
+                ctx.project = Some(crate::project::Project::open(&root, None).map_err(Refusal::new)?);
+            }
             let Some(project) = ctx.project.as_ref() else {
                 return Err(Refusal::new(
                     "no project is open, so there is no map to open.",
