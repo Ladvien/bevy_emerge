@@ -393,6 +393,11 @@ door_state![
     crate::tiles::DerivedEdges,
     crate::tiles::HeightEdit,
     crate::tiles::LatticePick,
+    // **A question belongs to the door it was asked on.** A presentation names the operations it
+    // covers, and the undo it offers walks them on the *open* map — so carried across a door
+    // change it would answer about a map the person never saw, which is the stale-value class
+    // this list exists for.
+    crate::present::Presenting,
     crate::tiles::MapView,
     crate::tiles::NoteEdit,
     crate::tiles::ScaleEdit,
@@ -590,6 +595,7 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::tiles::DerivedEdges", Ownership::Door),
     ("bevy_emerge_mapper::tiles::HeightEdit", Ownership::Door),
     ("bevy_emerge_mapper::tiles::LatticePick", Ownership::Door),
+    ("bevy_emerge_mapper::present::Presenting", Ownership::Door),
     ("bevy_emerge_mapper::tiles::MapView", Ownership::Door),
     ("bevy_emerge_mapper::tiles::NoteEdit", Ownership::Door),
     ("bevy_emerge_mapper::tiles::ScaleEdit", Ownership::Door),
