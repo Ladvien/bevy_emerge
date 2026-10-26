@@ -1502,6 +1502,22 @@
       "evidence": "Both halves shipped. **Doorway** (d27e452): crates/bevy_emerge_core/src/stack.rs::blocked_openings — the hole is `InOpening`'s `clear` rectangle (not the frame's footprint), vertical is read, another opening and a rider on the door are exempt, `clear: None` reports nothing; checks::Found::doorways carries it as `doorways_in_the_way`. **Clearance** (this pass): stack::blocked_clearances — each `Descriptor::clearance` becomes a rectangle starting at the keeper's own footprint edge, direction = world `yaw + align.front`, extent = the exact projection `half.0*|a0.u| + half.1*|a1.u|` (so a 45-degree piece reserves from its edge, not a circumscribed square), `Around` = four widened bands covering the corners. Tutenel et al. (2010)'s exemption is implemented: an intruder that reserves space itself may share the band, plus `Tiled`/`Decal` intruders, a rider on the keeper, and a piece whose span misses the keeper's. The vertical bound is stated in the doc rather than derived — head height is not in the schema. Carried as `checks.clearances_in_the_way` {\"new\":[{\"keeper\",\"intruder\"}],\"new_total\",\"total\"}. Shared `stack::bodies()` now resolves `resolve_y` once for both checks so they cannot disagree about where a piece is. Regression: crates/bevy_emerge_core/tests/a_piece_in_a_doorway_is_reported.rs (8 tests), crates/bevy_emerge_core/tests/a_piece_in_reserved_space_is_reported.rs (8 tests, mutation-tested: zeroing the edge projection fails the_front_band_points_out_of_the_pieces_own_front and the_list_is_deduplicated_and_ordered), crates/bevy_emerge_mapper/tests/a_placement_in_a_doorway_says_so.rs, crates/bevy_emerge_mapper/tests/a_placement_in_reserved_space_says_so.rs.",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-061",
+      "kind": "enhancement",
+      "area": "fill",
+      "title": "A stamp proposal is outlined by cell but its member pieces are not drawn",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "B-046's fix draws proposed *placements* only: a `composes` proposal lays stamps whose rows `expand` produces against the landing map, and duplicating that expansion in the preview is its own design. The cell outline and the count in the status line still cover them."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::sync_proposal_ghosts now draws a composed proposal through `composition::expand` + `stamped_heights` against the map `layout_accept`'s keep lands in (unpinned stamps cleared, the proposal's laid on), so the ghosts ARE the rows Enter commits rather than a second expansion. Proof: crates/bevy_emerge_mapper/tests/a_composed_proposal_draws_its_members.rs (2 tests, the first fails at the base commit: 0 ghosts drawn for a proposal whose expansion holds 4 rows).",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
     }
   ]
 }
