@@ -115,6 +115,16 @@ one_pass() {
     echo "ABORTED: $REPO is not a git clone" >&2
     return 1
   fi
+  # **Warn before a pass whose command may publish.** `bevy_debugger_mcp`'s `bevy-debugger-loop` says
+  # "every iteration ends pushed and **published**", and a publish cannot be undone: crates.io has no
+  # unpublish and a yanked version is burned. A driver cannot read a command's intent, so it states what
+  # it can see and lets the operator decide. A warning, not a block — only a human knows whether the
+  # command in *their* repo publishes.
+  local cmd_file="$REPO/.omp/commands/$COMMAND.md"
+  if [ -f "$cmd_file" ] && grep -qiE 'cargo publish|ends pushed and published' "$cmd_file"; then
+    echo "WARNING: /$COMMAND may publish to crates.io — irreversible, and a loop cannot ask." >&2
+  fi
+
   local dirty; dirty=$(git -C "$REPO" status --short 2>/dev/null | wc -l | tr -d ' ')
   if [ "${dirty:-0}" -gt 40 ]; then
     echo "ABORTED: $REPO has $dirty modified files — a scratch tree, not a clone. Fix it by hand." >&2
