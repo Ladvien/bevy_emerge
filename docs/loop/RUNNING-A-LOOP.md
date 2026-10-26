@@ -192,6 +192,25 @@ directory cargo rebuilds.
 - **`launchctl kickstart -k` kills the pass in flight.** That is `bootout`'s behaviour too: stop the driver
   through its own stop file first (`wiggum.sh stop`), and if a pass was killed, delete the leftover
   `stop` file and reset `consecutive-failures` before restarting, or the new driver refuses to start.
+- **A `TimeoutStopSec` that is longer than a pass turns an unrelated cgroup leak into a 7-hour
+  `deactivating`.** Measured 2026-10-26: stopping `wiggum@lights` hung in `deactivating` for its full
+  `TimeoutStopSec=25200` because a `home-still_qdrant_1` container (`rootlessport`, `conmon`,
+  `entrypoint.sh`) had been parented **into `wiggum@lights.service`'s cgroup** at container start — a
+  live CI runner job owned it, so killing it was not an option either. `ActiveState=deactivating`,
+  `SubState=final-sigterm` and `cat <cg>/cgroup.procs` showing PIDs you never started is the signature.
+  Writing those PIDs to another cgroup's `cgroup.procs` fails **`EBUSY`** while the target is a cgroup
+  systemd manages for a service (no internal processes allowed), so the way out is a **transient scope**,
+  which is a leaf that accepts them:
+
+  ```sh
+  systemd-run --user --scope --unit=wiggum-rescue-$(date +%s) sleep 7200 &
+  # then, for each pid in the stuck cgroup:
+  echo <pid> > /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/<scope>.scope/cgroup.procs
+  ```
+
+  The unit then finishes its stop and can be started. Root cause is elsewhere (a `podman run` from a
+  service inherits that service's cgroup, so the container should be given its own `--cgroup-parent` or an
+  `ExecStart` under a transient unit); treat the rescue as per-incident, not a fix.
 - **The driver refuses a tree with >40 modified files**, so it will not commit into an rsync scratch tree.
 
 ## Templates
