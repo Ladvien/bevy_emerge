@@ -190,6 +190,14 @@ driver() {
 case "${1:-}" in
   start)
     if running; then echo "already running (pid $(cat "$PIDFILE"))"; exit 0; fi
+    # **The state directory first, or the redirect below fails.** `>>"$DRIVER_LOG"` needs the directory
+    # to exist, and the clone guard lives in `one_pass` — so a fresh repo's first `start` died on
+    # `No such file or directory` before it ever checked the tree. Measured on bevy_debugger_mcp.
+    if [ ! -d "$REPO/.git" ]; then
+      echo "refusing to start: $REPO is not a git clone" >&2
+      exit 2
+    fi
+    ensure_state
     # **setsid + nohup, so an ssh drop cannot kill the loop.** This is the same reason the loop's
     # own cargo jobs are launched that way.
     # **A plain re-exec of this same script**, not a serialised copy of its functions: the script is
