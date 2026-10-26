@@ -140,9 +140,9 @@ impl Rules {
     /// descriptor the rules name is in `library`.
     pub fn validate_against(&self, library: &Library) -> Result<(), String> {
         // **Everything that does not need the library first**, so the two halves cannot drift: the
-        // checks below are a superset of [`Self::validate`]'s, and a caller with no library loaded
-        // still refuses what the editor would.
-        self.validate()?;
+        // checks below are a superset of [`Self::validate_numbers`]'s, and a caller with no library
+        // loaded still refuses what the editor would.
+        self.validate_numbers()?;
         let known = |id: &str, what: &str| -> Result<(), String> {
             if library.get(id).is_none() {
                 return Err(format!("rules: {what} `{id}` is not a descriptor in the library"));
@@ -178,7 +178,13 @@ impl Rules {
     /// **For a reader with no library in hand**, like `emerge_list_rules` over MCP: it answers the
     /// file's own blocks, so it must still refuse a file the editor would refuse to open rather than
     /// present it as valid.
-    pub fn validate(&self) -> Result<(), String> {
+    ///
+    /// **Named `validate_numbers` and not `validate`**, because [`validate`] is already a free
+    /// function in this module with a different meaning — whether a *collapsed grid* obeys the
+    /// footprints. Two things called `validate` in one module is a name that cannot be resolved
+    /// without knowing which; the failure it produced was `no method named validate found for struct
+    /// Rules`, from a crate that had the method.
+    pub fn validate_numbers(&self) -> Result<(), String> {
         if self.version != RULES_VERSION {
             return Err(format!(
                 "rules: version {} is not the {RULES_VERSION} this program reads",
@@ -675,7 +681,7 @@ mod tests {
 
     const SIZE: usize = 15;
 
-    /// **`validate` is what a reader with no library can check, and `validate_against` is a superset.**
+    /// **`validate_numbers` is what a reader with no library can check; `validate_against` is a superset.**
     ///
     /// The split exists for `emerge_list_rules`, which answers a project's rules over MCP with no
     /// library loaded. It must still refuse what the editor refuses to *generate* from — a version it
@@ -686,44 +692,44 @@ mod tests {
     /// `validate_against` accepts, `validate` accepts too. If that ever failed, a project the editor
     /// opens would be refused over MCP, and one that MCP accepts would fail to open.
     #[test]
-    fn validate_is_the_library_free_half_of_validate_against() {
+    fn validate_numbers_is_the_library_free_half_of_validate_against() {
         let good = Rules {
             version: RULES_VERSION,
             blocks: vec![rules()],
         };
-        assert!(good.validate().is_ok(), "a good file passes the library-free half");
+        assert!(good.validate_numbers().is_ok(), "a good file passes the library-free half");
 
         // **Every library-free refusal is reached by `validate` itself.**
         let mut no_attempts = good.clone();
         no_attempts.blocks[0].attempts = 0;
-        let e = no_attempts.validate().err().unwrap_or_default();
+        let e = no_attempts.validate_numbers().err().unwrap_or_default();
         assert!(e.contains("at least one attempt"), "{e}");
 
         let mut flat = good.clone();
         flat.blocks[0].cell = 0.0;
-        let e = flat.validate().err().unwrap_or_default();
+        let e = flat.validate_numbers().err().unwrap_or_default();
         assert!(e.contains("not a usable step"), "{e}");
 
         let mut tiny = good.clone();
         tiny.blocks[0].size = (0, 4);
-        let e = tiny.validate().err().unwrap_or_default();
+        let e = tiny.validate_numbers().err().unwrap_or_default();
         assert!(e.contains("cells"), "{e}");
 
         let mut bad_yaw = good.clone();
         bad_yaw.blocks[0].footprints[0].yaws = vec![90.0];
-        let e = bad_yaw.validate().err().unwrap_or_default();
+        let e = bad_yaw.validate_numbers().err().unwrap_or_default();
         assert!(e.contains("0 or 180"), "{e}");
 
         let mut bad_version = good.clone();
         bad_version.version = RULES_VERSION + 1;
-        let e = bad_version.validate().err().unwrap_or_default();
+        let e = bad_version.validate_numbers().err().unwrap_or_default();
         assert!(e.contains("version"), "{e}");
 
         // **The library-free half does NOT judge descriptor ids**, because it cannot: the same rules
         // against an empty library is still fine here, and is what a reader without one must answer.
         assert!(
-            good.validate().is_ok(),
-            "nothing in `validate` may depend on a library"
+            good.validate_numbers().is_ok(),
+            "nothing in `validate_numbers` may depend on a library"
         );
     }
 

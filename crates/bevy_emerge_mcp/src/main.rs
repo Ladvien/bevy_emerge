@@ -989,7 +989,7 @@ impl Emerge {
     ///
     /// **A read of a project file.** `rules.ron` sits beside `kits.ron` under `assets/emerge`, and
     /// the editor's own `Project::open` reads it there; this reads the same file, with the same
-    /// parser and the same library-free validation ([`bevy_emerge_core::rules::Rules::validate`]),
+    /// parser and the same library-free validation ([`bevy_emerge_core::rules::Rules::validate_numbers`]),
     /// so it needs no editor running and changes nothing.
     ///
     /// **It does not check descriptor ids against the library**, because the server has no library:
@@ -1069,7 +1069,7 @@ impl Emerge {
         // this program does not read, `attempts: 0`, a `cell` that is not a usable step, a footprint
         // size under 2x2, or a yaw that is not 0/180. Answering those as valid would hand an agent
         // numbers the editor will not generate from.
-        if let Err(e) = rules.validate() {
+        if let Err(e) = rules.validate_numbers() {
             return Ok(refusal(&format!("{}: {e}", path.display())));
         }
         let answer = json!({
