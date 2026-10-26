@@ -107,6 +107,12 @@ driver() {
   fi
   echo $$ >"$PIDFILE"
   rm -f "$STOPFILE"
+  # **A stop request finishes the pass in flight and then exits — it never kills one.** systemd's
+  # `systemctl --user stop` sends SIGTERM to the whole cgroup, which would otherwise kill `omp` in the
+  # middle of an edit and leave the tree the next pass has to repair. Trapping it turns the signal into
+  # the same thing `wiggum.sh stop` does: a stop file the loop checks between passes.
+  # `TimeoutStopSec` in the unit must be longer than one pass (45 min) for this to be honest.
+  trap 'touch "$STOPFILE"; log "driver: SIGTERM received, finishing the pass in flight"' TERM INT
   log "driver START pid=$$ model=$MODEL repo=$REPO sleep=${SLEEP_BETWEEN}s max=${MAX_PASSES:-forever}"
 
   while :; do
