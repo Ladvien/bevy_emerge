@@ -527,22 +527,6 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "E-082",
-      "kind": "enhancement",
-      "area": "wfc",
-      "title": "rules_set cannot check that a rule names descriptors the library has, so it can write a project that will not open",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "`Rules::validate_against(library)` is the check that refuses a rule naming a descriptor no kit provides, and `Project::open` runs it (`project.rs`). `rules_set` runs only `Rules::validate_numbers`, because the operation's `Ctx` carries no `Library` — so editing a rule to `border: Some(\"town/no_such_tile\")` is applied and the project then fails to open. The block's own numbers ARE checked (cell, attempts, footprint shape), so this is only the descriptor-id half. Found by this iteration's own review (the independent reviewer could not run)."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/rules.rs::validate_against; crates/bevy_emerge_mapper/src/ops.rs::rules_set (validate_numbers only); crates/bevy_emerge_mapper/src/project.rs (the open-time check)",
-      "last_failure": "",
-      "first_seen": "2026-10-26"
-    },
-    {
       "id": "E-083",
       "kind": "enhancement",
       "area": "kits",
