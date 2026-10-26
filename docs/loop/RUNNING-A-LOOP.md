@@ -50,6 +50,15 @@ python3 tools/loop/otel_host_pick.py --arch arm64 --need-cores 6 --min-mem-gb 8
 python3 tools/loop/otel_host_pick.py --json     # eligible + all, for another script
 ```
 
+It is also installed on both hosts as **`otel-host-pick`** (`~/.local/bin`), which is what a pass in
+*another* repo should use — `bevy_lights` and `bevy_society` do not contain this file, and a decision
+about where to compile is not a property of one repo. The copy in this repo is the source of truth;
+re-install it after changing it:
+
+```sh
+cat tools/loop/otel_host_pick.py | ssh big_mac 'cat > $HOME/.local/bin/otel-host-pick && chmod 755 $HOME/.local/bin/otel-host-pick'
+```
+
 Dashboard: `http://192.168.1.104:3000/d/default-home-dashboard/home` (Grafana 13.2.4, one Prometheus
 datasource). The script reads Prometheus directly at `http://192.168.1.104:9090` — the Grafana proxy
 works too (`/api/datasources/proxy/uid/prometheus/…`) but adds a hop for a tool that runs in a pass.
@@ -77,8 +86,31 @@ exporter publishes **lowercase** memory names (`node_memory_free_bytes`, `node_m
 and `node_filesystem_avail_bytes` must be filtered to the real data mount, because a macOS
 `AppTranslocation`/`nullfs` stub reports 191 GB on a host whose `/` has 22 GB.
 
+## A killed pass must not strand its work
+
+A pass commits at step 4–5 of 6, *behind* implement, gate and benchmark. So a pass killed at the
+`WIGGUM_PASS_TIMEOUT` ceiling, or by the OOM killer, has usually done the work and never reached its
+own commit. Measured 2026-10-26: society accumulated **15** uncommitted files and lights **8** across
+killed passes, none of it on any branch, and the next pass is told "finish it or revert it" with no way
+to tell which.
+
+The driver now saves it. When a pass ends with a dirty tree it commits to **`wiggum/rescue-<pass>-<ts>`**,
+pushes that branch, and returns the clone to the branch it was on. Verified on throwaway repos: 3 dirty
+files → one pushed rescue branch, clone back on `main`, tree clean; a clean tree → no branch created.
+
+**It is not the loop's commit.** A rescue branch is unreviewed, ungated and never merged to `main` on
+its own — the command's own `loop/iter-N` + `--no-ff` merge discipline is untouched. Read it as "what
+that pass had done", then either finish it or drop it.
+
 ## Facts that cost a cycle
 
+- **A loop cannot simply be moved to the idle machine, because the disk is the binding constraint, not
+  the cores.** Measured 2026-10-26: `bevy_society`'s `target/` is **239 GB** and `bevy_lights`' is 41 GB.
+  `bmb` — the host the picker ranks first on idle cores — has **23 GB** free, and `mac_air` 14 GB. There
+  is no room to build either on a Mac, so re-homing them would trade an OOM for a full disk. `big` has
+  804 GB free and 22 idle cores, which is why the fix there is a memory bound, not a new host. Run
+  `du -sh <clone>/target` before proposing a move; a Bevy workspace's target is larger than most
+  machines' free space.
 - **Two loops that compile do not fit on `big`.** Measured 2026-10-26: `wiggum@society` died
   `Result: oom-kill` at a 6.9 GB peak with 8.7 GB of swap while `hs-distill` held 9.9 GB resident and
   the host showed 1 GB available. `CARGO_BUILD_JOBS` is now 4 there, and one loop is held until the
