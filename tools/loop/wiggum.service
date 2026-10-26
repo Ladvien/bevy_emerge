@@ -1,5 +1,10 @@
 [Unit]
 Description=bevy_emerge Wiggum loop (one fresh build-loop pass at a time)
+# **Never spin.** A pass that dies instantly, five times running, is a broken machine or a broken
+# checkout, and `Restart=always` alone would retry it forever. Both keys are `[Unit]` keys; systemd
+# ignores them in `[Service]` with only a warning, which is how the first version was silently wrong.
+StartLimitIntervalSec=3600
+StartLimitBurst=5
 Documentation=file:%h/bevy_emerge_loop/.omp/commands/build-loop.md
 # **Runs forever, so it must not be tied to a login.** `loginctl enable-linger` is already on for this
 # user; without it a user unit dies when the last session closes.
@@ -61,9 +66,6 @@ TimeoutStopSec=3000
 
 Restart=always
 RestartSec=120
-# Never spin: a pass that dies instantly, five times running, is a broken machine or a broken checkout.
-StartLimitIntervalSec=3600
-StartLimitBurst=5
 
 StandardOutput=append:%h/target/emerge-loop/wiggum/systemd.log
 StandardError=append:%h/target/emerge-loop/wiggum/systemd.log
