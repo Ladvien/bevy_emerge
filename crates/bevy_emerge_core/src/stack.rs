@@ -714,6 +714,46 @@ fn blocker_indices<'a>(
         .map(|(i, _)| i)
 }
 
+/// One placement resolved to the four things a space question asks about it: its descriptor, its plan
+/// rectangle, the vertical span it occupies in map space, and which way its own front points.
+struct Body<'a> {
+    descriptor: Cow<'a, Descriptor>,
+    plan: PlanRect,
+    /// `(bottom, top)` in map space, metres.
+    span: (f32, f32),
+    /// Degrees the piece's own front points at in world space — `placement.yaw + align.front`, the
+    /// composition [`crate::descriptor::Align::front`] documents. A piece with no front is symmetric,
+    /// so its own yaw is the only answer there is.
+    front: f32,
+}
+
+/// **Every placement resolved once**, or `None` when the map does not resolve.
+///
+/// A plan box, a vertical span and a front depend on the placement and on nothing else, so asking per
+/// pair would resolve every descriptor `n` times for the same answer. Two checks ask
+/// ([`blocked_openings`], [`blocked_clearances`]) and they must agree about *where* a piece is, or one
+/// of them would be reporting a hole the other thinks is elsewhere.
+///
+/// `None` rather than a partial list: when [`resolve_y`] errs, the map has a defect other code reports
+/// by name, and inventing heights here would report a second, wrong thing about it.
+fn bodies<'a>(map: &'a Map, library: &'a Library) -> Option<Vec<Option<Body<'a>>>> {
+    let bases = resolve_y(map, library).ok()?;
+    Some(
+        map.placements
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let d = descriptor_of(library, p)?;
+                let plan = plan_box(&d, p.at, p.yaw, p.tip)?;
+                let (_, h, _) = crate::descriptor::tipped_extents(&d, p.tip)?;
+                let base = bases[i];
+                let front = p.yaw + d.align.front.map(|f| f.yaw_degrees()).unwrap_or(0.0);
+                Some(Body { descriptor: d, plan, span: (base, base + h), front })
+            })
+            .collect(),
+    )
+}
+
 /// **One piece standing in a measured opening**, as `(opening index, intruder index)` into
 /// `map.placements` — the doorway rule, over the whole map (E-079).
 ///
@@ -751,33 +791,13 @@ fn blocker_indices<'a>(
 /// Ascending by `(opening, intruder)` index, so two runs over one map produce the same list and a
 /// caller can diff two maps' answers as sets — the same contract [`overlaps`] states.
 pub fn blocked_openings(map: &Map, library: &Library) -> Vec<(usize, usize)> {
-    // **Resolved once each.** A plan box and a vertical span depend on the placement and on nothing
-    // else, so asking per pair would resolve every descriptor `n` times for the same answer.
-    let Ok(bases) = resolve_y(map, library) else {
+    let Some(bodies) = bodies(map, library) else {
         return Vec::new();
     };
-    struct Body<'a> {
-        descriptor: Cow<'a, Descriptor>,
-        plan: PlanRect,
-        /// `(bottom, top)` in map space, metres.
-        span: (f32, f32),
-    }
-    let bodies: Vec<Option<Body<'_>>> = map
-        .placements
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let d = descriptor_of(library, p)?;
-            let plan = plan_box(&d, p.at, p.yaw, p.tip)?;
-            let (_, h, _) = crate::descriptor::tipped_extents(&d, p.tip)?;
-            let base = bases[i];
-            Some(Body { descriptor: d, plan, span: (base, base + h) })
-        })
-        .collect();
 
     let mut out = Vec::new();
     for (i, opening) in bodies.iter().enumerate() {
-        let Some(Body { descriptor, plan, span }) = opening else { continue };
+        let Some(Body { descriptor, plan, span, .. }) = opening else { continue };
         let Some((width, height)) = opening_hole(descriptor) else { continue };
         // **The hole is `clear`'s own rectangle, not the door's footprint.** A frame carries jambs
         // that sit inside its bounding box (`site/wall_doorway` is 0.3 m thick and 1.0 m wide to frame
@@ -789,7 +809,7 @@ pub fn blocked_openings(map: &Map, library: &Library) -> Vec<(usize, usize)> {
             if i == j {
                 continue;
             }
-            let Some(Body { descriptor: od, plan: other_plan, span: other_span }) = other else {
+            let Some(Body { descriptor: od, plan: other_plan, span: other_span, .. }) = other else {
                 continue;
             };
             if matches!(od.mount, Some(Mount::InOpening { .. })) {
@@ -815,8 +835,156 @@ pub fn blocked_openings(map: &Map, library: &Library) -> Vec<(usize, usize)> {
     out
 }
 
-/// The measured `(width, height)` of an `InOpening` descriptor's hole, or `None` when it is unmeasured
-/// or is not an opening at all.
+/// **A piece standing in space another piece reserved**, as `(keeper index, intruder index)` into
+/// `map.placements` — the clearance rule, over the whole map (E-079's other half).
+///
+/// [`Descriptor::clearance`] has been documented since the schema was written as *"space that must stay
+/// free around the piece"*, and it was read by exactly two things that decide nothing about space: the
+/// validator that refuses a negative distance ([`Descriptor::resolve`]) and the composition fingerprint
+/// that makes two differently-clearing pieces hash apart. So an author could write "0.91 m around this
+/// dining table" — Merrell's own number — and `blocking` would put a chair flush against it, `overlaps`
+/// would say nothing, the map would validate, and the only evidence the reservation existed was a RON
+/// line.
+///
+/// # Clearance crosses the layers, and it has to
+///
+/// Same reason [`blocked_openings`] exists: [`same_layer`] returns `false` for every heterogeneous pair,
+/// so a wall behind a table is not an overlap *and cannot be one* — a wall and a floor piece meeting is
+/// how a room is built. But a wall inside the table's pull-out space is exactly what the field was
+/// authored to forbid. So the question is asked about the **reserved band**, not about a stratum.
+///
+/// # What is deliberately not reported
+///
+/// - **An intruder that reserves space itself.** Two chairs' pull-out zones overlap by design;
+///   reporting that would make every dining set a finding. This is Tutenel et al. (2010)'s exemption,
+///   quoted in [`crate::descriptor::Clearance`]'s own doc — *"clearance features may overlap only other
+///   clearance features"* — and it is read as "any `clearance` at all", because that field is what makes
+///   a piece a clearance feature.
+/// - **`Mount::Tiled` and `Mount::Decal` intruders.** `Tiled` is floor covering — a rug under a table is
+///   not in the way of its chairs — and a decal claims no volume by its own doc's promise.
+/// - **A piece resting on the keeper** (`Placed::on` names it). A lamp on a table is part of the table.
+/// - **A piece whose span misses the keeper's.** Vertical comes from [`resolve_y`], the spawner's own
+///   answer, so a sconce at 1.8 m over a 0.8 m table is clear of its pull-out space. This is a stated
+///   bound, not an oversight: a person's head is above the table, and head height is a number nothing
+///   in the schema carries. The bound is written down here so the next person to find an unreported
+///   sconce does not have to re-derive it.
+/// - **An unmeasured keeper**, or a map that does not resolve — "unknown is not everywhere", on
+///   [`covers`]' own rule.
+///
+/// # The band, precisely
+///
+/// Each [`crate::descriptor::Clearance`] is a rectangle lying **outside** the keeper's own footprint on
+/// the side it names. The direction is world-space `yaw + align.front`, the composition
+/// [`crate::descriptor::Align::front`] documents, and the footprint's extent along an arbitrary
+/// direction is the exact projection `half.0·|axis0·u| + half.1·|axis1·u|` — so a piece turned 45° still
+/// reserves from its own edge rather than from a circumscribed square.
+///
+/// `Around` is four bands, each widened by `dist` across so the corners are covered; the union is a
+/// square with rounded-off corners, the same rounding every bounding-box test here makes.
+///
+/// # Pairs, ordered
+///
+/// Ascending and deduplicated, so one intruder pressed by two of a keeper's sides is one finding, and
+/// two runs over one map produce the same list — the contract [`overlaps`] and [`blocked_openings`]
+/// both state.
+pub fn blocked_clearances(map: &Map, library: &Library) -> Vec<(usize, usize)> {
+    use crate::descriptor::Dir;
+
+    let Some(bodies) = bodies(map, library) else {
+        return Vec::new();
+    };
+
+    // Tutenel's exemption, asked of the descriptor so a patched placement answers what its patch says.
+    let reserves = |d: &Descriptor| !d.clearance.is_empty();
+
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for (i, keeper) in bodies.iter().enumerate() {
+        let Some(Body { descriptor, plan, span, front }) = keeper else { continue };
+        if descriptor.clearance.is_empty() {
+            continue;
+        }
+        // `Around` covers all four sides; every other direction is one band.
+        for clear in &descriptor.clearance {
+            if !(clear.dist.is_finite() && clear.dist > 0.0) {
+                continue;
+            }
+            let sides: &[(f32, f32, f32)] = match clear.dir {
+                // `(direction, dist, widen)` — the widen is zero for a single side and `dist` across
+                // for `Around`, whose four bands must overlap at the corners to cover them.
+                Dir::Front => &[(0.0, clear.dist, 0.0)],
+                Dir::Back => &[(180.0, clear.dist, 0.0)],
+                Dir::Left => &[(90.0, clear.dist, 0.0)],
+                Dir::Right => &[(270.0, clear.dist, 0.0)],
+                Dir::Around => &[
+                    (0.0, clear.dist, clear.dist),
+                    (90.0, clear.dist, clear.dist),
+                    (180.0, clear.dist, clear.dist),
+                    (270.0, clear.dist, clear.dist),
+                ],
+            };
+            for &(offset, dist, widen) in sides {
+                let band = clearance_band(*plan, *front, offset, dist, widen);
+                for (j, other) in bodies.iter().enumerate() {
+                    if i == j {
+                        continue;
+                    }
+                    let Some(Body { descriptor: od, plan: other_plan, span: other_span, .. }) = other
+                    else {
+                        continue;
+                    };
+                    if reserves(od)
+                        || matches!(od.mount, Some(Mount::Tiled) | Some(Mount::Decal { .. }))
+                    {
+                        continue;
+                    }
+                    // A rider on the keeper is part of it.
+                    if map.placements[j].on.as_deref() == Some(map.placements[i].id.as_str()) {
+                        continue;
+                    }
+                    if other_span.1 <= span.0 + OVERLAP_EPS
+                        || other_span.0 >= span.1 - OVERLAP_EPS
+                    {
+                        continue;
+                    }
+                    if plans_overlap(band, *other_plan) {
+                        out.push((i, j));
+                    }
+                }
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// **The rectangle a clearance reserves on one side**, in plan.
+///
+/// `front` is the world direction the keeper's own front points at, in degrees (`yaw + align.front`);
+/// `offset` turns that direction to the side being reserved — 0 front, 90 left, 180 back, 270 right —
+/// in the same clockwise sense [`crate::descriptor::Face::yaw_degrees`] numbers the compass, so a
+/// piece facing south reserves its front band to the south.
+///
+/// The band starts exactly at the footprint's edge and reaches `dist` beyond it. `widen` grows it
+/// across, which is only what `Around` needs to cover the corners where its four bands meet.
+fn clearance_band(plan: PlanRect, front: f32, offset: f32, dist: f32, widen: f32) -> PlanRect {
+    let (centre, axes, half) = plan;
+    let rad = (front + offset).to_radians();
+    let (s, c) = rad.sin_cos();
+    // The engine's forward is `(sin yaw, cos yaw)` — the convention `Face::yaw_degrees` states.
+    let u = (s, c);
+    let across = (c, -s);
+    let dot = |a: (f32, f32), b: (f32, f32)| a.0 * b.0 + a.1 * b.1;
+    // **Exact projection, not the larger half.** A rotated footprint's extent along an arbitrary
+    // direction is its half-extents dotted against that direction on both of its own axes; taking the
+    // larger half instead would reserve from a circumscribed square and report a diagonal neighbour as
+    // inside the band.
+    let reach = |n: (f32, f32)| half.0 * dot(axes[0], n).abs() + half.1 * dot(axes[1], n).abs();
+    let out = reach(u) + dist * 0.5;
+    let centre = (centre.0 + u.0 * out, centre.1 + u.1 * out);
+    (centre, [across, u], (reach(across) + widen, dist * 0.5))
+}
+
 fn opening_hole(d: &Descriptor) -> Option<(f32, f32)> {
     match &d.mount {
         Some(Mount::InOpening { clear: Some((w, h)) }) if w.is_finite() && h.is_finite() => {
