@@ -16,23 +16,26 @@ that leaves rubbish behind compounds; a pass that stops early and cleanly costs 
 a fresh-context rule, a hard budget, and a headless mode that must work with no keyboard, no Sanctuary
 and no GPU.
 
-## Your work is committed even if you are killed
+## Your work is saved even if you are killed
 
-**The driver commits and pushes whatever you leave uncommitted when a pass ends**, marked
-`WIP(pass N): work the pass did not get to commit`. It is committed as the loop's own commit on the
-loop's branch, and pushed — fast-forward to the branch if it can, otherwise to a named
-`wiggum/pass-N-<ts>` branch so it is on origin either way.
+**The driver saves whatever you leave uncommitted, without touching your branch.** Every ten minutes
+it records the whole tree to a snapshot ref (`refs/wiggum/pass-N-...`), and again when the pass ends.
+Your `git status`, your index and your branch are unchanged — so this is not a substitute for your own
+commit step, which is still the only thing that puts work on `main`.
+Recover a killed pass's tree with `git -C <repo> log --all --oneline --grep='WIP(pass'` then
+`git show <ref>`.
 
-That is **not** permission to leave the tree dirty. A `WIP` commit has not been through the gate, and
+That is still **not** permission to leave the tree dirty: a snapshot has not been through the gate, and
 this command's own rule is that a pass leaving an unpushed half-diff is the most common way it goes
 wrong. So:
 
 1. **Commit in your first 20 minutes**, not at the end. Commit the bug fix as soon as its gate is
    green, before starting the enhancement. A pass killed with 40 minutes of work in the working tree
    leaves the next pass guessing; a pass killed after one commit leaves proof.
-2. **Phase 0 must check for a `WIP(pass N)` commit** from a previous pass (`git log --oneline -5`).
-   If one exists, its work was never gated: verify it or revert it before you build on it, and say
-   which in the report.
+2. **A snapshot ref is not a commit on your branch.** `git log` will not show it, and Phase 0 must not
+   look for one there. If an earlier pass was killed, its tree is in `refs/wiggum/`
+   (`git log --all --grep='WIP(pass'`) and nobody's gate ran on it — so nothing of it is on your
+   branch to verify or revert.
 
 ## Non-negotiables
 

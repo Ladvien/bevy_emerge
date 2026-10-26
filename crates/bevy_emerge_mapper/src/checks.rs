@@ -11,15 +11,12 @@
 //!
 //! **Edge faults** — two abutting tiles whose declared face tokens disagree
 //! ([`bevy_emerge_core::adjacency`]). **Overlaps** — two placements whose plans interpenetrate on the
-//! same layer ([`bevy_emerge_core::stack::overlaps`]). Both were already computable; neither was ever
-//! asked on the way out of a mutation.
+//! same layer ([`bevy_emerge_core::stack::overlaps`]). **Doorways** — a piece standing in a measured
+//! opening ([`bevy_emerge_core::stack::blocked_openings`]). All three were computed by nothing that
+//! ran on the way out of a mutation.
 //!
-//! Two more the scope names are *not* here, and each is filed as its own item rather than half-built:
+//! One more the scope names is *not* here, filed as its own item rather than half-built:
 //!
-//! - **A piece standing in a doorway.** [`bevy_emerge_core::stack::blocking`]'s own doc bounds the
-//!   claim to *within* a layer, so nothing compares a crate against an opening's clearance — and
-//!   `Descriptor::clearance`, documented as *"space that must stay free around the piece"*, is read
-//!   only by validation and the composition hash, never by anything that decides space (E-079).
 //! - **How varied a layout is.** Shipped as E-080: `editor::measure_solved` scores a `composed`
 //!   proposal's own grid through `range::measure`, and a proposal whose source derives no wall
 //!   interfaces answers `null` rather than a scored zero.
@@ -32,8 +29,9 @@
 //! reader can tell "I introduced one" from "this map has twenty and I made none".
 //!
 //! The comparison is on a finding's **identity**, not on its sentence: an edge fault is
-//! `(a, b, dir)`, an overlap is its pair of placement ids. A message that gained a word is not a new
-//! finding, and an overlap whose two placements were reordered in the file is the same overlap.
+//! `(a, b, dir)`, an overlap is its pair of placement ids, a doorway is `(opening id, intruder id)`.
+//! A message that gained a word is not a new finding, and an overlap whose two placements were
+//! reordered in the file is the same overlap.
 
 use bevy_emerge_core::adjacency::{self, Fault};
 use serde_json::{Value, json};
@@ -52,6 +50,10 @@ pub struct Found {
     pub faults: Vec<Fault>,
     /// Pairs of placement ids, each pair sorted (smaller id first) so a reorder is not a change.
     pub overlaps: Vec<(String, String)>,
+    /// `(opening id, intruder id)` — a piece whose plan reaches into a measured doorway at a height
+    /// the hole spans. **Not sorted as a pair**: which one is the hole is the finding, so a doorway
+    /// whose two ids swap order is still `("door@0", "crate@1")`.
+    pub doorways: Vec<(String, String)>,
 }
 
 /// Whether `operation` gets checks: every operation that changes a document (`Undo` is not `None`),
@@ -122,7 +124,16 @@ pub fn find(ctx: &crate::ops::Ctx) -> Option<Found> {
             if a <= b { (a, b) } else { (b, a) }
         })
         .collect();
-    Some(Found { faults, overlaps })
+    let doorways = bevy_emerge_core::stack::blocked_openings(&open.map, &project.library)
+        .into_iter()
+        .map(|(i, j)| {
+            (
+                open.map.placements[i].id.clone(),
+                open.map.placements[j].id.clone(),
+            )
+        })
+        .collect();
+    Some(Found { faults, overlaps, doorways })
 }
 
 /// The `checks` value of an answer: what `after` has that `before` did not.
@@ -140,12 +151,20 @@ pub fn report(before: Option<&Found>, after: &Found) -> Value {
     let is_new_overlap = |o: &(String, String)| {
         !before.is_some_and(|b| b.overlaps.iter().any(|p| p == o))
     };
+    let is_new_doorway = |o: &(String, String)| {
+        !before.is_some_and(|b| b.doorways.iter().any(|p| p == o))
+    };
 
     let new_faults: Vec<&Fault> = after.faults.iter().filter(|f| is_new_fault(f)).collect();
     let new_overlaps: Vec<&(String, String)> = after
         .overlaps
         .iter()
         .filter(|o| is_new_overlap(o))
+        .collect();
+    let new_doorways: Vec<&(String, String)> = after
+        .doorways
+        .iter()
+        .filter(|o| is_new_doorway(o))
         .collect();
 
     json!({
@@ -171,6 +190,18 @@ pub fn report(before: Option<&Found>, after: &Found) -> Value {
                 .collect::<Vec<_>>(),
             "new_total": new_overlaps.len(),
             "total": after.overlaps.len(),
+        },
+        // **Named `opening`/`inside`, not `a`/`b`.** Which id is the doorway is the whole finding: a
+        // reader told `{"a": "crate@1", "b": "door@0"}` has to work out the direction, and the
+        // sentence it would have to construct is the one field names exist to save.
+        "doorways_in_the_way": {
+            "new": new_doorways
+                .iter()
+                .take(NEW_CAP)
+                .map(|(opening, inside)| json!({"opening": opening, "inside": inside}))
+                .collect::<Vec<_>>(),
+            "new_total": new_doorways.len(),
+            "total": after.doorways.len(),
         },
     })
 }
@@ -209,10 +240,12 @@ mod tests {
         let before = Found {
             faults: vec![fault("pane@1", E)],
             overlaps: vec![("a".into(), "b".into())],
+            doorways: Vec::new(),
         };
         let after = Found {
             faults: vec![fault("pane@1", E)],
             overlaps: vec![("a".into(), "b".into()), ("c".into(), "d".into())],
+            doorways: Vec::new(),
         };
         let r = report(Some(&before), &after);
         assert_eq!(r["overlaps"]["new_total"], 1);

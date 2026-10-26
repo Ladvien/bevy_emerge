@@ -1299,7 +1299,7 @@ fn operation_undo(
             // **The phrase names the change being put back**, which is what the person's own redo
             // entry says — `plan.change` is that line's id and `outcome.summary` names the undo, so
             // the wording comes from the line's own result rather than the undo's.
-            let phrase = undo_phrase(&plan);
+            let phrase = undo_phrase(plan);
             if let Some(state) = state.as_mut() {
                 state.record_undone(&plan.line.operation_id, operation_id.clone(), phrase.clone());
             }
