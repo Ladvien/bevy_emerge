@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  THE BEVY_ELEMENTS WIGGUM LOOP ON big_mac (Apple Silicon, M1 Max).
+
+  Runs this repo's OWN driver (`scripts/bevy-build-loop.sh`), not bevy_emerge's generic one. It is the
+  right tool: it refuses to start unless the repo is on `main` with no tracked changes, counts
+  `## Iteration` entries in `docs/loop-log.md` to detect a pass that produced nothing, holds a `flock`
+  so two drivers cannot interleave, and kills a pass at `LOOP_TIMEOUT`.
+
+  Install:
+    cp com.ladvien.wiggum-elements.plist ~/Library/LaunchAgents/
+    launchctl bootout  gui/$(id -u)/com.ladvien.wiggum-elements 2>/dev/null
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ladvien.wiggum-elements.plist
+    launchctl kickstart -k gui/$(id -u)/com.ladvien.wiggum-elements
+
+  Read:
+    tail -f ~/.local/state/bevy-elements-loop/driver.log
+    ls -t ~/.local/state/bevy-elements-loop/runs/ | head -1
+
+  Stop gracefully (finishes the pass in flight):
+    touch ~/.local/state/bevy-elements-loop/STOP
+
+  Hard stop (kills the iteration in flight; the driver then reports a failed pass):
+    launchctl bootout gui/$(id -u)/com.ladvien.wiggum-elements
+-->
+<!--
+  `USER` is a placeholder: the install step rewrites every `/Users/USER` to the real account name
+  (`sed -i '' "s|/Users/USER|$HOME|g"`), because launchd does not expand `$HOME` or `~` in
+  `ProgramArguments`, `WorkingDirectory`, `StandardOutPath` or `EnvironmentVariables`.
+  SUBSTITUTION
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ladvien.wiggum-elements</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/USER/bevy_elements/scripts/bevy-build-loop.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/USER/bevy_elements</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- **`Crashed` only, never `SuccessfulExit=false`, and here that is a correctness point.** Their
+       driver exits **0** after `LOOP_MAX` passes and after honouring STOP, and exits **1/2/3** when a
+       pass fails, produces nothing, or finds the tree dirty. Treating a clean exit as a crash would
+       relaunch a loop the operator just stopped; treating a deliberate 1/2/3 as "stay dead" is what
+       lets a human read the log and decide. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <!-- An iteration is hours; a 10-minute throttle is only about not spinning on a crash loop. -->
+  <key>ThrottleInterval</key>
+  <integer>600</integer>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/USER/.local/bin:/Users/USER/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>/Users/USER</string>
+    <!-- **Backstop, not a schedule.** They exit 0 at LOOP_MAX, so a small number means the loop
+         silently finishes. 400 passes is weeks; the loop is meant to run until a human stops it. -->
+    <key>LOOP_MAX</key>
+    <string>400</string>
+    <!-- Six hours: capture -> judge -> research -> implement -> benchmark -> gate is genuinely that big
+         at this crate's bar. Deliberately far above the 75 minutes an emerge pass gets. -->
+    <key>LOOP_TIMEOUT</key>
+    <string>6h</string>
+    <key>LOOP_NO_PROGRESS</key>
+    <string>1</string>
+    <key>LOOP_STATE</key>
+    <string>/Users/USER/.local/state/bevy-elements-loop</string>
+    <key>LOOP_REPO</key>
+    <string>/Users/USER/bevy_elements</string>
+    <!-- The crate has no rust-toolchain.toml and `wgsl-types` needs >= 1.97.1; this machine's default
+         `stable` is 1.94, which fails the build outright. Measured. -->
+    <key>RUSTUP_TOOLCHAIN</key>
+    <string>1.98.1</string>
+    <!-- A release build of this crate is the heaviest job the machine does. Six of ten cores leaves room
+         for the emerge loop, whose tests also compile hard. -->
+    <key>CARGO_BUILD_JOBS</key>
+    <string>6</string>
+    <key>RUST_BACKTRACE</key>
+    <string>1</string>
+    <!-- The skill captures on the GPU through a window; `xvfb-run` does not exist on macOS, so the
+         example runs on the native Metal surface instead. Kept explicit so nothing looks for X. -->
+    <key>METAL_DEVICE_WRAPPER_TYPE</key>
+    <string>1</string>
+  </dict>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>Nice</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/USER/Library/Logs/wiggum-elements/out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/USER/Library/Logs/wiggum-elements/err.log</string>
+
+  <!-- Longer than LOOP_TIMEOUT so a graceful stop can finish the pass. -->
+  <key>ExitTimeOut</key>
+  <integer>25200</integer>
+</dict>
+</plist>
