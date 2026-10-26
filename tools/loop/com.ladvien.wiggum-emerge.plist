@@ -78,6 +78,11 @@
     <string>ollama-cloud/deepseek-v4.1-flash:1017</string>
     <key>WIGGUM_SLEEP</key>
     <string>60</string>
+    <!-- **Backstop, not a schedule.** The driver exits 0 at the cap and `KeepAlive` is `Crashed`
+         only, so a clean exit is not restarted — a small number would silently end the loop. 400
+         passes is weeks; the intent is that a human stops it. Absent, the driver runs forever. -->
+    <key>WIGGUM_MAX</key>
+    <string>400</string>
     <key>WIGGUM_THINK</key>
     <string>medium</string>
     <!-- **Two hours, not the 75 minutes big uses.** This loop's gate is `cargo test --workspace` plus
