@@ -119,6 +119,13 @@ fn a_placement_that_fills_a_doorway_says_so() {
         serde_json::json!({"piece": "door", "at": [4.0, 4.0]}),
     );
     assert_eq!(door["outcome"], "applied", "{door}");
+    // **The ids come from the answer, never from a guess.** The editor mints `<piece>@<n>` and this
+    // map's numbering is the editor's business; a test that hardcoded `door@0` would fail the day the
+    // minting rule changed while saying nothing about doorways.
+    let door_id = door["log_entry"]["after"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the door's answer names the id it minted: {door}"))
+        .to_owned();
     assert_eq!(
         door["checks"]["doorways_in_the_way"]["new_total"], 0,
         "a door in an empty map is in nobody's way: {door}"
@@ -130,6 +137,10 @@ fn a_placement_that_fills_a_doorway_says_so() {
         serde_json::json!({"piece": "crate", "at": [4.0, 4.0]}),
     );
     assert_eq!(inside["outcome"], "applied", "{inside}");
+    let crate_id = inside["log_entry"]["after"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the crate's answer names the id it minted: {inside}"))
+        .to_owned();
     let found = &inside["checks"]["doorways_in_the_way"];
     assert_eq!(
         found["new_total"], 1,
@@ -137,7 +148,7 @@ fn a_placement_that_fills_a_doorway_says_so() {
     );
     assert_eq!(
         found["new"][0],
-        serde_json::json!({"opening": "door@0", "inside": "crate@0"}),
+        serde_json::json!({"opening": door_id, "inside": crate_id}),
         "the answer names which id is the hole and which is the thing in it: {inside}"
     );
     assert_eq!(found["total"], 1, "{inside}");
