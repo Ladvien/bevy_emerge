@@ -49,6 +49,10 @@ THINKING="${WIGGUM_THINK:-medium}"
 # finds the tree exactly as the killed pass left it. **Kill only the pass, never with `-f` on a pattern**
 # — the shell that launched it would match too.
 PASS_TIMEOUT="${WIGGUM_PASS_TIMEOUT:-4500}"
+# **How often the driver commits the tree while a pass is still running.** Default 600 s. A pass that
+# is killed cannot commit, and a cgroup kill takes the driver with it, so the interval bounds how much
+# a death can cost: at most this much work, never the whole pass. Set 0 to disable.
+CHECKPOINT_EVERY="${WIGGUM_CHECKPOINT:-600}"
 
 # **State lives outside the repository.** A loop's own bookkeeping must never appear in a pass's
 # `git status` — a dirty tree is the first thing a pass is told to fix, and a driver writing logs into the
@@ -193,12 +197,40 @@ one_pass() {
   # a pass that died for its own reasons both exit 143; only the flag can tell them apart.
   local pass_pid rc timed_out=0
   local deadline=$(( $(date +%s) + PASS_TIMEOUT ))
+  # **A checkpoint commits the tree while the pass is still running, and it is the only thing that
+  # survives a cgroup kill.** Measured 2026-10-26 14:02 — `systemd-oomd killed 391 process(es)` in the
+  # lights unit, the driver included, so passes 8 and 10 never reached their own `END` line and the
+  # end-of-pass commit never ran; society kept 19-20 dirty files across two such deaths. Committing
+  # only at pass end assumes the driver outlives the pass, and under memory pressure it does not.
+  # Every `WIGGUM_CHECKPOINT` seconds (default 600) the tree is committed on the pass's own branch and
+  # pushed, so the worst case is losing the last interval rather than the whole pass.
+  local checkpoint_at=$(( $(date +%s) + CHECKPOINT_EVERY ))
+  checkpoint() {
+    # Never fails the pass: a checkpoint that cannot commit is reported and the pass continues.
+    [ -n "$(git -C "$REPO" status --short 2>/dev/null)" ] || return 0
+    git -C "$REPO" add -A 2>/dev/null
+    if git -C "$REPO" -c user.email="wiggum@loop.local" -c user.name="wiggum loop" \
+         commit -q -m "WIP(pass $n, checkpoint): work in progress, not yet gated
+
+Committed by the driver at a mid-pass checkpoint, not by the pass. Not yet through the gate." \
+         2>/dev/null; then
+      local cb; cb=$(git -C "$REPO" rev-parse --short HEAD)
+      local cbranch; cbranch=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
+      git -C "$REPO" push -q origin "HEAD:$cbranch" 2>/dev/null \
+        || git -C "$REPO" push -q origin "HEAD:wiggum/pass-$n-ck-$(date '+%H%M%S')" 2>/dev/null
+      log "pass $n CHECKPOINT $cb on $cbranch (pushed)"
+    fi
+  }
   rm -f "$STATE/pass-timed-out"
   ( cd "$REPO" && exec omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
     >"$passlog" 2>&1 &
   pass_pid=$!
   while kill -0 "$pass_pid" 2>/dev/null; do
     sleep 5
+    if [ "$(date +%s)" -ge "$checkpoint_at" ]; then
+      checkpoint
+      checkpoint_at=$(( $(date +%s) + CHECKPOINT_EVERY ))
+    fi
     if [ "$(date +%s)" -ge "$deadline" ]; then
       : >"$STATE/pass-timed-out"
       kill -TERM "$pass_pid" 2>/dev/null

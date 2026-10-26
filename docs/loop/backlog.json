@@ -505,8 +505,8 @@
         "no_workaround": false,
         "evidence": "Found writing S1.4's test: after `emerge/operation_undo`, `redo_for_test` answers 'nothing to redo'. `operation_undo` calls `state.forget_line(..)` when a change is taken back instead of joining the history (B-019's rule: the next Cmd+Z should reach the newest change still in effect, not one the log no longer holds), and the redo stack is therefore empty. For the person's own Cmd+Z the inverse goes on the redo stack as a `Logged` entry, so a person can redo their own undo and cannot redo an agent's."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs::operation_undo (the `forget_line` branch); measured in crates/bevy_emerge_mapper/tests/an_agent_can_generate_a_layout.rs, where the test was narrowed to the inverse's own contract rather than asserting a redo that does not exist",
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::EditorState::record_undone and record_undone_turn; ops_brp::operation_undo's id form and `turn: true` form; the Kit door gets the mirror (tiles::ImportState::push_step). Regression check crates/bevy_emerge_mapper/tests/an_agents_undo_can_be_redone_by_the_person.rs, 4 tests, all green — an agent's undo leaves redo_depth 1 and the person's redo puts the piece back; the taken-back change still leaves both stacks (B-019); a person's own Cmd+Z still leaves exactly one redo; the project stays open across both. Commit dfac080.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
