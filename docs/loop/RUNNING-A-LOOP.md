@@ -88,6 +88,13 @@ and `node_filesystem_avail_bytes` must be filtered to the real data mount, becau
 
 ## Facts that cost a cycle
 
+- **A loop cannot simply be moved to the idle machine, because the disk is the binding constraint, not
+  the cores.** Measured 2026-10-26: `bevy_society`'s `target/` is **239 GB** and `bevy_lights`' is 41 GB.
+  `bmb` — the host the picker ranks first on idle cores — has **23 GB** free, and `mac_air` 14 GB. There
+  is no room to build either on a Mac, so re-homing them would trade an OOM for a full disk. `big` has
+  804 GB free and 22 idle cores, which is why the fix there is a memory bound, not a new host. Run
+  `du -sh <clone>/target` before proposing a move; a Bevy workspace's target is larger than most
+  machines' free space.
 - **Two loops that compile do not fit on `big`.** Measured 2026-10-26: `wiggum@society` died
   `Result: oom-kill` at a 6.9 GB peak with 8.7 GB of swap while `hs-distill` held 9.9 GB resident and
   the host showed 1 GB available. `CARGO_BUILD_JOBS` is now 4 there, and one loop is held until the
