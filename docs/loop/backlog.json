@@ -426,7 +426,7 @@
       "area": "editor",
       "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
       "status": "open",
-      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
+      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal \u2014 which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },
@@ -519,7 +519,7 @@
         "blocks": false,
         "common": true,
         "no_workaround": true,
-        "evidence": "crates/bevy_emerge_core/src/stack.rs:589-596 says it in its own doc: `same_layer` returns false for every heterogeneous pair, so `plans_overlap` compares only within a layer — 'neither can a door and a crate standing in the doorway'. `Descriptor::clearance` (`descriptor.rs`:46) is documented as 'space that must stay free around the piece' and `descriptor.rs`:678 says it 'is the field that decides anything about space', but nothing in `stack.rs` reads it: grep for `clearance` there returns nothing, and its only non-descriptor readers are validation (`descriptor.rs`:1368) and the composition hash (`composition.rs`:1039). No fixture setter writes `Mount::InOpening { clear }`, so that field has never been exercised either."
+        "evidence": "crates/bevy_emerge_core/src/stack.rs:589-596 says it in its own doc: `same_layer` returns false for every heterogeneous pair, so `plans_overlap` compares only within a layer \u2014 'neither can a door and a crate standing in the doorway'. `Descriptor::clearance` (`descriptor.rs`:46) is documented as 'space that must stay free around the piece' and `descriptor.rs`:678 says it 'is the field that decides anything about space', but nothing in `stack.rs` reads it: grep for `clearance` there returns nothing, and its only non-descriptor readers are validation (`descriptor.rs`:1368) and the composition hash (`composition.rs`:1039). No fixture setter writes `Mount::InOpening { clear }`, so that field has never been exercised either."
       },
       "status": "open",
       "evidence": "crates/bevy_emerge_core/src/stack.rs (same_layer/blocking doc bounding the rule to within a layer; no `clearance` reader), crates/bevy_emerge_core/src/descriptor.rs:46 and :678 (declared and documented, read only by validate and the composition hash), crates/bevy_emerge_mapper/tests/fixtures (no Mount::InOpening writer)",
@@ -530,17 +530,18 @@
       "id": "E-082",
       "kind": "enhancement",
       "area": "wfc",
-      "title": "rules_set cannot check that a rule names descriptors the library has, so it can write a project that will not open",
+      "title": "rules_set let a weight prefix tune no piece and said \"applied\" (E-082 misdiagnosed the reachable half)",
       "must_fix": {
         "blocks": false,
         "common": false,
         "no_workaround": false,
-        "evidence": "`Rules::validate_against(library)` is the check that refuses a rule naming a descriptor no kit provides, and `Project::open` runs it (`project.rs`). `rules_set` runs only `Rules::validate_numbers`, because the operation's `Ctx` carries no `Library` — so editing a rule to `border: Some(\"town/no_such_tile\")` is applied and the project then fails to open. The block's own numbers ARE checked (cell, attempts, footprint shape), so this is only the descriptor-id half. Found by this iteration's own review (the independent reviewer could not run)."
+        "evidence": "`Rules::validate_against(library)` is the check that refuses a rule naming a descriptor no kit provides, and `Project::open` runs it (`project.rs`). `rules_set` runs only `Rules::validate_numbers`, because the operation's `Ctx` carries no `Library` \u2014 so editing a rule to `border: Some(\"town/no_such_tile\")` is applied and the project then fails to open. The block's own numbers ARE checked (cell, attempts, footprint shape), so this is only the descriptor-id half. Found by this iteration's own review (the independent reviewer could not run)."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/rules.rs::validate_against; crates/bevy_emerge_mapper/src/ops.rs::rules_set (validate_numbers only); crates/bevy_emerge_mapper/src/project.rs (the open-time check)",
+      "status": "fixed",
+      "evidence": "The `border` half is unreachable: `rules_set::Params` has `deny_unknown_fields` and states only cell/seed/attempts/no_empty/weights, so serde refuses a border before any check; `surgery` rewrites only named fields. The reachable half was `weights[].prefix`, which nothing validated (`validate_numbers` is numbers only; `validate_against` never reads weights), so `prefix: \"town/hous_\"` applied, logged `applied`, and generated identically. Now `rules_set::dead_prefixes` reports a prefix this request introduces that starts no library id: `would_change.tunes_nothing` on a preview, and the receipt's summary on an apply, naming up to three nearby ids (shared prefix first, `nearest_ids` edit distance when nothing shares a first character). It reports rather than refuses because the undo path re-dispatches with the old weight list, and a refusal would leave the agent's write standing while refusing the person's Cmd+Z. Tests: crates/bevy_emerge_mapper/tests/a_weight_names_the_pieces_it_tunes.rs (6 tests, 2 failed before the fix: `the_preview_names_a_prefix_that_tunes_nothing` on a missing suggestion, `the_receipt_says_the_weight_tuned_nothing_and_the_change_still_applies` on a summary that read the same either way).",
       "last_failure": "",
-      "first_seen": "2026-10-26"
+      "first_seen": "2026-10-26",
+      "fixed_in": "HEAD (this pass)"
     },
     {
       "id": "E-083",

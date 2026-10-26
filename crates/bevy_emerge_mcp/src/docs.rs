@@ -80,7 +80,12 @@ pub const TOOLS: &[ToolDoc] = &[
                       the developer, and the log's own record of it. When the operation changes a \
                       document and a map is open, the answer's checks field names the edge faults and \
                       overlapping placements the change introduced (new, at most 20 of each) with \
-                      new_total, and each kind's total on the whole map; it is null otherwise. The \
+                      new_total, and each kind's total on the whole map; it is null otherwise. A \
+                      rules_set whose weights name a prefix no piece in the library starts answers \
+                      tunes_nothing (in would_change on a preview, and in the summary on an apply), \
+                      naming the prefix and the pieces it does not tune: the change is applied, \
+                      because removing a weight list is how an undo restores one, so read that field \
+                      rather than assuming a weight did something. The \
                       operation replaces the values it names rather than adding to them, so it is \
                       marked destructive. Take a change back with emerge_undo_operation and the \
                       returned id.",

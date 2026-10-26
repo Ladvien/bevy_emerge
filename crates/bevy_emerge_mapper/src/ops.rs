@@ -5398,6 +5398,118 @@ pub mod rules_set {
             Ok(expected)
         }
 
+        /// **The weight prefixes in this request that tune no piece the library has.**
+        ///
+        /// `weights` is the one id-shaped field this operation owns, and nothing validated it:
+        /// `validate_numbers` is numbers only, and `validate_against` checks `border`, `regions` and
+        /// each footprint's nine parts and never looks at a weight. So `prefix: "town/hous_"` was
+        /// applied, logged as "applied", and the next generation came out identical — the silent
+        /// no-op this module refuses everywhere else (*"a caller that asks for a field nothing wrote
+        /// is refused rather than told applied"*, [`Params`]' own doc).
+        ///
+        /// # Only what this request introduces, and why that is not a loophole
+        ///
+        /// A rules file may already carry a dead prefix, written by hand before this check existed.
+        /// Reporting it on every dispatch — including the *undo* of a weights change, whose
+        /// parameters are the old list verbatim — would tell the author a change they did not make
+        /// tuned nothing, and the same sentence on a `seed` change would blame this request for a
+        /// field it never touched. So the answer is about `p.weights` alone, compared with what the
+        /// block held before: a prefix already there is the file's standing state, not this
+        /// change's doing.
+        ///
+        /// # A prefix is a prefix, and the pieces are named
+        ///
+        /// `starts_with` is the generator's own rule ([`bevy_emerge_core::rules::Alphabet`]), so
+        /// `town/hous` tuning `town/house_a` is ordinary and must not be reported. What is reported
+        /// is a prefix starting **no** descriptor's id — and the answer names up to three ids it
+        /// starts nothing of but is close to, so an author who meant a real piece reads what to type.
+        fn dead_prefixes(
+            project: &crate::project::Project,
+            block: &bevy_emerge_core::rules::BlockRules,
+            p: &Params,
+        ) -> Vec<String> {
+            let Some(Some(wanted)) = &p.weights else {
+                return Vec::new();
+            };
+            wanted
+                .iter()
+                .filter(|w| !block.weights.iter().any(|was| was.prefix == w.prefix))
+                .filter(|w| !Self::tunes_something(project, &w.prefix))
+                .map(|w| {
+                    let near = Self::nearest_pieces(project, &w.prefix);
+                    if near.is_empty() {
+                        format!(
+                            "`{}` tunes nothing: it starts no descriptor's id in this project's \
+                             library, and the library is empty",
+                            w.prefix
+                        )
+                    } else {
+                        format!(
+                            "`{}` tunes nothing: it starts no descriptor's id in this project's \
+                             library. Pieces it does not tune include {}",
+                            w.prefix,
+                            near.join(", ")
+                        )
+                    }
+                })
+                .collect()
+        }
+
+        /// Whether any descriptor in the merged library starts with `prefix` — the exact test the
+        /// collapse makes when it applies the weights (`core::rules::Alphabet`).
+        fn tunes_something(project: &crate::project::Project, prefix: &str) -> bool {
+            project
+                .library
+                .descriptors
+                .iter()
+                .any(|d| d.id.starts_with(prefix))
+        }
+
+        /// **Up to three ids worth suggesting for a prefix that tunes nothing**, formatted with their
+        /// backticks. Chosen by the length of the longest id-prefix the two share, so `town/hous_`
+        /// offers `town/house_a` rather than whichever `town/*` id happens to be first — a wrong hint
+        /// sends the reader to the wrong piece, which is why [`bevy_emerge_core::vocab::nearest`]
+        /// bounds its own by distance.
+        fn nearest_pieces(project: &crate::project::Project, prefix: &str) -> Vec<String> {
+            let mut scored: Vec<(usize, &str)> = project
+                .library
+                .descriptors
+                .iter()
+                .map(|d| {
+                    let shared = d
+                        .id
+                        .chars()
+                        .zip(prefix.chars())
+                        .take_while(|(a, b)| a == b)
+                        .count();
+                    (shared, d.id.as_str())
+                })
+                .filter(|(shared, _)| *shared > 0)
+                .collect();
+            // **Sorted by what the two share, then by id**, so the answer does not depend on the
+            // library's declaration order — two runs over the same project give the same sentence.
+            scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+            if !scored.is_empty() {
+                return scored
+                    .into_iter()
+                    .take(3)
+                    .map(|(_, id)| format!("`{id}`"))
+                    .collect();
+            }
+            // **Nothing shares a first character, so fall back to distance** — the case
+            // `town/hous_` against a library of `abbey_a` hits, where a prefix comparison finds no
+            // candidate at all and an author who meant *something* in the library is told only that
+            // their guess was wrong. `nearest_ids` is the crate's own ranking of ids by edit
+            // distance, so the fallback says the same words the rest of this file does.
+            let ids: Vec<&str> = project
+                .library
+                .descriptors
+                .iter()
+                .map(|d| d.id.as_str())
+                .collect();
+            nearest_ids(&ids, prefix)
+        }
+
         /// **The text, with this block's numbers set to the requested ones.**
         ///
         /// `Ok(Some((old, new)))`, or a refusal that writes nothing.
@@ -5654,7 +5766,12 @@ pub mod rules_set {
             let after = bevy_emerge_core::rules::Rules::parse(&new)
                 .map_err(|e| Refusal::new(format!("the rewrite does not parse: {e}")))?;
             let block = Self::block_of(&after, &p.example)?.clone();
-            Ok(json!({
+            // **Against the block as it stood**, not the rewrite: every wanted prefix is in the
+            // rewrite by construction, so comparing there would find the request already satisfied
+            // and report nothing.
+            let was = Self::block_of(&project.rules, &p.example)?.clone();
+            let dead = Self::dead_prefixes(project, &was, &p);
+            let mut answer = json!({
                 "example": block.example,
                 "cell": block.cell,
                 "size": [block.size.0, block.size.1],
@@ -5662,7 +5779,13 @@ pub mod rules_set {
                 "attempts": block.attempts,
                 "no_empty": block.no_empty,
                 "weights": block.weights,
-            }))
+            });
+            // **Absent when every prefix tunes a piece**, the way `checks` is absent from a preview
+            // that breaks nothing: a field that is always there is a field a reader learns to skip.
+            if !dead.is_empty() {
+                answer["tunes_nothing"] = json!(dead);
+            }
+            Ok(answer)
         }
 
         fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
@@ -5705,6 +5828,15 @@ pub mod rules_set {
             if let Some(Some(v)) = &p.weights {
                 target.weights = v.clone();
             }
+            // **A tune that reaches no piece says so in the receipt**, because "set the rule for `m`"
+            // is the same sentence whether the weight did something or nothing. Computed against
+            // `before`, which is the block as it stood — see [`Self::dead_prefixes`].
+            let dead = Self::dead_prefixes(project, &before, &p);
+            let summary = if dead.is_empty() {
+                format!("set the rule for `{}`", p.example)
+            } else {
+                format!("set the rule for `{}`, but {}", p.example, dead.join("; "))
+            };
             // **The inverse is every number this change replaced**, named field by field so one call
             // puts them all back — including the ones that did not move, which is harmless and keeps
             // the inverse exact when a caller changed several at once.
@@ -5717,7 +5849,7 @@ pub mod rules_set {
             // one the author is looking at when they press Cmd+Z.
             let map = ctx.open.as_ref().map(|o| o.map.name.clone());
             Ok(Outcome {
-                summary: format!("set the rule for `{}`", p.example),
+                summary,
                 affected: 1,
                 saved: true,
                 inverse: Some(json!({
