@@ -65,6 +65,36 @@ running() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+# **A second driver on one checkout, found in the process table.** The pidfile alone cannot answer this
+# for the case the unit creates: `ExecStart=… __driver` is the driver, so a stale pidfile or a driver
+# started by hand and a unit-owned one both claim the same tree, and two `omp` passes interleaving in one
+# checkout is the expensive failure this script exists to prevent.
+#
+# **Measured 2026-10-26: the marker was in the environment, and `pgrep -f` reads argv.** `env
+# WIGGUM_MARKER=… bash "$0" __driver` never puts the marker in the child's command line, so the guard
+# matched nothing and two drivers ran together — passes numbered 1, 2, 3 out of order in one
+# `driver.log`. The marker is now an argv token on the re-exec, which is where `pgrep -f` looks.
+#
+# **This driver matches its own argv, and so does every subshell it forks** — bash children inherit the
+# command line, and a `$( … )` running this function can still be alive when it asks. So the guard
+# counts only a marker process that does **not** descend from this driver.
+other_driver_running() {
+  local pid p
+  for pid in $(pgrep -f -- "$MARKER" 2>/dev/null); do
+    # **Walk up from the candidate.** Any marker process that descends from this driver — a `$( … )`
+    # subshell, a `pipeline` stage — is this driver, not another one. Bounded by the tree's depth.
+    p=$pid
+    while [ -n "$p" ] && [ "$p" != 0 ] && [ "$p" != 1 ]; do
+      [ "$p" = "$$" ] && { p=""; break; }
+      p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+    done
+    # `p` is empty when the walk reached this driver, so the candidate is ours and is skipped.
+    [ -z "$p" ] && continue
+    return 0
+  done
+  return 1
+}
+
 # **One pass.** The whole of what this script does to the world.
 one_pass() {
   # **Both preconditions come before the first write, and that order is the point.** `one` runs this
@@ -88,9 +118,7 @@ one_pass() {
   log "pass $n START command=/$COMMAND model=$MODEL dirty=$dirty"
   # **A fresh process per pass is the whole design.** `omp -p` is one-shot: it reads the prompt,
   # does the work, exits. No `--continue`, no `--resume`, no session carried over — the repository is
-  # the memory.
-  # **One fresh process, one command, no session.** `/build-loop` is the repo's own loop command
-  # (or the generic one); `--model` is explicit so a pass never inherits an interactive choice.
+  # the memory. `--model` is explicit so a pass never inherits an interactive choice.
   ( cd "$REPO" && omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
     >"$passlog" 2>&1
   local rc=$?
@@ -113,9 +141,9 @@ driver() {
   # **One driver per machine.** Two drivers racing on one checkout produce interleaved edits and
   # neither can trust the other's tree. The marker is in the process table, not only the pidfile,
   # because a pidfile survives a kill -9.
-  if pgrep -f "${WIGGUM_MARKER:-$MARKER}" >/dev/null 2>&1; then
+  if other_driver_running; then
     log "refusing to start: another driver is already running"
-    echo "another wiggum driver is already running (pgrep -f $MARKER)"
+    echo "another wiggum driver is already running ($MARKER)"
     exit 1
   fi
   echo $$ >"$PIDFILE"
@@ -171,14 +199,24 @@ case "${1:-}" in
       WIGGUM_MODEL="$MODEL" WIGGUM_REPO="$REPO" WIGGUM_SLEEP="$SLEEP_BETWEEN" \
       WIGGUM_MAX="$MAX_PASSES" WIGGUM_THINK="$THINKING" \
       WIGGUM_COMMAND="$COMMAND" WIGGUM_STATE="$STATE" \
-      bash "$0" __driver >>"$DRIVER_LOG" 2>&1 < /dev/null &
+      bash "$0" __driver "$MARKER" >>"$DRIVER_LOG" 2>&1 < /dev/null &
     sleep 1
     echo "started. status: $0 status   /   follow: $0 tail"
     ;;
   __driver)
-    # **The marker is what `pgrep` finds**, so one machine has one driver even across a `kill -9`
-    # that left the pidfile behind.
+    # **The marker is an argv token, because that is the only place `pgrep -f` reads.** The environment
+    # form this used to use was measured on 2026-10-26 to match nothing at all, so two drivers shared
+    # one checkout. It stays in the environment as well so an operator can see which loop they are
+    # looking at, but `other_driver_running` reads the argument, which arrives even when the unit starts
+    # this branch directly with no `start` case in front of it.
     export WIGGUM_MARKER="${WIGGUM_MARKER:-$MARKER}"
+    # **`systemd` starts this branch with no marker argument.** `ExecStart=… __driver` is the unit's whole
+    # command line, so the guard would see no marker on a unit-owned driver and let a hand-started one
+    # share its checkout. One `exec` puts the marker in the argv the process finally runs with, which is
+    # what `pgrep -f` reads; the condition makes it happen once, never in a loop.
+    if [ "${2:-}" != "$MARKER" ]; then
+      exec bash "$0" __driver "$MARKER"
+    fi
     driver
     ;;
   one)
