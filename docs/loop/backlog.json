@@ -573,22 +573,6 @@
       "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip)",
       "last_failure": "",
       "first_seen": "2026-10-26"
-    },
-    {
-      "id": "B-052",
-      "kind": "bug",
-      "area": "mcp",
-      "title": "The MCP server builds the undo body by hand, so any field the editor's params grow is dropped silently",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "`undo_operation` calls the bridge with `json!({\"operation_id\": …, \"dry_run\": …})` — a hand-written body, not the typed params. Adding `turn` to both `UndoParams` structs was not enough: the field reached the server, was accepted by serde, and was never put on the wire, so the editor answered `unknown field turn` and the call read like a one-change undo. Found live, not by a test — the mapper tests drive `emerge/operation_undo` directly and never go through the server. Every other tool with a hand-built body has the same shape; whether this is one tool or a pattern is the question this item asks."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mcp/src/main.rs::undo_operation (the hand-built json body); crates/bevy_emerge_mapper/src/ops_brp.rs::UndoParams",
-      "last_failure": "",
-      "first_seen": "2026-10-26"
     }
   ]
 }

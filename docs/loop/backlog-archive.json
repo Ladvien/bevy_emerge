@@ -1421,6 +1421,22 @@
       "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs::operation_undo (`turn: true` walks the presentation's ids newest-first through the same `ops::undo(ctx, Some(id))` the id form makes); crates/bevy_emerge_mcp/src/main.rs (the param, the description, and the body that must carry it); tests/an_agents_turn_is_one_undo_step.rs (6 tests, one failing before)",
       "last_failure": "",
       "first_seen": "2026-10-26"
+    },
+    {
+      "id": "B-052",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "The MCP server builds the undo body by hand, so any field the editor's params grow is dropped silently",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "The MCP server builds each forwarding tool's BRP body by hand, so a field the editor's params grow is dropped silently. Measured in E-084: `turn` was added to both `UndoParams` structs, accepted by serde at the server, never put on the wire, and the editor answered \"unknown field `turn`\" — while every deterministic check passed, because the mapper's tests call `emerge/operation_undo` directly. Fixed with two source-text ratchets: each of the six forwarding bodies must name exactly its editor struct's fields in both directions, and every `self.editor.call` that builds a body must be in the checked table or in a named not-forwarded list. Proved by removing `turn` from the body: the test fails with left [dry_run, operation_id] against right [dry_run, operation_id, turn]."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mcp/tests/a_tools_body_names_every_field.rs (two tests, both failing on the reverted body); crates/bevy_emerge_mcp/src/main.rs (the six hand-built bodies); crates/bevy_emerge_mapper/src/ops_brp.rs (the structs they copy)",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
     }
   ]
 }
