@@ -17,6 +17,7 @@
 #   ~/wiggum.sh stop           # stop after the current pass ends (never mid-pass)
 #   ~/wiggum.sh tail           # follow the driver's own log
 #   ~/wiggum.sh one            # run exactly one pass in the foreground, for a smoke test
+#   ~/wiggum.sh guard          # exit 1 if a pass is running — call before reset/checkout/clean
 #
 # Environment, all optional:
 #   WIGGUM_MODEL   default ollama-cloud/deepseek-v4.1-flash:1017
@@ -247,6 +248,23 @@ case "${1:-}" in
     echo "state: $STATE"
     echo "--- last 5 driver lines ---"
     tail -5 "$DRIVER_LOG" 2>/dev/null || echo "(no log yet)"
+    ;;
+  guard)
+    # **Call this before touching a repo a loop is driving.** A `git reset --hard` (mine, on
+    # 2026-10-26) ran while a pass was mid-edit and silently destroyed its uncommitted source change;
+    # only the untracked test file survived, because `reset --hard` leaves untracked files alone. The
+    # pass then had no idea its work had gone. Exit 0 means safe to touch, 1 means a pass is running.
+    if running || pgrep -f "wiggum-$USER-$(basename "$REPO")" >/dev/null 2>&1; then
+      echo "A LOOP IS DRIVING $REPO — do not reset, checkout, clean or rebase it." >&2
+      echo "Stop it and wait for the pass to finish: $0 stop" >&2
+      exit 1
+    fi
+    if [ -n "$(git -C "$REPO" status --short 2>/dev/null)" ]; then
+      echo "No driver, but $REPO has uncommitted work — it may be a dead pass's." >&2
+      git -C "$REPO" status --short | head -10 >&2
+      exit 1
+    fi
+    echo "safe: no loop is driving $REPO"
     ;;
   stop)
     touch "$STOPFILE"
