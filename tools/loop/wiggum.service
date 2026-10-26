@@ -1,0 +1,61 @@
+[Unit]
+Description=bevy_emerge Wiggum loop (one fresh build-loop pass at a time)
+Documentation=file:%h/bevy_emerge_loop/.omp/commands/build-loop.md
+# **Runs forever, so it must not be tied to a login.** `loginctl enable-linger` is already on for this
+# user; without it a user unit dies when the last session closes.
+After=network-online.target
+Wants=network-online.target
+# **Nothing else may drive this checkout.** Not a dependency — a guard: if the unit is restarted while
+# something else holds the tree, the driver's own single-instance check refuses to start rather than
+# racing it.
+
+[Service]
+Type=simple
+WorkingDirectory=%h/bevy_emerge_loop
+
+# **One fresh `omp -p` per pass; the driver sleeps between them.** Not `Type=oneshot` with a timer: a
+# pass takes up to 45 minutes and a timer would start a second one on top of it.
+ExecStart=%h/bevy_emerge_loop/tools/loop/wiggum.sh __driver
+
+Environment=WIGGUM_REPO=%h/bevy_emerge_loop
+Environment=WIGGUM_MODEL=ollama-cloud/deepseek-v4.1-flash:1017
+Environment=WIGGUM_SLEEP=60
+Environment=WIGGUM_THINK=medium
+Environment=WIGGUM_MAX=0
+
+# **The toolchain the repo is pinned to.** `rust-toolchain.toml` may not exist yet, and `stable` on this
+# machine is 1.99 while the workspace is pinned to 1.98.
+Environment=RUSTUP_TOOLCHAIN=1.98.1
+# **Its own target dir, never `~/.cargo-target-shared/global`.** Workspace crates at one version share
+# an artifact hash across checkouts, so a second tree using the shared dir makes cargo report this one's
+# units as Fresh and silently run the other tree's code — measured here on 2026-10-21.
+Environment=CARGO_TARGET_DIR=%h/target/emerge-loop
+# **Under the machine's other work.** big also builds bevy_elements and serves hs-distill; a loop that
+# takes every core makes those fail. Measured: load average was 31 on 24 cores with 3 GB RAM free.
+Environment=CARGO_BUILD_JOBS=8
+Environment=RUST_BACKTRACE=1
+
+# The editor is launched by `accept.py` on a display; big's X server is present but no DISPLAY is set in
+# a non-graphical session. `xvfb-run` provides one if `accept.py` needs it — see README of the loop.
+Environment=DISPLAY=:99
+
+Nice=15
+IOSchedulingClass=idle
+
+# **Stop means stop after the pass in flight**, never mid-edit: the driver traps SIGTERM and writes its
+# stop file. 45 minutes is a pass, plus slack. A shorter timeout would kill an edit and leave the next
+# pass to repair the tree — the single most expensive failure this loop can make.
+KillSignal=SIGTERM
+TimeoutStopSec=3000
+
+Restart=always
+RestartSec=120
+# Never spin: a pass that dies instantly, five times running, is a broken machine or a broken checkout.
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+StandardOutput=append:%h/target/emerge-loop/wiggum/systemd.log
+StandardError=append:%h/target/emerge-loop/wiggum/systemd.log
+
+[Install]
+WantedBy=default.target
