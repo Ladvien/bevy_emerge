@@ -133,6 +133,29 @@ fn the_same_seed_measures_the_same() {
 }
 
 /// **A `composed` proposal is scored on the grid the solver collapsed.**
+/// **The measurement is not the cost of a proposal.** `range::measure` is a flood fill and a
+/// region pass over the grid; `solve` is the collapse that fills it. This times the measurement on
+/// the same 256-cell grid the test above scores, so a report can say which of the two dominates
+/// rather than implying the metric is free.
+#[test]
+fn the_measurement_is_cheap_beside_the_solve() {
+    let mut app = editor("variety_cost");
+    let t0 = std::time::Instant::now();
+    let answer = propose(&mut app, "composed", 3);
+    let whole = t0.elapsed();
+    assert!(!answer["would_change"]["variety"].is_null(), "{answer}");
+    // **Generous on purpose.** This is a shape, not a benchmark: a measurement that took longer
+    // than the solve would be a finding, and one that takes a fraction of it is the ordinary case.
+    // A wall-clock assertion tight enough to fail on a loaded machine would be a flake generator --
+    // the loop has been burned by exactly that -- so the bound is loose and the *number* is printed.
+    eprintln!("PROPOSAL: {} ms for solve + measure", whole.as_millis());
+    assert!(
+        whole.as_millis() < 5_000,
+        "one composed proposal took {} ms",
+        whole.as_millis()
+    );
+}
+
 #[test]
 fn a_composed_proposal_is_scored_on_the_solvers_grid() {
     let mut app = editor("variety_composed");

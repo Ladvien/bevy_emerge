@@ -1373,6 +1373,22 @@
       "evidence": "crates/bevy_emerge_mapper/src/ops.rs::rules_set (cell/seed/attempts/no_empty/weights, text surgery, Undo::Inverse); crates/bevy_emerge_mapper/tests/a_rule_can_be_changed.rs (7 tests, all failing before); the K seed field in editor.rs and the parity table; live on Sanctuary's rules.ron: seed 1234 and times 50.0 written, every other byte identical, undo byte-for-byte",
       "last_failure": "",
       "first_seen": "2026-10-26"
+    },
+    {
+      "id": "E-080",
+      "kind": "enhancement",
+      "area": "validators",
+      "title": "A layout proposal does not report how varied it is: range::measure has no Map adapter and the solver's grid is discarded",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "crates/bevy_emerge_core/src/range.rs:211 `measure` takes the solver's grid, and `grammar::learn` hands the editor back only the `Grammar`, so the grid a proposal was solved on is gone by the time anything could measure it. The brief asks for variety at :30 and :321."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::measure_solved (scores Solved::grid through range::measure); tests/a_proposal_says_how_varied_it_is.rs (4 tests, two failing before); layout_propose's answer carries would_change.variety; measured on the fixture's 256-cell solve: enclosure 0.695, 67 regions, opening density 0.0",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
     }
   ]
 }

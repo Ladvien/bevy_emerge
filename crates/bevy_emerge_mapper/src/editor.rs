@@ -11844,6 +11844,25 @@ fn measure_solved(
         return None;
     }
     let read = bevy_emerge_core::grammar::interfaces(faces);
+    // **And no prototype presenting a wall is also unmeasurable**, not a zero. `range::Faces::floor`
+    // is true for every prototype but the empty one, so a grammar whose pieces present no `wall`
+    // anywhere would score `enclosure: 0.0` — the same number as a walled layout that closed nothing,
+    // for a layout where nothing *could* close. `from_compositions` is expected to skip such a
+    // composition ("derives no interface"), so this is a belt on top of braces; the reason to keep it
+    // is that the failure it prevents is silent and reads as a real measurement.
+    let mut any_wall = false;
+    for p in 0..faces.len() {
+        if [bevy_emerge_core::wfc::N, bevy_emerge_core::wfc::E, bevy_emerge_core::wfc::S, bevy_emerge_core::wfc::W]
+            .iter()
+            .any(|&d| read.wall(p, d))
+        {
+            any_wall = true;
+            break;
+        }
+    }
+    if !any_wall {
+        return None;
+    }
     bevy_emerge_core::range::measure(
         solved.width,
         solved.height,

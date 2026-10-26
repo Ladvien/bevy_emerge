@@ -559,22 +559,6 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "E-080",
-      "kind": "enhancement",
-      "area": "validators",
-      "title": "A layout proposal does not report how varied it is: range::measure has no Map adapter and the solver's grid is discarded",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "crates/bevy_emerge_core/src/range.rs:211 `measure` takes the solver's grid, and `grammar::learn` hands the editor back only the `Grammar`, so the grid a proposal was solved on is gone by the time anything could measure it. The brief asks for variety at :30 and :321."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/range.rs:211 (measure), crates/bevy_emerge_core/src/grammar.rs (learn returns the Grammar only), .omp/commands/emerge-feature-loop.md:30,:321",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
       "id": "E-082",
       "kind": "enhancement",
       "area": "wfc",
@@ -587,6 +571,22 @@
       },
       "status": "open",
       "evidence": "crates/bevy_emerge_core/src/rules.rs::validate_against; crates/bevy_emerge_mapper/src/ops.rs::rules_set (validate_numbers only); crates/bevy_emerge_mapper/src/project.rs (the open-time check)",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
+    },
+    {
+      "id": "E-083",
+      "kind": "enhancement",
+      "area": "kits",
+      "title": "Sanctuary's compositions are all Anchored, so the composed source and its variety measurement cannot run there",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "`compositions.ron` holds `Bounded: 0, Anchored: 16`. `grammar::from_compositions` skips an anchored group by definition (\"it presents no edge to match\"), so `layout_propose {source: composed}` is refused there with \"nothing has been placed yet\" and no composed layout can be measured. `learned` works but derives no wall interfaces, so E-080's measurement answers `null` on the only real project in this repo. Found live while proving E-080; the metric itself is proved on the crate's own fixture."
+      },
+      "status": "open",
+      "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip)",
       "last_failure": "",
       "first_seen": "2026-10-26"
     }
