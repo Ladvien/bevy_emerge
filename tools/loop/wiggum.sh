@@ -139,16 +139,34 @@ one_pass() {
   # **A fresh process per pass is the whole design.** `omp -p` is one-shot: it reads the prompt,
   # does the work, exits. No `--continue`, no `--resume`, no session carried over — the repository is
   # the memory. `--model` is explicit so a pass never inherits an interactive choice.
-  # `timeout` wraps the pass so a runaway cannot hold the loop forever; `--foreground` keeps it in this
-  # process group so a SIGTERM to the driver still reaches the pass (the trap path).
-  ( cd "$REPO" && timeout --foreground "$PASS_TIMEOUT" \
-      omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
-    >"$passlog" 2>&1
-  local rc=$?
+  # **The timeout is done in this process, not with `timeout(1)`, because macOS does not have it.**
+  # Measured on big_mac: every pass died `rc=127` with `timeout: command not found`, which looked like a
+  # missing toolchain and was actually the wrapper. A background watchdog kills the pass by pid at the
+  # ceiling; `wait` then reaps it. The kill is by exact pid, so it cannot touch the driver or the shell.
+  local pass_pid watchdog rc timed_out=0
+  ( cd "$REPO" && exec omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
+    >"$passlog" 2>&1 &
+  pass_pid=$!
+  # **The watchdog marks the ceiling in a file, not by guessing from the exit code.** A pass killed by
+  # SIGTERM and a pass that died for its own reasons both exit 143, and a loop that reported the second
+  # as a timeout would hide the real failure. The flag is the only honest source.
+  rm -f "$STATE/pass-timed-out"
+  ( sleep "$PASS_TIMEOUT"; : >"$STATE/pass-timed-out"; kill -TERM "$pass_pid" 2>/dev/null; \
+    sleep 10; kill -KILL "$pass_pid" 2>/dev/null ) &
+  watchdog=$!
+  wait "$pass_pid"
+  rc=$?
+  kill -TERM "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+  if [ -f "$STATE/pass-timed-out" ]; then
+    timed_out=1
+    rm -f "$STATE/pass-timed-out"
+    log "pass $n TIMED OUT after ${PASS_TIMEOUT}s — killed, tree left as found"
+  fi
   if [ "$rc" -eq 124 ]; then
     log "pass $n TIMED OUT after ${PASS_TIMEOUT}s — killed, tree left as found"
   fi
-  log "pass $n END rc=$rc log=$passlog"
+  log "pass $n END rc=$rc timed_out=$timed_out log=$passlog"
 
   # **A tree left dirty is the next pass's first bug**, and the command says so. This only reports it.
   local after; after=$(git -C "$REPO" status --short 2>/dev/null | wc -l | tr -d ' ')
