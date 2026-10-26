@@ -479,22 +479,6 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "E-071",
-      "kind": "enhancement",
-      "area": "collaboration",
-      "title": "Undoing an agent's turn takes one Cmd+Z per operation: a turn is not one undo step",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "The brief asks for an agent's multi-step action to be grouped into one undo step. Today each dispatched operation is its own history entry, so an eight-operation turn is eight presses. Mixar keeps a turn timeline that reverts and re-applies a whole turn."
-      },
-      "status": "open",
-      "evidence": "mixar@39b9d27:core/turn_checkpoints.py, mixar@39b9d27:core/checkpoint_timeline.py, mixar@39b9d27:ui/operators/checkpoint_ops.py",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
       "id": "E-072",
       "kind": "enhancement",
       "area": "compose",
@@ -587,6 +571,22 @@
       },
       "status": "open",
       "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip)",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
+    },
+    {
+      "id": "E-084",
+      "kind": "enhancement",
+      "area": "undo",
+      "title": "An agent's newest-change undo walks the log, so it takes back one operation of a presented turn while Cmd+Z takes the whole turn",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "E-071 made a presented turn one `Undo::Group` on the editor's stack, so one Cmd+Z takes back the whole turn. `emerge/operation_undo` with `operation_id: null` does NOT read that stack: it calls `ops::undo(&ctx, None)`, which picks the newest chain in the operation log and takes back that one line. Measured live on Sanctuary's `town`: three `placement_add` operations, `emerge_present` answering `grouped: 3`, then one `emerge_undo_operation` -> 730 placements became 729 (one taken back), where Cmd+Z would leave 727. The person's key and the agent's tool therefore take back different amounts for the same turn."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs::operation_undo (ops::undo on the log, not the grouped stack); crates/bevy_emerge_mapper/src/editor.rs::group_turn (the stack the group lives on)",
       "last_failure": "",
       "first_seen": "2026-10-26"
     }

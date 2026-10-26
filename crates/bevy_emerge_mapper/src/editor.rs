@@ -322,6 +322,66 @@ impl EditorState {
         self.settle();
     }
 
+    /// **Collapse one agent turn's entries into a single undo step (E-071).**
+    ///
+    /// The brief: *"An agent's multi-step action is grouped into one undo step, so a single undo
+    /// reverts the whole agent step."* Every dispatched operation makes its own [`Undo::Logged`], so
+    /// an eight-operation turn was eight Cmd+Z presses and the person had no way to know where the
+    /// turn ended.
+    ///
+    /// **The boundary is the presentation**, because the agent already declares it: `emerge/present`
+    /// takes `operation_ids` — *"the operations this covers"* — and `Undo all` walks them. Making that
+    /// list one entry on the stack is what makes Cmd+Z and `Undo all` take back the **same amount**
+    /// instead of being two answers to one question.
+    ///
+    /// # Only the ids it names, and only leaves
+    ///
+    /// An entry is taken when it is a `Logged` for one of `ids`. Everything else on the stack is left
+    /// exactly where it is — the person's own edit before the turn, a `Pin`, a `Settings`, a
+    /// `Group` some earlier act already made. **Nothing newer than the newest named id is touched**,
+    /// because an operation the agent did *after* presenting is not part of the turn it presented.
+    ///
+    /// A turn of one operation is left alone: a group of one is the entry it already has, and
+    /// wrapping it would make the receipt read `1 change` for a single click.
+    ///
+    /// Returns how many entries were collapsed, so the caller can say so.
+    pub(crate) fn group_turn(&mut self, ids: &[String]) -> usize {
+        if ids.len() < 2 {
+            return 0;
+        }
+        let named = |op: &Undo| matches!(op, Undo::Logged { line, .. } if ids.iter().any(|id| id == line));
+        let found = self.undo.iter().filter(|op| named(op)).count();
+        if found < 2 {
+            return 0;
+        }
+        let mut taken: Vec<Undo> = Vec::with_capacity(found);
+        let mut rest: Vec<Undo> = Vec::with_capacity(self.undo.len() - found);
+        for op in self.undo.drain(..) {
+            if named(&op) {
+                taken.push(op);
+            } else {
+                rest.push(op);
+            }
+        }
+        // **The children are reversed, because a turn is undone newest-first.**
+        //
+        // The stack is ordered oldest-first and `apply` runs a group's children in order — which is
+        // right for the inverses the group *produces*, and wrong for the oplog walk the children
+        // drive. `ops::undo` refuses a change while a newer one in the same scope is still in
+        // effect, so undoing a three-placement turn in authoring order refused the first two and
+        // took back only the last: Cmd+Z said "took away 1 row(s)" and left two on the map. **The
+        // group's own phrase said "3 changes" the whole time**, which is why this needed a count
+        // printed rather than a reading of the code.
+        //
+        // Reversing here keeps `apply`'s composition rule intact — it still inverts by reversing
+        // what it ran — and makes what it runs the order the log can answer.
+        taken.reverse();
+        rest.push(Undo::Group { ops: taken });
+        self.undo = rest;
+        self.settle();
+        found
+    }
+
     /// **No entry is being refused any more**: an applied change, or a new edit, moved the stacks on.
     fn settle(&mut self) {
         self.refused_undo = 0;
@@ -8828,6 +8888,11 @@ fn apply(
                     }
                 }
                 Ok((_, crate::ops::Applied::Refused(e))) | Err(e) => {
+                    // **A refused sub-op is named, not silent.** Inside a `Group` the refusal used to
+                    // reach `state.status` and then be dropped by the group's `Refused => {}` arm, so
+                    // Cmd+Z on a turn said "took away 1 row(s)" and stopped with no word about the
+                    // two it could not take. Measured on E-071's own test: three placements, one
+                    // Cmd+Z, two left on the map.
                     state
                         .status
                         .problem(format!("cannot undo {phrase}: {}", e.0));

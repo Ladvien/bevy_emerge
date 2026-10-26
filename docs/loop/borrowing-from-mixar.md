@@ -66,6 +66,6 @@ Paths are relative to `src/scripts/mixar/modules/space_mixie_chat/` unless they 
 | Captures under their step | The picture sits on the step that made it | `core/capture_store.py` | capture sequences today, not attached to steps | `backlog (E-068)` |
 | Plan checklist | The person sees the agent's plan and each step's status | `ui/properties/chat_slot_types.py` (`MixieChatTodoItem`) | `emerge_plan` | `backlog (E-069)` |
 | Auto mode | The person lets the agent decide open choices instead of asking | `core/chat_payloads.py` (`auto_mode`), `core/composer_send.py` | — | `backlog (E-070)` |
-| Turn checkpoints | One action takes back, or re-applies, everything an agent turn did | `core/turn_checkpoints.py`, `core/checkpoint_timeline.py`, `ui/operators/checkpoint_ops.py` | — | `backlog (E-071)` |
+| Turn checkpoints | One action takes back, or re-applies, everything an agent turn did | `core/turn_checkpoints.py`, `core/checkpoint_timeline.py`, `ui/operators/checkpoint_ops.py` | `EditorState::group_turn`, called by `emerge/present` | `shipped (E-071)` |
 | Retry a step | The person re-runs a failed step without restarting the turn | `core/retry_action.py` | — | `unexamined` |
 | Moodboard references | Reference images the agent reads and cites | `src/scripts/mixar/modules/moodboard/core/chat_sync.py` | — | `backlog (E-075)` |

@@ -1389,6 +1389,22 @@
       "evidence": "crates/bevy_emerge_mapper/src/editor.rs::measure_solved (scores Solved::grid through range::measure); tests/a_proposal_says_how_varied_it_is.rs (4 tests, two failing before); layout_propose's answer carries would_change.variety; measured on the fixture's 256-cell solve: enclosure 0.695, 67 regions, opening density 0.0",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-071",
+      "kind": "enhancement",
+      "area": "collaboration",
+      "title": "Undoing an agent's turn takes one Cmd+Z per operation: a turn is not one undo step",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "The brief: \"An agent's multi-step action is grouped into one undo step, so a single undo reverts the whole agent step.\" Measured before: three `placement_add` operations then one Cmd+Z left TWO placements on the map (the third undone only), because each operation was its own `Undo::Logged`. After: one Cmd+Z leaves none, and a person's edit made before the turn is still standing and still undoable in its own right."
+      },
+      "status": "fixed",
+      "evidence": "Behaviour note (mixar@39b9d27).\n\nTrigger: an agent presents a result — `emerge/present`, the same call that puts the Keep/Undo all question on screen.\n\nPerson sees: the confirmation card as before. What changes is the keyboard: ONE Cmd+Z now takes back everything the presented turn did, where it used to take back one operation and leave the rest. The INSPECTOR's UNDO row reads \"3 changes\" instead of naming one placement.\n\nAgent gets: `grouped` in `emerge/present`'s answer — how many of the turn's entries became one (0 when it presented one operation, or ids the stack no longer holds). So it can say \"one undo takes this back\" only when that is true.\n\nState: the turn's leaves on the editor's undo stack are folded into one `Undo::Group`, in the order the operation log can answer (newest first). Nothing is written to the map or the log; undo and redo both walk the group, and the group is closed under inversion like every other entry.\n\nRefuses: nothing new. A presentation naming an id that is not in the log was already refused, and still is. A presentation naming no operations groups nothing, so a turn that changed nothing cannot swallow the person's next edit.\n\nDiffers: Mixar snapshots the whole document to a file before each turn and restores it; bevy_emerge has no whole-document snapshot and does not gain one. It groups the turn's own logged leaves instead, which is smaller, needs no disk budget, and keeps one source of truth (the oplog) rather than two. Mixar's position is \"the number of user messages\"; here the boundary is the presentation's `operation_ids`, which the agent already declares.\n\nSource: mixar@39b9d27:core/turn_checkpoints.py, mixar@39b9d27:core/checkpoint_timeline.py",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
     }
   ]
 }

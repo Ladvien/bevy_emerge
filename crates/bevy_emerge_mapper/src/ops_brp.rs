@@ -1604,6 +1604,7 @@ fn editor_present(
     project: Option<Res<crate::project::Project>>,
     mut confirm: Option<ResMut<crate::confirm::Confirm>>,
     mut presenting: Option<ResMut<crate::present::Presenting>>,
+    mut state: Option<ResMut<crate::editor::EditorState>>,
 ) -> Result<Value, String> {
     let Some(confirm) = confirm.as_mut() else {
         return Err("this editor has no confirm modal, so nothing can be asked".to_owned());
@@ -1672,7 +1673,22 @@ fn editor_present(
         operation_ids: p.operation_ids.clone(),
         answer: None,
     });
-    Ok(json!({"presentation": id, "steps": steps.len()}))
+    // **The turn is one undo step from here on (E-071).** Done at presentation rather than at the
+    // answer, so Cmd+Z during the conversation takes the turn back — a person who does not want the
+    // result does not have to find the confirmation first, and `Undo all` and Cmd+Z then take back
+    // the same amount.
+    let grouped = state
+        .as_mut()
+        .map(|state| state.group_turn(&p.operation_ids))
+        .unwrap_or(0);
+    Ok(json!({
+        "presentation": id,
+        "steps": steps.len(),
+        // **How many of the turn's entries became one.** `0` means nothing was grouped — a turn of
+        // one operation, or ids the stack no longer holds — and the answer says so rather than
+        // claiming a single step it did not make.
+        "grouped": grouped,
+    }))
 }
 
 /// **Which history a logged change joins (cycle 9 gap 1).** A library write joins the Meshes history,
