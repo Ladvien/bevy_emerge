@@ -429,6 +429,18 @@ pub fn solve_constrained(
 /// is pinned to one kit's spelling; these are the shipped Site kit's, and they match what
 /// `examples/expressive_range.rs` measures with — so the constraint and the criterion read the same
 /// words. A kit that spells it differently needs these threaded through `Wishes`, not changed here.
+/// **The [`crate::range::Faces`] a composition grammar is classified by**, with this module's own
+/// wall token and walkable gap.
+///
+/// **Public so there is one spelling.** The solver reads a prototype's faces through
+/// `Faces::new(faces, WALL_TOKEN, WALKABLE_GAP)`, and a caller that measures a solved grid — the
+/// editor's `measure_solved`, for the `range` axes — must classify with the same two constants or the
+/// metric and the solver disagree about what a wall is. A second copy of `"wall"` is exactly the kind
+/// of drift a kit's vocabulary already exists to prevent.
+pub fn interfaces(faces: &[Option<crate::composition::Interface>]) -> crate::range::Faces<'_> {
+    crate::range::Faces::new(faces, WALL_TOKEN, WALKABLE_GAP)
+}
+
 const WALL_TOKEN: &str = "wall";
 const WALKABLE_GAP: f32 = 0.5;
 
