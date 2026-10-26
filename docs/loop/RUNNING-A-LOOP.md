@@ -50,6 +50,15 @@ python3 tools/loop/otel_host_pick.py --arch arm64 --need-cores 6 --min-mem-gb 8
 python3 tools/loop/otel_host_pick.py --json     # eligible + all, for another script
 ```
 
+It is also installed on both hosts as **`otel-host-pick`** (`~/.local/bin`), which is what a pass in
+*another* repo should use — `bevy_lights` and `bevy_society` do not contain this file, and a decision
+about where to compile is not a property of one repo. The copy in this repo is the source of truth;
+re-install it after changing it:
+
+```sh
+cat tools/loop/otel_host_pick.py | ssh big_mac 'cat > $HOME/.local/bin/otel-host-pick && chmod 755 $HOME/.local/bin/otel-host-pick'
+```
+
 Dashboard: `http://192.168.1.104:3000/d/default-home-dashboard/home` (Grafana 13.2.4, one Prometheus
 datasource). The script reads Prometheus directly at `http://192.168.1.104:9090` — the Grafana proxy
 works too (`/api/datasources/proxy/uid/prometheus/…`) but adds a hop for a tool that runs in a pass.
