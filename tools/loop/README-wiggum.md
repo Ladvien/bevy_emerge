@@ -9,6 +9,9 @@ how to start it, stop it, and read what it did.
 DeepSeek 4.1 Flash, and the repository as the only memory. This file is how to start it, stop it, and
 read what it did.
 
+**Setting up a loop on a machine that does not have it yet — its supervisor, its clone, its display, and
+the gate prerequisite — is `docs/loop/RUNNING-A-LOOP.md`.** This file assumes a loop already exists here.
+
 ## The four pieces, and which owns what
 
 | Piece | Lives in | Owns |
@@ -29,10 +32,14 @@ flowchart TD
   drv -->|"one pass, then sleep 60s"| omp["omp -p /build-loop<br/>fresh context"]
   omp --> gate["cargo build · clippy · test --workspace"]
   omp --> acc["accept.py --source ~/bevy_emerge_loop/assets → 10/10"]
-  acc --> ed["bevy_emerge_mapper<br/>windowed — needs DISPLAY=:99"]
-  unit -->|"ExecStartPre"| xvfb["Xvfb :99"]
+  acc --> ed["bevy_emerge_mapper<br/>windowed — needs a display"]
+  unit -->|"ExecStartPre"| xvfb["Xvfb, one number per loop"]
   drv -->|"git commit + push"| gh["origin"]
 ```
+
+**Each loop gets its own display number.** `bevy_lights` is `:97`, `bevy_society` is `:98` and
+`bevy_emerge` on big is `:99`; two units whose preflight reaps the same `Xvfb :99` reap each other's
+server, so the number is part of the unit, not a machine-wide constant.
 
 **`WIGGUM_REPO` is `~/bevy_emerge_loop`,** a clean clone. It is deliberately **not** `~/bevy_emerge`,
 which is the old 198-file rsync scratch tree — the driver refuses any tree with more than 40 modified
@@ -144,8 +151,11 @@ there stops it with `status: "blocked"` for a human to run an evaluator pass.
 
 ## What it costs
 
-One pass every ~30–60 minutes, 20–40 minutes of model time each. **There is no spend cap in the unit** —
-`WIGGUM_MAX` bounds the pass count and defaults to 0 (forever). To bound it:
+One pass every ~30–60 minutes, 20–40 minutes of model time each. **There is no spend cap in the units** —
+`WIGGUM_MAX` bounds the pass count. It **defaults to 0 (forever) in the script**, but every installed
+supervisor sets it to 400 on purpose: the driver exits **0** at the cap and `Restart=on-failure` /
+`KeepAlive.Crashed` will not restart a clean exit, so a small number ends the loop silently rather than
+bounding spend. To bound it for real, lower it and accept that it ends:
 
 ```sh
 systemctl --user edit wiggum@emerge     # add Environment=WIGGUM_MAX=20

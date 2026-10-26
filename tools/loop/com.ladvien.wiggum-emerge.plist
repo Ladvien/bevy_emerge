@@ -80,11 +80,21 @@
     <string>60</string>
     <key>WIGGUM_THINK</key>
     <string>medium</string>
-    <!-- 75 minutes, the same ceiling as on big. -->
+    <!-- **Two hours, not the 75 minutes big uses.** This loop's gate is `cargo test --workspace` plus
+         `accept.py`, which links 54 mapper test binaries before it can score anything; that took ~6.5
+         min on big and is slower on ten cores with a second loop resident. A pass killed at the ceiling
+         after doing the work is pure loss. -->
     <key>WIGGUM_PASS_TIMEOUT</key>
-    <string>4500</string>
+    <string>7200</string>
     <key>RUSTUP_TOOLCHAIN</key>
     <string>1.98.1</string>
+    <!-- **Its own target dir, never `~/.cargo-target-shared/global`, and this is a measured trap.**
+         Workspace crates at one version share an artifact hash across checkouts, so a second tree using
+         the shared dir makes cargo report this one's units Fresh and silently run the other tree's
+         code (2026-10-21). Outside the repo for the sibling reason: a loop's bookkeeping must not appear
+         in a pass's `git status`. -->
+    <key>CARGO_TARGET_DIR</key>
+    <string>/Users/USER/target/emerge-loop</string>
     <!-- **A smaller job count than big's 8.** This machine has 10 cores and runs a second loop
          (bevy_elements) whose release builds are heavy; measured load reached 52 while two builds ran
          side by side here. Four leaves room for the other loop and for the captures. -->

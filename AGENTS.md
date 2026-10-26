@@ -61,6 +61,10 @@ shared, and neither project knows the other's schema. Concretely:
   the game's own project, with no Blender open. That is a different question from golem's, and the
   two implementations are allowed to differ — neither imports the other.
 
+## Wiggum loops
+
+A loop is one dumb driver (`tools/loop/wiggum.sh`) running one fresh `omp -p` per pass over a repo's own command, with the repository as the only memory. Reading a running loop: `tools/loop/README-wiggum.md`. **Starting a new one, or installing one on another machine: `docs/loop/RUNNING-A-LOOP.md`** — it carries the supervisor templates and the facts that each cost a cycle (macOS has no `timeout(1)`; one Xvfb per loop; `StartLimit*` belong in `[Unit]`; `WIGGUM_MAX` must be large because the driver exits 0 at the cap).
+
 ## Rules
 
 - `bevy_emerge_core`, `bevy_emerge_rng` and `bevy_emerge_solver` are engine-free. `bevy_emerge_core/tests/engine_free.rs` fails on any `bevy*` dependency except the exact names in `SIBLING_DEPS`.
