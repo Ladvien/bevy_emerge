@@ -28,9 +28,15 @@ WorkingDirectory=%h/bevy_emerge_loop
 # `-ac` is safe here: the server listens on no TCP socket (`-nolisten tcp`) and is reachable only from this
 # machine's own filesystem socket, which is what a private, unauthenticated scratch display needs.
 # `ExecStopPost` reaps it, so a stopped service leaves no X server behind.
-ExecStartPre=-/usr/bin/pkill -x -f "Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -ac"
+# **The pattern must match any Xvfb on :99, not only one this unit started.** Measured on big: I had
+# started `Xvfb :99` by hand to test the display, the unit's `pkill -f "... -ac"` did not match it, the
+# `test -S /tmp/.X11-unix/X99` then passed on *my* server, and the unit looked healthy while never having
+# created a display — so the reboot path was never exercised. Matching on the display number alone is
+# what reaps a stale server from an older invocation, which is the reason the kill exists.
+ExecStartPre=-/usr/bin/pkill -f "Xvfb :99 "
+ExecStartPre=-/bin/sh -c 'sleep 1; rm -f /tmp/.X11-unix/X99' 
 ExecStartPre=/bin/sh -c 'sleep 1; /usr/bin/Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -ac & sleep 2; test -S /tmp/.X11-unix/X99'
-ExecStopPost=-/usr/bin/pkill -x -f "Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -ac"
+ExecStopPost=-/usr/bin/pkill -f "Xvfb :99 "
 
 ExecStart=%h/bevy_emerge_loop/tools/loop/wiggum.sh __driver
 
