@@ -44,6 +44,12 @@ Environment=WIGGUM_MAX=0
 
 # **The toolchain the repo is pinned to.** `rust-toolchain.toml` may not exist yet, and `stable` on this
 # machine is 1.99 while the workspace is pinned to 1.98.
+# **systemd's default PATH is not a login shell's PATH.** Measured: the first real pass exited `rc=127`
+# with `omp: command not found`, because `omp` lives in `~/.local/bin` and `cargo` in `~/.cargo/bin`, and
+# neither is on systemd's built-in path. An explicitly composed PATH is the fix; growing it by hand is
+# exactly the kind of thing that breaks silently later, so it names the three dirs the loop actually uses.
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+
 Environment=RUSTUP_TOOLCHAIN=1.98.1
 # **Its own target dir, never `~/.cargo-target-shared/global`.** Workspace crates at one version share
 # an artifact hash across checkouts, so a second tree using the shared dir makes cargo report this one's
@@ -71,14 +77,15 @@ TimeoutStopSec=3000
 Restart=always
 RestartSec=120
 
-# **systemd creates no directory for an `append:` path, and it opens the log before `ExecStartPre`.**
-# Measured: the first version failed every start with `status=209/STDOUT` — "Failed to set up standard
-# output" — because `~/.local/state/wiggum/` did not exist yet, and the unit never reached the driver at
-# all. `LogsDirectory` is the supported way to get a directory created first; `%t` is the per-user runtime
-# dir, so the journal path is stable and outside the repository.
-LogsDirectory=wiggum
-StandardOutput=append:%t/wiggum/bevy_emerge_loop.log
-StandardError=append:%t/wiggum/bevy_emerge_loop.log
+# **Log to the journal, not to a file, and the reason is the failure this unit already had.** An
+# `append:` path fails the whole start with `status=209/STDOUT` ("Failed to set up standard output") when
+# its directory does not exist, and `LogsDirectory=` did not create it before the output was opened —
+# measured on big with systemd 262: `/run/user/1000/wiggum` was still absent while every `ExecStartPre`
+# died on it. The journal needs no directory, is where `journalctl --user -u wiggum@emerge` reads, and is
+# outside the repository, which is the property that mattered. The driver keeps its own `driver.log` and
+# one log per pass under `~/.local/state/wiggum/<repo>/passes/` regardless.
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
