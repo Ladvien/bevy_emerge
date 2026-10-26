@@ -27,6 +27,7 @@
 #   WIGGUM_SLEEP   seconds between passes, default 60
 #   WIGGUM_MAX     stop after this many passes, default 0 (forever)
 #   WIGGUM_THINK   thinking level, default medium
+#   WIGGUM_PASS_TIMEOUT  hard ceiling on one pass in seconds, default 4500 (75 min)
 
 set -uo pipefail
 
@@ -40,6 +41,14 @@ COMMAND="${WIGGUM_COMMAND:-build-loop}"
 SLEEP_BETWEEN="${WIGGUM_SLEEP:-60}"
 MAX_PASSES="${WIGGUM_MAX:-0}"
 THINKING="${WIGGUM_THINK:-medium}"
+# **A hard ceiling on one pass, in seconds, default 75 minutes.** The command tells a pass its budget is
+# 45 minutes and that running long is worse than shipping nothing — but a command is advice, and a model
+# that has lost track of time will keep going. Measured: the first real pass ran past an hour with work
+# still in flight. This is the enforcement: past the ceiling the pass process is terminated, which is a
+# non-zero return, so the driver counts it as a failure (five in a row stops the loop) and the next pass
+# finds the tree exactly as the killed pass left it. **Kill only the pass, never with `-f` on a pattern**
+# — the shell that launched it would match too.
+PASS_TIMEOUT="${WIGGUM_PASS_TIMEOUT:-4500}"
 
 # **State lives outside the repository.** A loop's own bookkeeping must never appear in a pass's
 # `git status` — a dirty tree is the first thing a pass is told to fix, and a driver writing logs into the
@@ -120,9 +129,15 @@ one_pass() {
   # **A fresh process per pass is the whole design.** `omp -p` is one-shot: it reads the prompt,
   # does the work, exits. No `--continue`, no `--resume`, no session carried over — the repository is
   # the memory. `--model` is explicit so a pass never inherits an interactive choice.
-  ( cd "$REPO" && omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
+  # `timeout` wraps the pass so a runaway cannot hold the loop forever; `--foreground` keeps it in this
+  # process group so a SIGTERM to the driver still reaches the pass (the trap path).
+  ( cd "$REPO" && timeout --foreground "$PASS_TIMEOUT" \
+      omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
     >"$passlog" 2>&1
   local rc=$?
+  if [ "$rc" -eq 124 ]; then
+    log "pass $n TIMED OUT after ${PASS_TIMEOUT}s — killed, tree left as found"
+  fi
   log "pass $n END rc=$rc log=$passlog"
 
   # **A tree left dirty is the next pass's first bug**, and the command says so. This only reports it.
