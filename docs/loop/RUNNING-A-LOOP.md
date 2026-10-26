@@ -88,19 +88,29 @@ and `node_filesystem_avail_bytes` must be filtered to the real data mount, becau
 
 ## A killed pass must not strand its work
 
-A pass commits at step 4–5 of 6, *behind* implement, gate and benchmark. So a pass killed at the
-`WIGGUM_PASS_TIMEOUT` ceiling, or by the OOM killer, has usually done the work and never reached its
-own commit. Measured 2026-10-26: society accumulated **15** uncommitted files and lights **8** across
-killed passes, none of it on any branch, and the next pass is told "finish it or revert it" with no way
-to tell which.
+A pass commits at its **last** step, behind implement, gate and benchmark. So a pass killed at the
+`WIGGUM_PASS_TIMEOUT` ceiling, or by the OOM killer, has usually done the work and never reaches its own
+commit. Measured 2026-10-26: society accumulated **15** uncommitted files and lights **8** across killed
+passes, none of it on a branch — and the clone was left **ahead of origin and behind it**, so the next
+pass's `--ff-only` could never recover it (lights sat 1 ahead, 2 behind).
 
-The driver now saves it. When a pass ends with a dirty tree it commits to **`wiggum/rescue-<pass>-<ts>`**,
-pushes that branch, and returns the clone to the branch it was on. Verified on throwaway repos: 3 dirty
-files → one pushed rescue branch, clone back on `main`, tree clean; a clean tree → no branch created.
+So the driver commits it **as the loop's own commit, on the loop's branch, and pushes it**:
 
-**It is not the loop's commit.** A rescue branch is unreviewed, ungated and never merged to `main` on
-its own — the command's own `loop/iter-N` + `--no-ff` merge discipline is untouched. Read it as "what
-that pass had done", then either finish it or drop it.
+- the message is `WIP(pass N): work the pass did not get to commit`, and its body says the pass did not
+  reach its gate — so it is identifiable, not a mystery commit;
+- a fast-forward push to the loop's branch first; if that is rejected (the clone cannot fast-forward),
+  the same commit is pushed to `wiggum/pass-N-<ts>`, so **the work is on origin either way** and the
+  log says which happened;
+- a plain push only — never a force, never a rebase, never a merge of somebody else's history.
+
+Verified on throwaway repos for both paths: clean fast-forward → commit lands on `main` at origin,
+clone clean and level; divergence → commit lands on `wiggum/pass-1-…`, work still reachable on the
+remote.
+
+**It is not a substitute for the pass committing.** A `WIP` commit has not been through the gate, so
+every loop command now tells its pass to (1) commit incrementally — research note, then implementation,
+then docs and log — rather than once at the end, and (2) begin by checking `git log --oneline -5` for a
+`WIP(pass N)` commit and verify or revert it before building on it.
 
 ## Facts that cost a cycle
 
