@@ -35,6 +35,8 @@ ExecStart=%h/bevy_emerge_loop/tools/loop/wiggum.sh __driver
 Environment=WIGGUM_REPO=%h/bevy_emerge_loop
 Environment=WIGGUM_MODEL=ollama-cloud/deepseek-v4.1-flash:1017
 Environment=WIGGUM_SLEEP=60
+# The repo's own, sharper command. `/bevy-loop` is the generic fallback for repos without one.
+Environment=WIGGUM_COMMAND=build-loop
 Environment=WIGGUM_THINK=medium
 Environment=WIGGUM_MAX=0
 
@@ -67,8 +69,10 @@ TimeoutStopSec=3000
 Restart=always
 RestartSec=120
 
-StandardOutput=append:%h/target/emerge-loop/wiggum/systemd.log
-StandardError=append:%h/target/emerge-loop/wiggum/systemd.log
+# **The driver's own state is outside the repo** (`~/.local/state/wiggum/<repo>`), so a pass never sees
+# the loop's bookkeeping in its `git status`. systemd writes here too, for the same reason.
+StandardOutput=append:%h/.local/state/wiggum/bevy_emerge_loop/systemd.log
+StandardError=append:%h/.local/state/wiggum/bevy_emerge_loop/systemd.log
 
 [Install]
 WantedBy=default.target
