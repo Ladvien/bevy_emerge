@@ -16,6 +16,24 @@ that leaves rubbish behind compounds; a pass that stops early and cleanly costs 
 a fresh-context rule, a hard budget, and a headless mode that must work with no keyboard, no Sanctuary
 and no GPU.
 
+## Your work is committed even if you are killed
+
+**The driver commits and pushes whatever you leave uncommitted when a pass ends**, marked
+`WIP(pass N): work the pass did not get to commit`. It is committed as the loop's own commit on the
+loop's branch, and pushed — fast-forward to the branch if it can, otherwise to a named
+`wiggum/pass-N-<ts>` branch so it is on origin either way.
+
+That is **not** permission to leave the tree dirty. A `WIP` commit has not been through the gate, and
+this command's own rule is that a pass leaving an unpushed half-diff is the most common way it goes
+wrong. So:
+
+1. **Commit in your first 20 minutes**, not at the end. Commit the bug fix as soon as its gate is
+   green, before starting the enhancement. A pass killed with 40 minutes of work in the working tree
+   leaves the next pass guessing; a pass killed after one commit leaves proof.
+2. **Phase 0 must check for a `WIP(pass N)` commit** from a previous pass (`git log --oneline -5`).
+   If one exists, its work was never gated: verify it or revert it before you build on it, and say
+   which in the report.
+
 ## Non-negotiables
 
 1. **Evidence over claims.** Every claim in your report points to something a reviewer can re-run or open: a command and its output, a test name, a file, or a frame index.

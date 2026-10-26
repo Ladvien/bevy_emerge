@@ -1185,24 +1185,23 @@ fn operation_undo(
         // still in effect — the same order Cmd+Z walks, and the reason `group_turn` reverses.
         let mut took_back = 0usize;
         let mut stopped: Option<String> = None;
+        // **What the person's one redo must put back (E-076)**, in authoring order: the undo walked
+        // newest-first, so its own lines are collected and reversed below.
+        let mut redo_lines: Vec<(String, String)> = Vec::new();
+        let mut took: Vec<String> = Vec::new();
         for id in ids.iter().rev() {
             let mut ctx = take(&project, &open);
             let undone = ops::undo(&mut ctx, Some(id));
             put_back(&mut project, &mut open, ctx);
             match undone {
-                Ok((_, ops::Applied::Done { outcome, .. })) => {
+                Ok((plan, ops::Applied::Done { outcome, operation_id, .. })) => {
                     took_back += 1;
                     if let Some(due) = due.as_mut() {
                         due.map_replaced |= outcome.saved;
                     }
+                    took.push(id.clone());
+                    redo_lines.push((operation_id, undo_phrase(&plan)));
                     if let Some(state) = state.as_mut() {
-                        // **Forget the change that was taken back, not the line that took it back.**
-                        // `operation_id` here is the *undo's own* new id; forgetting that leaves the
-                        // turn's group holding all three children, so the stack still reads
-                        // "placed crate@3 …, +2 …" after the turn is gone and Cmd+Z would try to
-                        // take back rows that are not there. Measured: `took_back: 3` with
-                        // `undo_depth: 1` and the group's own phrase still on the receipt row.
-                        state.forget_line(id);
                         state.receipt_agent_change("undo", &outcome.summary);
                     }
                 }
@@ -1211,6 +1210,21 @@ fn operation_undo(
                     break;
                 }
             }
+        }
+        // **One group on the redo stack, in authoring order.** The loop above ran newest-first because
+        // that is the order the log allows; `record_undone_turn` reverses it, so the person's redo
+        // replays the turn the way it was written and cannot be refused for reaching a change while a
+        // newer one is still in effect.
+        redo_lines.reverse();
+        if let Some(state) = state.as_mut() {
+            // **Forget the changes that were taken back, not the lines that took them back.** Each
+            // `plan.line.operation_id` above is the *undo's own* new id; forgetting that leaves the
+            // turn's group holding all three children, so the stack still reads "placed crate@3 …,
+            // +2 …" after the turn is gone and Cmd+Z would try to take back rows that are not there.
+            // Measured: `took_back: 3` with `undo_depth: 1` and the group's own phrase still on the
+            // receipt row.
+            let undid: Vec<&str> = took.iter().map(String::as_str).collect();
+            state.record_undone_turn(&undid, redo_lines);
         }
         return Ok(json!({
             "operation": "undo",
@@ -1267,6 +1281,10 @@ fn operation_undo(
     // **The change this undo took back leaves the person's history too (B-019)**, so the next Cmd+Z
     // reaches the newest change still in effect instead of one the log no longer holds. A put-back is
     // the opposite: the change is in effect again, so it is the newest change and joins the history.
+    //
+    // **And an undo, not a put-back, leaves a redo (E-076).** A person's own Cmd+Z has always done
+    // both — dropped the taken-back entry and stacked the undo's line for redo — while this door only
+    // dropped, so an agent could take a turn away and the person's REDO row said "nothing to redo".
     if let Ok((plan, ops::Applied::Done { outcome, operation_id, .. })) = &undone {
         if plan.restores {
             let writes = ops::find(&plan.line.op).is_some_and(|o| o.writes_library());
@@ -1278,11 +1296,22 @@ fn operation_undo(
                 &outcome.summary,
             );
         } else {
+            // **The phrase names the change being put back**, which is what the person's own redo
+            // entry says — `plan.change` is that line's id and `outcome.summary` names the undo, so
+            // the wording comes from the line's own result rather than the undo's.
+            let phrase = undo_phrase(&plan);
             if let Some(state) = state.as_mut() {
-                state.forget_line(&plan.line.operation_id);
+                state.record_undone(&plan.line.operation_id, operation_id.clone(), phrase.clone());
             }
             if let Some(import) = import.as_mut() {
                 import.forget_line(&plan.line.operation_id);
+                import.push_step(
+                    false,
+                    crate::tiles::Step::Logged {
+                        line: operation_id.clone(),
+                        phrase,
+                    },
+                );
             }
         }
     }
@@ -1774,6 +1803,20 @@ fn editor_present(
         // claiming a single step it did not make.
         "grouped": grouped,
     }))
+}
+
+/// **What a redo of this undo would put back, in the author's words (E-076).**
+///
+/// The person's own Cmd+Z leaves a redo entry whose phrase names the change being put back, and the
+/// agent's door must say the same words or the two REDO rows would read differently for the same
+/// state. `plan.line` is the line whose inverse was dispatched — the change itself — so its own
+/// `result` is that name; a line written before `Entry::result` existed, or one whose commit answered
+/// no summary, falls back to the operation's name rather than inventing a sentence.
+fn undo_phrase(plan: &ops::UndoPlan) -> String {
+    plan.line
+        .result
+        .clone()
+        .unwrap_or_else(|| plan.line.op.clone())
 }
 
 /// **Which history a logged change joins (cycle 9 gap 1).** A library write joins the Meshes history,

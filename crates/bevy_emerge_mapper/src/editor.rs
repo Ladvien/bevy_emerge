@@ -440,6 +440,57 @@ impl EditorState {
         self.status.problem(format!("agent: {operation}: {refusal}"));
     }
 
+    /// **Take an agent's undo onto the person's stacks (E-076).**
+    ///
+    /// Two things, in this order, because both are required and each alone is a bug:
+    ///
+    /// 1. **The taken-back change leaves both stacks** ([`Self::forget_line`], B-019). It is no longer
+    ///    in effect, so a Cmd+Z that reached it could only refuse.
+    /// 2. **The undo's own line goes on the redo stack**, so the person can put back what the agent
+    ///    took away. This is what a person's own Cmd+Z already did — `apply`'s `Undo::Logged` arm
+    ///    returns the redo line and `undo()` pushes it — and the agent's door did not, so an agent
+    ///    could take a turn away and leave the person holding a REDO row that said nothing.
+    ///
+    /// `phrase` names the change being put back, as the person's own redo entry does.
+    pub(crate) fn record_undone(&mut self, undone: &str, line: String, phrase: String) {
+        self.forget_line(undone);
+        // **`push`, not `record`.** `record` clears the redo stack, which is right for a new edit and
+        // exactly wrong here: it would throw away every redo the person already had waiting — the
+        // same reason `redo()` moves an entry between the stacks instead of recording it.
+        self.redo.push(Undo::Logged {
+            line,
+            phrase,
+            agent: true,
+        });
+        self.settle();
+    }
+
+    /// **Take an agent's undo of a whole turn onto the person's stacks (E-076, `turn: true`).**
+    ///
+    /// The same two rules as [`Self::record_undone`], with the turn's boundary kept: the undo walked
+    /// `operation_ids` newest-first (the order the log allows), so putting the turn back must walk them
+    /// **oldest-first** — the order they were authored — because `undo_target` refuses a change while a
+    /// newer one in the same scope is still in effect. One [`Undo::Group`] rather than a redo stack of
+    /// `n`, so the person's single redo puts back exactly the amount the agent's single undo took away;
+    /// `group_turn` makes the other half of that promise for undo.
+    pub(crate) fn record_undone_turn(&mut self, undone: &[&str], lines: Vec<(String, String)>) {
+        for line in undone {
+            self.forget_line(line);
+        }
+        if !lines.is_empty() {
+            let ops: Vec<Undo> = lines
+                .into_iter()
+                .map(|(line, phrase)| Undo::Logged {
+                    line,
+                    phrase,
+                    agent: true,
+                })
+                .collect();
+            self.redo.push(Undo::Group { ops });
+        }
+        self.settle();
+    }
+
     /// **Forget the entries for a change an agent's undo took back.** Once the log no longer has that
     /// line in effect, a Cmd+Z that reached it would only refuse; dropping it means Cmd+Z takes back the
     /// newest change still in effect.
