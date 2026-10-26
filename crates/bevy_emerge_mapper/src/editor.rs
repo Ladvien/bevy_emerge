@@ -12486,11 +12486,50 @@ fn sync_proposal_ghosts(
             commands.entity(e).insert((ProposalGhost, Ghost));
         }
     }
-    // **Stamps are not drawn piece by piece, and that is a scope decision stated rather than
-    // hidden.** A stamp is a composition reference whose rows are expanded by `composition::expand`
-    // against the map it lands in; drawing its members here would duplicate that expansion's
-    // placement rules. The cell outline `draw_proposal` draws still covers them, and the count in the
-    // status line says how many. Logged as E-061.
+    // **A composed proposal is drawn piece by piece too** (E-061), through the same
+    // `composition::expand` `Enter` lands through — so the ghosts are the expansion's own rows,
+    // seated by the same `stamped_heights`, and the two cannot disagree about what a stamp puts
+    // where. Drawing nothing but a cell outline asked the author to keep a layout they could not see,
+    // which is the B-046 defect one source over.
+    if !p.composes || p.stamps.is_empty() {
+        return;
+    }
+    // **The map `Enter` will commit**: the open one with its unpinned stamps cleared and the
+    // proposal's laid on. `layout_accept`'s keep removes exactly the unpinned rows and extends with
+    // exactly these — so an expansion against anything else would preview a map nobody will get.
+    let mut landed = open.map.clone();
+    landed.stamps.retain(|s| s.owned);
+    landed.stamps.extend(p.stamps.iter().cloned());
+    let Ok(expanded) = bevy_emerge_core::composition::expand(
+        &landed,
+        &landed.stamps,
+        &project.compositions.compositions,
+        &project.library,
+    ) else {
+        // The commit would refuse this layout too, and the status line already says why.
+        return;
+    };
+    let Ok(ys) = stamped_heights(&landed, &project.library, &expanded) else {
+        return;
+    };
+    for (k, row) in expanded.placements.iter().enumerate() {
+        let Some(d) = bevy_emerge_core::stack::descriptor_of(&project.library, row) else {
+            continue;
+        };
+        let Some(&y) = ys.get(k) else {
+            continue;
+        };
+        if let Some(e) = spawn_piece(
+            &mut commands,
+            &assets,
+            Pose { d: &d, yaw: row.yaw, tip: row.tip },
+            row.at,
+            open.map.origin,
+            y,
+        ) {
+            commands.entity(e).insert((ProposalGhost, Ghost));
+        }
+    }
 }
 
 /// **Take the proposal, or leave it** — the other half of the commit door.
