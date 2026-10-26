@@ -15,6 +15,16 @@ WorkingDirectory=%h/bevy_emerge_loop
 
 # **One fresh `omp -p` per pass; the driver sleeps between them.** Not `Type=oneshot` with a timer: a
 # pass takes up to 45 minutes and a timer would start a second one on top of it.
+# **A display exists for the whole life of the service, because `accept.py` opens the real editor.**
+# The editor is a windowed Bevy app (`main.rs` always builds a `Window`), so a pass with no display fails
+# its gate every time, and a gate that always fails is a loop that ships nothing.
+# `-ac` is safe here: the server listens on no TCP socket (`-nolisten tcp`) and is reachable only from this
+# machine's own filesystem socket, which is what a private, unauthenticated scratch display needs.
+# `ExecStopPost` reaps it, so a stopped service leaves no X server behind.
+ExecStartPre=-/usr/bin/pkill -x -f "Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -ac"
+ExecStartPre=/bin/sh -c 'sleep 1; /usr/bin/Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -ac & sleep 2; test -S /tmp/.X11-unix/X99'
+ExecStopPost=-/usr/bin/pkill -x -f "Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -ac"
+
 ExecStart=%h/bevy_emerge_loop/tools/loop/wiggum.sh __driver
 
 Environment=WIGGUM_REPO=%h/bevy_emerge_loop
@@ -35,8 +45,9 @@ Environment=CARGO_TARGET_DIR=%h/target/emerge-loop
 Environment=CARGO_BUILD_JOBS=8
 Environment=RUST_BACKTRACE=1
 
-# The editor is launched by `accept.py` on a display; big's X server is present but no DISPLAY is set in
-# a non-graphical session. `xvfb-run` provides one if `accept.py` needs it — see README of the loop.
+# **A private scratch display, not the machine's real X server.** Measured on big: `/tmp/.X11-unix/X0`
+# exists, but no `DISPLAY` and no `~/.Xauthority` in a non-graphical session, so :0 is not usable from a
+# service. :99 is ours, and the `ExecStartPre` above is what creates it.
 Environment=DISPLAY=:99
 
 Nice=15
