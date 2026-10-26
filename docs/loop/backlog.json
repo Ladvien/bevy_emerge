@@ -426,7 +426,7 @@
       "area": "editor",
       "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
       "status": "open",
-      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
+      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal \u2014 which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },
@@ -506,7 +506,7 @@
         "evidence": "Found writing S1.4's test: after `emerge/operation_undo`, `redo_for_test` answers 'nothing to redo'. `operation_undo` calls `state.forget_line(..)` when a change is taken back instead of joining the history (B-019's rule: the next Cmd+Z should reach the newest change still in effect, not one the log no longer holds), and the redo stack is therefore empty. For the person's own Cmd+Z the inverse goes on the redo stack as a `Logged` entry, so a person can redo their own undo and cannot redo an agent's."
       },
       "status": "fixed",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::EditorState::record_undone and record_undone_turn; ops_brp::operation_undo's id form and `turn: true` form; the Kit door gets the mirror (tiles::ImportState::push_step). Regression check crates/bevy_emerge_mapper/tests/an_agents_undo_can_be_redone_by_the_person.rs, 4 tests, all green — an agent's undo leaves redo_depth 1 and the person's redo puts the piece back; the taken-back change still leaves both stacks (B-019); a person's own Cmd+Z still leaves exactly one redo; the project stays open across both. Commit dfac080.",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::EditorState::record_undone and record_undone_turn; ops_brp::operation_undo's id form and `turn: true` form; the Kit door gets the mirror (tiles::ImportState::push_step). Regression check crates/bevy_emerge_mapper/tests/an_agents_undo_can_be_redone_by_the_person.rs, 4 tests, all green \u2014 an agent's undo leaves redo_depth 1 and the person's redo puts the piece back; the taken-back change still leaves both stacks (B-019); a person's own Cmd+Z still leaves exactly one redo; the project stays open across both. Commit dfac080.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
@@ -514,15 +514,15 @@
       "id": "E-079",
       "kind": "enhancement",
       "area": "validators",
-      "title": "A piece standing in a doorway is not reported: no check reads an opening's clearance",
+      "title": "A piece standing in a doorway is reported; `Descriptor::clearance` is still unread (half shipped d27e452)",
       "must_fix": {
         "blocks": false,
         "common": true,
         "no_workaround": true,
-        "evidence": "crates/bevy_emerge_core/src/stack.rs:589-596 says it in its own doc: `same_layer` returns false for every heterogeneous pair, so `plans_overlap` compares only within a layer — 'neither can a door and a crate standing in the doorway'. `Descriptor::clearance` (`descriptor.rs`:46) is documented as 'space that must stay free around the piece' and `descriptor.rs`:678 says it 'is the field that decides anything about space', but nothing in `stack.rs` reads it: grep for `clearance` there returns nothing, and its only non-descriptor readers are validation (`descriptor.rs`:1368) and the composition hash (`composition.rs`:1039). No fixture setter writes `Mount::InOpening { clear }`, so that field has never been exercised either."
+        "evidence": "crates/bevy_emerge_core/src/stack.rs:589-596 says it in its own doc: `same_layer` returns false for every heterogeneous pair, so `plans_overlap` compares only within a layer \u2014 'neither can a door and a crate standing in the doorway'. `Descriptor::clearance` (`descriptor.rs`:46) is documented as 'space that must stay free around the piece' and `descriptor.rs`:678 says it 'is the field that decides anything about space', but nothing in `stack.rs` reads it: grep for `clearance` there returns nothing, and its only non-descriptor readers are validation (`descriptor.rs`:1368) and the composition hash (`composition.rs`:1039). No fixture setter writes `Mount::InOpening { clear }`, so that field has never been exercised either."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/stack.rs (same_layer/blocking doc bounding the rule to within a layer; no `clearance` reader), crates/bevy_emerge_core/src/descriptor.rs:46 and :678 (declared and documented, read only by validate and the composition hash), crates/bevy_emerge_mapper/tests/fixtures (no Mount::InOpening writer)",
+      "evidence": "crates/bevy_emerge_core/src/stack.rs::blocked_openings ships the doorway half: the hole is `InOpening`'s `clear` rectangle (not the frame's footprint), vertical is read, another opening and a rider on the door are exempt, and `clear: None` reports nothing; checks::Found::doorways carries it to every document-changing operation's answer as `doorways_in_the_way`. Regression: crates/bevy_emerge_core/tests/a_piece_in_a_doorway_is_reported.rs (8 tests, mutation-tested) and crates/bevy_emerge_mapper/tests/a_placement_in_a_doorway_says_so.rs. Commit d27e452. **Still open for the other half**: `Descriptor::clearance` (`Dir` + `dist`, descriptor.rs:46) is read only by validation (descriptor.rs:1368) and the composition hash (composition.rs:1039) \u2014 no space check honours it, so a table's `Around` requirement is still unenforceable. Also unpinned: a door with a non-zero `Placed::lift`.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
