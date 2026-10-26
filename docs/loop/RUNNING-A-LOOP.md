@@ -86,6 +86,22 @@ exporter publishes **lowercase** memory names (`node_memory_free_bytes`, `node_m
 and `node_filesystem_avail_bytes` must be filtered to the real data mount, because a macOS
 `AppTranslocation`/`nullfs` stub reports 191 GB on a host whose `/` has 22 GB.
 
+## A killed pass must not strand its work
+
+A pass commits at step 4–5 of 6, *behind* implement, gate and benchmark. So a pass killed at the
+`WIGGUM_PASS_TIMEOUT` ceiling, or by the OOM killer, has usually done the work and never reached its
+own commit. Measured 2026-10-26: society accumulated **15** uncommitted files and lights **8** across
+killed passes, none of it on any branch, and the next pass is told "finish it or revert it" with no way
+to tell which.
+
+The driver now saves it. When a pass ends with a dirty tree it commits to **`wiggum/rescue-<pass>-<ts>`**,
+pushes that branch, and returns the clone to the branch it was on. Verified on throwaway repos: 3 dirty
+files → one pushed rescue branch, clone back on `main`, tree clean; a clean tree → no branch created.
+
+**It is not the loop's commit.** A rescue branch is unreviewed, ungated and never merged to `main` on
+its own — the command's own `loop/iter-N` + `--no-ff` merge discipline is untouched. Read it as "what
+that pass had done", then either finish it or drop it.
+
 ## Facts that cost a cycle
 
 - **A loop cannot simply be moved to the idle machine, because the disk is the binding constraint, not

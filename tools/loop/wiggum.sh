@@ -209,8 +209,52 @@ one_pass() {
   log "pass $n END rc=$rc timed_out=$timed_out log=$passlog"
 
   # **A tree left dirty is the next pass's first bug**, and the command says so. This only reports it.
+  #
+  # **But reporting is not enough, and that is measured.** A pass is killed at the ceiling or by the
+  # OOM killer *after* it has done the work and *before* it reaches its own commit step (commit is
+  # step 4-5 of 6, behind implement/gate/benchmark), so the only record of what it learned stays in
+  # the working tree — where the next pass is told to "finish it or revert it" and has no way to know
+  # which. Measured 2026-10-26: society accumulated 15 uncommitted files and lights 8 across killed
+  # passes, none of it on any branch.
+  #
+  # So the driver saves it instead: a **rescue branch** (`wiggum/rescue-<pass>`), committed and pushed.
+  # This is deliberately NOT the loop's own commit: it is unreviewed, ungated work on its own branch,
+  # so the command's own `loop/iter-N` and merge discipline is untouched and the next pass can see
+  # exactly what a killed pass had. Never on the branch the loop is working on, never a force-push,
+  # and never when the tree is the loop's own scratch (a `target/` is excluded by `.gitignore` already).
   local after; after=$(git -C "$REPO" status --short 2>/dev/null | wc -l | tr -d ' ')
-  [ "${after:-0}" -gt 0 ] && log "pass $n WARNING: $after uncommitted file(s) left behind"
+  if [ "${after:-0}" -gt 0 ]; then
+    log "pass $n WARNING: $after uncommitted file(s) left behind"
+    # **The branch is captured by name, not restored with `checkout -`**, which depends on a
+    # previous-branch stack that a killed pass can leave pointing elsewhere.
+    local home_branch rescue
+    home_branch=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    rescue="wiggum/rescue-$n-$(date '+%Y%m%d-%H%M%S')"
+    if [ -n "$home_branch" ] && [ "$home_branch" != "HEAD" ] \
+       && git -C "$REPO" checkout -q -b "$rescue" 2>/dev/null; then
+      git -C "$REPO" add -A 2>/dev/null
+      if git -C "$REPO" -c user.email="wiggum@loop.local" -c user.name="wiggum loop" \
+           commit -q -m "WIP(pass $n): work left by a pass that did not reach its commit step
+
+Saved by the driver, not by the pass. Unreviewed, ungated, unpushed to main on purpose: the
+loop's own commit and merge discipline is in its command, and this branch exists only so the
+next pass can see what this one had done rather than rediscovering it from a dirty tree." 2>/dev/null; then
+        if git -C "$REPO" push -q origin "$rescue" 2>/dev/null; then
+          log "pass $n RESCUED $after file(s) to $rescue (pushed to origin)"
+        else
+          log "pass $n RESCUED $after file(s) to $rescue (local only — push failed)"
+        fi
+      else
+        log "pass $n rescue: commit failed, $after file(s) still in the tree"
+      fi
+      # **Back to the loop's branch either way**, so the next pass never starts on a rescue branch.
+      # A failure here is loud: the loop would otherwise run its next pass on unreviewed work.
+      git -C "$REPO" checkout -q "$home_branch" 2>/dev/null \
+        || log "pass $n rescue: COULD NOT RETURN to $home_branch — next pass starts on $rescue"
+    else
+      log "pass $n rescue: could not branch from ${home_branch:-detached HEAD}, $after file(s) still in the tree"
+    fi
+  fi
   return $rc
 }
 
