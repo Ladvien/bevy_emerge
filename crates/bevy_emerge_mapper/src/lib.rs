@@ -75,6 +75,7 @@ pub mod project;
 pub mod screen;
 pub mod sequencer;
 pub mod snip;
+pub mod steps;
 pub mod stages;
 pub mod surface;
 pub mod thumbs;

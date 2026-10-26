@@ -99,7 +99,8 @@ impl Plugin for NoticePlugin {
                     // anything reads it — and outside `Phase::Act`, because it watches state rather
                     // than keys.
                     record_problems.after(keys::Phase::Act),
-                    paint_journal.after(record_problems),
+                    record_steps.after(keys::Phase::Act),
+                    paint_journal.after(record_problems).after(record_steps),
                     // After the verbs, so a problem raised this frame is on screen this frame.
                     paint_notices.after(keys::Phase::Act),
                     // And after the paint, so a toast raised this frame is up for its whole life
@@ -455,6 +456,47 @@ fn paint_toast(
     }
 }
 
+/// **The agent's steps, read from the operation log (E-068).**
+///
+/// Follows the log's own sequence count rather than a watermark of its own: [`crate::ops::read_entries`]
+/// is a pure read of the file, so re-reading when the count moved is the whole of it, and a log edited
+/// by hand is picked up on the next dispatch rather than being invisible until a restart.
+///
+/// **Reads the open map's project, not a state flag.** An agent's steps are a fact about the project
+/// on disk; a watermark on a resource would miss every operation a person took between two frames.
+fn record_steps(
+    project: Option<Res<crate::project::Project>>,
+    mut journal: ResMut<crate::chrome::Journal>,
+    mut seen: Local<usize>,
+) {
+    let Some(project) = project else {
+        return;
+    };
+    let path = crate::ops::oplog_path(project.as_ref());
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    // **The count of non-empty lines is the log's own clock**, so a file nobody appended to costs
+    // one `lines()` and nothing else.
+    let lines = text.lines().filter(|l| !l.trim().is_empty()).count();
+    if lines == *seen {
+        return;
+    }
+    *seen = lines;
+    let rows = crate::steps::from_oplog(&text, &[]);
+    // **The dropped count is derived, not tracked**: `from_oplog` caps, so what is missing is what
+    // the log holds minus what the feed kept.
+    let applied = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<crate::ops::Entry>(l).ok())
+        .filter(|e| e.result.is_some())
+        .count();
+    journal.steps_dropped = applied.saturating_sub(rows.len());
+    journal.steps_unreadable = crate::steps::unreadable_lines(&text);
+    journal.steps = rows;
+}
+
 /// **Everything that has gone wrong, kept where `Esc` cannot reach it.**
 ///
 /// Watches [`crate::chrome::Status::raised`] — a counter that only goes up — so the journal learns
@@ -591,19 +633,50 @@ fn paint_journal(
     if !rebuild {
         return;
     }
-    let want: Vec<String> = journal
-        .entries()
-        .iter()
-        .rev()
-        .map(|p| p.line())
-        .chain(match journal.dropped() {
-            0 => None,
-            n => Some(format!(
-                "+{n} earlier, dropped at {}",
-                crate::chrome::JOURNAL_CAP
-            )),
-        })
-        .collect();
+    // **The steps first, newest last, then a rule, then the refusals (E-068).** One column, because
+    // a person watching an agent wants the two together: a refusal is a step that did not happen.
+    // The steps read downward in the order they happened — the opposite of the refusal list, which
+    // is newest-first because a toast just showed its head — so the section is labelled rather than
+    // left to be inferred from the order.
+    let mut want: Vec<String> = Vec::new();
+    if !journal.steps.is_empty() {
+        want.push(format!("STEPS ({} this session)", journal.steps.len()));
+        want.extend(journal.steps.iter().map(|s| {
+            let mark = if s.capture.is_some() { " ▪" } else { "" };
+            format!("  {}{mark}", s.text)
+        }));
+        if journal.steps_dropped > 0 {
+            want.push(format!(
+                "  +{} earlier, dropped at {}",
+                journal.steps_dropped,
+                crate::steps::CAP
+            ));
+        }
+        if journal.steps_unreadable > 0 {
+            // **Said, not swallowed.** A feed shorter than the file reads as a complete session.
+            want.push(format!(
+                "  {} line(s) of the log could not be read",
+                journal.steps_unreadable
+            ));
+        }
+        if !journal.entries().is_empty() {
+            want.push(String::new());
+        }
+    }
+    want.extend(
+        journal
+            .entries()
+            .iter()
+            .rev()
+            .map(|p| p.line())
+            .chain(match journal.dropped() {
+                0 => None,
+                n => Some(format!(
+                    "+{n} earlier, dropped at {}",
+                    crate::chrome::JOURNAL_CAP
+                )),
+            }),
+    );
     for e in &lines {
         commands.entity(e).despawn();
     }
@@ -611,7 +684,7 @@ fn paint_journal(
         commands.entity(list).with_children(|p| {
             if want.is_empty() {
                 p.spawn((
-                    bevy::prelude::Text::new("nothing has gone wrong yet".to_owned()),
+                    bevy::prelude::Text::new("no steps and nothing has gone wrong yet".to_owned()),
                     bevy::prelude::TextColor(crate::chrome::DIM),
                     crate::chrome::font(crate::chrome::text::LABEL),
                     crate::chrome::ProblemLogLine,
