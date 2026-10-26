@@ -37,6 +37,13 @@ counters must never appear in a pass's `git status` — a dirty tree is the firs
 fix, and a driver writing bookkeeping into the tree would make every pass diagnose itself. One driver per
 repo (the process marker carries the repo name), so two repos can run side by side.
 
+**The marker is an argument, not an environment variable** — `wiggum.sh __driver wiggum-<user>-<repo>` —
+because `pgrep -f` reads a process's command line and nothing else. Measured 2026-10-26: with the marker
+passed through `env`, `pgrep` matched nothing, a second driver was never refused, and two passes
+interleaved in one checkout (pass 1 and pass 2 running together, a pass 3 starting before either
+finished). The unit's `ExecStart` re-execs once to put the marker in its argv, and `one` refuses while a
+driver is mid-pass rather than queueing behind it.
+
 `/bevy-loop` is the **generic** pass, installed at `~/.omp/agent/commands/bevy-loop.md`, for a repo that
 has no loop command of its own: it discovers that repo's backlog/log/report convention first, creates the
 smallest one that works if there is none, and never invents a second convention beside an existing one.

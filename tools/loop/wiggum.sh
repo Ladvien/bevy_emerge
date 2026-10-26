@@ -221,6 +221,14 @@ case "${1:-}" in
     ;;
   one)
     # **A smoke test that cannot lie about the model.** One pass, foreground, its output on screen.
+    # **It is still a pass in this checkout**, so it must not run beside a driver that is mid-pass: the
+    # same interleaving, and `one` is how an operator checks the loop while it is running. Refused rather
+    # than queued, because a smoke test that has to wait is one nobody trusts the timing of.
+    if other_driver_running; then
+      echo "refusing to run a pass: a wiggum driver is working this checkout ($MARKER)" >&2
+      echo "use '$0 status' to see it, or '$0 stop' to end it after the pass in flight" >&2
+      exit 1
+    fi
     one_pass
     ;;
   status)

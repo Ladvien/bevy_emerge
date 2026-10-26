@@ -12,7 +12,9 @@ After=network-online.target
 Wants=network-online.target
 # **Nothing else may drive this checkout.** Not a dependency — a guard: if the unit is restarted while
 # something else holds the tree, the driver's own single-instance check refuses to start rather than
-# racing it.
+# racing it. It finds the other driver by a marker **argument** (`__driver wiggum-<user>-<repo>`), which
+# is the only place `pgrep -f` looks; measured 2026-10-26, the environment form matched nothing and two
+# drivers interleaved their passes in one checkout.
 
 [Service]
 Type=simple
@@ -69,10 +71,14 @@ TimeoutStopSec=3000
 Restart=always
 RestartSec=120
 
-# **The driver's own state is outside the repo** (`~/.local/state/wiggum/<repo>`), so a pass never sees
-# the loop's bookkeeping in its `git status`. systemd writes here too, for the same reason.
-StandardOutput=append:%h/.local/state/wiggum/bevy_emerge_loop/systemd.log
-StandardError=append:%h/.local/state/wiggum/bevy_emerge_loop/systemd.log
+# **systemd creates no directory for an `append:` path, and it opens the log before `ExecStartPre`.**
+# Measured: the first version failed every start with `status=209/STDOUT` — "Failed to set up standard
+# output" — because `~/.local/state/wiggum/` did not exist yet, and the unit never reached the driver at
+# all. `LogsDirectory` is the supported way to get a directory created first; `%t` is the per-user runtime
+# dir, so the journal path is stable and outside the repository.
+LogsDirectory=wiggum
+StandardOutput=append:%t/wiggum/bevy_emerge_loop.log
+StandardError=append:%t/wiggum/bevy_emerge_loop.log
 
 [Install]
 WantedBy=default.target
