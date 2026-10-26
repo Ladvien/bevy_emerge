@@ -39,6 +39,44 @@ dies `rc=127` while the job still reports `active`.
 6. **Start, then read the log for `pass 1 START`.** `command=` and `model=` in that line are the proof
    the right thing is running. `rc=127` is PATH or a missing binary, never a model failure.
 
+## Put a build where there is room, not where the checkout happens to be
+
+**Never pick a compile host by habit.** Ask Home Cloud's OTEL first:
+
+```sh
+python3 tools/loop/otel_host_pick.py            # every host, ranked, with the exclusion reason
+python3 tools/loop/otel_host_pick.py --pick     # one ssh destination
+python3 tools/loop/otel_host_pick.py --arch arm64 --need-cores 6 --min-mem-gb 8
+python3 tools/loop/otel_host_pick.py --json     # eligible + all, for another script
+```
+
+Dashboard: `http://192.168.1.104:3000/d/default-home-dashboard/home` (Grafana 13.2.4, one Prometheus
+datasource). The script reads Prometheus directly at `http://192.168.1.104:9090` — the Grafana proxy
+works too (`/api/datasources/proxy/uid/prometheus/…`) but adds a hop for a tool that runs in a pass.
+
+**Rank by idle cores, never by raw load.** `free_cores = cores × (1 − busy)`, with `busy` from
+`rate(node_cpu_seconds_total{mode="idle"}[5m])`. Raw `load1` always favours the biggest machine: on
+2026-10-26 `big` looked busiest (load 25) yet was a worse choice than `bmb`, which had 12.9 idle cores
+against big's 4.
+
+**It exits non-zero when nothing qualifies**, and prints why each host was excluded. Treat that as an
+answer — a compile sent to a host with no free RAM fails after the linker, hours in. The observed split on
+2026-10-26:
+
+| host | cores | cpu% | free cores | note |
+|---|---|---|---|---|
+| `bmb` | 14 | 7.6 | 12.9 | M4 Pro; the right target for a heavy build |
+| `Cs-MacBook-Pro` | 10 | 96.3 | 0.4 | **saturated** — four loops and a build share it |
+| `big` | 24 | 83.2 | 4.0 | 2.8 GB available, swap already deep |
+| `four`, `one`, `two`, `three` | 4 | <10 | ~3.7 | cheap, roomy, but small |
+| `mac_air` | 10 | 32.9 | 6.7 | 7.4 GB disk free — too little for a Bevy `target/` |
+
+Two measurement traps the script already handles, and that a hand-written query will hit: the macOS
+exporter publishes **lowercase** memory names (`node_memory_free_bytes`, `node_memory_inactive_bytes`,
+`node_memory_total_bytes`) and has no `MemAvailable`, so a Linux-only query silently excludes every Mac;
+and `node_filesystem_avail_bytes` must be filtered to the real data mount, because a macOS
+`AppTranslocation`/`nullfs` stub reports 191 GB on a host whose `/` has 22 GB.
+
 ## Facts that cost a cycle
 
 - **macOS has no `timeout(1)`** (and no coreutils: `timeout --foreground 5 echo hi` → 127). A driver that
