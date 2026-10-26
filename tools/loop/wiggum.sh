@@ -20,7 +20,9 @@
 #
 # Environment, all optional:
 #   WIGGUM_MODEL   default ollama-cloud/deepseek-v4.1-flash:1017
-#   WIGGUM_REPO    default $HOME/bevy_emerge
+#   WIGGUM_REPO    default $HOME/bevy_emerge — any git clone
+#   WIGGUM_COMMAND slash command a pass runs, default build-loop
+#   WIGGUM_STATE   where the driver keeps its logs, default ~/.local/state/wiggum/<repo>
 #   WIGGUM_SLEEP   seconds between passes, default 60
 #   WIGGUM_MAX     stop after this many passes, default 0 (forever)
 #   WIGGUM_THINK   thinking level, default medium
@@ -29,17 +31,26 @@ set -uo pipefail
 
 MODEL="${WIGGUM_MODEL:-ollama-cloud/deepseek-v4.1-flash:1017}"
 REPO="${WIGGUM_REPO:-$HOME/bevy_emerge}"
+# **The command this repo's passes run.** A repo that has its own loop command keeps it: this driver is
+# about *how* a loop runs (one fresh pass, stop between passes, never mid-edit), not about what a pass
+# does. `bevy_elements` has `elements-loop`, `bevy_debugger_mcp` has `bevy-debugger-loop`; anything else
+# gets the generic `build-loop`.
+COMMAND="${WIGGUM_COMMAND:-build-loop}"
 SLEEP_BETWEEN="${WIGGUM_SLEEP:-60}"
 MAX_PASSES="${WIGGUM_MAX:-0}"
 THINKING="${WIGGUM_THINK:-medium}"
 
-STATE="$REPO/target/wiggum"
+# **State lives outside the repository.** A loop's own bookkeeping must never appear in a pass's
+# `git status` — a dirty tree is the first thing a pass is told to fix, and a driver writing logs into the
+# tree would make every pass start by diagnosing itself. `target/` is gitignored, but a repo without that
+# rule, or a pass that runs `git clean`, would lose the logs. `XDG_STATE_HOME` is the right home.
+STATE="${WIGGUM_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/wiggum/$(basename "$REPO")}"
 PIDFILE="$STATE/driver.pid"
 COUNTER="$STATE/pass-count"
 DRIVER_LOG="$STATE/driver.log"
 PASS_LOG_DIR="$STATE/passes"
 STOPFILE="$STATE/stop"
-MARKER="wiggum-driver-$USER"
+MARKER="wiggum-$USER-$(basename "$REPO")"
 
 # **The state directory is created only once the repo is known to be a clone.** A driver pointed at a
 # scratch tree used to `mkdir` inside it before checking, which is the one write this script must never
@@ -74,11 +85,13 @@ one_pass() {
   local n; n=$(( $(cat "$COUNTER" 2>/dev/null || echo 0) + 1 ))
   echo "$n" >"$COUNTER"
   local passlog="$PASS_LOG_DIR/pass-$(printf '%04d' "$n")-$(date '+%Y%m%d-%H%M%S').log"
-  log "pass $n START model=$MODEL dirty=$dirty"
+  log "pass $n START command=/$COMMAND model=$MODEL dirty=$dirty"
   # **A fresh process per pass is the whole design.** `omp -p` is one-shot: it reads the prompt,
   # does the work, exits. No `--continue`, no `--resume`, no session carried over — the repository is
   # the memory.
-  ( cd "$REPO" && omp --model "$MODEL" --thinking "$THINKING" -p "/build-loop" ) \
+  # **One fresh process, one command, no session.** `/build-loop` is the repo's own loop command
+  # (or the generic one); `--model` is explicit so a pass never inherits an interactive choice.
+  ( cd "$REPO" && omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
     >"$passlog" 2>&1
   local rc=$?
   log "pass $n END rc=$rc log=$passlog"
@@ -157,6 +170,7 @@ case "${1:-}" in
     WIGGUM_MARKER="$MARKER" setsid nohup env \
       WIGGUM_MODEL="$MODEL" WIGGUM_REPO="$REPO" WIGGUM_SLEEP="$SLEEP_BETWEEN" \
       WIGGUM_MAX="$MAX_PASSES" WIGGUM_THINK="$THINKING" \
+      WIGGUM_COMMAND="$COMMAND" WIGGUM_STATE="$STATE" \
       bash "$0" __driver >>"$DRIVER_LOG" 2>&1 < /dev/null &
     sleep 1
     echo "started. status: $0 status   /   follow: $0 tail"
@@ -175,7 +189,8 @@ case "${1:-}" in
     if running; then echo "RUNNING pid $(cat "$PIDFILE")"; else echo "not running"; fi
     echo "passes completed: $(cat "$COUNTER" 2>/dev/null || echo 0)"
     echo "consecutive failures: $(cat "$STATE/consecutive-failures" 2>/dev/null || echo 0)"
-    echo "repo: $REPO   model: $MODEL"
+    echo "repo: $REPO   command: /$COMMAND   model: $MODEL"
+    echo "state: $STATE"
     echo "--- last 5 driver lines ---"
     tail -5 "$DRIVER_LOG" 2>/dev/null || echo "(no log yet)"
     ;;

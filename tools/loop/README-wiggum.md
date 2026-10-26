@@ -21,6 +21,27 @@ flowchart TD
 which is the old 198-file rsync scratch tree — the driver refuses any tree with more than 40 modified
 files, so pointing it at the scratch tree stops the loop instead of committing into it.
 
+## Any repo, not just this one
+
+The driver is repo-agnostic. `WIGGUM_REPO` is the clone, `WIGGUM_COMMAND` is the slash command a pass
+runs, and both default sensibly:
+
+```sh
+WIGGUM_REPO=/path/to/bevy_elements WIGGUM_COMMAND=elements-loop ~/wiggum.sh start
+WIGGUM_REPO=/path/to/bevy_debugger_mcp WIGGUM_COMMAND=bevy-debugger-loop ~/wiggum.sh start
+WIGGUM_REPO=/path/to/anything WIGGUM_COMMAND=bevy-loop ~/wiggum.sh one   # foreground smoke test
+```
+
+**State is per repo and lives outside it**: `~/.local/state/wiggum/<repo-name>/`. A loop's own logs and
+counters must never appear in a pass's `git status` — a dirty tree is the first thing a pass is told to
+fix, and a driver writing bookkeeping into the tree would make every pass diagnose itself. One driver per
+repo (the process marker carries the repo name), so two repos can run side by side.
+
+`/bevy-loop` is the **generic** pass, installed at `~/.omp/agent/commands/bevy-loop.md`, for a repo that
+has no loop command of its own: it discovers that repo's backlog/log/report convention first, creates the
+smallest one that works if there is none, and never invents a second convention beside an existing one.
+Prefer a repo's own command where it has one.
+
 ## Daily use
 
 ```sh
