@@ -182,6 +182,24 @@ pub const TOOLS: &[ToolDoc] = &[
         idempotent: true,
     },
     ToolDoc {
+        name: "emerge_list_rules",
+        description: "The block rules the project states for generating layouts, read from \
+                      assets/emerge/rules.ron: for each block, the example map its grammar is learned from, the \
+                      region descriptors that ask for a block, the cell size and block size in cells, the border \
+                      piece, no_empty, the weight multipliers, the footprint rules, attempts and seed. Returns the \
+                      blocks and the path of the file read. A project with no rules.ron answers with no blocks, \
+                      because an absent file means no rules -- not a broken project. A file that is present but \
+                      does not parse, or states a version this program does not read or a number it cannot \
+                      generate from (no attempts, a cell that is not a usable step, a footprint under 2x2, a yaw \
+                      other than 0 or 180), is refused with its path and the reason, and nothing is written. It \
+                      parses the file but does not check that the descriptor ids it names exist in the project's \
+                      library -- the editor's own open does that, so a block naming a missing piece is answered \
+                      here and refused there. It reads a file, so it needs no editor running and changes nothing.",
+        read_only: true,
+        destructive: false,
+        idempotent: true,
+    },
+    ToolDoc {
         name: "emerge_capture_sequence",
         description: "A sequence of frames of the editor, with an optional operation applied \
                        once the first frame is in -- so frame 0 is the state before the action and \
@@ -265,6 +283,27 @@ pub fn render() -> String {
 /// **The parameter schema, generated from the same types the server deserialises into.** A
 /// schema that is written by hand is a schema that can be wrong, and an agent that sends the
 /// wrong shape gets a refusal it cannot act on.
+/// **The module doc's own summary of how many tools there are, and the rows it lists.**
+///
+/// The server's `main.rs` opens with a table of every tool and a sentence counting them. Both had
+/// drifted: the table was missing two rows and the sentence said twelve while the server declared
+/// fourteen. A number nobody checks is a number that is wrong once and stays wrong, so the two are
+/// read out of the source here and compared with [`TOOLS`].
+pub fn tool_table_and_count() -> (usize, String) {
+    let source = include_str!("main.rs");
+    let rows = source
+        .lines()
+        .filter(|line| line.starts_with("//! | `emerge_"))
+        .count();
+    let count_word = source
+        .lines()
+        .find(|line| line.contains(", and the set is small on purpose."))
+        .and_then(|line| line.split("**").nth(1))
+        .map(|s| s.split_whitespace().next().unwrap_or_default().to_lowercase())
+        .unwrap_or_default();
+    (rows, count_word)
+}
+
 pub fn schemas() -> Value {
     serde_json::json!({
         "emerge_present": {
@@ -388,6 +427,11 @@ pub fn schemas() -> Value {
             "properties": {
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20, "description": "How many snips to list, newest first. The default is 5."}
             }
+        },
+        "emerge_list_rules": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
         },
         "emerge_frame_view": {
             "type": "object",

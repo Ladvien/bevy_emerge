@@ -106,6 +106,16 @@ The snips the person took in the editor, newest first: each one's name, when it 
 | `destructiveHint` | false |
 | `idempotentHint` | true |
 
+### `emerge_list_rules`
+
+The block rules the project states for generating layouts, read from assets/emerge/rules.ron: for each block, the example map its grammar is learned from, the region descriptors that ask for a block, the cell size and block size in cells, the border piece, no_empty, the weight multipliers, the footprint rules, attempts and seed. Returns the blocks and the path of the file read. A project with no rules.ron answers with no blocks, because an absent file means no rules -- not a broken project. A file that is present but does not parse, or states a version this program does not read or a number it cannot generate from (no attempts, a cell that is not a usable step, a footprint under 2x2, a yaw other than 0 or 180), is refused with its path and the reason, and nothing is written. It parses the file but does not check that the descriptor ids it names exist in the project's library -- the editor's own open does that, so a block naming a missing piece is answered here and refused there. It reads a file, so it needs no editor running and changes nothing.
+
+| annotation | value |
+|---|---|
+| `readOnlyHint` | true |
+| `destructiveHint` | false |
+| `idempotentHint` | true |
+
 ### `emerge_capture_sequence`
 
 A sequence of frames of the editor, with an optional operation applied once the first frame is in -- so frame 0 is the state before the action and the later frames are what it did. The frames are written to a directory and their paths are in the answer. The editor takes the frames, so the timing does not depend on this server's round trips. The rate is two to fifteen frames a second. A frame is asked for only once the one before it is written, so a stalled editor delays the frames after it rather than losing them; a frame that does not land within five seconds ends the run with a reason, and the status is done only when every frame is written. The call waits for the run to end, for at most the sequence's length plus five seconds a frame and a margin.

@@ -511,22 +511,6 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "E-073",
-      "kind": "enhancement",
-      "area": "wfc",
-      "title": "An agent cannot read or change the rules a layout is generated from",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "rules.ron holds BlockRules (weights, footprints, seed) and no registered operation reads or writes it, so the one input that decides what a generator produces is the one an agent cannot see."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/rules.rs",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
       "id": "E-075",
       "kind": "enhancement",
       "area": "collaboration",
@@ -589,6 +573,22 @@
       "evidence": "crates/bevy_emerge_core/src/range.rs:211 (measure), crates/bevy_emerge_core/src/grammar.rs (learn returns the Grammar only), .omp/commands/emerge-feature-loop.md:30,:321",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-081",
+      "kind": "enhancement",
+      "area": "wfc",
+      "title": "An agent can read the rules but still cannot change one: no operation writes rules.ron",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "E-073's title says 'read or change' and this iteration shipped the read: `emerge_list_rules` answers every block's fields, but changing a weight or a seed still needs a text editor. Every other project file an agent tunes has an operation (`map_set_settings`, `label_set`, `map_rename`), so rules.ron is now the only one that is read-only over MCP. `map_rename` already rewrites rules.ron's `example` strings in its own text so comments survive (ops.rs::rules_renamed), which is the pattern a `rules_set` would follow."
+      },
+      "status": "open",
+      "evidence": "crates/bevy_emerge_core/src/rules.rs::Rules; crates/bevy_emerge_mapper/src/ops.rs::rules_renamed (the text-rewrite precedent); crates/bevy_emerge_mcp/src/main.rs::list_rules (read only)",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
     }
   ]
 }

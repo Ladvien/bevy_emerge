@@ -139,18 +139,58 @@ impl Rules {
     /// Everything that can be checked without the example: the version, the numbers, and that every
     /// descriptor the rules name is in `library`.
     pub fn validate_against(&self, library: &Library) -> Result<(), String> {
-        if self.version != RULES_VERSION {
-            return Err(format!(
-                "rules: version {} is not the {RULES_VERSION} this program reads",
-                self.version
-            ));
-        }
+        // **Everything that does not need the library first**, so the two halves cannot drift: the
+        // checks below are a superset of [`Self::validate_numbers`]'s, and a caller with no library
+        // loaded still refuses what the editor would.
+        self.validate_numbers()?;
         let known = |id: &str, what: &str| -> Result<(), String> {
             if library.get(id).is_none() {
                 return Err(format!("rules: {what} `{id}` is not a descriptor in the library"));
             }
             Ok(())
         };
+        for rule in &self.blocks {
+            if let Some(border) = &rule.border {
+                known(border, "the border")?;
+            }
+            for region in &rule.regions {
+                known(region, "the region")?;
+            }
+            for footprint in &rule.footprints {
+                if let Some(front) = &footprint.front {
+                    known(front, "the front tile")?;
+                }
+                for part in PARTS {
+                    known(&format!("{}{part}", footprint.prefix), "the footprint part")?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// **Everything wrong with these rules that can be known without a library.**
+    ///
+    /// The version, and every number and shape a block states: the cell step, the attempts, the block
+    /// size, and each footprint's sizes and yaws. What it cannot see is whether the descriptor ids the
+    /// rules name are in a library — that is [`Self::validate_against`], which calls this first so the
+    /// two readings cannot drift.
+    ///
+    /// **For a reader with no library in hand**, like `emerge_list_rules` over MCP: it answers the
+    /// file's own blocks, so it must still refuse a file the editor would refuse to open rather than
+    /// present it as valid.
+    ///
+    /// **Named `validate_numbers` and not `validate`**, because [`validate`] is already a free
+    /// function in this module with a different meaning — whether a *collapsed grid* obeys the
+    /// footprints. Two things called `validate` in one module is a name that cannot be resolved
+    /// without knowing which; the failure it produced was `no method named validate found for struct
+    /// Rules`, from a crate that had the method.
+    pub fn validate_numbers(&self) -> Result<(), String> {
+        if self.version != RULES_VERSION {
+            return Err(format!(
+                "rules: version {} is not the {RULES_VERSION} this program reads",
+                self.version
+            ));
+        }
         for rule in &self.blocks {
             let who = &rule.example;
             if !(rule.cell.is_finite() && rule.cell > 0.0) {
@@ -161,12 +201,6 @@ impl Rules {
             }
             if rule.size.0 < 1 || rule.size.1 < 1 {
                 return Err(format!("rules: `{who}` has a block of {}x{} cells", rule.size.0, rule.size.1));
-            }
-            if let Some(border) = &rule.border {
-                known(border, "the border")?;
-            }
-            for region in &rule.regions {
-                known(region, "the region")?;
             }
             for footprint in &rule.footprints {
                 if footprint.sizes.is_empty() || footprint.yaws.is_empty() {
@@ -185,12 +219,6 @@ impl Rules {
                     return Err(
                         "rules: footprint yaws must be 0 or 180 (90 and 270 are not implemented)".to_owned()
                     );
-                }
-                if let Some(front) = &footprint.front {
-                    known(front, "the front tile")?;
-                }
-                for part in PARTS {
-                    known(&format!("{}{part}", footprint.prefix), "the footprint part")?;
                 }
             }
         }
@@ -652,6 +680,58 @@ mod tests {
     use crate::descriptor::Descriptor;
 
     const SIZE: usize = 15;
+
+    /// **`validate_numbers` is what a reader with no library can check; `validate_against` is a superset.**
+    ///
+    /// The split exists for `emerge_list_rules`, which answers a project's rules over MCP with no
+    /// library loaded. It must still refuse what the editor refuses to *generate* from — a version it
+    /// does not read, no attempts, a cell that is not a step, a footprint that cannot hold its own
+    /// front and back rows — while leaving the descriptor-id checks to the caller that has the library.
+    ///
+    /// **The invariant that makes the split safe is the first two assertions**: every file
+    /// `validate_against` accepts, `validate` accepts too. If that ever failed, a project the editor
+    /// opens would be refused over MCP, and one that MCP accepts would fail to open.
+    #[test]
+    fn validate_numbers_is_the_library_free_half_of_validate_against() {
+        let good = Rules {
+            version: RULES_VERSION,
+            blocks: vec![rules()],
+        };
+        assert!(good.validate_numbers().is_ok(), "a good file passes the library-free half");
+
+        // **Every library-free refusal is reached by `validate` itself.**
+        let mut no_attempts = good.clone();
+        no_attempts.blocks[0].attempts = 0;
+        let e = no_attempts.validate_numbers().err().unwrap_or_default();
+        assert!(e.contains("at least one attempt"), "{e}");
+
+        let mut flat = good.clone();
+        flat.blocks[0].cell = 0.0;
+        let e = flat.validate_numbers().err().unwrap_or_default();
+        assert!(e.contains("not a usable step"), "{e}");
+
+        let mut tiny = good.clone();
+        tiny.blocks[0].size = (0, 4);
+        let e = tiny.validate_numbers().err().unwrap_or_default();
+        assert!(e.contains("cells"), "{e}");
+
+        let mut bad_yaw = good.clone();
+        bad_yaw.blocks[0].footprints[0].yaws = vec![90.0];
+        let e = bad_yaw.validate_numbers().err().unwrap_or_default();
+        assert!(e.contains("0 or 180"), "{e}");
+
+        let mut bad_version = good.clone();
+        bad_version.version = RULES_VERSION + 1;
+        let e = bad_version.validate_numbers().err().unwrap_or_default();
+        assert!(e.contains("version"), "{e}");
+
+        // **The library-free half does NOT judge descriptor ids**, because it cannot: the same rules
+        // against an empty library is still fine here, and is what a reader without one must answer.
+        assert!(
+            good.validate_numbers().is_ok(),
+            "nothing in `validate_numbers` may depend on a library"
+        );
+    }
 
     fn rules() -> BlockRules {
         BlockRules {
