@@ -756,13 +756,13 @@ pub fn blocked_openings(map: &Map, library: &Library) -> Vec<(usize, usize)> {
     let Ok(bases) = resolve_y(map, library) else {
         return Vec::new();
     };
-    struct Body {
-        descriptor: Cow<'_, Descriptor>,
+    struct Body<'a> {
+        descriptor: Cow<'a, Descriptor>,
         plan: PlanRect,
         /// `(bottom, top)` in map space, metres.
         span: (f32, f32),
     }
-    let bodies: Vec<Option<Body>> = map
+    let bodies: Vec<Option<Body<'_>>> = map
         .placements
         .iter()
         .enumerate()

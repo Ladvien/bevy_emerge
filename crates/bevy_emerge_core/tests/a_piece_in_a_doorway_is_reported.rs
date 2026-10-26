@@ -24,7 +24,7 @@
 //! 6. A piece resting on the door is not reported; it is part of the door.
 //! 7. The list is ordered and deterministic, so two maps' answers diff as sets.
 
-use bevy_emerge_core::descriptor::{Align, Descriptor, Extent, Mount, Offers};
+use bevy_emerge_core::descriptor::{Descriptor, Extent, Mount};
 use bevy_emerge_core::library::{LIBRARY_VERSION, Library};
 use bevy_emerge_core::map::{Map, Placed};
 use bevy_emerge_core::stack::blocked_openings;
