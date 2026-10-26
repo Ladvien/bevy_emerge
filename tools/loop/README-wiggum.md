@@ -85,6 +85,20 @@ SIGTERM and writes its stop file; the unit allows 50 minutes (`TimeoutStopSec=30
 flight to finish. Otherwise a stop would kill an edit mid-write and the next pass would spend its budget
 repairing the tree.
 
+## Never reset a repo a loop is driving
+
+```sh
+WIGGUM_REPO=/path/to/repo ~/wiggum.sh guard   # exit 0 = safe, exit 1 = a pass is running
+```
+
+**Measured cost, 2026-10-26:** a `git reset --hard origin/main` on a repo whose pass was mid-edit
+destroyed that pass's uncommitted `editor.rs` fix. The new test file survived only because it was
+untracked and `reset --hard` leaves untracked files alone — the pass itself had no idea its work had
+gone. `guard` exists so the check is one command instead of a judgement call.
+
+The general rule: **a loop repo is owned by the loop.** To work in one, stop the driver and let the pass
+finish (`stop` does that; `stop` never kills a pass).
+
 ## Where the evidence is
 
 | | |
