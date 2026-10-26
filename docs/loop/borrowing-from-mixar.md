@@ -62,8 +62,8 @@ Paths are relative to `src/scripts/mixar/modules/space_mixie_chat/` unless they 
 | Beat | What it gives the person | Mixar source (at the pin) | bevy_emerge | Status |
 |---|---|---|---|---|
 | Present a result for review | The agent ends with what it made, what it assumed and a Keep / Undo all answer that returns to the agent | `core/slot_processor.py` (`MixieChatActionItem` replacement), `ui/properties/chat_slot_types.py` (`MixieChatActionItem`), `core/composer_send.py` (`action='respond'`, `question_ref`) | `emerge_present`, `present.rs` | `planned (S1.7)` |
-| Steps narrated by measured effect | Each step is one line saying what changed, never a raw log | `core/steps_format.py`, `core/steps_recorder.py`, `core/slot_processor.py` | oplog `result` lines today; agent panel | `backlog (E-068)` |
-| Captures under their step | The picture sits on the step that made it | `core/capture_store.py` | capture sequences today, not attached to steps | `backlog (E-068)` |
+| Steps narrated by measured effect | Each step is one line saying what changed, never a raw log | `core/steps_format.py`, `core/steps_recorder.py`, `core/slot_processor.py` | `steps::from_oplog`, drawn in the journal | `shipped (E-068)` |
+| Captures under their step | The picture sits on the step that made it | `core/capture_store.py` | `steps::Capture`, marked on its row | `shipped (E-068)` |
 | Plan checklist | The person sees the agent's plan and each step's status | `ui/properties/chat_slot_types.py` (`MixieChatTodoItem`) | `emerge_plan` | `backlog (E-069)` |
 | Auto mode | The person lets the agent decide open choices instead of asking | `core/chat_payloads.py` (`auto_mode`), `core/composer_send.py` | — | `backlog (E-070)` |
 | Turn checkpoints | One action takes back, or re-applies, everything an agent turn did | `core/turn_checkpoints.py`, `core/checkpoint_timeline.py`, `ui/operators/checkpoint_ops.py` | `EditorState::group_turn`, called by `emerge/present` | `shipped (E-071)` |

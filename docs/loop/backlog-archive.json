@@ -1437,6 +1437,22 @@
       "evidence": "crates/bevy_emerge_mcp/tests/a_tools_body_names_every_field.rs (two tests, both failing on the reverted body); crates/bevy_emerge_mcp/src/main.rs (the six hand-built bodies); crates/bevy_emerge_mapper/src/ops_brp.rs (the structs they copy)",
       "last_failure": "",
       "first_seen": "2026-10-26"
+    },
+    {
+      "id": "E-068",
+      "kind": "enhancement",
+      "area": "collaboration",
+      "title": "An agent's session has no panel: its steps are not on screen, and a capture is not hung on the step that made it",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "The oplog carries one `result` line per operation and capture sequences exist, but neither was on a surface a person watches: the receipt is one row and the journal held refusals only. Now `steps::from_oplog` turns the log into rows whose text is `Entry::result` **verbatim**, a capture hangs on the row naming its sequence, and the journal draws them above its refusals under a `STEPS (n this session)` header, capped at 120 with a dropped count. Proved by reverting the paint: the panel answered `no steps and nothing has gone wrong yet` with three steps in the journal."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/steps.rs (from_oplog, unreadable_lines); crates/bevy_emerge_mapper/src/notice.rs (record_steps, the painted section); tests/an_agents_steps_are_on_screen.rs (6 tests) and tests/the_journal_draws_the_agents_steps.rs (the surface)",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
     }
   ]
 }

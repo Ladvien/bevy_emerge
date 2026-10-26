@@ -1457,6 +1457,19 @@ impl Status {
 pub struct Journal {
     entries: Vec<Problem>,
     dropped: usize,
+    /// **The agent's steps for this session (E-068)**, oldest first, capped by
+    /// [`crate::steps::CAP`]. Read from the operation log's own `result` lines rather than written
+    /// here, so a row cannot claim more than the log says.
+    ///
+    /// **Behind a toggle.** The journal is opened with `Cmd+E` and read by scrolling; the steps are
+    /// one more list in it rather than a second panel, because a person watching an agent wants the
+    /// steps and the refusals in one column — a refusal is a step that did not happen.
+    pub steps: Vec<crate::steps::Step>,
+    /// How many steps fell off the front at the cap, so the list can say so rather than looking
+    /// complete.
+    pub steps_dropped: usize,
+    /// How many log lines are not entries — a log torn by a crash, or a file edited by hand.
+    pub steps_unreadable: usize,
 }
 
 /// How many the journal keeps. Ten times a panel's [`MAX_PROBLEMS`], because this one is read by
