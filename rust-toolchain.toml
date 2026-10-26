@@ -1,0 +1,12 @@
+[toolchain]
+# **The toolchain the workspace is built with, on every machine.**
+#
+# This was implicit until 2026-10-26: the laptop's `stable` happened to be 1.98.1 and big's was 1.99,
+# so a Wiggum loop running on big used `RUSTUP_TOOLCHAIN=1.98.1` in its systemd unit while the laptop
+# used `stable` — the same commit built by two different compilers, with nothing in the repository saying
+# which was intended. It agreed by luck. A pin makes it agree by definition, and makes `rustup` select
+# the toolchain automatically in both places, in CI, and for anyone who clones.
+#
+# Bump this deliberately, in its own commit, with `cargo test --workspace` green on both machines —
+# never as a side effect of a feature.
+channel = "1.98.1"
