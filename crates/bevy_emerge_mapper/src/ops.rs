@@ -2275,6 +2275,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
+        Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
         Box::new(door_open::DoorOpen),
@@ -5204,6 +5205,468 @@ pub mod stamp_remove {
 /// **The name becomes the file**, so the name is forced the way every map name is, and a name
 /// another map in the project has is refused before anything is written. The N key and an agent
 /// both come here, so the rule has one answer.
+/// **A rule's numbers, changed (E-081).**
+///
+/// `emerge_list_rules` answers what a project's rules say — Sanctuary's `town_block` is a 17×17
+/// block over 2 m cells with `weights: [(prefix: "town/house_", times: 100.0)]` and `attempts: 64` —
+/// and until this operation an agent that could read those numbers could not change one. Every
+/// other tunable in the project is a registered operation (`map_set_settings`, `label_set`,
+/// `map_rename`); this one was a text editor.
+///
+/// # One value per field, and a list is replaced whole
+///
+/// A weight's `prefix` is a piece prefix and its `times` is a number, so the list is a map and this
+/// writes it whole. That is deliberate: a partial weight list would be ambiguous about whether an
+/// absent prefix means "leave it" or "remove it", and an ambiguity in a write is a change nobody can
+/// predict. **`footprints` are not written here at all** — their sizes, yaws and gaps are a different
+/// decision — and asking for one is a refusal rather than a silence.
+///
+/// # The file is edited as text, not re-serialised
+///
+/// A rules file is prose about a layout as much as it is numbers (`// houses should outnumber the
+/// road`), and `to_string_pretty` would delete every comment in it — the failure
+/// [`bevy_emerge_core::ron_surgery`] exists to prevent, and the reason `rules_renamed` already edits
+/// this file by hand.
+///
+/// # The rewrite is checked before it is written
+///
+/// The new text is parsed and compared with the rules the editor holds with those fields changed, so
+/// a surgery that touched the wrong block — or the wrong weight in a list of several — is a refusal
+/// and not a file the editor cannot open. The numbers are validated library-free first, so a
+/// `cell: 0.0` never reaches the disk.
+pub mod rules_set {
+    use super::*;
+    use serde_json::json;
+
+    /// **The numbers one block states**, as the operation writes them.
+    ///
+    /// `deny_unknown_fields`, so a caller that asks for `size` or `footprints` is refused rather than
+    /// told "applied" for a field nothing wrote.
+    #[derive(Debug, Clone, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// **Which block**, by the map its grammar is learned from.
+        pub example: String,
+        /// A cell's edge in metres. Absent leaves it.
+        #[serde(default)]
+        pub cell: Option<f32>,
+        /// The seed every block's own seed is derived from. Absent leaves it.
+        #[serde(default)]
+        pub seed: Option<u64>,
+        /// Seeds tried per block before it is given up. Absent leaves it.
+        #[serde(default)]
+        pub attempts: Option<u32>,
+        /// Remove the empty prototype from every cell that is not pinned. Absent leaves it.
+        #[serde(default)]
+        pub no_empty: Option<bool>,
+        /// **The whole list**, replaced rather than merged. See the module note.
+        #[serde(default, deserialize_with = "weights_present")]
+        pub weights: Option<Option<Vec<bevy_emerge_core::rules::Weight>>>,
+    }
+
+    /// **`weights: null` is "no weights", not "leave them".** Serde reads an explicit `null` into
+    /// `Option<Vec<_>>` as `None`, which is the same as an absent field — the trap the map's
+    /// `present` helper documents for its note. A rules file with no weights states `[]`, so `null`
+    /// clears the list and an absent field leaves it.
+    fn weights_present<'de, D>(
+        d: D,
+    ) -> Result<Option<Option<Vec<bevy_emerge_core::rules::Weight>>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <Option<Vec<bevy_emerge_core::rules::Weight>> as serde::Deserialize>::deserialize(d)
+            .map(Some)
+    }
+
+    /// **The operation.**
+    pub struct RulesSet;
+
+    impl RulesSet {
+        /// **The JSON schema**, which is what an agent reads.
+        fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["example"],
+                "properties": {
+                    "example": {
+                        "type": "string",
+                        "description": "The map whose grammar the block is learned from, as emerge_list_rules names it."
+                    },
+                    "cell": {"type": "number", "description": "A cell's edge in metres. Absent leaves it."},
+                    "seed": {"type": "integer", "description": "The seed every block's own seed is derived from. Absent leaves it."},
+                    "attempts": {"type": "integer", "minimum": 1, "description": "Seeds tried per block before it is given up. Absent leaves it."},
+                    "no_empty": {"type": "boolean", "description": "Remove the empty prototype from every cell that is not pinned. Absent leaves it."},
+                    "weights": {
+                        "type": ["array", "null"],
+                        "description": "The whole weight list: objects with `prefix` and `times`. Replaces the list rather than merging it. null clears it. Absent leaves it.",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["prefix", "times"],
+                            "properties": {
+                                "prefix": {"type": "string"},
+                                "times": {"type": "number"}
+                            }
+                        }
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a field this operation does not own
+        /// is a refusal rather than a silence.
+        fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not rule numbers: {e}. The fields are `example`, `cell`, `seed`, \
+                     `attempts`, `no_empty` and `weights`, and `example` is required."
+                ))
+            })
+        }
+
+        /// **The block this names, or a sentence naming the ones there are.**
+        fn block_of<'a>(
+            rules: &'a bevy_emerge_core::rules::Rules,
+            example: &str,
+        ) -> Result<&'a bevy_emerge_core::rules::BlockRules, Refusal> {
+            if rules.blocks.is_empty() {
+                return Err(Refusal::new(
+                    "this project states no block rules, so there is no rule to change. \
+                     emerge_list_rules reads what there is; a rule has to be authored in rules.ron \
+                     before it can be tuned."
+                        .to_owned(),
+                ));
+            }
+            rules
+                .blocks
+                .iter()
+                .find(|b| b.example == example)
+                .ok_or_else(|| {
+                    let named: Vec<String> = rules
+                        .blocks
+                        .iter()
+                        .map(|b| format!("`{}`", b.example))
+                        .collect();
+                    Refusal::new(format!(
+                        "no rule is learned from `{example}`. The rules name {}.",
+                        named.join(", ")
+                    ))
+                })
+        }
+
+        /// **The rules as they should be afterwards**, built from the editor's own copy.
+        fn wanted(
+            rules: &bevy_emerge_core::rules::Rules,
+            p: &Params,
+        ) -> Result<bevy_emerge_core::rules::Rules, Refusal> {
+            let mut expected = rules.clone();
+            let target = expected
+                .blocks
+                .iter_mut()
+                .find(|b| b.example == p.example)
+                .ok_or_else(|| Refusal::new(format!("`{}` is not a block", p.example)))?;
+            if let Some(v) = p.cell {
+                target.cell = v;
+            }
+            if let Some(v) = p.seed {
+                target.seed = v;
+            }
+            if let Some(v) = p.attempts {
+                target.attempts = v;
+            }
+            if let Some(v) = p.no_empty {
+                target.no_empty = v;
+            }
+            if let Some(Some(v)) = &p.weights {
+                target.weights = v.clone();
+            }
+            Ok(expected)
+        }
+
+        /// **The text, with this block's numbers set to the requested ones.**
+        ///
+        /// `Ok(Some((old, new)))`, or a refusal that writes nothing.
+        fn rewritten(
+            project: &crate::project::Project,
+            p: &Params,
+        ) -> Result<Option<(String, String)>, Refusal> {
+            let block = Self::block_of(&project.rules, &p.example)?;
+            let expected = Self::wanted(&project.rules, p)?;
+            let refuse = |why: String| {
+                Refusal::new(format!(
+                    "the rule was not changed, and nothing was written: {why}"
+                ))
+            };
+            // **Every number must be one the editor would generate from.** The block is validated
+            // library-free, so `cell: 0.0` or an impossible footprint is refused here rather than
+            // written and refused by the next open.
+            expected.validate_numbers().map_err(refuse)?;
+            let file = project.project_dir.join(bevy_emerge_core::rules::FILE);
+            let old = std::fs::read_to_string(&file)
+                .map_err(|e| refuse(format!("{}: {e}", file.display())))?;
+            let new = Self::surgery(&old, block, &expected, &p.example).map_err(refuse)?;
+            let landed = bevy_emerge_core::rules::Rules::parse(&new)
+                .map_err(|e| refuse(format!("the rewrite does not parse: {e}")))?;
+            if landed != expected {
+                return Err(refuse(format!(
+                    "the rewrite of {} does not match the rules the editor holds with those fields \
+                     changed",
+                    file.display()
+                )));
+            }
+            Ok(Some((old, new)))
+        }
+
+        /// **The text surgery itself**: replace this block's numbers, leaving every other byte.
+        fn surgery(
+            text: &str,
+            was: &bevy_emerge_core::rules::BlockRules,
+            expected: &bevy_emerge_core::rules::Rules,
+            example: &str,
+        ) -> Result<String, String> {
+            let now = &expected
+                .blocks
+                .iter()
+                .find(|b| b.example == example)
+                .ok_or_else(|| format!("`{example}` is not a block"))?;
+            let needle = format!("example: \"{example}\"");
+            let seen = text.matches(&needle).count();
+            if seen != 1 {
+                return Err(format!(
+                    "`{needle}` appears {seen} times; a block is found by exactly one"
+                ));
+            }
+            let at = text.find(&needle).ok_or_else(|| format!("`{needle}` not found"))?;
+            // **The block's own parentheses.** A rules file is one struct of structs, so counting
+            // depth from the `(` before its `example` to the matching `)` bounds it exactly.
+            let open = text[..at]
+                .rfind('(')
+                .ok_or_else(|| "no `(` before the block".to_string())?;
+            let mut depth = 0usize;
+            let mut close = None;
+            for (i, ch) in text[open..].char_indices() {
+                match ch {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            close = Some(open + i);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let close = close.ok_or_else(|| "the block's `(` is never closed".to_string())?;
+            let mut body = text[open..=close].to_owned();
+
+            // **One field at a time, and only the ones that moved.**
+            if was.cell != now.cell {
+                Self::set_field(&mut body, "cell", &now.cell.to_string())?;
+            }
+            if was.seed != now.seed {
+                Self::set_field(&mut body, "seed", &now.seed.to_string())?;
+            }
+            if was.attempts != now.attempts {
+                Self::set_field(&mut body, "attempts", &now.attempts.to_string())?;
+            }
+            if was.no_empty != now.no_empty {
+                Self::set_field(&mut body, "no_empty", &now.no_empty.to_string())?;
+            }
+            if was.weights != now.weights {
+                Self::set_field(&mut body, "weights", &Self::render_weights(&now.weights))?;
+            }
+            let mut out = String::with_capacity(text.len() + 32);
+            out.push_str(&text[..open]);
+            out.push_str(&body);
+            out.push_str(&text[close + 1..]);
+            Ok(out)
+        }
+
+        /// **`[(prefix: "a", times: 1.0)]`**, as the file writes it.
+        ///
+        /// **A whole number gets its `.0`.** `50.0f64.to_string()` is `50`, and RON reads that back as
+        /// an integer into a float field only by luck of the parser; more to the point, a file the
+        /// author wrote as `100.0` coming back as `100` is a diff in a file nobody asked to reformat,
+        /// and the round-trip a test compares is then unequal. Measured live on Sanctuary's own
+        /// `times: 100.0`, which came back `times: 50` — the number right and the spelling wrong.
+        fn render_weights(weights: &[bevy_emerge_core::rules::Weight]) -> String {
+            let rows: Vec<String> = weights
+                .iter()
+                .map(|w| {
+                    let t = w.times;
+                    let text = if t.is_finite() && t.fract() == 0.0 {
+                        format!("{t:.1}")
+                    } else {
+                        t.to_string()
+                    };
+                    format!("(prefix: {:?}, times: {text})", w.prefix)
+                })
+                .collect();
+            format!("[{}]", rows.join(", "))
+        }
+
+        /// **Replace one field's value inside a block's text**, or say the field is not there.
+        ///
+        /// The value runs from after `name:` to the comma that ends it **at the field's own nesting
+        /// depth**, so `weights: [(prefix: "a", times: 1.0)]` is one value and the comma inside it is
+        /// not the end. Quotes are skipped, so a prefix containing a comma or a bracket is safe.
+        fn set_field(body: &mut String, name: &str, value: &str) -> Result<(), String> {
+            let needle = format!("{name}:");
+            let at = body
+                .find(&needle)
+                .ok_or_else(|| format!("the block states no `{name}` to replace"))?;
+            let from = at + needle.len();
+            let bytes = body.as_bytes();
+            let mut i = from;
+            let mut depth = 0i32;
+            let mut in_string = false;
+            let mut escaped = false;
+            while i < bytes.len() {
+                let c = bytes[i] as char;
+                if in_string {
+                    if escaped {
+                        escaped = false;
+                    } else if c == '\\' {
+                        escaped = true;
+                    } else if c == '"' {
+                        in_string = false;
+                    }
+                    i += 1;
+                    continue;
+                }
+                match c {
+                    '"' => in_string = true,
+                    '(' | '[' => depth += 1,
+                    ')' | ']' => {
+                        if depth == 0 {
+                            break;
+                        }
+                        depth -= 1;
+                    }
+                    ',' if depth == 0 => break,
+                    _ => {}
+                }
+                i += 1;
+            }
+            let span = &body[from..i];
+            let trimmed = span.trim();
+            let start = from + span.find(trimmed).unwrap_or(0);
+            body.replace_range(start..start + trimmed.len(), value);
+            Ok(())
+        }
+    }
+
+    impl Operation for RulesSet {
+        fn name(&self) -> &'static str {
+            "rules_set"
+        }
+
+        /// **An inverse**, because every field here is one value the block already held.
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Self::schema()
+        }
+
+        /// **What would change, and whether it is allowed to.** Pure: it builds the new text and
+        /// throws it away, which is the same check `commit` makes.
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = Self::parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there are no rules to change.",
+                ));
+            };
+            let Some((_, new)) = Self::rewritten(project, &p)? else {
+                return Err(Refusal::new("the rule was not changed, and nothing was written"));
+            };
+            let after = bevy_emerge_core::rules::Rules::parse(&new)
+                .map_err(|e| Refusal::new(format!("the rewrite does not parse: {e}")))?;
+            let block = Self::block_of(&after, &p.example)?.clone();
+            Ok(json!({
+                "example": block.example,
+                "cell": block.cell,
+                "size": [block.size.0, block.size.1],
+                "seed": block.seed,
+                "attempts": block.attempts,
+                "no_empty": block.no_empty,
+                "weights": block.weights,
+            }))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Self::parse(params)?;
+            let Some(project) = ctx.project.as_mut() else {
+                return Err(Refusal::new(
+                    "no project is open, so there are no rules to change.",
+                ));
+            };
+            let Some((_, new)) = Self::rewritten(project, &p)? else {
+                return Err(Refusal::new("the rule was not changed, and nothing was written"));
+            };
+            let before = Self::block_of(&project.rules, &p.example)?.clone();
+            let file = project.project_dir.join(bevy_emerge_core::rules::FILE);
+            if let Err(e) = bevy_emerge_core::ron_surgery::save_atomic(&file, &new) {
+                return Err(Refusal::new(format!(
+                    "the rule was not changed, and nothing was written: {e}"
+                )));
+            }
+            // **The in-memory rules follow the file**, or a generate would run on numbers the file no
+            // longer holds.
+            let target = project
+                .rules
+                .blocks
+                .iter_mut()
+                .find(|b| b.example == p.example)
+                .ok_or_else(|| Refusal::new("the block vanished while it was being written"))?;
+            if let Some(v) = p.cell {
+                target.cell = v;
+            }
+            if let Some(v) = p.seed {
+                target.seed = v;
+            }
+            if let Some(v) = p.attempts {
+                target.attempts = v;
+            }
+            if let Some(v) = p.no_empty {
+                target.no_empty = v;
+            }
+            if let Some(Some(v)) = &p.weights {
+                target.weights = v.clone();
+            }
+            // **The inverse is every number this change replaced**, named field by field so one call
+            // puts them all back — including the ones that did not move, which is harmless and keeps
+            // the inverse exact when a caller changed several at once.
+            //
+            // **`after` names the open map, and that is not decoration.** The undo picker finds a
+            // change by the map its recorded state names (`map_of` in `undo`), so a change that
+            // records none belongs to no map and `emerge/operation_undo` answers "nothing to undo"
+            // — measured on this operation's own test before this line existed. A rule is project
+            // data, but the map it is a rule *for* is the scope it is undone in, which is also the
+            // one the author is looking at when they press Cmd+Z.
+            let map = ctx.open.as_ref().map(|o| o.map.name.clone());
+            Ok(Outcome {
+                summary: format!("set the rule for `{}`", p.example),
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({
+                    "example": p.example,
+                    "cell": before.cell,
+                    "seed": before.seed,
+                    "attempts": before.attempts,
+                    "no_empty": before.no_empty,
+                    "weights": before.weights,
+                })),
+                after: Some(json!({"map": map})),
+            })
+        }
+    }
+}
+
 pub mod map_rename {
     use serde_json::json;
 

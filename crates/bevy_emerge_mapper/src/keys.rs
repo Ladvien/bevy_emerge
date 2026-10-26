@@ -633,6 +633,10 @@ enumerated! {
     /// Arm the move tool: click a piece to pick it up, click again to put it down.
     MoveMode,
     RenameMap,
+    /// **Set the open map's rule seed**, the person's half of `rules_set` (E-081). `K` opens a
+    /// one-number field; Enter dispatches the operation, so a person tuning a rule and an agent
+    /// calling `rules_set` are one change with one undo.
+    SetRule,
     /// Put the steered thing back to the rotation and tip it was authored at — same subject as
     /// [`Action::TurnPieceLeft`].
     Straighten,
@@ -889,6 +893,7 @@ impl Action {
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::RenameMap => Some("map_rename"),
+            Action::SetRule => Some("rules_set"),
             Action::Remove => Some("placement_remove"),
             Action::SwitchDoor | Action::TabSlot1 | Action::TabSlot2 | Action::TabSlot3 => {
                 Some("door_open")
@@ -1591,6 +1596,15 @@ pub const BINDINGS: &[Binding] = &[
         Context::Map,
         "N",
         "rename map",
+    )
+    .at(Home::Control(ControlId::Title)),
+    b(
+        Action::SetRule,
+        KeyCode::KeyK,
+        false,
+        Context::Map,
+        "K",
+        "set the rule seed",
     )
     .at(Home::Control(ControlId::Title)),
     b(
