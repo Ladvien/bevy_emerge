@@ -1,3 +1,10 @@
+> **SUPERSEDED — do not run.** `build-loop` replaced this command. That is not cosmetic: this file's
+> own description says "publish the release to crates.io" and it carries a full Phase 6 publish
+> procedure, while `build-loop` forbids publishing outright ("Never publish, tag, yank, or change crate
+> ownership from this loop. E-006 is open and publication is the human's decision"). Publishing cannot
+> be undone — crates.io has no unpublish — so a command capable of it must not sit in a live commands
+> directory. Kept for its history only.
+
 ---
 description: One iteration of the bevy_emerge usability loop. Fix confirmed bugs, ship at most one verified usability enhancement with visual proof, publish the release to crates.io, then stop.
 argument-hint: "[optional focus area, e.g. compositions | wfc | labeller | tile-kits | maps]"

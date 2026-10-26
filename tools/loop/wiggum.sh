@@ -28,6 +28,8 @@
 #   WIGGUM_MAX     stop after this many passes, default 0 (forever)
 #   WIGGUM_THINK   thinking level, default medium
 #   WIGGUM_PASS_TIMEOUT  hard ceiling on one pass in seconds, default 4500 (75 min)
+#   WIGGUM_CHECKPOINT    seconds between mid-pass snapshots, default 600 (0 disables)
+#   WIGGUM_MIN_FREE_GB   refuse to start a pass with less free space, default 150
 
 set -uo pipefail
 
@@ -109,6 +111,55 @@ other_driver_running() {
   return 1
 }
 
+# **Save the pass's tree without touching the pass's branch, its index or its HEAD.**
+#
+# Measured 2026-10-26: committing the tree to the pass's own branch and pushing it put ungated work on
+# `origin/main` as the branch tip in all four shared repos (lights `35c7824`, society `89d9563` — a
+# mid-pass checkpoint —, elements `911ca5b`). The loop commands build a `loop/iter-N` branch from
+# `main` and merge back only after their gate, so a commit written straight onto `main` bypasses the
+# gate entirely, and Sanctuary path-deps `bevy_emerge_core`. A checkpoint must not be a commit on a
+# branch anybody builds from.
+#
+# So the tree is written to **an object under `refs/wiggum/`**, which is not a branch: `git branch`,
+# `git log`, and the commands' own "look for a `WIP(pass N)` commit" rule are all unaffected. It is
+# still an object git will not garbage-collect, and `git show refs/wiggum/...` recovers the work.
+#
+# **`GIT_INDEX_FILE` is what keeps the pass's view clean.** `git stash create` would move the real
+# index and leave the pass's `git status --short` empty mid-work, which breaks the loop command's own
+# rule that the tree must be empty before its commit step; a private index file mutates nothing.
+#
+# **No force, no rebase, no branch move.** Nothing here can rewrite anything, and `-p HEAD` keeps the
+# snapshot reachable from the branch even if the ref is lost. Never fails the pass: every failure path
+# returns 0 and says so in the log.
+snapshot() {
+  local n="$1" tag="$2"            # tag: "checkpoint" | "final"
+  local tmpidx; tmpidx=$(mktemp -t wiggum-idx.XXXXXX) || return 0
+  rm -f "$tmpidx"
+  GIT_INDEX_FILE="$tmpidx" GIT_WORK_TREE="$REPO" git -C "$REPO" add -A 2>/dev/null || { rm -f "$tmpidx"; return 0; }
+  local tree; tree=$(GIT_INDEX_FILE="$tmpidx" git -C "$REPO" write-tree 2>/dev/null)
+  rm -f "$tmpidx"
+  [ -n "$tree" ] || return 0
+  # **An empty tree is not a snapshot.** A pass that only touched ignored files would otherwise write
+  # a ref whose content is exactly the parent's, once per interval, for hours.
+  local parent; parent=$(git -C "$REPO" rev-parse HEAD 2>/dev/null)
+  if [ -n "$parent" ] && [ "$tree" = "$(git -C "$REPO" rev-parse "$parent^{tree}" 2>/dev/null)" ]; then
+    return 0
+  fi
+  local ref="refs/wiggum/pass-$n-$tag-$(date '+%Y%m%d-%H%M%S')"
+  local msg="WIP(pass $n, $tag): tree saved by the driver, never committed to a branch
+
+Not gated, not on any branch, and not seen by the pass: the index and HEAD are untouched.
+Recover with: git -C $REPO show $ref"
+  local commit
+  commit=$(git -C "$REPO" -c user.email=wiggum@loop.local -c user.name="wiggum loop" \
+             commit-tree "$tree" ${parent:+-p "$parent"} -m "$msg" 2>/dev/null)
+  [ -n "$commit" ] || return 0
+  git -C "$REPO" update-ref "$ref" "$commit" 2>/dev/null || return 0
+  git -C "$REPO" push -q origin "$ref:$ref" 2>/dev/null \
+    && log "pass $n $tag SNAPSHOT $ref (pushed)" \
+    || log "pass $n $tag SNAPSHOT $ref (LOCAL ONLY — push failed)"
+}
+
 # **One pass.** The whole of what this script does to the world.
 one_pass() {
   # **Both preconditions come before the first write, and that order is the point.** `one` runs this
@@ -179,6 +230,30 @@ one_pass() {
     log "pass $n pre: fast-forwarded $ff_from commit(s) to $ff_to"
   fi
   local passlog="$PASS_LOG_DIR/pass-$(printf '%04d' "$n")-$(date '+%Y%m%d-%H%M%S').log"
+  # **Never start a pass that cannot finish.** A full `/home` breaks every loop and hs-distill at once,
+  # and measured 2026-10-26 the society tree alone grew ~1 GB/min (`target` was 417 GB and climbing;
+  # 638 GB free meant roughly ten hours). The pruning below is limited to what cargo regenerates:
+  # abandoned linker temp files — measured 43 GB of `.tmp*` in `target/debug/deps`, up to 2.1 GB each
+  # and none open — and `incremental/`, which costs one slower rebuild and regrows. Never `deps/`
+  # generally, never `target/`: those are the build.
+  #
+  # **`-mmin +20` is the safety on the delete.** A live linker's temp file is younger than that, so the
+  # window can only catch files whose linker is gone.
+  local min_free_gb="${WIGGUM_MIN_FREE_GB:-150}"
+  local target_dir; target_dir="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)/target"
+  local free_gb
+  free_gb=$(df -Pk "$REPO" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}')
+  if [ -n "$free_gb" ] && [ "$free_gb" -lt "$min_free_gb" ]; then
+    find "$target_dir/debug/deps" -maxdepth 1 -name '*.tmp*' -mmin +20 -delete 2>/dev/null
+    rm -rf "$target_dir/debug/incremental" 2>/dev/null
+    free_gb=$(df -Pk "$REPO" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}')
+    log "pass $n prerun: pruned caches, free=${free_gb}GB"
+    if [ "${free_gb:-0}" -lt "$min_free_gb" ]; then
+      log "pass $n ABORTED: ${free_gb}GB free < ${min_free_gb}GB after pruning — refusing to start"
+      echo "ABORTED: only ${free_gb}GB free on $(df -Pk "$REPO" 2>/dev/null | awk 'NR==2{print $6}')." >&2
+      return 1
+    fi
+  fi
   log "pass $n START command=/$COMMAND model=$MODEL dirty=$dirty behind=$behind"
   # **A fresh process per pass is the whole design.** `omp -p` is one-shot: it reads the prompt,
   # does the work, exits. No `--continue`, no `--resume`, no session carried over — the repository is
@@ -197,29 +272,19 @@ one_pass() {
   # a pass that died for its own reasons both exit 143; only the flag can tell them apart.
   local pass_pid rc timed_out=0
   local deadline=$(( $(date +%s) + PASS_TIMEOUT ))
-  # **A checkpoint commits the tree while the pass is still running, and it is the only thing that
+  # **A checkpoint saves the tree while the pass is still running, and it is the only thing that
   # survives a cgroup kill.** Measured 2026-10-26 14:02 — `systemd-oomd killed 391 process(es)` in the
   # lights unit, the driver included, so passes 8 and 10 never reached their own `END` line and the
-  # end-of-pass commit never ran; society kept 19-20 dirty files across two such deaths. Committing
+  # end-of-pass save never ran; society kept 19-20 dirty files across two such deaths. Saving
   # only at pass end assumes the driver outlives the pass, and under memory pressure it does not.
-  # Every `WIGGUM_CHECKPOINT` seconds (default 600) the tree is committed on the pass's own branch and
-  # pushed, so the worst case is losing the last interval rather than the whole pass.
+  # Every `WIGGUM_CHECKPOINT` seconds (default 600) the tree is written to a `refs/wiggum/` snapshot,
+  # so the worst case is losing the last interval rather than the whole pass — and nothing lands on a
+  # branch, so the gate is never bypassed. See `snapshot()`.
   local checkpoint_at=$(( $(date +%s) + CHECKPOINT_EVERY ))
   checkpoint() {
-    # Never fails the pass: a checkpoint that cannot commit is reported and the pass continues.
+    # Never fails the pass: a checkpoint that cannot save is reported and the pass continues.
     [ -n "$(git -C "$REPO" status --short 2>/dev/null)" ] || return 0
-    git -C "$REPO" add -A 2>/dev/null
-    if git -C "$REPO" -c user.email="wiggum@loop.local" -c user.name="wiggum loop" \
-         commit -q -m "WIP(pass $n, checkpoint): work in progress, not yet gated
-
-Committed by the driver at a mid-pass checkpoint, not by the pass. Not yet through the gate." \
-         2>/dev/null; then
-      local cb; cb=$(git -C "$REPO" rev-parse --short HEAD)
-      local cbranch; cbranch=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
-      git -C "$REPO" push -q origin "HEAD:$cbranch" 2>/dev/null \
-        || git -C "$REPO" push -q origin "HEAD:wiggum/pass-$n-ck-$(date '+%H%M%S')" 2>/dev/null
-      log "pass $n CHECKPOINT $cb on $cbranch (pushed)"
-    fi
+    snapshot "$n" checkpoint
   }
   rm -f "$STATE/pass-timed-out"
   ( cd "$REPO" && exec omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
@@ -227,7 +292,11 @@ Committed by the driver at a mid-pass checkpoint, not by the pass. Not yet throu
   pass_pid=$!
   while kill -0 "$pass_pid" 2>/dev/null; do
     sleep 5
-    if [ "$(date +%s)" -ge "$checkpoint_at" ]; then
+    # **`WIGGUM_CHECKPOINT=0` must mean never, not "every 5 s".** `checkpoint_at` is `now + 0` in that
+    # case, so the elapsed test below is true on every poll; the interval is therefore gated on the
+    # setting too. Cheap refs make a five-second snapshot less destructive than it used to be, but a
+    # ref per poll for hours is still the wrong thing to write.
+    if [ "$CHECKPOINT_EVERY" -gt 0 ] && [ "$(date +%s)" -ge "$checkpoint_at" ]; then
       checkpoint
       checkpoint_at=$(( $(date +%s) + CHECKPOINT_EVERY ))
     fi
@@ -268,48 +337,22 @@ Committed by the driver at a mid-pass checkpoint, not by the pass. Not yet throu
   # unpushed commits *diverges* from origin, so the next pass's `--ff-only` can never recover it
   # (lights sat 1 ahead, 2 behind, permanently unable to fast-forward).
   #
-  # So the driver commits it **as the loop's commit, on the loop's own branch, and pushes it**:
+  # So the driver saves it **as a `refs/wiggum/` snapshot, and pushes that ref** — never a commit on
+  # the branch. Committing it on the branch was measured 2026-10-26 to put ungated work on
+  # `origin/main` in all four repos, bypassing the commands' own gate-then-merge. The snapshot is the
+  # same safety net (the work is in an object on origin, recoverable with `git show`) with no way to
+  # reach a branch anybody builds from. The ref is named for the pass, so the next pass can find it if
+  # it wants to; it is deliberately not told to look.
   #
-  # - the commit is marked `WIP(pass N)` and its body says the pass did not reach its gate. That is
-  #   the difference between "unreviewed work in a branch nobody reads" and "the loop's history,
-  #   which its own next pass is told to verify or revert";
-  # - it is a plain fast-forward push, never a force, and never a rebase. If the push is rejected
-  #   (the clone is behind origin and cannot fast-forward), the commit is pushed to
-  #   `wiggum/pass-<n>-<ts>` instead, so it is on origin either way and the log says which;
-  # - the branch is captured by name, not restored with `checkout -`, because that depends on a
-  #   previous-branch stack a killed pass can leave pointing elsewhere.
+  # **A detached HEAD is saved too, now.** The old branch-targeted push had to refuse there; a ref
+  # points at the commit, not the branch, so the work is recoverable either way.
   local after; after=$(git -C "$REPO" status --short 2>/dev/null | wc -l | tr -d ' ')
   if [ "${after:-0}" -gt 0 ]; then
     log "pass $n WARNING: $after uncommitted file(s) left behind"
-    local home_branch parked
-    home_branch=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    parked="wiggum/pass-$n-$(date '+%Y%m%d-%H%M%S')"
-    if [ -z "$home_branch" ] || [ "$home_branch" = "HEAD" ]; then
-      log "pass $n rescue: detached HEAD — $after file(s) left in the tree, nothing committed"
-      return $rc
+    if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "HEAD" ]; then
+      log "pass $n rescue: detached HEAD — saving $after file(s) to a snapshot ref"
     fi
-    git -C "$REPO" add -A 2>/dev/null
-    if git -C "$REPO" -c user.email="wiggum@loop.local" -c user.name="wiggum loop" \
-         commit -q -m "WIP(pass $n): work the pass did not get to commit
-
-The pass ended with this work uncommitted, so the driver saved it rather than leaving the tree
-dirty for the next pass to guess at. **The pass did not reach its own gate** — the next pass must
-verify this work and either finish it or revert it before building on it.
-
-Committed by tools/loop/wiggum.sh, not by the pass." 2>/dev/null; then
-      local head; head=$(git -C "$REPO" rev-parse --short HEAD)
-      # **Push the loop's own branch first: that is the point of committing as the loop's commit.**
-      if git -C "$REPO" push -q origin "HEAD:$home_branch" 2>/dev/null; then
-        log "pass $n COMMITTED $after file(s) as $head on $home_branch (pushed)"
-      elif git -C "$REPO" push -q origin "HEAD:$parked" 2>/dev/null; then
-        # Behind origin and cannot fast-forward: origin still gets it, under a name the log names.
-        log "pass $n COMMITTED $after file(s) as $head — $home_branch would not fast-forward, pushed to $parked"
-      else
-        log "pass $n COMMITTED $after file(s) as $head locally (BOTH pushes failed — on no remote)"
-      fi
-    else
-      log "pass $n rescue: commit failed, $after file(s) still in the tree"
-    fi
+    snapshot "$n" final
   fi
   return $rc
 }
