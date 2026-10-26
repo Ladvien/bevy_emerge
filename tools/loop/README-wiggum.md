@@ -1,8 +1,25 @@
-# The Wiggum loop on big
+# The Wiggum loop
+
+One dumb driver (`tools/loop/wiggum.sh`) runs a repo's loop command forever: one fresh `omp` process per
+pass, no session carried between them, the repository as the only memory. It is parameterised by
+`WIGGUM_REPO` and `WIGGUM_COMMAND`, so the same script drives **any** repo in this family — this file is
+how to start it, stop it, and read what it did.
 
 `build-loop` runs itself forever: one fresh `omp` process per pass, no session carried between them,
 DeepSeek 4.1 Flash, and the repository as the only memory. This file is how to start it, stop it, and
 read what it did.
+
+## The four pieces, and which owns what
+
+| Piece | Lives in | Owns |
+|---|---|---|
+| driver | this repo, `tools/loop/wiggum.sh` | *how* a pass runs: one process, stop between passes, refuse a bad tree |
+| per-repo command | `<repo>/.omp/commands/*.md` | *what* a pass does, with that repo's conventions |
+| generic command | `~/.omp/agent/commands/bevy-loop.md` | the same, for a repo with no loop command — it discovers the repo's conventions first |
+| protected evaluator | the repo's harness + tests | the score. **No pass may edit it.** |
+
+A repo's own command always wins over the generic one where both exist: `build-loop` here,
+`elements-loop` in `bevy_elements`, `bevy-debugger-loop` in `bevy_debugger_mcp`.
 
 ## What runs what
 
