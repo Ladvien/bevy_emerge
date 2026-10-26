@@ -179,25 +179,44 @@ one_pass() {
   # **A fresh process per pass is the whole design.** `omp -p` is one-shot: it reads the prompt,
   # does the work, exits. No `--continue`, no `--resume`, no session carried over — the repository is
   # the memory. `--model` is explicit so a pass never inherits an interactive choice.
-  # **The timeout is done in this process, not with `timeout(1)`, because macOS does not have it.**
-  # Measured on big_mac: every pass died `rc=127` with `timeout: command not found`, which looked like a
-  # missing toolchain and was actually the wrapper. A background watchdog kills the pass by pid at the
-  # ceiling; `wait` then reaps it. The kill is by exact pid, so it cannot touch the driver or the shell.
-  local pass_pid watchdog rc timed_out=0
+  # **The ceiling is a poll loop in the driver, not a background watchdog.** `timeout(1)` does not exist
+  # on macOS (measured: every pass died `rc=127`), and two watchdog designs each left a process behind —
+  # `( sleep N; … ) &` orphaned its `sleep`, and so did `&& {}`, leaving a `sleep 21600` reparented to
+  # pid 1 after every pass. A leaked process per pass for days is a leak that matters, and the orphan
+  # also made `systemctl --user stop` sit in `deactivating` until it expired.
+  #
+  # Polling has **no process to leak**: the only child is the pass itself. It also gives `stop` a
+  # meaning it did not have — a stop request is noticed within 5 s and the pass is ended politely,
+  # instead of the driver waiting out a 6-hour ceiling.
+  #
+  # **The timeout is marked in a file, not inferred from the exit code.** A pass killed by SIGTERM and
+  # a pass that died for its own reasons both exit 143; only the flag can tell them apart.
+  local pass_pid rc timed_out=0
+  local deadline=$(( $(date +%s) + PASS_TIMEOUT ))
+  rm -f "$STATE/pass-timed-out"
   ( cd "$REPO" && exec omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
     >"$passlog" 2>&1 &
   pass_pid=$!
-  # **The watchdog marks the ceiling in a file, not by guessing from the exit code.** A pass killed by
-  # SIGTERM and a pass that died for its own reasons both exit 143, and a loop that reported the second
-  # as a timeout would hide the real failure. The flag is the only honest source.
-  rm -f "$STATE/pass-timed-out"
-  ( sleep "$PASS_TIMEOUT"; : >"$STATE/pass-timed-out"; kill -TERM "$pass_pid" 2>/dev/null; \
-    sleep 10; kill -KILL "$pass_pid" 2>/dev/null ) &
-  watchdog=$!
-  wait "$pass_pid"
+  while kill -0 "$pass_pid" 2>/dev/null; do
+    sleep 5
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      : >"$STATE/pass-timed-out"
+      kill -TERM "$pass_pid" 2>/dev/null
+      sleep 10
+      kill -KILL "$pass_pid" 2>/dev/null
+      break
+    fi
+    # **A stop request ends the pass politely** — the trap writes the stop file, and this is where it
+    # is seen. The pass gets TERM, then KILL if it has not exited in five seconds.
+    if [ -f "$STOPFILE" ]; then
+      kill -TERM "$pass_pid" 2>/dev/null
+      sleep 5
+      kill -KILL "$pass_pid" 2>/dev/null
+      break
+    fi
+  done
+  wait "$pass_pid" 2>/dev/null
   rc=$?
-  kill -TERM "$watchdog" 2>/dev/null
-  wait "$watchdog" 2>/dev/null
   if [ -f "$STATE/pass-timed-out" ]; then
     timed_out=1
     rm -f "$STATE/pass-timed-out"
@@ -208,51 +227,56 @@ one_pass() {
   fi
   log "pass $n END rc=$rc timed_out=$timed_out log=$passlog"
 
-  # **A tree left dirty is the next pass's first bug**, and the command says so. This only reports it.
+  # **A tree left dirty is the next pass's first bug**, and the command says so.
   #
-  # **But reporting is not enough, and that is measured.** A pass is killed at the ceiling or by the
-  # OOM killer *after* it has done the work and *before* it reaches its own commit step (commit is
-  # step 4-5 of 6, behind implement/gate/benchmark), so the only record of what it learned stays in
-  # the working tree — where the next pass is told to "finish it or revert it" and has no way to know
-  # which. Measured 2026-10-26: society accumulated 15 uncommitted files and lights 8 across killed
-  # passes, none of it on any branch.
+  # **But reporting is not enough, and that is measured.** A pass commits at its last step, behind
+  # implement/gate/benchmark, so a pass killed at the ceiling or by the OOM killer has usually done the
+  # work and *never* reaches its own commit. Measured 2026-10-26: society accumulated 15 uncommitted
+  # files and lights 8 across killed passes, none of it on any branch — and worse, a clone left with
+  # unpushed commits *diverges* from origin, so the next pass's `--ff-only` can never recover it
+  # (lights sat 1 ahead, 2 behind, permanently unable to fast-forward).
   #
-  # So the driver saves it instead: a **rescue branch** (`wiggum/rescue-<pass>`), committed and pushed.
-  # This is deliberately NOT the loop's own commit: it is unreviewed, ungated work on its own branch,
-  # so the command's own `loop/iter-N` and merge discipline is untouched and the next pass can see
-  # exactly what a killed pass had. Never on the branch the loop is working on, never a force-push,
-  # and never when the tree is the loop's own scratch (a `target/` is excluded by `.gitignore` already).
+  # So the driver commits it **as the loop's commit, on the loop's own branch, and pushes it**:
+  #
+  # - the commit is marked `WIP(pass N)` and its body says the pass did not reach its gate. That is
+  #   the difference between "unreviewed work in a branch nobody reads" and "the loop's history,
+  #   which its own next pass is told to verify or revert";
+  # - it is a plain fast-forward push, never a force, and never a rebase. If the push is rejected
+  #   (the clone is behind origin and cannot fast-forward), the commit is pushed to
+  #   `wiggum/pass-<n>-<ts>` instead, so it is on origin either way and the log says which;
+  # - the branch is captured by name, not restored with `checkout -`, because that depends on a
+  #   previous-branch stack a killed pass can leave pointing elsewhere.
   local after; after=$(git -C "$REPO" status --short 2>/dev/null | wc -l | tr -d ' ')
   if [ "${after:-0}" -gt 0 ]; then
     log "pass $n WARNING: $after uncommitted file(s) left behind"
-    # **The branch is captured by name, not restored with `checkout -`**, which depends on a
-    # previous-branch stack that a killed pass can leave pointing elsewhere.
-    local home_branch rescue
+    local home_branch parked
     home_branch=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    rescue="wiggum/rescue-$n-$(date '+%Y%m%d-%H%M%S')"
-    if [ -n "$home_branch" ] && [ "$home_branch" != "HEAD" ] \
-       && git -C "$REPO" checkout -q -b "$rescue" 2>/dev/null; then
-      git -C "$REPO" add -A 2>/dev/null
-      if git -C "$REPO" -c user.email="wiggum@loop.local" -c user.name="wiggum loop" \
-           commit -q -m "WIP(pass $n): work left by a pass that did not reach its commit step
+    parked="wiggum/pass-$n-$(date '+%Y%m%d-%H%M%S')"
+    if [ -z "$home_branch" ] || [ "$home_branch" = "HEAD" ]; then
+      log "pass $n rescue: detached HEAD — $after file(s) left in the tree, nothing committed"
+      return $rc
+    fi
+    git -C "$REPO" add -A 2>/dev/null
+    if git -C "$REPO" -c user.email="wiggum@loop.local" -c user.name="wiggum loop" \
+         commit -q -m "WIP(pass $n): work the pass did not get to commit
 
-Saved by the driver, not by the pass. Unreviewed, ungated, unpushed to main on purpose: the
-loop's own commit and merge discipline is in its command, and this branch exists only so the
-next pass can see what this one had done rather than rediscovering it from a dirty tree." 2>/dev/null; then
-        if git -C "$REPO" push -q origin "$rescue" 2>/dev/null; then
-          log "pass $n RESCUED $after file(s) to $rescue (pushed to origin)"
-        else
-          log "pass $n RESCUED $after file(s) to $rescue (local only — push failed)"
-        fi
+The pass ended with this work uncommitted, so the driver saved it rather than leaving the tree
+dirty for the next pass to guess at. **The pass did not reach its own gate** — the next pass must
+verify this work and either finish it or revert it before building on it.
+
+Committed by tools/loop/wiggum.sh, not by the pass." 2>/dev/null; then
+      local head; head=$(git -C "$REPO" rev-parse --short HEAD)
+      # **Push the loop's own branch first: that is the point of committing as the loop's commit.**
+      if git -C "$REPO" push -q origin "HEAD:$home_branch" 2>/dev/null; then
+        log "pass $n COMMITTED $after file(s) as $head on $home_branch (pushed)"
+      elif git -C "$REPO" push -q origin "HEAD:$parked" 2>/dev/null; then
+        # Behind origin and cannot fast-forward: origin still gets it, under a name the log names.
+        log "pass $n COMMITTED $after file(s) as $head — $home_branch would not fast-forward, pushed to $parked"
       else
-        log "pass $n rescue: commit failed, $after file(s) still in the tree"
+        log "pass $n COMMITTED $after file(s) as $head locally (BOTH pushes failed — on no remote)"
       fi
-      # **Back to the loop's branch either way**, so the next pass never starts on a rescue branch.
-      # A failure here is loud: the loop would otherwise run its next pass on unreviewed work.
-      git -C "$REPO" checkout -q "$home_branch" 2>/dev/null \
-        || log "pass $n rescue: COULD NOT RETURN to $home_branch — next pass starts on $rescue"
     else
-      log "pass $n rescue: could not branch from ${home_branch:-detached HEAD}, $after file(s) still in the tree"
+      log "pass $n rescue: commit failed, $after file(s) still in the tree"
     fi
   fi
   return $rc
@@ -309,7 +333,17 @@ driver() {
       echo 0 >"$STATE/consecutive-failures"
     fi
 
-    sleep "$SLEEP_BETWEEN"
+    # **The inter-pass sleep must be interruptible, or `stop` waits it out.** Measured 2026-10-26: a
+    # driver sitting here ignored SIGTERM for the full 60 s because bash runs a foreground `sleep` as a
+    # child and the trap only fires after it returns. A stop that takes a minute looks like a hung unit
+    # (`deactivating`) and, with `TimeoutStopSec` short, becomes a killed driver instead of a clean one.
+    # Polling in one-second slices makes a stop land within a second.
+    local waited=0
+    while [ "$waited" -lt "$SLEEP_BETWEEN" ]; do
+      [ -f "$STOPFILE" ] && break
+      sleep 1
+      waited=$(( waited + 1 ))
+    done
   done
   rm -f "$PIDFILE"
   log "driver EXIT after $(cat "$COUNTER" 2>/dev/null || echo 0) pass(es)"
