@@ -714,6 +714,130 @@ fn blocker_indices<'a>(
         .map(|(i, _)| i)
 }
 
+/// **One piece standing in a measured opening**, as `(opening index, intruder index)` into
+/// `map.placements` — the doorway rule, over the whole map (E-079).
+///
+/// [`Mount::InOpening`]'s `clear` is the `(width, height)` of the hole a door leaf fills, measured off
+/// the piece because jambs and a lintel sit inside its bounding box. This is the check that reads it:
+/// the opening's hole is a rectangle, and any other placement that reaches into that rectangle at a
+/// height the hole spans is standing in the doorway.
+///
+/// # Why this is not [`overlaps`]
+///
+/// [`same_layer`] returns `false` for every heterogeneous pair, and it has to: a door and the wall it
+/// is set into must not conflict. The consequence is that a door and a crate *also* do not conflict,
+/// which is the bounded claim [`blocking`]'s own doc states in as many words. A doorway is not a
+/// layer, it is a **hole a piece may stand in**, so the question is asked about the hole rather than
+/// about a stratum.
+///
+/// # What is deliberately not reported
+///
+/// - **Another opening.** Two leaves of one doorway contest each other through [`same_layer`] already;
+///   reporting that here would flag every double door in the project.
+/// - **A piece resting on the door** (`Placed::on` names it). A door with a mail slot on it is one
+///   object, and the slot would be intruding into its own host.
+/// - **Anything at a height the hole does not span**, so a lintel course above it is clear, and a
+///   piece shorter than the floor it stands on cannot be. Vertical is read because a doorway is the
+///   one case where it can be: the hole's floor and height both come from the map and the descriptor.
+/// - **An opening whose `clear` is `None`.** "Nobody has measured it" is not "zero wide" — the shipped
+///   `furniture_kenney.ron` door is exactly this row, and flagging every crate near it is the false
+///   positive that teaches an author to ignore the field.
+/// - **A map that does not resolve.** Bases come from [`resolve_y`], which is the same answer the
+///   spawner uses; when it errs the map has a defect that other code reports by name, and inventing
+///   heights here would report a second, wrong thing about it.
+///
+/// # Pairs, ordered
+///
+/// Ascending by `(opening, intruder)` index, so two runs over one map produce the same list and a
+/// caller can diff two maps' answers as sets — the same contract [`overlaps`] states.
+pub fn blocked_openings(map: &Map, library: &Library) -> Vec<(usize, usize)> {
+    // **Resolved once each.** A plan box and a vertical span depend on the placement and on nothing
+    // else, so asking per pair would resolve every descriptor `n` times for the same answer.
+    let Ok(bases) = resolve_y(map, library) else {
+        return Vec::new();
+    };
+    struct Body {
+        descriptor: Cow<'_, Descriptor>,
+        plan: PlanRect,
+        /// `(bottom, top)` in map space, metres.
+        span: (f32, f32),
+    }
+    let bodies: Vec<Option<Body>> = map
+        .placements
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let d = descriptor_of(library, p)?;
+            let plan = plan_box(&d, p.at, p.yaw, p.tip)?;
+            let (_, h, _) = crate::descriptor::tipped_extents(&d, p.tip)?;
+            let base = bases[i];
+            Some(Body { descriptor: d, plan, span: (base, base + h) })
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    for (i, opening) in bodies.iter().enumerate() {
+        let Some(Body { descriptor, plan, span }) = opening else { continue };
+        let Some((width, height)) = opening_hole(descriptor) else { continue };
+        // **The hole is `clear`'s own rectangle, not the door's footprint.** A frame carries jambs
+        // that sit inside its bounding box (`site/wall_doorway` is 0.3 m thick and 1.0 m wide to frame
+        // a 0.6 m hole), so comparing a crate against the frame would flag pieces standing beside the
+        // doorway.
+        let hole = hole_rect(*plan, width);
+        let hole_span = (span.0, span.0 + height);
+        for (j, other) in bodies.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            let Some(Body { descriptor: od, plan: other_plan, span: other_span }) = other else {
+                continue;
+            };
+            if matches!(od.mount, Some(Mount::InOpening { .. })) {
+                continue;
+            }
+            // A rider on the door is part of it, not something in its way.
+            if map.placements[j].on.as_deref() == Some(map.placements[i].id.as_str()) {
+                continue;
+            }
+            if !plans_overlap(hole, *other_plan) {
+                continue;
+            }
+            // **Vertically disjoint is clear**, on `plan_box`'s own "unknown is not everywhere" rule:
+            // a piece whose span ends before the hole's floor, or starts above its head, passes.
+            if other_span.1 <= hole_span.0 + OVERLAP_EPS
+                || other_span.0 >= hole_span.1 - OVERLAP_EPS
+            {
+                continue;
+            }
+            out.push((i, j));
+        }
+    }
+    out
+}
+
+/// The measured `(width, height)` of an `InOpening` descriptor's hole, or `None` when it is unmeasured
+/// or is not an opening at all.
+fn opening_hole(d: &Descriptor) -> Option<(f32, f32)> {
+    match &d.mount {
+        Some(Mount::InOpening { clear: Some((w, h)) }) if w.is_finite() && h.is_finite() => {
+            Some((*w, *h))
+        }
+        _ => None,
+    }
+}
+
+/// **The hole a doorway reserves, in plan** — `clear`'s width along the door's run face, centred on
+/// it, keeping the frame's own through-wall depth.
+///
+/// The width is what a person walks through, so it runs **along the wall**, and [`plan_box`]'s second
+/// axis is that one: at yaw 0 the axes are `[(1, 0), (0, 1)]` and `half` is
+/// `(footprint.0 / 2, footprint.1 / 2)` — X through the wall, Z along it, which is how the shipped
+/// `site/wall` reads at `(0.2, 1.0)`. So the hole keeps `half.0` and takes `width / 2` on axis 1.
+fn hole_rect(door: PlanRect, width: f32) -> PlanRect {
+    let (centre, axes, half) = door;
+    (centre, axes, (half.0, width * 0.5))
+}
+
 /// What a move changed, so the caller can respawn exactly those entities and undo exactly that edit.
 ///
 /// One record per placement that actually moved — the piece plus everything that was riding on it.
