@@ -79,6 +79,23 @@ and `node_filesystem_avail_bytes` must be filtered to the real data mount, becau
 
 ## Facts that cost a cycle
 
+- **Two loops that compile do not fit on `big`.** Measured 2026-10-26: `wiggum@society` died
+  `Result: oom-kill` at a 6.9 GB peak with 8.7 GB of swap while `hs-distill` held 9.9 GB resident and
+  the host showed 1 GB available. `CARGO_BUILD_JOBS` is now 4 there, and one loop is held until the
+  other's pass finishes. A loop that OOMs is worse than a loop that waits: systemd counts the kill as a
+  restart, and `StartLimitBurst=3` can retire the unit entirely.
+- **A `target/` for a Bevy workspace is tens of GB, so disk is a real eligibility check.** `mac_air` has
+  10 cores and 7.6 GB of disk, which makes it useless for a compile however idle it is;
+  `--min-disk-gb 40` on the picker is the honest default. Reclaiming `~/target/sanctuary/release`
+  (6.3 GB, 28 h untouched) took it to 14 GB free — deleting a *profile* directory is safe where deleting
+  a whole `target/` is not: the dependency cache the next build needs is in the other profile.
+- **Check `WIGGUM_MAX` is actually in the installed plist/unit**, not only in the committed one. The
+  emerge agent ran `max=0` (forever) because the key was absent, and nothing in a pass log says
+  "unbounded" — `driver START … max=0` is the only tell.
+- **`launchctl kickstart -k` and `bootout` both kill the pass in flight** (`last exit = -15`). If a pass
+  was killed, remove the driver's `stop` file and zero `consecutive-failures` before restarting, then
+  `bootout` + `bootstrap` in strict sequence: kickstarting a job that launchd throttled (`state = spawn
+  scheduled`, `active count = 0`) does nothing until `ThrottleInterval``ThrottleInterval` (600 s) elapses.
 - **macOS has no `timeout(1)`** (and no coreutils: `timeout --foreground 5 echo hi` → 127). A driver that
   wraps a pass in `timeout` cannot run there. `tools/loop/wiggum.sh` since commit `338c5d3` implements the
   ceiling as a pid watchdog, so the same script runs on both hosts — **do not copy an older driver**.
