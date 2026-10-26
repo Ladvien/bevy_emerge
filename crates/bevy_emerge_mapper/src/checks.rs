@@ -54,6 +54,10 @@ pub struct Found {
     /// the hole spans. **Not sorted as a pair**: which one is the hole is the finding, so a doorway
     /// whose two ids swap order is still `("door@0", "crate@1")`.
     pub doorways: Vec<(String, String)>,
+    /// `(keeper id, intruder id)` — a piece standing in the space another piece's `Descriptor::clearance`
+    /// reserves, at a height their spans share (E-079). Name order is the finding here too: the keeper
+    /// is the piece that asked for the space.
+    pub clearances: Vec<(String, String)>,
 }
 
 /// Whether `operation` gets checks: every operation that changes a document (`Undo` is not `None`),
@@ -133,7 +137,16 @@ pub fn find(ctx: &crate::ops::Ctx) -> Option<Found> {
             )
         })
         .collect();
-    Some(Found { faults, overlaps, doorways })
+    let clearances = bevy_emerge_core::stack::blocked_clearances(&open.map, &project.library)
+        .into_iter()
+        .map(|(i, j)| {
+            (
+                open.map.placements[i].id.clone(),
+                open.map.placements[j].id.clone(),
+            )
+        })
+        .collect();
+    Some(Found { faults, overlaps, doorways, clearances })
 }
 
 /// The `checks` value of an answer: what `after` has that `before` did not.
@@ -154,6 +167,9 @@ pub fn report(before: Option<&Found>, after: &Found) -> Value {
     let is_new_doorway = |o: &(String, String)| {
         !before.is_some_and(|b| b.doorways.iter().any(|p| p == o))
     };
+    let is_new_clearance = |o: &(String, String)| {
+        !before.is_some_and(|b| b.clearances.iter().any(|p| p == o))
+    };
 
     let new_faults: Vec<&Fault> = after.faults.iter().filter(|f| is_new_fault(f)).collect();
     let new_overlaps: Vec<&(String, String)> = after
@@ -165,6 +181,11 @@ pub fn report(before: Option<&Found>, after: &Found) -> Value {
         .doorways
         .iter()
         .filter(|o| is_new_doorway(o))
+        .collect();
+    let new_clearances: Vec<&(String, String)> = after
+        .clearances
+        .iter()
+        .filter(|o| is_new_clearance(o))
         .collect();
 
     json!({
@@ -202,6 +223,18 @@ pub fn report(before: Option<&Found>, after: &Found) -> Value {
                 .collect::<Vec<_>>(),
             "new_total": new_doorways.len(),
             "total": after.doorways.len(),
+        },
+        // **`keeper`/`intruder`, for the same reason `opening`/`inside` is spelled out above**: which
+        // id reserved the space is half the finding, and a reader given `{"a": ..., "b": ...}` has to
+        // reconstruct a sentence field names exist to save.
+        "clearances_in_the_way": {
+            "new": new_clearances
+                .iter()
+                .take(NEW_CAP)
+                .map(|(keeper, intruder)| json!({"keeper": keeper, "intruder": intruder}))
+                .collect::<Vec<_>>(),
+            "new_total": new_clearances.len(),
+            "total": after.clearances.len(),
         },
     })
 }
@@ -241,11 +274,13 @@ mod tests {
             faults: vec![fault("pane@1", E)],
             overlaps: vec![("a".into(), "b".into())],
             doorways: Vec::new(),
+            clearances: Vec::new(),
         };
         let after = Found {
             faults: vec![fault("pane@1", E)],
             overlaps: vec![("a".into(), "b".into()), ("c".into(), "d".into())],
             doorways: Vec::new(),
+            clearances: Vec::new(),
         };
         let r = report(Some(&before), &after);
         assert_eq!(r["overlaps"]["new_total"], 1);
