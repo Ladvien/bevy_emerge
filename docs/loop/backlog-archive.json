@@ -1453,6 +1453,23 @@
       "evidence": "crates/bevy_emerge_mapper/src/steps.rs (from_oplog, unreadable_lines); crates/bevy_emerge_mapper/src/notice.rs (record_steps, the painted section); tests/an_agents_steps_are_on_screen.rs (6 tests) and tests/the_journal_draws_the_agents_steps.rs (the surface)",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-082",
+      "kind": "enhancement",
+      "area": "wfc",
+      "title": "rules_set let a weight prefix tune no piece and said \"applied\" (E-082 misdiagnosed the reachable half)",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "`Rules::validate_against(library)` is the check that refuses a rule naming a descriptor no kit provides, and `Project::open` runs it (`project.rs`). `rules_set` runs only `Rules::validate_numbers`, because the operation's `Ctx` carries no `Library` — so editing a rule to `border: Some(\"town/no_such_tile\")` is applied and the project then fails to open. The block's own numbers ARE checked (cell, attempts, footprint shape), so this is only the descriptor-id half. Found by this iteration's own review (the independent reviewer could not run)."
+      },
+      "status": "fixed",
+      "evidence": "The `border` half is unreachable: `rules_set::Params` has `deny_unknown_fields` and states only cell/seed/attempts/no_empty/weights, so serde refuses a border before any check; `surgery` rewrites only named fields. The reachable half was `weights[].prefix`, which nothing validated (`validate_numbers` is numbers only; `validate_against` never reads weights), so `prefix: \"town/hous_\"` applied, logged `applied`, and generated identically. Now `rules_set::dead_prefixes` reports a prefix this request introduces that starts no library id: `would_change.tunes_nothing` on a preview, and the receipt's summary on an apply, naming up to three nearby ids (shared prefix first, `nearest_ids` edit distance when nothing shares a first character). It reports rather than refuses because the undo path re-dispatches with the old weight list, and a refusal would leave the agent's write standing while refusing the person's Cmd+Z. Tests: crates/bevy_emerge_mapper/tests/a_weight_names_the_pieces_it_tunes.rs (6 tests, 2 failed before the fix: `the_preview_names_a_prefix_that_tunes_nothing` on a missing suggestion, `the_receipt_says_the_weight_tuned_nothing_and_the_change_still_applies` on a summary that read the same either way).",
+      "last_failure": "",
+      "first_seen": "2026-10-26",
+      "fixed_in": "HEAD (this pass)"
     }
   ]
 }
