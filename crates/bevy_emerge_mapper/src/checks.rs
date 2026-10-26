@@ -20,8 +20,9 @@
 //!   claim to *within* a layer, so nothing compares a crate against an opening's clearance — and
 //!   `Descriptor::clearance`, documented as *"space that must stay free around the piece"*, is read
 //!   only by validation and the composition hash, never by anything that decides space (E-079).
-//! - **How varied a layout is.** `range::measure` needs a solver grid and the editor discards it
-//!   on the way back from `grammar::learn` (E-080).
+//! - **How varied a layout is.** Shipped as E-080: `editor::measure_solved` scores a `composed`
+//!   proposal's own grid through `range::measure`, and a proposal whose source derives no wall
+//!   interfaces answers `null` rather than a scored zero.
 //!
 //! # What "new" means, and why the diff is the report
 //!

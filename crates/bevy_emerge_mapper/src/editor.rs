@@ -3484,6 +3484,24 @@ pub struct Proposed {
     /// itself, so writing them into the map would make a second, stale copy of its answer.
     /// [`apply_proposal`] refuses one and leaves it standing.
     pub preview_only: bool,
+    /// **How varied this layout is (E-080)**, or `None` when it cannot be scored.
+    ///
+    /// `range::measure` needs three things the solver had and `Proposed` used to drop: the collapsed
+    /// grid, its size, and the interfaces that say which prototype presents a wall on which face.
+    /// `Solved` returns all three — its own doc says *"`crate::range` measures a solved grid"* — so
+    /// this is four values carried one function further, not a second measurement.
+    ///
+    /// **`None` for a source with no interfaces.** A grammar learned from placements derives no wall
+    /// faces, so nothing can be classified. `0.0` would be a *meaningful* enclosure value ("no floor
+    /// is enclosed"), which is why "unmeasurable" must not be spelled the same way.
+    pub variety: Option<bevy_emerge_core::range::Measured>,
+    /// **How many cells the measurement covered**, `0` when there is no measurement.
+    ///
+    /// `Measured` reports fractions and counts of *regions*, not of cells, so a reader given only
+    /// `enclosure: 0.0` cannot tell a walled-in empty map from a 16×16 solve that enclosed nothing.
+    /// Carried beside the measurement rather than inside it, because `range` has no reason to report
+    /// a number its own callers already know.
+    pub cells: usize,
     /// **Which generate made this**, monotonic for the life of the process.
     ///
     /// The preview's own identity, and the reason it is a number rather than something derived from
@@ -11808,6 +11826,54 @@ pub struct Laid {
     pub warnings: Vec<String>,
 }
 
+/// **Score a solved grid on the expressive-range axes, or say it cannot be scored (E-080).**
+///
+/// `None` when the source derived no interfaces: a grammar learned from placements has no wall
+/// faces, so [`bevy_emerge_core::range::Faces`] cannot classify a prototype and every enclosure
+/// would read `0.0` — a *meaningful* value on that axis, which is why unmeasurable must not be
+/// spelled the same way.
+///
+/// The wall token and the walkable gap are [`bevy_emerge_core::grammar`]'s own constants, reached
+/// through the same [`Faces`](bevy_emerge_core::range::Faces) the composition grammar already
+/// classifies with — so the metric and the solver cannot disagree about what a wall is.
+fn measure_solved(
+    solved: &bevy_emerge_core::grammar::Solved,
+    faces: &[Option<bevy_emerge_core::composition::Interface>],
+) -> Option<bevy_emerge_core::range::Measured> {
+    if faces.is_empty() {
+        return None;
+    }
+    let read = bevy_emerge_core::grammar::interfaces(faces);
+    // **And no prototype presenting a wall is also unmeasurable**, not a zero. `range::Faces::floor`
+    // is true for every prototype but the empty one, so a grammar whose pieces present no `wall`
+    // anywhere would score `enclosure: 0.0` — the same number as a walled layout that closed nothing,
+    // for a layout where nothing *could* close. `from_compositions` is expected to skip such a
+    // composition ("derives no interface"), so this is a belt on top of braces; the reason to keep it
+    // is that the failure it prevents is silent and reads as a real measurement.
+    let mut any_wall = false;
+    for p in 0..faces.len() {
+        if [bevy_emerge_core::wfc::N, bevy_emerge_core::wfc::E, bevy_emerge_core::wfc::S, bevy_emerge_core::wfc::W]
+            .iter()
+            .any(|&d| read.wall(p, d))
+        {
+            any_wall = true;
+            break;
+        }
+    }
+    if !any_wall {
+        return None;
+    }
+    bevy_emerge_core::range::measure(
+        solved.width,
+        solved.height,
+        &solved.grid,
+        |p, dir| read.wall(p, dir),
+        |p| read.floor(p),
+        |p| read.doorway(p),
+    )
+    .ok()
+}
+
 /// **One pure layout proposer behind every generate key, every source, and the agent's
 /// `layout_propose`.**
 ///
@@ -11999,6 +12065,12 @@ fn propose_from_grammar(
         warnings: skipped.iter().map(|s| format!("not a tile: {s}")).collect(),
         proposed: Proposed {
             composes,
+            // **Measured here, while the solver's answer is still in hand.** `range::measure` wants
+            // the collapsed grid rather than a reconstruction from `placements`, because pinned
+            // cells are not in `placements` at all and the two would disagree about exactly the
+            // cells the author cared most about.
+            variety: measure_solved(&solved, &faces),
+            cells: solved.grid.len(),
             placements: solved.placements,
             stamps: solved.stamps,
             cell: CELL,
@@ -12056,6 +12128,10 @@ fn propose_example_block(
         warnings: Vec::new(),
         proposed: Proposed {
             composes: false,
+            // **No interfaces**: a *rules* block solves on its own alphabet of learned placements, so
+            // there is nothing for `range::Faces` to classify. See `Proposed::variety`.
+            variety: None,
+            cells: 0,
             placements,
             stamps: Vec::new(),
             cell: rule.cell,
@@ -12158,6 +12234,9 @@ fn propose_region_blocks(project: &Project, open: &OpenMap) -> Result<Laid, Stri
         warnings: failed.iter().map(|f| format!("no layout for {f}")).collect(),
         proposed: Proposed {
             composes: false,
+            // **No interfaces**, for the same reason: a region block solves on placements.
+            variety: None,
+            cells: 0,
             placements,
             stamps: Vec::new(),
             cell,

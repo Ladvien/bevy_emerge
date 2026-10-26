@@ -835,6 +835,16 @@ pub mod layout_propose {
                 "preview_only": laid.proposed.preview_only,
                 "note": laid.note,
                 "warnings": laid.warnings,
+                // **How varied this proposal is (E-080).** `null` when the source has no wall
+                // interfaces to classify — a grammar learned from placements, or a rules block.
+                // The three fields are `range::measure`'s own, plus the size of the grid it
+                // measured, so a reader can tell a 16x16 solve from an empty one.
+                "variety": laid.proposed.variety.as_ref().map(|m| json!({
+                    "enclosure": m.enclosure,
+                    "regions": m.regions,
+                    "opening_density": m.opening_density,
+                    "cells": laid.proposed.cells,
+                })),
             }))
         }
 
@@ -1095,6 +1105,10 @@ pub mod layout_accept {
                 // The rows are back in the proposal, rebuilt from what was just written into it.
                 ctx.proposal = Some(crate::editor::Proposed {
                     composes: taken.composes,
+                    // **The measurement survives the put-back**, because the layout it measured did:
+                    // nothing was re-solved, only re-read from the map it was written into.
+                    variety: taken.variety,
+                    cells: taken.cells,
                     placements: added
                         .iter()
                         .filter_map(|id| open.map.placements.iter().find(|p| &p.id == id).cloned())
