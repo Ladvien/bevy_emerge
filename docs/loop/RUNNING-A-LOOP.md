@@ -94,23 +94,53 @@ commit. Measured 2026-10-26: society accumulated **15** uncommitted files and li
 passes, none of it on a branch — and the clone was left **ahead of origin and behind it**, so the next
 pass's `--ff-only` could never recover it (lights sat 1 ahead, 2 behind).
 
-So the driver commits it **as the loop's own commit, on the loop's branch, and pushes it**:
+So the driver saves it to **a snapshot ref, never a commit on a branch**:
 
-- the message is `WIP(pass N): work the pass did not get to commit`, and its body says the pass did not
-  reach its gate — so it is identifiable, not a mystery commit;
-- a fast-forward push to the loop's branch first; if that is rejected (the clone cannot fast-forward),
-  the same commit is pushed to `wiggum/pass-N-<ts>`, so **the work is on origin either way** and the
-  log says which happened;
-- a plain push only — never a force, never a rebase, never a merge of somebody else's history.
+- `snapshot()` writes the tree with a private `GIT_INDEX_FILE` to
+  `refs/wiggum/pass-N-{checkpoint,final}-<ts>`, parented on `HEAD`, then pushes **that ref**. The
+  index, `HEAD` and the branch are untouched, so the pass's own `git status` is unchanged and this
+  cannot move a branch anybody builds from;
+- the private index is the load-bearing detail. `git stash create` moves the real index, which leaves
+  the pass's `git status --short` empty mid-work and breaks the loop command's own rule that the tree
+  must be clean before its commit step;
+- a ref under `refs/wiggum/` is **not a branch**: `git branch` and `git log` do not show it, so a pass
+  cannot mistake it for its own work. Recover one with `git -C <clone> log --all --oneline
+  --grep='WIP(pass'` and then `git show <ref>`;
+- a plain push only — never a force, never a rebase.
 
-Verified on throwaway repos for both paths: clean fast-forward → commit lands on `main` at origin,
-clone clean and level; divergence → commit lands on `wiggum/pass-1-…`, work still reachable on the
-remote.
+**Why not commit it to the branch, which is what this used to do.** Measured the same day: committing
+the checkpoint to the pass's branch put **ungated work on `origin/main` as the branch tip** in all four
+shared repos (lights `35c7824`, society `89d9563` — a mid-pass checkpoint —, elements `911ca5b`). Each
+loop command builds a `loop/iter-N` branch from `main` and merges back **only after its gate**, so a
+commit written straight onto `main` bypasses the gate, and Sanctuary path-deps `bevy_emerge_core`. A
+safety net that skips the evaluator is worse than losing the last ten minutes.
 
-**It is not a substitute for the pass committing.** A `WIP` commit has not been through the gate, so
-every loop command now tells its pass to (1) commit incrementally — research note, then implementation,
-then docs and log — rather than once at the end, and (2) begin by checking `git log --oneline -5` for a
-`WIP(pass N)` commit and verify or revert it before building on it.
+Verified on a throwaway repo: after a checkpoint + final snapshot, `HEAD` was still `main`,
+`origin/main` still had its original single commit, the dirty untracked file was still untracked (the
+index was not moved), and both refs were on origin and recoverable.
+
+**It is not a substitute for the pass committing.** A snapshot has not been through the gate, but unlike
+a commit it is not on the branch either — so every loop command now tells its pass to commit
+incrementally (research note, then implementation, then docs and log) rather than once at the end, and
+that the only thing which puts work on `main` is its own commit step.
+
+**Refs accumulate and are never auto-pruned.** One ref and one commit per checkpoint. Past ~50 in a
+clone, prune by hand — never from the driver, because an automatic delete of the only copy of a killed
+pass's tree is the failure this design exists to prevent:
+
+```sh
+git -C <clone> for-each-ref --format='%(refname)' refs/wiggum | head -n -50 | xargs -r -n1 git update-ref -d
+```
+
+## A pass will not start on a full disk
+
+`WIGGUM_MIN_FREE_GB` (default 150) is checked at the top of every pass. Measured 2026-10-26: the society
+tree alone was growing ~1 GB/min and `/home` was ~10 hours from full, which breaks all four loops and
+`hs-distill` at once. Below the threshold the driver first prunes only what cargo regenerates —
+`target/debug/deps/*.tmp*` older than 20 minutes (43 GB measured, abandoned linker files, none open) and
+`target/debug/incremental/` — then refuses the pass and returns non-zero if that was not enough. Never
+`deps/` generally, never `target/`: the deletion is limited to files a live process cannot own and to a
+directory cargo rebuilds.
 
 ## Facts that cost a cycle
 
