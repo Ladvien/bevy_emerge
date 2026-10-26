@@ -179,25 +179,44 @@ one_pass() {
   # **A fresh process per pass is the whole design.** `omp -p` is one-shot: it reads the prompt,
   # does the work, exits. No `--continue`, no `--resume`, no session carried over — the repository is
   # the memory. `--model` is explicit so a pass never inherits an interactive choice.
-  # **The timeout is done in this process, not with `timeout(1)`, because macOS does not have it.**
-  # Measured on big_mac: every pass died `rc=127` with `timeout: command not found`, which looked like a
-  # missing toolchain and was actually the wrapper. A background watchdog kills the pass by pid at the
-  # ceiling; `wait` then reaps it. The kill is by exact pid, so it cannot touch the driver or the shell.
-  local pass_pid watchdog rc timed_out=0
+  # **The ceiling is a poll loop in the driver, not a background watchdog.** `timeout(1)` does not exist
+  # on macOS (measured: every pass died `rc=127`), and two watchdog designs each left a process behind —
+  # `( sleep N; … ) &` orphaned its `sleep`, and so did `&& {}`, leaving a `sleep 21600` reparented to
+  # pid 1 after every pass. A leaked process per pass for days is a leak that matters, and the orphan
+  # also made `systemctl --user stop` sit in `deactivating` until it expired.
+  #
+  # Polling has **no process to leak**: the only child is the pass itself. It also gives `stop` a
+  # meaning it did not have — a stop request is noticed within 5 s and the pass is ended politely,
+  # instead of the driver waiting out a 6-hour ceiling.
+  #
+  # **The timeout is marked in a file, not inferred from the exit code.** A pass killed by SIGTERM and
+  # a pass that died for its own reasons both exit 143; only the flag can tell them apart.
+  local pass_pid rc timed_out=0
+  local deadline=$(( $(date +%s) + PASS_TIMEOUT ))
+  rm -f "$STATE/pass-timed-out"
   ( cd "$REPO" && exec omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
     >"$passlog" 2>&1 &
   pass_pid=$!
-  # **The watchdog marks the ceiling in a file, not by guessing from the exit code.** A pass killed by
-  # SIGTERM and a pass that died for its own reasons both exit 143, and a loop that reported the second
-  # as a timeout would hide the real failure. The flag is the only honest source.
-  rm -f "$STATE/pass-timed-out"
-  ( sleep "$PASS_TIMEOUT"; : >"$STATE/pass-timed-out"; kill -TERM "$pass_pid" 2>/dev/null; \
-    sleep 10; kill -KILL "$pass_pid" 2>/dev/null ) &
-  watchdog=$!
-  wait "$pass_pid"
+  while kill -0 "$pass_pid" 2>/dev/null; do
+    sleep 5
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      : >"$STATE/pass-timed-out"
+      kill -TERM "$pass_pid" 2>/dev/null
+      sleep 10
+      kill -KILL "$pass_pid" 2>/dev/null
+      break
+    fi
+    # **A stop request ends the pass politely** — the trap writes the stop file, and this is where it
+    # is seen. The pass gets TERM, then KILL if it has not exited in five seconds.
+    if [ -f "$STOPFILE" ]; then
+      kill -TERM "$pass_pid" 2>/dev/null
+      sleep 5
+      kill -KILL "$pass_pid" 2>/dev/null
+      break
+    fi
+  done
+  wait "$pass_pid" 2>/dev/null
   rc=$?
-  kill -TERM "$watchdog" 2>/dev/null
-  wait "$watchdog" 2>/dev/null
   if [ -f "$STATE/pass-timed-out" ]; then
     timed_out=1
     rm -f "$STATE/pass-timed-out"
@@ -314,7 +333,17 @@ driver() {
       echo 0 >"$STATE/consecutive-failures"
     fi
 
-    sleep "$SLEEP_BETWEEN"
+    # **The inter-pass sleep must be interruptible, or `stop` waits it out.** Measured 2026-10-26: a
+    # driver sitting here ignored SIGTERM for the full 60 s because bash runs a foreground `sleep` as a
+    # child and the trap only fires after it returns. A stop that takes a minute looks like a hung unit
+    # (`deactivating`) and, with `TimeoutStopSec` short, becomes a killed driver instead of a clean one.
+    # Polling in one-second slices makes a stop land within a second.
+    local waited=0
+    while [ "$waited" -lt "$SLEEP_BETWEEN" ]; do
+      [ -f "$STOPFILE" ] && break
+      sleep 1
+      waited=$(( waited + 1 ))
+    done
   done
   rm -f "$PIDFILE"
   log "driver EXIT after $(cat "$COUNTER" 2>/dev/null || echo 0) pass(es)"
