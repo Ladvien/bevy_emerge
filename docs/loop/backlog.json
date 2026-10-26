@@ -431,22 +431,6 @@
       "first_seen": "2026-10-24"
     },
     {
-      "id": "E-068",
-      "kind": "enhancement",
-      "area": "collaboration",
-      "title": "An agent's session has no panel: its steps are not on screen, and a capture is not hung on the step that made it",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "The oplog already carries one `result` line per operation, and capture sequences exist, but neither is on a surface the person watches: the receipt is one row and the journal is refusals only. Mixar gives each step a row and puts the capture under it."
-      },
-      "status": "open",
-      "evidence": "mixar@39b9d27:core/steps_format.py, mixar@39b9d27:core/steps_recorder.py, mixar@39b9d27:core/capture_store.py",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
       "id": "E-069",
       "kind": "enhancement",
       "area": "collaboration",
