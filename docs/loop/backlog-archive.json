@@ -1405,6 +1405,22 @@
       "evidence": "Behaviour note (mixar@39b9d27).\n\nTrigger: an agent presents a result — `emerge/present`, the same call that puts the Keep/Undo all question on screen.\n\nPerson sees: the confirmation card as before. What changes is the keyboard: ONE Cmd+Z now takes back everything the presented turn did, where it used to take back one operation and leave the rest. The INSPECTOR's UNDO row reads \"3 changes\" instead of naming one placement.\n\nAgent gets: `grouped` in `emerge/present`'s answer — how many of the turn's entries became one (0 when it presented one operation, or ids the stack no longer holds). So it can say \"one undo takes this back\" only when that is true.\n\nState: the turn's leaves on the editor's undo stack are folded into one `Undo::Group`, in the order the operation log can answer (newest first). Nothing is written to the map or the log; undo and redo both walk the group, and the group is closed under inversion like every other entry.\n\nRefuses: nothing new. A presentation naming an id that is not in the log was already refused, and still is. A presentation naming no operations groups nothing, so a turn that changed nothing cannot swallow the person's next edit.\n\nDiffers: Mixar snapshots the whole document to a file before each turn and restores it; bevy_emerge has no whole-document snapshot and does not gain one. It groups the turn's own logged leaves instead, which is smaller, needs no disk budget, and keeps one source of truth (the oplog) rather than two. Mixar's position is \"the number of user messages\"; here the boundary is the presentation's `operation_ids`, which the agent already declares.\n\nSource: mixar@39b9d27:core/turn_checkpoints.py, mixar@39b9d27:core/checkpoint_timeline.py",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-084",
+      "kind": "enhancement",
+      "area": "undo",
+      "title": "An agent's newest-change undo walks the log, so it takes back one operation of a presented turn while Cmd+Z takes the whole turn",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "E-071 made a presented turn one `Undo::Group`, so one Cmd+Z takes the whole turn. `emerge_undo_operation` with no id walks the operation log and takes back one logged change — right for what it says, but the same turn then came back in two amounts depending on who asked. Measured live on Sanctuary's `town` before: 730 -> 729 for the agent's tool where Cmd+Z leaves 727. After: `turn: true` answers `took_back: 3` and leaves 727, with `undo_depth: 0`."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs::operation_undo (`turn: true` walks the presentation's ids newest-first through the same `ops::undo(ctx, Some(id))` the id form makes); crates/bevy_emerge_mcp/src/main.rs (the param, the description, and the body that must carry it); tests/an_agents_turn_is_one_undo_step.rs (6 tests, one failing before)",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
     }
   ]
 }
