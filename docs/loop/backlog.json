@@ -575,18 +575,18 @@
       "first_seen": "2026-10-26"
     },
     {
-      "id": "E-084",
-      "kind": "enhancement",
-      "area": "undo",
-      "title": "An agent's newest-change undo walks the log, so it takes back one operation of a presented turn while Cmd+Z takes the whole turn",
+      "id": "B-052",
+      "kind": "bug",
+      "area": "mcp",
+      "title": "The MCP server builds the undo body by hand, so any field the editor's params grow is dropped silently",
       "must_fix": {
         "blocks": false,
         "common": false,
-        "no_workaround": false,
-        "evidence": "E-071 made a presented turn one `Undo::Group` on the editor's stack, so one Cmd+Z takes back the whole turn. `emerge/operation_undo` with `operation_id: null` does NOT read that stack: it calls `ops::undo(&ctx, None)`, which picks the newest chain in the operation log and takes back that one line. Measured live on Sanctuary's `town`: three `placement_add` operations, `emerge_present` answering `grouped: 3`, then one `emerge_undo_operation` -> 730 placements became 729 (one taken back), where Cmd+Z would leave 727. The person's key and the agent's tool therefore take back different amounts for the same turn."
+        "no_workaround": true,
+        "evidence": "`undo_operation` calls the bridge with `json!({\"operation_id\": …, \"dry_run\": …})` — a hand-written body, not the typed params. Adding `turn` to both `UndoParams` structs was not enough: the field reached the server, was accepted by serde, and was never put on the wire, so the editor answered `unknown field turn` and the call read like a one-change undo. Found live, not by a test — the mapper tests drive `emerge/operation_undo` directly and never go through the server. Every other tool with a hand-built body has the same shape; whether this is one tool or a pattern is the question this item asks."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops_brp.rs::operation_undo (ops::undo on the log, not the grouped stack); crates/bevy_emerge_mapper/src/editor.rs::group_turn (the stack the group lives on)",
+      "evidence": "crates/bevy_emerge_mcp/src/main.rs::undo_operation (the hand-built json body); crates/bevy_emerge_mapper/src/ops_brp.rs::UndoParams",
       "last_failure": "",
       "first_seen": "2026-10-26"
     }

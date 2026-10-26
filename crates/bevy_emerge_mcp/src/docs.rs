@@ -98,8 +98,13 @@ pub const TOOLS: &[ToolDoc] = &[
                       (the answer names it; undo that one first), when the map was changed outside the log \
                       since (a hand-edited file, the menu, or another map open; the answer names what \
                       differs), or when the change recorded no inverse. Undoing an undo puts the change \
-                      back, and the change's own id takes it back again. Set dry_run to true to see what \
-                      the undo would set. Returns the undo's own operation id and what it set.",
+                      back, and the change's own id takes it back again. Set dry_run to true to see \
+                      what the undo would set. Set turn to true to take back the whole result you \
+                      last presented with emerge_present, newest change first, in one call — the \
+                      same amount one Cmd+Z takes back — and the answer says how many changes it \
+                      took with took_back. turn refuses when nothing has been presented, or when \
+                      the presentation named no operations. Returns the undo's own operation id \
+                      and what it set.",
         read_only: false,
         destructive: true,
         idempotent: false,
@@ -357,6 +362,7 @@ pub fn schemas() -> Value {
             "properties": {
                 "operation_id": {"type": ["string", "null"]},
                 "dry_run": {"type": "boolean", "default": false},
+                "turn": {"type": "boolean", "default": false, "description": "Take back the whole result you last presented, newest change first, in one call. Refused when nothing has been presented."},
             },
         },
         "emerge_state": {

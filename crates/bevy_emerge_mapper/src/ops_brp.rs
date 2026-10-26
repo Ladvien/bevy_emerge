@@ -73,6 +73,19 @@ pub struct UndoParams {
     /// **The change to take back**, by its operation id. `None`: the newest one not yet taken back.
     #[serde(default)]
     pub operation_id: Option<String>,
+    /// **Take back the whole presented turn (E-084)**, newest change first, instead of one logged
+    /// change.
+    ///
+    /// **A flag rather than making the id-less form follow the stack.** An undo on the *log* is well
+    /// defined with no presentation, survives a door crossing, and is what `emerge_read_oplog`
+    /// lists; making it silently depend on a UI resource would make one call mean two things on two
+    /// screens. The person's Cmd+Z has always meant "the turn", so this gives the agent's door the
+    /// same verb rather than changing what its existing one says.
+    ///
+    /// Refused when nothing has been presented — the turn is a thing the agent declared, and with no
+    /// declaration there is nothing to take back as one.
+    #[serde(default)]
+    pub turn: bool,
     /// **Whether to preview.** `true` changes nothing.
     #[serde(default = "yes")]
     pub dry_run: bool,
@@ -1133,7 +1146,79 @@ fn operation_undo(
     mut due: Option<ResMut<crate::watch::Due>>,
     mut state: Option<ResMut<crate::editor::EditorState>>,
     mut import: Option<ResMut<crate::tiles::ImportState>>,
+    presenting: Option<Res<crate::present::Presenting>>,
 ) -> Result<Value, String> {
+    // **`turn: true` takes back what was presented (E-084)**, newest first, so the agent's door and
+    // the person's Cmd+Z take back the same amount. It is a loop over the id form rather than a
+    // second undo mechanism: each step is the same `ops::undo(ctx, Some(id))` the id form makes, and
+    // the log stays the only writer.
+    if p.turn {
+        let ids = presenting
+            .as_ref()
+            .and_then(|p| p.0.as_ref())
+            .map(|p| p.operation_ids.clone());
+        let Some(ids) = ids else {
+            return Ok(json!({
+                "operation": "undo",
+                "outcome": "refused",
+                "refusal": "nothing has been presented, so there is no turn to take back. \
+                            Present a result first, or name one change with `operation_id`.",
+            }));
+        };
+        if ids.is_empty() {
+            return Ok(json!({
+                "operation": "undo",
+                "outcome": "refused",
+                "refusal": "the presentation named no operations, so the turn changed nothing \
+                            and there is nothing to take back.",
+            }));
+        }
+        if p.dry_run {
+            return Ok(json!({
+                "operation": "undo",
+                "outcome": "previewed",
+                "turn": ids,
+                "would_take_back": ids.len(),
+            }));
+        }
+        // **Newest first**, because the log refuses a change while a newer one in the same scope is
+        // still in effect — the same order Cmd+Z walks, and the reason `group_turn` reverses.
+        let mut took_back = 0usize;
+        let mut stopped: Option<String> = None;
+        for id in ids.iter().rev() {
+            let mut ctx = take(&project, &open);
+            let undone = ops::undo(&mut ctx, Some(id));
+            put_back(&mut project, &mut open, ctx);
+            match undone {
+                Ok((_, ops::Applied::Done { outcome, .. })) => {
+                    took_back += 1;
+                    if let Some(due) = due.as_mut() {
+                        due.map_replaced |= outcome.saved;
+                    }
+                    if let Some(state) = state.as_mut() {
+                        // **Forget the change that was taken back, not the line that took it back.**
+                        // `operation_id` here is the *undo's own* new id; forgetting that leaves the
+                        // turn's group holding all three children, so the stack still reads
+                        // "placed crate@3 …, +2 …" after the turn is gone and Cmd+Z would try to
+                        // take back rows that are not there. Measured: `took_back: 3` with
+                        // `undo_depth: 1` and the group's own phrase still on the receipt row.
+                        state.forget_line(id);
+                        state.receipt_agent_change("undo", &outcome.summary);
+                    }
+                }
+                Ok((_, ops::Applied::Refused(e))) | Err(e) => {
+                    stopped = Some(format!("stopped at `{id}`: {}", e.0));
+                    break;
+                }
+            }
+        }
+        return Ok(json!({
+            "operation": "undo",
+            "outcome": if took_back == 0 { "refused" } else { "applied" },
+            "took_back": took_back,
+            "stopped": stopped,
+        }));
+    }
     if p.dry_run {
         // **A preview reads the log and plans the inverse, and writes nothing.**
         let ctx = Ctx {

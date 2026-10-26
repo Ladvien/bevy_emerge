@@ -233,3 +233,132 @@ fn a_presentation_with_no_operations_groups_nothing() {
     cmd_z(&mut app);
     assert_eq!(placed(&app), 0, "the person's edit is still undoable");
 }
+
+/// **An agent can take back the whole turn in one call (E-084).**
+///
+/// `emerge_undo_operation` with no id walks the operation **log** and takes back one logged change —
+/// which is what it says it does, and right for "undo the newest change". But a presented turn is one
+/// entry on the editor's stack (E-071), so the person's Cmd+Z took the whole turn while the agent's
+/// tool took one operation of it: **the same turn, two amounts**, depending on who asked.
+///
+/// `turn: true` is the missing verb. It takes back the presented turn's own changes, newest first,
+/// and nothing else — so the two doors agree, and an agent that wants exactly one operation still
+/// has the id form.
+///
+/// **Why a flag rather than making the default follow the stack:** an id-less undo on the *log* is
+/// well defined without a presentation, survives a door crossing, and is what `emerge_read_oplog`
+/// lists. Making it silently depend on a UI resource would make the same call mean different things
+/// on two screens.
+#[test]
+fn an_agents_tool_can_take_back_the_whole_turn() {
+    let mut app = editor("turn_agent_whole");
+    let a = apply(
+        &mut app,
+        "placement_add",
+        serde_json::json!({"piece": "crate", "at": [2.0, 2.0]}),
+    );
+    let b = apply(
+        &mut app,
+        "placement_add",
+        serde_json::json!({"piece": "crate", "at": [4.0, 2.0]}),
+    );
+    let c = apply(
+        &mut app,
+        "placement_add",
+        serde_json::json!({"piece": "crate", "at": [6.0, 2.0]}),
+    );
+    assert_eq!(placed(&app), 3);
+    call(
+        &mut app,
+        "emerge/present",
+        serde_json::json!({"title": "three", "summary": "three", "operation_ids": [a, b, c]}),
+    );
+
+    let undone = call(
+        &mut app,
+        "emerge/operation_undo",
+        serde_json::json!({"turn": true, "dry_run": false}),
+    );
+    assert_eq!(undone["outcome"], "applied", "{undone}");
+    assert_eq!(
+        placed(&app),
+        0,
+        "`turn: true` must take back the whole presented turn, the same amount Cmd+Z takes: {undone}"
+    );
+    assert_eq!(undo_depth(&app), 0, "the turn left an entry behind: {undone}");
+    // **And it says how many it took**, so an agent can report the turn rather than one change.
+    assert_eq!(
+        undone["took_back"].as_u64(),
+        Some(3),
+        "the answer must say how many changes the turn took back: {undone}"
+    );
+}
+
+/// **`turn: true` refuses when nothing has been presented**, rather than guessing at the stack.
+///
+/// "The turn" is a thing the agent declared. With no presentation there is no turn, and an undo that
+/// quietly fell back to "the newest change" would be the ambiguity this flag exists to remove.
+#[test]
+fn a_turn_undo_with_no_presentation_is_refused() {
+    let mut app = editor("turn_none_presented");
+    apply(
+        &mut app,
+        "placement_add",
+        serde_json::json!({"piece": "crate", "at": [2.0, 2.0]}),
+    );
+    let answer = call(
+        &mut app,
+        "emerge/operation_undo",
+        serde_json::json!({"turn": true, "dry_run": false}),
+    );
+    assert!(
+        answer.to_string().contains("refused"),
+        "a turn undo with nothing presented must be refused: {answer}"
+    );
+    assert_eq!(placed(&app), 1, "a refused undo changed the map");
+}
+
+/// **An agent's single-change undo still works, and leaves the rest of the turn standing.**
+///
+/// The id form and the id-less log form are unchanged; this pins that adding `turn` did not fold
+/// them into it.
+#[test]
+fn one_change_can_still_be_taken_back_on_its_own() {
+    let mut app = editor("turn_one_change");
+    let a = apply(
+        &mut app,
+        "placement_add",
+        serde_json::json!({"piece": "crate", "at": [2.0, 2.0]}),
+    );
+    let b = apply(
+        &mut app,
+        "placement_add",
+        serde_json::json!({"piece": "crate", "at": [4.0, 2.0]}),
+    );
+    let c = apply(
+        &mut app,
+        "placement_add",
+        serde_json::json!({"piece": "crate", "at": [6.0, 2.0]}),
+    );
+    call(
+        &mut app,
+        "emerge/present",
+        serde_json::json!({"title": "three", "summary": "three", "operation_ids": [a, b, c]}),
+    );
+    let undone = call(
+        &mut app,
+        "emerge/operation_undo",
+        serde_json::json!({"operation_id": null, "dry_run": false}),
+    );
+    assert_eq!(undone["outcome"], "applied", "{undone}");
+    assert_eq!(placed(&app), 2, "one logged change, one row: {undone}");
+    // **And the person's next Cmd+Z takes the remaining two**, because `forget_line` removed the one
+    // the agent took from inside the group rather than leaving a stale child behind.
+    cmd_z(&mut app);
+    assert_eq!(
+        placed(&app),
+        0,
+        "the person's next Cmd+Z must take the rest of the turn ({} left)",
+        placed(&app)
+    );
+}

@@ -98,6 +98,14 @@ pub struct UndoParams {
     /// would set.
     #[serde(default)]
     pub dry_run: bool,
+    /// **Take back the whole presented turn (E-084)**, newest change first, instead of one logged
+    /// change.
+    ///
+    /// The person's Cmd+Z has always meant "the turn"; without this the agent's tool took one
+    /// operation of it, so the same turn came back in different amounts depending on who asked.
+    /// Refused when nothing has been presented, because a turn is a thing the agent declared.
+    #[serde(default)]
+    pub turn: bool,
 }
 
 /// **The parameters of `emerge_frame_view`.**
@@ -1201,6 +1209,11 @@ impl Emerge {
                        file, the menu, or another map open; the answer names what differs), or \
                        when the change recorded no inverse. Undoing an undo puts the change back, \
                        and the change's own id takes it back again. Set dry_run to true to see what the undo would set. \
+                       Set turn to true to take back the whole result you last presented with \
+                       emerge_present, newest change first, in one call — the same amount one Cmd+Z \
+                       takes back — and the answer says how many changes it took with took_back. \
+                       turn refuses when nothing has been presented, or when the presentation named \
+                       no operations. \
                        Returns the undo's own operation id and what it set.",
         annotations(
             title = "Undo an editor operation",
@@ -1223,7 +1236,11 @@ impl Emerge {
             .editor
             .call(
                 "emerge/operation_undo",
-                json!({"operation_id": p.operation_id, "dry_run": p.dry_run}),
+                // **`turn` travels too (E-084).** The body is built by hand, so a field the
+                // editor's params grew is a field this line has to name — measured live: `turn:
+                // true` reached the editor as "unknown field `turn`", was refused, and the answer
+                // read like a one-change undo.
+                json!({"operation_id": p.operation_id, "dry_run": p.dry_run, "turn": p.turn}),
             )
             .await
         {
