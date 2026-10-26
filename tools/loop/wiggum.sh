@@ -131,11 +131,51 @@ one_pass() {
     return 1
   fi
 
+  # **A clean clone fast-forwards to origin before the pass starts, and a dirty one is left alone.**
+  # Measured 2026-10-26: a human session pushed iterations 11 and 12 to `bevy_lights` while the loop's
+  # clone sat 7 commits behind, so the pass would have redesigned a pool the human had already rebuilt
+  # — the loop's whole product is a diff, and a diff against stale code is the wrong diff. `--ff-only`
+  # and only on a clean tree: a fast-forward is the one history change that cannot lose work, and a
+  # leftover from a killed pass is never resolved automatically (that pass may be mid-thought).
+  # A clone that has diverged from origin (local commits) is reported, not merged: choosing a merge
+  # strategy is the operator's call, and a rebase is the one thing this driver must never do to a tree
+  # a loop is driving.
+  local behind=0 ff_from=0 ff_to=""
+  if [ "${dirty:-0}" -eq 0 ] && [ "${WIGGUM_NO_FETCH:-0}" != "1" ]; then
+    if git -C "$REPO" fetch --quiet origin 2>/dev/null; then
+      local upstream; upstream=$(git -C "$REPO" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
+      if [ -n "$upstream" ]; then
+        local ahead
+        ahead=$(git -C "$REPO" rev-list --count "$upstream..HEAD" 2>/dev/null || echo 0)
+        behind=$(git -C "$REPO" rev-list --count "HEAD..$upstream" 2>/dev/null || echo 0)
+        if [ "${behind:-0}" -gt 0 ] && [ "${ahead:-0}" -eq 0 ]; then
+          if git -C "$REPO" merge --ff-only "$upstream" >/dev/null 2>&1; then
+            ff_from=$behind
+            ff_to=$(git -C "$REPO" rev-parse --short HEAD)
+            behind=0
+          else
+            log "pre-pass: WARNING could not fast-forward $behind commit(s) — pass works on stale code"
+          fi
+        elif [ "${behind:-0}" -gt 0 ]; then
+          log "pre-pass: WARNING $behind behind and $ahead ahead of $upstream — diverged, left as is"
+        fi
+      fi
+    else
+      log "pre-pass: WARNING fetch failed — pass works on whatever the clone has"
+    fi
+  fi
+
   ensure_state
   local n; n=$(( $(cat "$COUNTER" 2>/dev/null || echo 0) + 1 ))
   echo "$n" >"$COUNTER"
+  # **The fast-forward is recorded against the pass it precedes**, so `pass N START … behind=7` and
+  # the reason the clone is current are adjacent lines in one log rather than in the previous pass's
+  # story. `pre-pass:` lines above this point are deliberately pass-numbered too.
+  if [ "${ff_from:-0}" -gt 0 ]; then
+    log "pass $n pre: fast-forwarded $ff_from commit(s) to $ff_to"
+  fi
   local passlog="$PASS_LOG_DIR/pass-$(printf '%04d' "$n")-$(date '+%Y%m%d-%H%M%S').log"
-  log "pass $n START command=/$COMMAND model=$MODEL dirty=$dirty"
+  log "pass $n START command=/$COMMAND model=$MODEL dirty=$dirty behind=$behind"
   # **A fresh process per pass is the whole design.** `omp -p` is one-shot: it reads the prompt,
   # does the work, exits. No `--continue`, no `--resume`, no session carried over — the repository is
   # the memory. `--model` is explicit so a pass never inherits an interactive choice.
