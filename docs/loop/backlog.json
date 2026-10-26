@@ -575,18 +575,18 @@
       "first_seen": "2026-10-25"
     },
     {
-      "id": "E-081",
+      "id": "E-082",
       "kind": "enhancement",
       "area": "wfc",
-      "title": "An agent can read the rules but still cannot change one: no operation writes rules.ron",
+      "title": "rules_set cannot check that a rule names descriptors the library has, so it can write a project that will not open",
       "must_fix": {
         "blocks": false,
         "common": false,
         "no_workaround": false,
-        "evidence": "E-073's title says 'read or change' and this iteration shipped the read: `emerge_list_rules` answers every block's fields, but changing a weight or a seed still needs a text editor. Every other project file an agent tunes has an operation (`map_set_settings`, `label_set`, `map_rename`), so rules.ron is now the only one that is read-only over MCP. `map_rename` already rewrites rules.ron's `example` strings in its own text so comments survive (ops.rs::rules_renamed), which is the pattern a `rules_set` would follow."
+        "evidence": "`Rules::validate_against(library)` is the check that refuses a rule naming a descriptor no kit provides, and `Project::open` runs it (`project.rs`). `rules_set` runs only `Rules::validate_numbers`, because the operation's `Ctx` carries no `Library` — so editing a rule to `border: Some(\"town/no_such_tile\")` is applied and the project then fails to open. The block's own numbers ARE checked (cell, attempts, footprint shape), so this is only the descriptor-id half. Found by this iteration's own review (the independent reviewer could not run)."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/rules.rs::Rules; crates/bevy_emerge_mapper/src/ops.rs::rules_renamed (the text-rewrite precedent); crates/bevy_emerge_mcp/src/main.rs::list_rules (read only)",
+      "evidence": "crates/bevy_emerge_core/src/rules.rs::validate_against; crates/bevy_emerge_mapper/src/ops.rs::rules_set (validate_numbers only); crates/bevy_emerge_mapper/src/project.rs (the open-time check)",
       "last_failure": "",
       "first_seen": "2026-10-26"
     }

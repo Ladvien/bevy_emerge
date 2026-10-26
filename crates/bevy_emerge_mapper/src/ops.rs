@@ -5507,6 +5507,60 @@ pub mod rules_set {
             format!("[{}]", rows.join(", "))
         }
 
+        /// **Where a field's `name:` starts, at the block's own depth and outside any string.**
+        ///
+        /// **Not `body.find(name)`.** A weight's `prefix` is arbitrary text, so a file holding
+        /// `weights: [(prefix: "cell:x", times: 2.0)]` contains the characters `cell:` — and a
+        /// `find` that took the first match would edit inside the prefix and leave the real field
+        /// alone. Measured: with `weights` written before `cell` in a hand-edited file, that
+        /// produced `Expected end of string` and the whole-file parse check refused the write, so
+        /// the file survived — but the operation had aimed at the wrong bytes, and the parse check
+        /// was the only thing standing between the author and a broken rules file.
+        ///
+        /// A field of [`bevy_emerge_core::rules::BlockRules`] is a depth-1 key of the block, so the
+        /// scan counts brackets and skips strings, and accepts the name only where the depth is 1.
+        fn field_at(body: &str, needle: &str) -> Option<usize> {
+            let bytes = body.as_bytes();
+            let mut depth = 0i32;
+            let mut in_string = false;
+            let mut escaped = false;
+            let mut i = 0;
+            while i < bytes.len() {
+                let c = bytes[i] as char;
+                if in_string {
+                    if escaped {
+                        escaped = false;
+                    } else if c == '\\' {
+                        escaped = true;
+                    } else if c == '"' {
+                        in_string = false;
+                    }
+                    i += 1;
+                    continue;
+                }
+                match c {
+                    '"' => in_string = true,
+                    '(' | '[' => depth += 1,
+                    ')' | ']' => depth -= 1,
+                    // **A name at depth 1 is this block's own field.** The block's opening `(` is
+                    // depth 1, and every nested value — a `weights` row, a `size` pair — is deeper.
+                    _ if depth == 1 && body[i..].starts_with(needle) => {
+                        // Only a real key: the character before must not be part of a longer name.
+                        let before = body[..i].chars().next_back();
+                        let boundary = before.is_none_or(|b| {
+                            !(b.is_alphanumeric() || b == '_' || b == ':')
+                        });
+                        if boundary {
+                            return Some(i);
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            None
+        }
+
         /// **Replace one field's value inside a block's text**, or say the field is not there.
         ///
         /// The value runs from after `name:` to the comma that ends it **at the field's own nesting
@@ -5514,8 +5568,7 @@ pub mod rules_set {
         /// not the end. Quotes are skipped, so a prefix containing a comma or a bracket is safe.
         fn set_field(body: &mut String, name: &str, value: &str) -> Result<(), String> {
             let needle = format!("{name}:");
-            let at = body
-                .find(&needle)
+            let at = Self::field_at(body, &needle)
                 .ok_or_else(|| format!("the block states no `{name}` to replace"))?;
             let from = at + needle.len();
             let bytes = body.as_bytes();

@@ -271,9 +271,159 @@ fn a_change_and_its_undo_leave_the_file_unchanged() {
     );
 }
 
+
+/// **A field name inside a quoted string is not the field.**
+///
+/// `set_field` finds a field by its `name:`. A weight prefix is arbitrary text, so a file holding
+/// `weights: [(prefix: "cell:x", times: 2.0)]` contains the characters `cell:` inside a string —
+/// and a `set_field("cell", …)` that matched there would replace part of a prefix and leave the
+/// real `cell` alone, producing a file the editor cannot open. This is the corruption case the
+/// surgery has to survive, and it is a test rather than a comment because the failure is silent.
+#[test]
+fn a_field_name_inside_a_prefix_does_not_hijack_the_write() {
+    const TRICKY: &str = "(version: 1, blocks: [(example: \"m\", regions: [], cell: 2.0, \
+size: (4, 4), border: None, no_empty: true, \
+weights: [(prefix: \"cell:x\", times: 2.0)], footprints: [], attempts: 8, seed: 7)])\n";
+    // **The order matters and that is the point.** `cell:` appears before `weights:` in a file
+    // written by the editor, so `find` takes the real one. A hand-edited file can put `weights`
+    // first, and then the same characters are the ones `find` reaches. Both orders are run, because
+    // only the second one exercises the hazard.
+    const TRICKY_WEIGHTS_FIRST: &str = "(version: 1, blocks: [(example: \"m\", regions: [], \
+weights: [(prefix: \"cell:x\", times: 2.0)], cell: 2.0, size: (4, 4), border: None, \
+no_empty: true, footprints: [], attempts: 8, seed: 7)])\n";
+    let root = fixtures::Fixture::new("rules_tricky")
+        .side(8.0)
+        .descriptor("alpha", "alpha")
+        .rules(TRICKY)
+        .build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
+    app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
+    for _ in 0..8 {
+        app.update();
+    }
+    let reply = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({"operation": "rules_set", "parameters": {"example": "m", "cell": 3.0}, "dry_run": false}),
+    );
+    assert!(!reply.to_string().contains("refused"), "refused: {reply}");
+    let rules = bevy_emerge_core::rules::Rules::parse(
+        &std::fs::read_to_string(
+            app.world().resource::<Project>().project_dir.join("rules.ron"),
+        )
+        .expect("on disk"),
+    )
+    .expect("the rewrite must still parse");
+    assert_eq!(rules.blocks[0].cell, 3.0, "the cell was not changed: {reply}");
+    assert_eq!(
+        rules.blocks[0].weights[0].prefix, "cell:x",
+        "the prefix was corrupted by a field-name match inside it: {reply}"
+    );
+
+    // **And with the weights first**, where a naive `find` reaches the prefix before the real field.
+    let root = fixtures::Fixture::new("rules_tricky_order")
+        .side(8.0)
+        .descriptor("alpha", "alpha")
+        .rules(TRICKY_WEIGHTS_FIRST)
+        .build("m");
+    let mut app = harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    app.add_plugins(bevy_debugger_bevy::DebuggerPlugin::default());
+    app.add_plugins(bevy_emerge_mapper::ops_brp::OpsBridgePlugin);
+    for _ in 0..8 {
+        app.update();
+    }
+    let reply = call(
+        &mut app,
+        "emerge/operation_apply",
+        serde_json::json!({"operation": "rules_set", "parameters": {"example": "m", "cell": 3.0}, "dry_run": false}),
+    );
+    let text = std::fs::read_to_string(
+        app.world().resource::<Project>().project_dir.join("rules.ron"),
+    )
+    .expect("on disk");
+    let rules = bevy_emerge_core::rules::Rules::parse(&text)
+        .unwrap_or_else(|e| panic!("the rewrite must still parse: {e}\n{text}"));
+    assert_eq!(rules.blocks[0].cell, 3.0, "the cell was not changed: {reply}");
+    assert_eq!(
+        rules.blocks[0].weights[0].prefix, "cell:x",
+        "the prefix was corrupted by a field-name match inside it: {text}"
+    );
+}
+
 fn reply_is_applied(reply: serde_json::Value) {
     assert!(
         !reply.to_string().contains("refused"),
         "the operation was refused: {reply}"
+    );
+}
+
+/// **The seed field takes the keyboard while it is open (E-081).**
+///
+/// `editor::Fields::typing` is the ONE place a text field is registered, and its own doc says
+/// *"Adding a field is adding a line, here and nowhere else."* A field missing from it does not merely
+/// fail to swallow its keys: `Phase::Text` runs before `Phase::Act`, so the field edits and the Map's
+/// verb fires on the same keystroke — `N` renames the map, `R` turns the piece under the cursor, `K`
+/// reopens this very field on top of itself.
+///
+/// **This test exists because the first draft missed the line.** It was found by this iteration's own
+/// review, not by a failure, which is the worse way to find it: nothing on screen looks wrong while a
+/// seed is typed, and the damage is a second change the author never asked for.
+#[test]
+fn the_seed_field_holds_the_keyboard_while_it_is_open() {
+    use bevy::input::ButtonState;
+    use bevy::input::keyboard::Key;
+    use bevy_emerge_mapper::editor::EditorState;
+
+    let mut app = editor("rules_typing_guard");
+    let before = rules_text(&app);
+    // The field is open, as `K` leaves it.
+    app.world_mut().resource_mut::<EditorState>().rule_seed = Some(String::new());
+    app.update();
+
+    // **`N` is `rename_map` on the Map** and a letter a seed cannot hold, so it isolates the guard:
+    // if the field holds the keyboard the map's name is untouched and the field stays empty.
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        app.world_mut().write_message(bevy::input::keyboard::KeyboardInput {
+            key_code: KeyCode::KeyN,
+            logical_key: Key::Character("n".into()),
+            state,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+    }
+    app.update();
+    app.update();
+
+    let state = app.world().resource::<EditorState>();
+    assert!(
+        state.rule_seed.is_some(),
+        "the seed field lost the keyboard: typing closed it"
+    );
+    assert_eq!(
+        state.rule_seed.as_deref(),
+        Some(""),
+        "a letter is not a digit, so the field takes it and holds nothing — but it must not close"
+    );
+    // **The rename verb's own prompt, word for word.** The first version of this test looked for
+    // `"renam"` and passed without the guard in place, because `rename_keys` says *"type a new name
+    // for …"* — the substring was never there, so the assertion could not fail. A test that cannot
+    // fail is worse than no test, and this one was caught by reverting the fix and watching it stay
+    // green.
+    assert!(
+        !state.status.note_text().contains("type a new name"),
+        "the rename verb answered while the seed field held the keyboard: `{}`",
+        state.status.note_text()
+    );
+    assert_eq!(
+        app.world().resource::<Project>().open_map_name.as_deref().map(str::to_owned),
+        Some("m".to_owned()),
+        "a letter typed into the seed field renamed the map"
+    );
+    assert_eq!(
+        rules_text(&app),
+        before,
+        "a letter typed into the seed field wrote to the rules file"
     );
 }

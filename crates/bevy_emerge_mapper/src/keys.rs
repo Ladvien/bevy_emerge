@@ -1600,10 +1600,10 @@ pub const BINDINGS: &[Binding] = &[
     .at(Home::Control(ControlId::Title)),
     b(
         Action::SetRule,
-        KeyCode::KeyK,
+        KeyCode::KeyL,
         false,
         Context::Map,
-        "K",
+        "L",
         "set the rule seed",
     )
     .at(Home::Control(ControlId::Title)),
@@ -3698,6 +3698,7 @@ mod tests {
             Action::ShowErrors,
             Action::Snip,
             Action::FrameView,
+            Action::SetRule,
         ];
         assert_eq!(
             actions.len(),
@@ -4306,7 +4307,12 @@ mod tests {
             // `emerge/frame_view` uses, and it writes no undo entry. Home is bound on the Control's
             // anchor, not the legend, which already carries eight badges.
             // **One new key, deliberately:** `P`.
-            (Context::Map, 30),
+            // 30 -> 31: `SetRule` (E-081), on `L`. An agent could change a rule and a person could
+            // not, which the parity test refuses by name; `L` was bound in no context, and the
+            // collision ratchet is what found that `K` was already taken by a `Global` Shortcuts
+            // row. `L` sits on the Control anchor beside `N` (rename) and `P` (frame), which are the
+            // three verbs about the whole map rather than the piece under the cursor.
+            (Context::Map, 31),
             // 31 -> 32: `ExcludePack`. The importer scans every `.glb` under `assets/`, which is
             // right for finding art and wrong for offering it — a labelling batch spent its tenth
             // call of 778 describing `characters/cipher_field`, a character rig that could not be

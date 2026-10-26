@@ -1357,6 +1357,22 @@
       "evidence": "crates/bevy_emerge_mcp/src/main.rs::list_rules (emerge_list_rules); crates/bevy_emerge_mcp/tests/an_agent_calls_the_server.rs::an_agent_can_read_the_rules_a_layout_is_generated_from and a_broken_rules_file_is_refused_by_name (both failed before, pass after); live on Sanctuary's own rules.ron: 1 block, cell 2.0, size [17,17], border town/street, weights [(town/house_, 100.0)], attempts 64, seed 600",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-081",
+      "kind": "enhancement",
+      "area": "wfc",
+      "title": "An agent can read the rules but still cannot change one: no operation writes rules.ron",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "E-073's title says 'read or change' and this iteration shipped the read: `emerge_list_rules` answers every block's fields, but changing a weight or a seed still needs a text editor. Every other project file an agent tunes has an operation (`map_set_settings`, `label_set`, `map_rename`), so rules.ron is now the only one that is read-only over MCP. `map_rename` already rewrites rules.ron's `example` strings in its own text so comments survive (ops.rs::rules_renamed), which is the pattern a `rules_set` would follow."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::rules_set (cell/seed/attempts/no_empty/weights, text surgery, Undo::Inverse); crates/bevy_emerge_mapper/tests/a_rule_can_be_changed.rs (7 tests, all failing before); the K seed field in editor.rs and the parity table; live on Sanctuary's rules.ron: seed 1234 and times 50.0 written, every other byte identical, undo byte-for-byte",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
     }
   ]
 }

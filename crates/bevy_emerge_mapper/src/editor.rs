@@ -211,7 +211,10 @@ pub struct EditorState {
     renaming: Option<String>,
     /// The raw text being typed into the rule's seed, or `None` when not editing it. Raw for the
     /// same reason `renaming` is: a backspace undoes a keystroke, not a transform's insertion.
-    rule_seed: Option<String>,
+    ///
+    /// **Public, as `grouping` is**, so a test can open the field and prove the typing guard holds —
+    /// the one property of a text field that no screenshot can show.
+    pub rule_seed: Option<String>,
     /// What can be undone, most recent last. See [`Undo`].
     undo: Vec<Undo>,
     /// What has been undone and can be put back, most recent last.
@@ -4410,6 +4413,12 @@ impl Fields<'_> {
     /// Is one of them taking keys right now? Adding a field is adding a line, here and nowhere else.
     pub fn typing(&self) -> bool {
         self.state.renaming.is_some()
+            // **The rule seed field (E-081).** Found by this iteration's own review: without this
+            // line, typing `1234` into the seed sent `1` through `Map`'s actions and nothing
+            // visible happened, but a seed containing a letter-ish key would have fired that verb
+            // — `R` turns, `N` renames, `K` reopens this very field. The list is the ONE place a
+            // field is registered, and a field missing from it is a field whose keys act twice.
+            || self.state.rule_seed.is_some()
             || self.state.pinning.is_some()
             // **`grouping` was missing here**, so naming a captured composition also dispatched Map
             // actions for every letter typed — `corner` fired aim, turn, rename-map and turn-view.
