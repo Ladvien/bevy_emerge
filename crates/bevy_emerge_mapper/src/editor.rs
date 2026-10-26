@@ -3850,7 +3850,14 @@ pub fn resolve_frame(
     open: &OpenMap,
     lock: Option<&str>,
 ) -> Result<Framing, String> {
-    let ys = heights(project, open)?;
+    // **Resolved only by the targets that ask a piece's height.** The whole map's box is the floor plan
+    // and the map's own height span (`map_bounds`), so a stack that does not resolve is not this
+    // question's to answer: asking it anyway left a well-formed map unframed on the 18 m close-up.
+    let ys = match target {
+        FrameTarget::Map => None,
+        _ => Some(heights(project, open)?),
+    };
+    let ys = ys.as_deref().unwrap_or(&[]);
     let (what, centre, size) = match target {
         FrameTarget::Map => {
             let (c, s) = map_bounds(open);
@@ -3860,14 +3867,14 @@ pub fn resolve_frame(
             let id = lock.ok_or(
                 "nothing is selected: click a placement on the Map to lock it, or name placements or a rectangle",
             )?;
-            let (c, s) = named_box(project, open, &ys, &[id.to_string()])?;
+            let (c, s) = named_box(project, open, ys, &[id.to_string()])?;
             (format!("the selected placement `{id}`"), c, s)
         }
         FrameTarget::Placements(ids) => {
             if ids.is_empty() {
                 return Err("no placements named: give at least one placement id".to_string());
             }
-            let (c, s) = named_box(project, open, &ys, ids)?;
+            let (c, s) = named_box(project, open, ys, ids)?;
             let names = ids
                 .iter()
                 .map(|id| format!("`{id}`"))
@@ -3893,7 +3900,7 @@ pub fn resolve_frame(
             let ground = Vec3::new(o.0 + (x0 + x1) * 0.5, o.1, o.2 + (z0 + z1) * 0.5);
             let plan = Vec3::new(x1 - x0, 0.0, z1 - z0);
             let inside = (0..open.map.placements.len())
-                .filter_map(|i| placed_box(project, open, &ys, i))
+                .filter_map(|i| placed_box(project, open, ys, i))
                 .filter(|(c, s)| {
                     c.x + s.x * 0.5 > o.0 + x0
                         && c.x - s.x * 0.5 < o.0 + x1

@@ -1453,6 +1453,22 @@
       "evidence": "crates/bevy_emerge_mapper/src/steps.rs (from_oplog, unreadable_lines); crates/bevy_emerge_mapper/src/notice.rs (record_steps, the painted section); tests/an_agents_steps_are_on_screen.rs (6 tests) and tests/the_journal_draws_the_agents_steps.rs (the surface)",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "B-018",
+      "kind": "bug",
+      "area": "view",
+      "status": "fixed",
+      "title": "A map whose stacking does not resolve opens unframed on the 18 m close-up",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "reviewer P3 of the E-022 iteration (docs/loop/iterations/2026-10-21-view-b51da72.md): the open-framed path resolves the whole map through resolve_frame, which needs stack heights; when stacking fails it shows the stacking toast and leaves the old close-up"
+      },
+      "evidence": "Fixed anyway (not must-fix by the reviewer's three questions, but a two-line contained fix): crates/bevy_emerge_mapper/src/editor.rs `resolve_frame` now resolves heights only for the targets that ask a piece's height — `FrameTarget::Map` reads `map_bounds`, which is the floor plan and the map's own height span and asks the stack nothing. Regression check tests/a_map_whose_stack_does_not_resolve_still_frames.rs::the_whole_map_frames_even_when_the_stack_does_not_resolve fails before with `map: `lamp@2` needs a `worktop` surface and rests on `desk@1`, which offers none. A piece that does not offer the class cannot hold it up.` and passes after (all eight corners of a 1120 m map's box inside the camera's orthographic area); ::a_piece_on_an_unresolvable_stack_still_refuses_a_frame keeps the refusal a piece still owes, so the fix cannot widen into 'framing never fails'.",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
     }
   ]
 }
