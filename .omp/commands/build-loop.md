@@ -1,0 +1,258 @@
+---
+description: One build-loop pass on bevy_emerge. Fix confirmed bugs, ship at most one verified enhancement with visual proof, leave the tree pushed and green, then stop. Designed to be run headless in a Wiggum loop on big with DeepSeek 4.1 Flash — every pass starts from a fresh context and its only memory is the repo.
+argument-hint: "[optional focus area, e.g. compositions | wfc | labeller | tile-kits | maps]"
+disable-model-invocation: true
+---
+
+# bevy_emerge: one build-loop pass
+
+You are one pass of a **Wiggum loop**: a dumb outer shell reruns this same prompt forever, in the
+background, with no memory carried between passes. **Everything you know about previous passes is in the
+repository** — the backlog, the log, the reports and git history. Read it, do one pass, leave the tree
+better and pushed, stop. The loop will start again in a minute whether or not you finished, so a pass
+that leaves rubbish behind compounds; a pass that stops early and cleanly costs one cycle.
+
+**This command replaces `emerge-feature-loop`.** The differences are not cosmetic: a protected evaluator,
+a fresh-context rule, a hard budget, and a headless mode that must work with no keyboard, no Sanctuary
+and no GPU.
+
+## Non-negotiables
+
+1. **Evidence over claims.** Every claim in your report points to something a reviewer can re-run or open: a command and its output, a test name, a file, or a frame index.
+2. **Deterministic checks gate everything.** Build, clippy, tests, the parity test, and the protected checks must pass. No reviewer opinion, VLM judgment, or screenshot overrides a failing check.
+3. **Never weaken a check to pass it.** Do not edit, skip, or loosen tests, assertions, golden images, or protected checks to make them pass. Any diff to test code must be justified in the report.
+4. **At most one enhancement per pass, or one step of the open series — and shipping nothing is allowed.** If you cannot verify it, commit only the bug fixes, log what blocked you, and stop.
+5. **Stop on repeated failure.** If two attempts at the same step fail, stop, log your hypothesis and the evidence, and end the pass.
+6. **Human work is sacrosanct.** Never modify or delete real user content, and never let an agent operation change human-authored or locked regions unless that operation explicitly targets them.
+7. **Content is data, and data hot-reloads.** Anything a developer or agent authors or tunes is data. It changes in the running editor through MCP/BRP or by editing a file, takes effect in about a second, and needs no recompile or restart.
+8. **Publishing is irreversible.** Never publish, tag, yank, or change crate ownership from this loop. E-006 is open and publication is the human's decision.
+9. **The evaluator is not yours to edit.** See the next section. This is the rule the research is most emphatic about and the one a Wiggum loop most needs.
+
+## The protected evaluator
+
+**A loop that can edit its own tests and scoring converges on passing the tests, not on being right** —
+and the difference is invisible from inside the loop. So these paths are **read-only** to this pass:
+
+| Protected | Why |
+|---|---|
+| `tools/loop/accept.py`, `perf.py`, `common.py`, `backlog.py`, `test_accept.py` | the scoreboard and the harness that produces it |
+| `crates/*/tests/**`, `crates/*/src/**/#[cfg(test)]` blocks | the assertions |
+| `docs/loop/log.md`'s earlier lines, `docs/loop/iterations/**` | the record a pass is judged against |
+| `.omp/commands/build-loop.md` | this file |
+
+**What you may write:** `docs/loop/backlog.json` (status and evidence fields), new files under
+`docs/loop/iterations/`, new test files, and product code.
+
+**If a protected file must change to make the pass work, stop.** Write the reason into the backlog with
+`status: "blocked"`, commit only what is safe, and end the pass. A human runs an *evaluator pass*
+separately. Do not reason your way to an exception; the value of the rule is that it has none.
+
+**Append, never rewrite.** `docs/loop/log.md` is append-only: add your line at the bottom and do not
+touch another pass's.
+
+## Budget — a pass is 45 minutes of work, then stop
+
+The Wiggum loop starts the next pass regardless, so **running long does not buy progress; it produces an
+unpushed half-diff**. This is the single most common way a headless pass goes wrong.
+
+- **Orient:** 5 minutes.
+- **Fix or build:** 25 minutes.
+- **Prove and ship:** 15 minutes.
+
+**Checkpoints, in this order, and take the earliest one you reach as you run out of time:**
+
+| At | If time is short |
+|---|---|
+| 20 min | Commit the verified bug fixes only; log the enhancement as open; stop. |
+| 30 min | Commit the enhancement if its gate is green, without a report; log the report as owed; stop. |
+| 40 min | Finish the commit and push. **Never leave the tree uncommitted.** |
+| 45 min | Stop. The next pass continues. |
+
+A pass that leaves a clean, pushed, green tree having done *nothing* is a success. A pass that leaves a
+broken tree having done a lot is a failure the next pass must clean up first.
+
+## Phase 0: Orient (5 minutes, no more)
+
+- `git status --short` and `git log --oneline -10`. **If the tree is dirty, that is the first bug** — a
+  previous pass died mid-edit. Finish it, revert only your own pass's edits, or commit what is safe.
+- Read `docs/loop/backlog.json` (open items), `AGENTS.md`, and the **last 3** entries of
+  `docs/loop/log.md`. Not more: the log is long and the pass is 45 minutes.
+- `python3 tools/loop/backlog.py check`.
+- Record `uptime`, `df -h /`, `free -g`. On a machine with fewer than 20 GB free or under 4 GB available
+  RAM, run tests with `-- --test-threads=4` and **do not start a build you cannot finish** — see
+  "Machines" below.
+
+**Do not read the whole loop log, the whole backlog archive, or the iteration reports.** They are for
+humans and for grepping a specific fact. A pass that spends 20 minutes reading has failed.
+
+## Machines — where a pass may run
+
+Two machines run this loop, and they can do different things. **Say which one you are on in the report.**
+
+| | laptop (`mac_air`) | big |
+|---|---|---|
+| `cargo build/test/clippy` | yes | yes (24 cores, but see RAM) |
+| `accept.py` | yes, `--source ~/sanctuary/assets` → **11/11** | yes, `--source <repo>/assets` → **10/10** (no `import` step: the golem fixture is not there) |
+| `perf.py` | yes | **no**: it times a live editor and the harness needs a display |
+| Launching the editor / stills / sequences | yes | **no GPU display** — do not attempt |
+| Sanctuary's own `cargo test` | yes | **Sanctuary is not on big** |
+
+**On big, `accept.py --source <repo>/assets` measuring 10/10 is the headline number.** It is the same
+script and the same steps; only `import` is missing. Compare like with like: a pass on big compares with
+the previous *big* run, not with the laptop's 11.
+
+**Big's checkout must be a real clone, not an rsync target.** If `git status --short` shows double-digit
+modified files at a stale commit, the tree is somebody's scratch: stop, log it, and do not commit there.
+
+## Phase 1: Bugs (bounded)
+
+Candidates, in order: open bugs in `backlog.json`; red/flaky checks and clippy; parity breaks (a UI path
+that changes state outside the registry, an operation with no MCP tool or no UI entry); a hands-on MCP
+pass.
+
+**Reproduce before fixing**, and decide must-fix with the three questions — **Blocks**, **Common**, **No
+workaround**. Must-fix if Blocks, or any two. Borderline? Ask a fresh-context subagent given only the
+evidence; if the two disagree, treat it as must-fix and say so.
+
+**Write the regression check first and watch it fail.** For ECS logic a minimal `App` with the plugin,
+`update()`, and an assertion is usually enough. Never `git stash` or `git checkout --` over uncommitted
+work to make a "before" — a worktree at the base commit is the only honest baseline.
+
+**Triage a red test before blaming it.** Rerun the binary alone; if it passes alone, run it at the base
+commit in its own `CARGO_TARGET_DIR`. A failure the base shares is pre-existing: log it, do not attribute
+it to this pass.
+
+## Phase 2: Choose the enhancement
+
+If an open `series` exists, take its next open step and skip the list.
+
+Propose 2–3 candidates drawn from the backlog, from friction in Phase 1, or from the lenses below. One
+line each: the user problem, how often it is hit, the expected saving, the risk. Rank, pick one, record
+the others in the backlog.
+
+**Lenses**, and the research says which are already answered:
+
+- **Describe → set up → inspect → present.** Where does manual work or unverified output get in the way?
+- **Constraints, not coordinates** *(research #2 — not built)*. An agent placing pieces by number
+  produces collisions and out-of-bounds layout; a relational constraint graph that a solver satisfies
+  does not, and it is readable and editable before it runs. **This repo has the solver and no constraint
+  layer.** A `layout_constrain` taking relations (`in front of`, `reachable from`, `clear in front of`,
+  `faces`, `along path`, `visible from`), stored as data beside the map, reporting which soft constraints
+  it could not satisfy, is the largest unbuilt item in the research and the best single candidate.
+- **A small, searchable tool surface** *(research #3 — partially built)*. 14 tools today, and
+  tool-selection accuracy falls off past ~10–30. Every new capability must go through generic apply, not a
+  new tool; if the count grows, the tool to build is a capability *search*, not a fifteenth tool.
+- **Kit admission rules from shipped practice** *(research #4 — not built)*. Project-wide standards
+  (door frame, minimum passage ≈ 2× capsule, max slope, floor thickness) as data every kit conforms to;
+  automated kit stress tests (loop a hallway back, stack sub-kits, build a pillared room from hall
+  pieces); no patch-up pieces; integer-multiple sub-kit footprints.
+- **Role-weighted repetition** *(research #5)*. Repeated clutter bothers players more than repeated
+  structure; a repetition metric should weigh by role.
+- **Graybox first** *(research #6, narrowed)*. Staged whole-world generation is **dropped** — the
+  developer builds in turns. What survives: graybox pieces, and a generator that only runs inside the
+  request's anchor region.
+- **Per-turn measurement** *(research #7–#9, per the addendum)*. Seeds, judges and personas measure a
+  **turn**, not a finished world. Every session re-checks earlier turns' assertions after a new turn
+  (preservation), and each turn is marked `expect: Act` or `expect: Ask` — asking too often fails as
+  surely as asking too rarely.
+- **Options on request** *(research #10, narrowed)*. "Show me three courthouses" — not automatic variety.
+- **Agent self-inspection, data hot reload, responsiveness, expressiveness.** As before.
+
+**Not candidates:** refactors with no user-visible effect, new subsystems, dependency upgrades, or
+save-format changes without a migration.
+
+## Phase 3: Build
+
+Follow existing patterns; reuse the theme and widgets. A new user action is a registered operation, with
+preview and undo declared, and both front ends dispatch it. Keep the diff to the plan; if it must grow,
+stop and re-scope rather than run long.
+
+## Phase 4: Prove it
+
+1. **Deterministic gate.** Build, clippy `-D warnings`, `cargo test --workspace`, the parity test, and
+   `backlog.py check`. The plan's check failed before and passes after; quote the failing assertion.
+2. **Visual proof**, where a surface changed: stills and a sequence, reviewed against a reference. On big
+   this is impossible — say so and fall back to a layout assertion on `Text`/`ComputedNode` entities,
+   which is stronger than a capture for "is it drawn".
+3. **`accept.py` before and after**, same machine, same source. A pass that lowers `reached` is a bug.
+4. **Independent review** — one `reviewer` subagent over the diff. **If it cannot be spawned (a rate limit,
+   no model), say so in one line and continue**: a Wiggum loop that stops for an unavailable reviewer
+   stops forever. Five consecutive passes have already lost it to a cloud 429.
+5. **Self-review fallback** when the reviewer could not run: answer the five questions you would have given
+   it, in the report, and say they are yours.
+
+## Phase 5: Ship, report, stop
+
+- Commit as `feat(<area>): <user-visible change>` or `fix(<area>): …`, with a body carrying the problem,
+  the change and where the evidence is.
+- **Push.** A pass that does not push has hidden its work from every later pass. `git push` to the loop
+  branch; merge to `main` only if the gate is green and `docs/PROJECT.md`'s conventions allow it.
+- Write `docs/loop/iterations/<date>-<area>-<short-sha>.md` from the template below, **short**: a pass
+  that runs long and writes a 200-line report has spent the next pass's budget on prose.
+- Append one line to `docs/loop/log.md`. Append only.
+- Update `backlog.json`; `python3 tools/loop/backlog.py archive`, then `check`.
+- **Do not release.** E-006 stays open; write "no release: E-006 open".
+
+## Guardrails
+
+- Never modify or delete real user content. Test on scratch copies.
+- Close an editor you launched by its pid; never `pkill` by name.
+- No destructive git: no `reset --hard`, no force push, no history rewriting, no deleting branches or tags.
+- Never yank, republish, or edit crates.io settings.
+- Do not add dependencies without a logged reason.
+- Never loop live VLM calls; use recorded or fixture responses.
+
+## Report template (keep it short)
+
+```markdown
+# YYYY-MM-DD <area>: <one-line outcome>
+
+Focus: <area> · Commits: <sha>..<sha> · Machine: <laptop|big> · Outcome: shipped | fixes only | nothing shipped
+
+## Summary
+Two or three sentences.
+
+## Baseline
+Gate: <status>. `accept.py`: <k>/<of> on <source>. Load <n>, free disk <n> GB, available RAM <n> GB.
+
+## Bugs fixed
+### B-###: <title>
+Must-fix: blocks <y/n>, common <y/n>, no workaround <y/n> — <evidence>
+Root cause: … · Regression check: `path::test_name` (failed before, passes after)
+
+## Enhancement: <title>
+Goal: one sentence · Files: … · Proof: <check that failed before>
+MCP: operations/tools added or changed, undo strategy, preview behaviour
+
+## Borrowed from Mixar
+The six-line behaviour note, or "none".
+
+## Performance
+`perf.py` before → after, or "not measured" and why.
+
+## Acceptance
+`reached <k>/<m> → <k>/<m>`; first failure `<id>`.
+
+## Review
+Reviewer ran / could not run and why; the five questions and what each found.
+
+## Test diffs
+Every change to test code and its justification, or "none".
+
+## Release
+No release: E-006 open.
+
+## Next focus
+One line.
+```
+
+## Before you stop
+
+- [ ] The tree is clean and **pushed**.
+- [ ] Every deterministic check passes, or the pass is logged as blocked with the failure quoted.
+- [ ] No protected file was edited.
+- [ ] `accept.py` ran before and after on the same machine and source.
+- [ ] One enhancement at most, with a check that failed before and passes after.
+- [ ] The report, the LOG line and the backlog are committed.
+- [ ] Nothing was published, tagged or yanked.
+- [ ] You stopped inside the budget.
