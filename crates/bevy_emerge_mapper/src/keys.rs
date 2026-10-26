@@ -633,6 +633,10 @@ enumerated! {
     /// Arm the move tool: click a piece to pick it up, click again to put it down.
     MoveMode,
     RenameMap,
+    /// **Set the open map's rule seed**, the person's half of `rules_set` (E-081). `K` opens a
+    /// one-number field; Enter dispatches the operation, so a person tuning a rule and an agent
+    /// calling `rules_set` are one change with one undo.
+    SetRule,
     /// Put the steered thing back to the rotation and tip it was authored at — same subject as
     /// [`Action::TurnPieceLeft`].
     Straighten,
@@ -889,6 +893,7 @@ impl Action {
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::RenameMap => Some("map_rename"),
+            Action::SetRule => Some("rules_set"),
             Action::Remove => Some("placement_remove"),
             Action::SwitchDoor | Action::TabSlot1 | Action::TabSlot2 | Action::TabSlot3 => {
                 Some("door_open")
@@ -1591,6 +1596,15 @@ pub const BINDINGS: &[Binding] = &[
         Context::Map,
         "N",
         "rename map",
+    )
+    .at(Home::Control(ControlId::Title)),
+    b(
+        Action::SetRule,
+        KeyCode::KeyL,
+        false,
+        Context::Map,
+        "L",
+        "set the rule seed",
     )
     .at(Home::Control(ControlId::Title)),
     b(
@@ -3684,6 +3698,7 @@ mod tests {
             Action::ShowErrors,
             Action::Snip,
             Action::FrameView,
+            Action::SetRule,
         ];
         assert_eq!(
             actions.len(),
@@ -4292,7 +4307,12 @@ mod tests {
             // `emerge/frame_view` uses, and it writes no undo entry. Home is bound on the Control's
             // anchor, not the legend, which already carries eight badges.
             // **One new key, deliberately:** `P`.
-            (Context::Map, 30),
+            // 30 -> 31: `SetRule` (E-081), on `L`. An agent could change a rule and a person could
+            // not, which the parity test refuses by name; `L` was bound in no context, and the
+            // collision ratchet is what found that `K` was already taken by a `Global` Shortcuts
+            // row. `L` sits on the Control anchor beside `N` (rename) and `P` (frame), which are the
+            // three verbs about the whole map rather than the piece under the cursor.
+            (Context::Map, 31),
             // 31 -> 32: `ExcludePack`. The importer scans every `.glb` under `assets/`, which is
             // right for finding art and wrong for offering it — a labelling batch spent its tenth
             // call of 778 describing `characters/cipher_field`, a character rig that could not be

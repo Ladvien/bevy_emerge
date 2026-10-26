@@ -209,6 +209,12 @@ pub struct EditorState {
     /// keystroke rather than an underscore the transform inserted, and "Site 67" reads back as
     /// `site_67` while it is still being typed.
     renaming: Option<String>,
+    /// The raw text being typed into the rule's seed, or `None` when not editing it. Raw for the
+    /// same reason `renaming` is: a backspace undoes a keystroke, not a transform's insertion.
+    ///
+    /// **Public, as `grouping` is**, so a test can open the field and prove the typing guard holds —
+    /// the one property of a text field that no screenshot can show.
+    pub rule_seed: Option<String>,
     /// What can be undone, most recent last. See [`Undo`].
     undo: Vec<Undo>,
     /// What has been undone and can be put back, most recent last.
@@ -1099,6 +1105,7 @@ impl Default for EditorState {
             grouping: None,
             replacing: None,
             renaming: None,
+            rule_seed: None,
             undo: Vec::new(),
             redo: Vec::new(),
             refused_undo: 0,
@@ -1331,6 +1338,8 @@ pub struct TriangleTotal;
 #[derive(Component, Clone, Copy, PartialEq)]
 enum Field {
     Name,
+    /// **The open map's rule seed**, typed on `K` and committed through `rules_set` (E-081).
+    Rule,
     Brush,
     Yaw,
     Map,
@@ -1379,6 +1388,7 @@ impl Field {
         match self {
             Field::Edges => "EDGES",
             Field::Name => "NAME",
+            Field::Rule => "RULE",
             Field::Brush => "BRUSH",
             Field::Yaw => "YAW",
             Field::Map => "MAP",
@@ -1569,6 +1579,7 @@ impl Plugin for EditorPlugin {
                     // **The fields run last and the actions run first**, so no census action can
                     // fire on a keystroke a field has already swallowed. See `keys::Phase`.
                     rename_keys.in_set(keys::Phase::Text),
+                    rule_seed_keys.in_set(keys::Phase::Text),
                     // Nested: the tuple is at Bevy 0.19's cap of 20. The two typed fields that ask
                     // a question about a piece — why it is pinned, what a group is called — ride
                     // together in `Phase::Text`.
@@ -2358,6 +2369,9 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
             .with_children(|s| {
                 for field in [
                     Field::Name,
+                    // **The rule seed (E-081) sits under the name**, because both are one value the
+                    // author types about the whole map: what it is called, and what generates it.
+                    Field::Rule,
                     Field::Brush,
                     Field::Yaw,
                     Field::Map,
@@ -4244,6 +4258,14 @@ fn refresh_status(
                 ),
                 None => (open.map.name.clone(), TEXT),
             },
+            Field::Rule => match &state.rule_seed {
+                // A caret, so an empty field reads as "waiting for you".
+                Some(raw) => (format!("{raw}_"), ACCENT),
+                None => (
+                    rule_seed_of(Some(&project), &open.map.name),
+                    TEXT,
+                ),
+            },
             Field::Brush => (brush.to_owned(), TEXT),
             // ACCENT while something is under the cursor, because it is a live answer that changes
             // as the mouse moves — the same colour the name field uses while it is being typed.
@@ -4391,6 +4413,12 @@ impl Fields<'_> {
     /// Is one of them taking keys right now? Adding a field is adding a line, here and nowhere else.
     pub fn typing(&self) -> bool {
         self.state.renaming.is_some()
+            // **The rule seed field (E-081).** Found by this iteration's own review: without this
+            // line, typing `1234` into the seed sent `1` through `Map`'s actions and nothing
+            // visible happened, but a seed containing a letter-ish key would have fired that verb
+            // — `R` turns, `N` renames, `K` reopens this very field. The list is the ONE place a
+            // field is registered, and a field missing from it is a field whose keys act twice.
+            || self.state.rule_seed.is_some()
             || self.state.pinning.is_some()
             // **`grouping` was missing here**, so naming a captured composition also dispatched Map
             // actions for every letter typed — `corner` fired aim, turn, rename-map and turn-view.
@@ -4535,6 +4563,141 @@ pub fn sense_context(
 /// `Door::map_door_is_open`, and for the same reason.
 pub(crate) fn in_map_mode(mode: Option<Res<crate::tiles::Mode>>) -> bool {
     mode.is_some_and(|m| *m == crate::tiles::Mode::Map)
+}
+
+/// **The rule seed the project states for this map**, or `none` when no rule names it.
+///
+/// The field shows this while it is not being typed into, so the author reads the number a generate
+/// would actually use rather than a blank.
+fn rule_seed_of(project: Option<&Project>, map: &str) -> String {
+    match project.and_then(|p| p.rules.blocks.iter().find(|b| b.example == map)) {
+        Some(rule) => rule.seed.to_string(),
+        None => "none".to_owned(),
+    }
+}
+
+/// **Type the open map's rule seed, and commit it through `rules_set` (E-081).**
+///
+/// The person's half of the operation: `K` opens a one-number field, Enter dispatches `rules_set` with
+/// the same parameters an agent sends, Esc leaves it alone. Without this a rule was reachable by an
+/// agent and by nobody at the keyboard, which is the parity the brief calls a must-fix bug.
+///
+/// **`events.clear()` before the early return**, the same invariant `rename_keys` documents: the
+/// reader only advances when `read()` is called, so without it the `K` that opened the field is read
+/// as its first character next frame.
+fn rule_seed_keys(
+    mut events: MessageReader<KeyboardInput>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    live: Res<keys::Live>,
+    mut project: Option<ResMut<Project>>,
+    mut open: ResMut<OpenMap>,
+    mut state: ResMut<EditorState>,
+) {
+    if state.rule_seed.is_none() {
+        if keys::just_pressed(&keyboard, *live, Action::SetRule) {
+            // **Refused before the field opens**, so a project with no rule for this map says so
+            // instead of offering a field whose Enter would be refused.
+            let named = project
+                .as_deref()
+                .is_some_and(|p| p.rules.blocks.iter().any(|b| b.example == open.map.name));
+            if !named {
+                state.status.problem(format!(
+                    "no rule is learned from `{}`, so there is no seed to set. rules.ron names the \
+                     maps that have one.",
+                    open.map.name
+                ));
+            } else {
+                state.rule_seed = Some(String::new());
+                state.status.note(format!(
+                    "type a seed for the rule on `{}` — Enter to set it, Esc to leave it alone",
+                    open.map.name
+                ));
+            }
+        }
+        events.clear();
+        return;
+    }
+    for event in events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        match &event.logical_key {
+            Key::Enter => {
+                let raw = state.rule_seed.take().unwrap_or_default();
+                set_rule_seed(project.as_deref_mut(), &mut open, &mut state, &raw);
+            }
+            Key::Escape => {
+                state.rule_seed = None;
+                state.status.note("seed unchanged".to_owned());
+            }
+            Key::Backspace => {
+                if let Some(raw) = state.rule_seed.as_mut() {
+                    raw.pop();
+                }
+            }
+            Key::Character(c) => {
+                if let Some(raw) = state.rule_seed.as_mut() {
+                    for ch in c.chars().filter(char::is_ascii_digit) {
+                        raw.push(ch);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// **Commit the typed seed through the registry**, the way the size field and the rename do.
+fn set_rule_seed(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    raw: &str,
+) {
+    let Ok(seed) = raw.parse::<u64>() else {
+        state
+            .status
+            .problem(format!("`{raw}` is not a whole number, so the seed is unchanged"));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.as_ref().map(|p| (**p).clone()),
+        open: Some(std::mem::replace(
+            open,
+            OpenMap::new(
+                bevy_emerge_core::map::Map::default(),
+                std::path::PathBuf::new(),
+            ),
+        )),
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let params = serde_json::json!({"example": open.map.name, "seed": seed});
+    let outcome = crate::ops::dispatch(&mut ctx, "rules_set", &params);
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    if let Some(project) = project {
+        carry_changes(project, &mut ctx);
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            state.status.note(format!("{}; seed {seed}", outcome.summary));
+            // **On the undo stack**, so Cmd+Z puts the old seed back and writes it.
+            state.record(Undo::Logged {
+                line: operation_id,
+                phrase: format!("seed {seed}"),
+                agent: false,
+            });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
 }
 
 /// Type a name. Snake case is applied to what is shown and to what is committed, so the illegal state

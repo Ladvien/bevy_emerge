@@ -124,6 +124,10 @@ const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The label chips (E-042)**, which toggle one token on a library piece's axis through
     // `toggle_tag`, which calls `set_label` and dispatches `label_set` with the person's source.
     ("label_set", "set_label("),
+    // **The rule seed field (E-081)** — `K` opens a one-number field and Enter dispatches
+    // `rules_set` through `set_rule_seed`, so a person tuning a rule and an agent calling the
+    // operation are one change with one undo.
+    ("rules_set", "set_rule_seed("),
 ];
 
 /// **Every operation has a BRP command, and the editor running is what says so.**
