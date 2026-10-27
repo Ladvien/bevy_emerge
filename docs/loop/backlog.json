@@ -27,8 +27,8 @@
         "no_workaround": false,
         "evidence": "watch.rs::adopt re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. A per-kit re-read would be better."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt still re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. B-053 (2026-10-27) fixed the half that made the full reload WRONG — touched was never filled, so the screen kept the old shapes — and carried open_map_name across it. What remains is the cost: the whole project, its GLBs re-measured for triangle counts, and every other kit re-read, per save.",
+      "status": "shipped",
+      "evidence": "Done 2026-10-27. `Project::reload_kit` re-reads one bound kit's two files, re-merges, and re-does every check `Project::open` makes over the merge (namespace against the binding, duplicate ids, implied-effects settling, lattice ceiling, masks, compositions, rules) before swapping, so a refused edit leaves the last good project. `watch::adopt` routes a kit's `library.ron`/`project.ron` to it; `kits.ron`, `vocab.ron`, `compositions.ron` and `rules.ron` still go through a whole open because they are the project's, not a kit's. Triangles for another kit's `.glb` are carried over by id, not re-measured. `a_kit_save_rereads_only_that_kit.rs` (3 tests) pins it: 1 kit layered not 2, no other kit's `.glb` opened, the edited piece drawn at its new height, and a kit edit that breaks a composition refused with the old project kept. Proved to bite by making `adopt` skip the per-kit branch: the test failed at 2 layers vs 1.",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -60,7 +60,7 @@
         "evidence": "cargo info for all seven crates says 'could not find ... in registry'. There is no published baseline, so no release can be made and no pre-publish gate has a version to check against."
       },
       "status": "open",
-      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` fails before any decision is reachable — \"all dependencies must have a version requirement specified when packaging: dependency `bevy_emerge_rng` does not specify a version\" (the `path` spec is dropped and crates.io is consulted). `bevy_emerge_solver` and `bevy_devshot` are also `publish = false`, so the graph has an unpublishable node in the middle. Making the workspace publishable is therefore: add a version to every intra-workspace path dependency (core->rng, core->solver, snip, anim, mapper->core/rng/solver/devshot, mcp->core), decide whether solver/devshot ship at all, then publish in dependency order rng -> solver -> core -> snip -> anim -> devshot -> mapper -> mcp. Until then the README's 'use the crates by path or git' is the only install path that works, and it is accurate. `bevy_elements` is a separate repo and already published (0.5.3, now 0.6.0).",
+      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` fails before any decision is reachable \u2014 \"all dependencies must have a version requirement specified when packaging: dependency `bevy_emerge_rng` does not specify a version\" (the `path` spec is dropped and crates.io is consulted). `bevy_emerge_solver` and `bevy_devshot` are also `publish = false`, so the graph has an unpublishable node in the middle. Making the workspace publishable is therefore: add a version to every intra-workspace path dependency (core->rng, core->solver, snip, anim, mapper->core/rng/solver/devshot, mcp->core), decide whether solver/devshot ship at all, then publish in dependency order rng -> solver -> core -> snip -> anim -> devshot -> mapper -> mcp. Until then the README's 'use the crates by path or git' is the only install path that works, and it is accurate. `bevy_elements` is a separate repo and already published (0.5.3, now 0.6.0).",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -332,7 +332,7 @@
       "area": "editor",
       "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
       "status": "open",
-      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
+      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal \u2014 which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },
@@ -426,7 +426,7 @@
         "blocks": true,
         "common": true,
         "no_workaround": true,
-        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass — the pass stops and says so rather than editing the ratchet."
+        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass \u2014 the pass stops and says so rather than editing the ratchet."
       },
       "evidence": "Proposed fix, for an evaluator pass: move both tables into product code as an exported constant (`ops::ui_entry_points()`), so an operation and its entry point are one commit in product code and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
       "last_failure": "",
