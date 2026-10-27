@@ -143,6 +143,37 @@ work to make a "before" — a worktree at the base commit is the only honest bas
 commit in its own `CARGO_TARGET_DIR`. A failure the base shares is pre-existing: log it, do not attribute
 it to this pass.
 
+## Filed issues come before new features
+
+**A filed issue is a consumer telling you what broke, which outranks anything this pass invented.**
+Before you pick an item, list the repository's open issues and triage them:
+
+```sh
+gh issue list --repo Ladvien/bevy_emerge --state open --limit 100 \
+  --json number,title,labels,createdAt --template '{{range .}}#{{.number}} {{.title}} [{{.labels}}]{{"\n"}}{{end}}'
+```
+
+(If `gh` is absent, the same list is
+`https://api.github.com/repos/Ladvien/bevy_emerge/issues?state=open&per_page=100`.)
+
+Then, in this order:
+
+1. **A bug issue is the pass's item, ahead of any enhancement.** Anything reporting wrong behaviour —
+   a crash, a panic, a visual artifact, a value that is implausible, a documented promise that is not
+   kept — is a bug. Take the oldest such issue that is still reproducible, and say why it beats the
+   others.
+2. **An enhancement issue is ranked with your own candidates**, not above them: an issue is one
+   person's idea of what matters, and the ranking below still decides. Note the issue number beside
+   the item so the rank list records that it came from outside.
+3. **Close the loop.** An issue your pass fixes is referenced in the commit body (`Fixes #N`) **and**
+   in the report, so the next pass can see it was addressed. Do not close an issue you did not fix,
+   and do not close one whose fix this pass did not verify.
+4. **Re-check a release issue, do not act on it.** An issue asking to publish or bump a version is
+   the owner's call, never a loop's (see the release rule above). Record it as seen and skip it.
+
+**An empty issue list costs nothing:** if it is empty or `gh` is unreachable, write one line saying so
+and continue — never spend a pass on the lookup.
+
 ## Phase 2: Choose the enhancement
 
 If an open `series` exists, take its next open step and skip the list.
