@@ -9301,6 +9301,8 @@ fn turn_under_cursor(
     let (at, yaw, tip, descriptor, patch) =
         (p.at, p.yaw, p.tip, p.descriptor.clone(), p.patch.clone());
     state.record_logged(line, summary, false);
+    // PROBE ONLY: the pre-4364dd4 second record, put back to prove the test sees it.
+    state.record(Undo::Turned { index, yaw: was_yaw });
 
     for (entity, marker) in placed {
         if marker.0 == id {
