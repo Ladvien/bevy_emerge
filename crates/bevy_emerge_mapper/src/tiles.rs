@@ -3363,7 +3363,13 @@ pub(crate) fn commit_measured(
 /// `Descriptor` derives `PartialEq`, so this is the whole of "did this piece change". An id that
 /// only exists in `old` is a removal, and a removed descriptor has no placements left to redraw —
 /// `commit_measured` refuses a removal the map still uses.
-fn changed_ids(
+///
+/// **Public to the crate because there is a second library door.** `commit_measured` is the
+/// in-editor one; `watch::adopt` is the file one, and it replaces the whole project with a fresh
+/// `Project::open` — which must name the same pieces, or the map keeps the shapes it was drawn
+/// with. Two callers, one definition: a second comparison would be a second answer to "what did
+/// the library change".
+pub(crate) fn changed_ids(
     old: &bevy_emerge_core::library::Library,
     new: &bevy_emerge_core::library::Library,
 ) -> Vec<String> {
