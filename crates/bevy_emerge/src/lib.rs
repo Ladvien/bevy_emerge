@@ -421,6 +421,33 @@ pub fn drawn_paints(map: &Map, library: &Library) -> Vec<i8> {
         .collect()
 }
 
+/// **The paint a placement that is not in the map yet would be drawn with** — the preview's half of
+/// [`drawn_paints`].
+///
+/// A ghost is a picture of the click, and the click's piece is *appended*: the draw order breaks ties
+/// on placement order, earliest first, so a new row draws on top of every equal-paint, equal-area
+/// piece it overlaps. Answering this from the candidate's own `paint` alone was E-020 — a ghost over a
+/// field sat at level 0 while the piece the click committed sat at level 1, so the preview z-fought
+/// with the floor it was previewing while the placement would not have.
+///
+/// `p` is the candidate, and only its own `descriptor`, `at`, `yaw`, `tip` and `paint` are read;
+/// `map` is the map it would land in. Costs one pass over `map` — the same one every spawn makes.
+pub fn paint_for_candidate(map: &Map, library: &Library, p: &Placed) -> i8 {
+    let Some(d) = descriptor_of(library, p) else {
+        return p.paint;
+    };
+    let mut ground: Vec<Option<Ground>> = map
+        .placements
+        .iter()
+        .map(|row| descriptor_of(library, row).and_then(|d| ground_of(&d, row)))
+        .collect();
+    ground.push(ground_of(&d, p));
+    draw_order::draw_levels(&ground)
+        .last()
+        .copied()
+        .map_or(p.paint, |level| p.paint.saturating_add(level))
+}
+
 /// How far a tipped piece must rise so its bounds rest **on** the resolved height instead of
 /// through it.
 ///
