@@ -124,7 +124,7 @@
       "area": "editor",
       "status": "open",
       "title": "Ghosts and previews do not get draw levels, and relevel is O(n^2) per map change",
-      "evidence": "From the z-fight fix (bd5116a/63e6631): ghost/preview spawns in editor.rs and redraw_stamps get no paint or lift, so a ghost over a field can draw differently from the committed piece; relevel_placements compares every pair when the map changes (727 pieces: about 0.5 M pairs)."
+      "evidence": "**First half shipped 709d733**: `drive_ghost` inserted no `Paint`, so a preview drew at level 0 while every map spawn path reads `drawn_paints`; `bevy_emerge::paint_for_candidate` answers the same question for a row not yet in the map, and the ghost inserts it (tests/a_preview_draws_at_the_level_the_piece_lands_at.rs, 3 tests). **Still open**: `relevel_placements` compares every standing pair when the map changes (727 pieces, about 0.5 M pairs, each a separating-axis test), so a full-map edit pays a quadratic cost per change. A click cannot create the overlapping pair — `plan_placement` replaces same-layer blockers, so a clicked row's level is always 0. **Found this pass**: `drive_ghost`'s spawn in the headless harness is not reproducible run to run — three identical runs on one fixture gave one ghost, then none, then none — which is why the test pins the helper rather than a live ghost."
     },
     {
       "id": "E-023",
