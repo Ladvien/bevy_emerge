@@ -32,6 +32,9 @@
 #   WIGGUM_MIN_FREE_GB   refuse to start a pass with less free space, default 150
 #   WIGGUM_IDLE_UNDER    a pass that ends rc=0 in under this many seconds did no work, default 120
 #   WIGGUM_IDLE_MAX      longest sleep after repeated idle passes, default 3600 (0 disables backoff)
+#   WIGGUM_PARK          0 turns off parking a leftover tree on a branch before each pass, default 1
+#   WIGGUM_BRANCH        the branch a clone returns to, default origin's HEAD, else main or master
+#   WIGGUM_PARK_MAX_MB   leftovers over this many MB are parked locally and not pushed, default 100
 
 set -uo pipefail
 
@@ -174,6 +177,147 @@ Recover with: git -C $REPO show $ref"
     || log "pass $n $tag SNAPSHOT $ref (LOCAL ONLY — push failed)"
 }
 
+# **The branch a clone returns to.** `WIGGUM_BRANCH` wins; otherwise what origin calls its default, and
+# `main` or `master` when origin does not say (a clone made by `git init` and `fetch` has no `origin/HEAD`).
+default_branch() {
+  local b="${WIGGUM_BRANCH:-}" c
+  if [ -z "$b" ]; then
+    b=$(git -C "$REPO" symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null || true)
+    b="${b#origin/}"
+  fi
+  if [ -z "$b" ]; then
+    for c in main master; do
+      if git -C "$REPO" show-ref --verify -q "refs/heads/$c"; then b="$c"; break; fi
+    done
+  fi
+  printf '%s' "$b"
+}
+
+# **A tree a pass left behind is parked on a branch, and the clone goes back to `main`, before the next
+# pass starts.** Measured 2026-10-27: bevy_lights logged 61 passes that each refused a tree they had not
+# made and stopped in about 20 s — 50 for a prompt edit left uncommitted, 11 for a stranded `loop/iter-115`
+# holding 412 lines of ungated shader work — and each one was a model call. Both were cleared by hand the
+# same way: commit the work to a branch, push the branch, put the clone back on `main`. A baseline
+# worktree that had `main` checked out blocked that last step, so it is handled too: a clean holder is
+# detached, a holder with changes in it is not touched and the pass is refused.
+#
+# **It never writes to `main` and never pushes it.** Dirty on `main` cuts a `wiggum/parked-pass-N-…`
+# branch from HEAD and commits there; dirty on any other branch commits on that branch; a detached HEAD
+# whose commit no branch holds gets a branch cut for it. That is the lesson of `snapshot()`: ungated work
+# must not land on a branch anybody builds from. A parked branch is not announced to the next pass, which
+# starts clean on `main` as if nothing had been left, so what was parked is in this log and on origin for
+# a person or a later pass to adopt.
+#
+# **What it will not touch:** a clone in the middle of a merge, rebase, revert or cherry-pick (somebody is
+# mid-decision), and more than 40 changed files (a scratch tree; that check comes first). Each of those
+# refuses the pass with the reason, which counts as a failure, so five in a row stop the loop. **The
+# contract it leans on** is the one `guard` states: nothing but the driver writes to a loop's clone. A
+# person who edits the tree between passes has that edit parked, not lost. `WIGGUM_PARK=0` turns it off;
+# leftovers over `WIGGUM_PARK_MAX_MB` are committed but kept off origin.
+park_stranded_tree() {
+  local n="$1"                        # the pass about to start: used for names and log lines only
+  [ "${WIGGUM_PARK:-1}" = "0" ] && return 0
+  ensure_state
+
+  local gd st
+  gd=$(git -C "$REPO" rev-parse --absolute-git-dir 2>/dev/null) || return 0
+  for st in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
+    if [ -e "$gd/$st" ]; then
+      log "pass $n ABORTED: $REPO is in the middle of $st — finish or abort it by hand"
+      echo "ABORTED: $REPO is in the middle of $st — finish or abort it by hand." >&2
+      return 1
+    fi
+  done
+
+  local home_br cur dirty
+  home_br=$(default_branch)
+  if [ -z "$home_br" ]; then
+    log "pre-pass: WARNING no default branch found (set WIGGUM_BRANCH) — nothing parked"
+    return 0
+  fi
+  cur=$(git -C "$REPO" symbolic-ref --short -q HEAD 2>/dev/null || true)     # empty when HEAD is detached
+  dirty=$(git -C "$REPO" status --short 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$cur" = "$home_br" ] && [ "${dirty:-0}" -eq 0 ]; then
+    return 0                                                                  # the ordinary case
+  fi
+
+  local was="${cur:-detached at $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)}"
+  local loose=0
+  # `git branch --contains` lists the detached HEAD itself as an entry, so its output is never empty;
+  # `for-each-ref` names real refs only. Measured by the P5 test: with `branch`, a commit left on a
+  # detached HEAD was judged held, the clone moved to `main`, and the commit lost its only name.
+  if [ -z "$cur" ] && [ -z "$(git -C "$REPO" for-each-ref --contains HEAD --format='%(refname)' refs/heads refs/remotes refs/tags 2>/dev/null)" ]; then
+    loose=1                                                                   # a commit nothing else holds
+  fi
+
+  local branch="$cur" parked_sha="" bytes=0 f s listing
+  if [ "${dirty:-0}" -gt 0 ] || [ "$loose" -eq 1 ]; then
+    if [ -z "$cur" ] || [ "$cur" = "$home_br" ]; then
+      branch="wiggum/parked-pass-$n-$(date '+%Y%m%d-%H%M%S')"
+      if ! git -C "$REPO" checkout -q -b "$branch" 2>/dev/null; then
+        log "pass $n ABORTED: could not cut $branch to park work on"
+        echo "ABORTED: could not cut $branch to park work on." >&2
+        return 1
+      fi
+    fi
+    if [ "${dirty:-0}" -gt 0 ]; then
+      while IFS= read -r -d '' f; do
+        s=$(wc -c < "$REPO/$f" 2>/dev/null | tr -d ' ')
+        bytes=$(( bytes + ${s:-0} ))
+      done < <(git -C "$REPO" ls-files -m -o --exclude-standard -z 2>/dev/null)
+      listing=$(git -C "$REPO" status --short 2>/dev/null | head -20)
+      git -C "$REPO" add -A >/dev/null 2>&1
+      if ! git -C "$REPO" -c user.name=wiggum -c user.email=wiggum@localhost -c commit.gpgsign=false \
+           commit -q --no-verify \
+           -m "WIP(parked by the driver before pass $n): $dirty file(s) a pass left behind" \
+           -m "Ungated: never built or tested. It was on $was when pass $n started, so the driver moved it here and put the clone back on $home_br." \
+           -m "$listing" >/dev/null 2>&1; then
+        log "pass $n ABORTED: could not commit the $dirty leftover file(s) on $branch"
+        echo "ABORTED: could not commit the leftover files on $branch." >&2
+        return 1
+      fi
+    fi
+    parked_sha=$(git -C "$REPO" rev-parse --short HEAD)
+  fi
+
+  local pushed="n/a" note=""
+  if [ -n "$branch" ] && [ "$branch" != "$home_br" ]; then
+    if [ "$bytes" -gt $(( ${WIGGUM_PARK_MAX_MB:-100} * 1048576 )) ]; then
+      pushed=no; note=" ($(( bytes / 1048576 )) MB is over WIGGUM_PARK_MAX_MB, kept local)"
+    elif git -C "$REPO" push -q origin "$branch" 2>/dev/null; then
+      pushed=yes
+    else
+      pushed=no; note=" (push failed, kept local)"
+    fi
+  fi
+
+  local err holder
+  if ! err=$(git -C "$REPO" checkout -q "$home_br" 2>&1); then
+    holder=$(git -C "$REPO" worktree list --porcelain 2>/dev/null \
+      | awk -v b="refs/heads/$home_br" '/^worktree /{p=substr($0,10)} $1=="branch" && $2==b {print p}')
+    if [ -n "$holder" ] && [ "$holder" != "$REPO" ] \
+       && [ -z "$(git -C "$holder" status --short 2>/dev/null)" ] \
+       && git -C "$holder" checkout -q --detach 2>/dev/null; then
+      log "pass $n pre: detached $holder, a worktree that had $home_br checked out"
+      err=$(git -C "$REPO" checkout -q "$home_br" 2>&1) && err=""
+    fi
+    if [ -n "$err" ]; then
+      log "pass $n ABORTED: could not return to $home_br ($(printf '%s' "$err" | head -1 | cut -c1-140))"
+      echo "ABORTED: could not return to $home_br: $err" >&2
+      return 1
+    fi
+  fi
+
+  if [ "${dirty:-0}" -gt 0 ]; then
+    log "pass $n pre: parked $dirty file(s) on $branch ($parked_sha), pushed: $pushed$note; clone is back on $home_br"
+  elif [ "$loose" -eq 1 ]; then
+    log "pass $n pre: kept the detached commit $parked_sha on $branch, pushed: $pushed$note; clone is back on $home_br"
+  else
+    log "pass $n pre: clone was on $was, not $home_br; back on $home_br (branch $branch pushed: $pushed$note)"
+  fi
+  return 0
+}
+
 # **One pass.** The whole of what this script does to the world.
 one_pass() {
   # **Both preconditions come before the first write, and that order is the point.** `one` runs this
@@ -200,12 +344,21 @@ one_pass() {
     return 1
   fi
 
-  # **A clean clone fast-forwards to origin before the pass starts, and a dirty one is left alone.**
+  # **A tree the last pass left behind is parked, and the clone goes back to `main`, before this pass
+  # starts.** See `park_stranded_tree`. It runs before the fast-forward below because that only happens
+  # on a clean tree, which is exactly what parking leaves.
+  if ! park_stranded_tree "$(( $(cat "$COUNTER" 2>/dev/null || echo 0) + 1 ))"; then
+    return 1
+  fi
+  dirty=$(git -C "$REPO" status --short 2>/dev/null | wc -l | tr -d ' ')
+
+  # **A clean clone fast-forwards to origin before the pass starts.** (A leftover tree has just been
+  # parked above, so it is clean here; with `WIGGUM_PARK=0` a dirty one is left alone and not updated.)
   # Measured 2026-10-26: a human session pushed iterations 11 and 12 to `bevy_lights` while the loop's
   # clone sat 7 commits behind, so the pass would have redesigned a pool the human had already rebuilt
   # — the loop's whole product is a diff, and a diff against stale code is the wrong diff. `--ff-only`
   # and only on a clean tree: a fast-forward is the one history change that cannot lose work, and a
-  # leftover from a killed pass is never resolved automatically (that pass may be mid-thought).
+  # leftover from a killed pass is never resolved by merging it (that pass may be mid-thought).
   # A clone that has diverged from origin (local commits) is reported, not merged: choosing a merge
   # strategy is the operator's call, and a rebase is the one thing this driver must never do to a tree
   # a loop is driving.
