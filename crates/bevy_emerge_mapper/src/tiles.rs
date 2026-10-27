@@ -6645,12 +6645,29 @@ fn move_selection(
         );
         match library_landing(&ids, &cursor) {
             Some(land) => {
+                // **Arriving on the shelf is a selection, so it is the operation** (E-050). `right`
+                // used to write `selected_library_id` by hand, so the press that points the shelf
+                // at a piece left no `piece_select` line while the very next `down` did — one
+                // question, two answers depending on which key asked it. A selection that is
+                // already made is left alone: the seed is the arrival, not a re-selection.
+                //
+                // **On the Meshes shelf only.** `piece_select` names the Meshes shelf; on the Tiles
+                // tab this list is a tile's source, which no operation names yet, and logging a
+                // Meshes-shelf selection for it would make the log say something that did not
+                // happen.
                 if state.selected_library_id.is_none() {
-                    state.selected_library_id = Some(land);
+                    if tiles_tab {
+                        state.selected_library_id = Some(land);
+                    } else {
+                        crate::editor::select_piece(&mut state, &project, &land);
+                    }
                 }
                 // **The heading cursor goes when the library takes over.** Leaving it set meant two
                 // highlights on screen and two readers disagreeing about which was live.
                 state.focused_pack = None;
+                // **The note still says which list the arrows walk**, not which row they landed
+                // on: this press asked for the shelf, and the row is the answer to a question the
+                // author did not ask yet.
                 state.status.note("library".to_owned());
             }
             None => state.status.note("the library is empty".to_owned()),
@@ -8211,8 +8228,16 @@ fn on_shelf_click(
             let ids = library_ids(&project, &filters, *mode == Mode::Tiles, Some(&suggestions));
             match library_landing(&ids, &cursor) {
                 Some(land) => {
+                    // **The chip and the key are one press** (E-050): the seed goes through
+                    // `piece_select`, so a click on `MESHES` leaves the same line the arrow does —
+                    // and on the Tiles tab it stays a direct write, for the reason the key's arm
+                    // gives.
                     if state.selected_library_id.is_none() {
-                        state.selected_library_id = Some(land);
+                        if *mode == Mode::Tiles {
+                            state.selected_library_id = Some(land);
+                        } else {
+                            crate::editor::select_piece(&mut state, &project, &land);
+                        }
                     }
                     state.focused_pack = None;
                     state.status.note("library".to_owned());
