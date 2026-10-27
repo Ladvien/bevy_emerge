@@ -373,8 +373,8 @@
         "no_workaround": true,
         "evidence": "The M cycle is a fixed-length list; one entry per class would double it. Authoring another class is a file edit, so a workaround exists."
       },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/descriptor.rs::mount_options",
+      "status": "fixed",
+      "evidence": "Fixed: `mount_options` now inserts one `Mount::OnSurfaceOrFloor` per surface class declared, after the plain surface entries, instead of for `surfaces.first()` alone. `assets/emerge/vocab.ron` declares support/worktop/shelf, so an author or the VLM labeler could previously express `on support or floor` and nothing else. `crates/bevy_emerge_core/tests/every_surface_class_has_a_two_way_mount.rs` \u2014 `every_surface_class_has_a_two_way_mount` failed at the base commit (offered list held only 'on support or floor') and passes after; three more tests pin per-class names, ordering after the plain entries, no-classes = no two-way entry, and the one-class case unchanged. Report: docs/loop/iterations/2026-10-27-kits-e060-<sha>.md",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },
