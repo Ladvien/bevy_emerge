@@ -470,6 +470,156 @@ impl Project {
         Ok(merged)
     }
 
+    /// **Re-read one bound kit's files, and swap that kit's layer — not the whole project.**
+    ///
+    /// # Why this exists (E-003)
+    ///
+    /// [`crate::watch::adopt`] answered a save to a kit's `library.ron` or `project.ron` by
+    /// re-opening the whole project: `kits.ron`, the vocabulary, **every** bound kit's library and
+    /// policy, and a triangle count for every GLB in the merge. Measured on the shipped project
+    /// (90 descriptors, 2 kits), one open is 100–315 ms, and the triangle pass alone is
+    /// 22–255 ms — a quarter of a second of the editor being wrong *per save*, on the file an
+    /// author edits most.
+    ///
+    /// **A kit's own save can only change that kit.** The binding (`kits.ron`) is what decides
+    /// which directories answer for which namespace, and it is a different file, watched
+    /// separately; a change to it still goes through the whole-project open. So this re-reads one
+    /// directory and re-does the *derived* work over the result.
+    ///
+    /// # It is the same answer the open gives, not a cheaper one
+    ///
+    /// Every check `Project::open` performs on the merge is performed here, in the same order and
+    /// with the same functions — the namespace the binding declares, the duplicate-id refusal, the
+    /// implied-effects settling, the lattice ceiling, the masks, the compositions against the merged
+    /// library, and the rules against it. A refusal leaves `self` untouched, so the editor keeps
+    /// the last good project, exactly as a refused open does.
+    ///
+    /// **The one thing it does not re-measure is another kit's triangles** — a `.glb` in a kit
+    /// nobody edited has not moved, and the count is a fact about that file.
+    ///
+    /// Returns the descriptor ids that changed, by [`crate::tiles::changed_ids`] — the same
+    /// comparison the in-editor commit door uses, so the Map redraws exactly the pieces whose
+    /// shapes moved.
+    pub fn reload_kit(&mut self, kit_dir: &Path) -> Result<Vec<String>, String> {
+        let at = self
+            .kits
+            .iter()
+            .position(|k| k.dir == kit_dir)
+            .ok_or_else(|| {
+                format!(
+                    "{}: not a kit this project has bound, so there is nothing to re-read.",
+                    kit_dir.display()
+                )
+            })?;
+        let layered = bevy_emerge_core::policy::layered_library(kit_dir)?;
+        let bound = self.kits[at].namespace.clone();
+
+        // **Declared, then verified** — the same rule as `kits::bound_library`, and the same
+        // sentence: a directory that now defines a different namespace cannot answer for the one
+        // `kits.ron` binds it as.
+        match layered.measured.namespace()? {
+            Some(ns) if ns != bound => {
+                return Err(format!(
+                    "{}: bound as `{bound}` but its pieces are `{ns}/*`. A directory is a skin and \
+                     the namespace is the interface it implements — bind it as `{ns}`, or point \
+                     `{bound}` at the directory that provides it.",
+                    kit_dir.display()
+                ));
+            }
+            _ => {}
+        }
+
+        // **The merge, from the layers the project already holds plus this one.** Every other kit
+        // is what it was; only `at` moves.
+        let mut descriptors = Vec::new();
+        for (i, k) in self.kits.iter().enumerate() {
+            if i == at {
+                descriptors.extend(layered.library.descriptors.iter().cloned());
+            } else {
+                descriptors.extend(k.library.descriptors.iter().cloned());
+            }
+        }
+        let mut library = Library {
+            version: bevy_emerge_core::library::LIBRARY_VERSION,
+            note: self.library.note.clone(),
+            descriptors,
+        };
+        library.validate().map_err(|e| {
+            format!(
+                "{e} — another bound kit already defines it, so every reference to that id is \
+                 ambiguous."
+            )
+        })?;
+        // Settled over the whole merged set, for the reason `commit_measured` gives: `measured`
+        // and the layers never receive the correction, so an unsettled row here would read as a
+        // change on the very first edit.
+        crate::labels::settle_library(&mut library, &self.vocab);
+        library.validate_lattices(self.lattice.face_bands)?;
+        let masks = library
+            .resolve(&self.vocab)
+            .map_err(|e| format!("{}: {e}", kit_dir.join(LIBRARY_FILE).display()))?;
+
+        // **The project-wide files, re-checked against the new merge.** A kit edit can take away a
+        // piece a composition or a block rule names, and both are refused at open for exactly that.
+        bevy_emerge_core::composition::validate(&self.compositions.compositions, &library).map_err(
+            |e| format!("{}: {e}", self.project_dir.join(bevy_emerge_core::composition::Compositions::FILE).display()),
+        )?;
+        self.rules
+            .validate_against(&library)
+            .map_err(|e| format!("{}: {e}", self.project_dir.join(bevy_emerge_core::rules::FILE).display()))?;
+
+        // **Triangles: this kit's rows from disk, every other kit's carried over.** The count is a
+        // fact about a `.glb`, and no file outside this kit was edited. Carried by id, because the
+        // merge has just changed order and a positional copy would land counts on the wrong rows.
+        let old: std::collections::HashMap<&str, usize> = self
+            .library
+            .descriptors
+            .iter()
+            .map(|d| d.id.as_str())
+            .zip(self.triangles.iter().copied())
+            .collect();
+        let owned: std::collections::HashSet<&str> = layered
+            .library
+            .descriptors
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        let root = &self.root;
+        let triangles = library
+            .descriptors
+            .iter()
+            .map(|d| {
+                if !owned.contains(d.id.as_str())
+                    && let Some(n) = old.get(d.id.as_str())
+                {
+                    return *n;
+                }
+                d.mesh
+                    .as_deref()
+                    .map(|m| root.join("assets").join(m))
+                    .and_then(|path| bevy_emerge_core::glb::Glb::open(&path).ok())
+                    .map_or(0, |g| bevy_emerge_core::import::triangles(&g))
+            })
+            .collect();
+
+        // **Nothing above this line has touched `self`** — every refusal returns before the swap.
+        let touched = crate::tiles::changed_ids(&self.library, &library);
+        let authoring = self.kits[at].dir == self.emerge_dir;
+        let kit = &mut self.kits[at];
+        kit.measured = layered.measured;
+        kit.library = layered.library;
+        kit.policy = layered.policy;
+        if authoring {
+            // The three fields that only ever describe the authoring kit's layer.
+            self.measured = self.kits[at].measured.clone();
+            self.policy = self.kits[at].policy.clone();
+        }
+        self.library = library;
+        self.masks = masks;
+        self.triangles = triangles;
+        Ok(touched)
+    }
+
     /// **Which kit defines this piece** — by the library it is in, never by reading its id.
     ///
     /// The first version split the id on `/` and took the prefix. That is wrong for every kit that
