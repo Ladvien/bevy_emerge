@@ -140,7 +140,7 @@
       "id": "B-018",
       "kind": "bug",
       "area": "view",
-      "status": "open",
+      "status": "fixed",
       "title": "A map whose stacking does not resolve opens unframed on the 18 m close-up",
       "must_fix": {
         "blocks": false,
@@ -148,7 +148,7 @@
         "no_workaround": false,
         "evidence": "reviewer P3 of the E-022 iteration (docs/loop/iterations/2026-10-21-view-b51da72.md): the open-framed path resolves the whole map through resolve_frame, which needs stack heights; when stacking fails it shows the stacking toast and leaves the old close-up"
       },
-      "evidence": "Not must-fix: only maps with an unresolvable stack, and the toast already says why; emerge_frame_view {target: map} or the wheel still frames it. The whole-map box needs no stack heights (editor::map_bounds), so framing could fall back to it.",
+      "evidence": "Fixed 23d2c41. `resolve_frame` resolved every placement's Y before it read the target, so `FrameTarget::Map` \u2014 which reads only `map_bounds` (floor plan + height span + bounds, no placement) \u2014 was refused by a bad stack and `frame_map_on_open` left the Rig at its 18 m default. Heights are now resolved inside the three arms that consume them, and the stacking reason is asked for separately and still reported so the frame is not bought by silencing it. The reachable broken stack is a host that exists and offers nothing the guest needs: `Map::validate` already refuses a missing host. Regression: tests/a_broken_stack_still_opens_framed.rs (2 tests; the frame one failed before, the report one failed on the first version of the fix). accept.py 10/10 -> 10/10.",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -324,7 +324,7 @@
       "area": "editor",
       "title": "The Meshes right-arrow seed selects without the operation; correct the walk keys' reason (review gap 10)",
       "status": "open",
-      "evidence": "tiles.rs:6442: FocusLibrary still sets selected_library_id = Some(land) directly, with no log line. Fix: route the seed through select_piece. The walk keys PrevCandidate and NextCandidate stay unmigrated because they also walk the candidate list, which no operation covers; the stated reason was wrong. UNMIGRATED_MAX stays 119. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "evidence": "tiles.rs:6442: FocusLibrary still sets selected_library_id = Some(land) directly, with no log line. Fix: route the seed through select_piece. The walk keys PrevCandidate and NextCandidate stay unmigrated because they also walk the candidate list, which no operation covers; the stated reason was wrong. UNMIGRATED_MAX stays 119. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md | 2026-10-26: still open and NOT blocked \u2014 it needs no new operation, so it does not touch the protected parity tables. Confirmed live: tiles.rs:6649 (FocusLibrary seed), :6682 (Tiles-tab seed), :6719 (filtered-out re-arm) and :6737 (walk step) still write `selected_library_id` directly, while :6721 and :6743 already call `editor::select_piece`. The Tiles-tab arms are deliberately direct (the walk picks a tile's source, which no operation names), so the fix is the seed and the re-arm, with the status note `library` kept.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -410,7 +410,7 @@
       "area": "editor",
       "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
       "status": "open",
-      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
+      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal \u2014 which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },
@@ -491,6 +491,22 @@
       },
       "status": "open",
       "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip)",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
+    },
+    {
+      "id": "E-086",
+      "kind": "enhancement",
+      "area": "parity",
+      "status": "open",
+      "title": "A new operation cannot be added without editing a protected test file: the UI entry-point tables live inside the parity test",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass \u2014 the pass stops and says so rather than editing the ratchet."
+      },
+      "evidence": "Proposed fix, for an evaluator pass: move both tables into product code as an exported constant (`ops::ui_entry_points()`), so an operation and its entry point are one commit in product code and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
       "last_failure": "",
       "first_seen": "2026-10-26"
     }
