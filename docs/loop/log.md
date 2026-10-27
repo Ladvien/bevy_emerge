@@ -1566,3 +1566,4 @@ Top 5 remaining:
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items still need an evaluator pass or a display/VLM. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items still need an evaluator pass or a display/VLM. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items still need an evaluator pass or a display/VLM. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; E-066 still blocked by E-086 (protected test hardcodes UI tables); other open items need evaluator pass, display or VLM. No release: E-006 open.
