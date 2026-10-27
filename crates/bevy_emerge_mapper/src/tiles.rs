@@ -3274,6 +3274,23 @@ fn write_library(project: &mut Project) -> Result<std::path::PathBuf, String> {
     commit_measured(project, edited)
 }
 
+thread_local! {
+    /// **How many times this thread has written a kit's `library.ron`** — E-049's measure.
+    ///
+    /// A thread, not a process: libtest gives every test its own thread, so one test's writes cannot
+    /// be read as another's. The write itself does not change; only the count of them does, which is
+    /// the thing that was wrong — a chip click wrote the file, then wrote the identical file again.
+    static LIBRARY_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// **The writes of `library.ron` this thread has made**, for the test that pins one per edit.
+///
+/// Reads a count rather than the file: two identical writes leave the same bytes on disk, so a
+/// file comparison cannot see the duplicate at all — which is exactly why it survived.
+pub fn library_writes_for_test() -> usize {
+    LIBRARY_WRITES.with(std::cell::Cell::get)
+}
+
 /// **Write these measurements, and adopt them only if that worked.**
 ///
 /// The structural edits — adding an imported piece, removing one — need to *propose* a library rather
@@ -3313,6 +3330,7 @@ pub(crate) fn commit_measured(
     let path = project.library_path.clone();
     let text = measured.to_ron()?;
     bevy_emerge_core::ron_surgery::save_atomic(&path, &text)?;
+    LIBRARY_WRITES.with(|n| n.set(n.get() + 1));
 
     // **What the Map has to redraw, worked out by comparison.** The already-placed entities were
     // built from the shapes in `project.library`; anything whose resolved descriptor differs in the
