@@ -3274,6 +3274,23 @@ fn write_library(project: &mut Project) -> Result<std::path::PathBuf, String> {
     commit_measured(project, edited)
 }
 
+thread_local! {
+    /// **How many times this thread has written a kit's `library.ron`** — E-049's measure.
+    ///
+    /// A thread, not a process: libtest gives every test its own thread, so one test's writes cannot
+    /// be read as another's. The write itself does not change; only the count of them does, which is
+    /// the thing that was wrong — a chip click wrote the file, then wrote the identical file again.
+    static LIBRARY_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// **The writes of `library.ron` this thread has made**, for the test that pins one per edit.
+///
+/// Reads a count rather than the file: two identical writes leave the same bytes on disk, so a
+/// file comparison cannot see the duplicate at all — which is exactly why it survived.
+pub fn library_writes_for_test() -> usize {
+    LIBRARY_WRITES.with(std::cell::Cell::get)
+}
+
 /// **Write these measurements, and adopt them only if that worked.**
 ///
 /// The structural edits — adding an imported piece, removing one — need to *propose* a library rather
@@ -3313,6 +3330,7 @@ pub(crate) fn commit_measured(
     let path = project.library_path.clone();
     let text = measured.to_ron()?;
     bevy_emerge_core::ron_surgery::save_atomic(&path, &text)?;
+    LIBRARY_WRITES.with(|n| n.set(n.get() + 1));
 
     // **What the Map has to redraw, worked out by comparison.** The already-placed entities were
     // built from the shapes in `project.library`; anything whose resolved descriptor differs in the
@@ -6528,7 +6546,13 @@ fn toggle_tag(axis: Axis, token_ix: usize, project: &mut Project, state: &mut Im
         if crate::editor::set_label(state, project, &id, wire_axis(axis), &next) {
             state.record(history_before);
             let said = format!("{} tags updated", axis.label().to_lowercase());
-            state.status.say(persist(project, where_to, said));
+            // **No `persist` here — `label_set` already wrote the file.** Its commit is
+            // `commit_measured`, which is the one door to `library.ron`; `Persist::Library` would
+            // serialize and write the identical library a second time. That cost two `to_ron` ->
+            // `save_atomic` round trips per click, and no existing test could see it because the
+            // bytes on disk are right either way (E-049,
+            // `a_chip_click_writes_the_library_once.rs`).
+            state.status.note(said);
         }
         return;
     }
