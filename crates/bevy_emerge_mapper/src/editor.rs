@@ -12845,7 +12845,10 @@ fn drive_ghost(
     hovered_ui: Query<&Hovered>,
     pointer: Res<crate::view::Pointer>,
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
-    ghosts: Query<(Entity, &GhostOf), With<Ghost>>,
+    // **The paint it already carries, read here rather than asked for separately** — a system at
+    // Bevy's parameter limit cannot afford another `Query` for one `i8`, and a ghost's paint is
+    // meaningless without the ghost.
+    ghosts: Query<(Entity, &GhostOf, Option<&bevy_emerge::Paint>), With<Ghost>>,
     mut transforms: Query<&mut Transform, With<Ghost>>,
     held: Res<MoveDrag>,
     // The ghost must snap exactly when the click will, or the preview is a lie about where the
@@ -13032,12 +13035,28 @@ fn drive_ghost(
         state.hint.clear();
     }
 
+    // **The paint the committed piece will be drawn with** (E-020) — asked of the same helper the
+    // spawn uses, against the map the drop lands in. A ghost carrying only its own `paint` sat at
+    // level 0 over a field while the click's row, ordered after it among equal-paint equal-area
+    // pieces, drew at level 1: the preview z-fought the floor it was previewing.
+    let ghost_paint = bevy_emerge::paint_for_candidate(
+        probe_map,
+        &project.library,
+        &bevy_emerge_core::map::Placed {
+            descriptor: d.id.clone(),
+            at,
+            yaw: want_yaw,
+            tip: want_tip,
+            ..bevy_emerge_core::map::Placed::default()
+        },
+    );
+
     let patched_ghost = ghost_patch.is_some();
     let existing = ghosts
         .iter()
-        .find(|(_, g)| g.0 == brush_ix && g.1 == patched_ghost)
-        .map(|(e, _)| e);
-    for (e, g) in &ghosts {
+        .find(|(_, g, _)| g.0 == brush_ix && g.1 == patched_ghost)
+        .map(|(e, _, _)| e);
+    for (e, g, _) in &ghosts {
         if g.0 != brush_ix || g.1 != patched_ghost {
             commands.entity(e).despawn();
         }
@@ -13048,6 +13067,19 @@ fn drive_ghost(
             if let Ok(mut tf) = transforms.get_mut(e) {
                 tf.translation = bevy_emerge::origin_of(at, open.map.origin, y);
                 tf.rotation = Quat::from_rotation_y(yaw.to_radians());
+            }
+            // Written only on a change: this runs every frame the cursor is over one cell.
+            let now = ghosts
+                .iter()
+                .find(|(other, _, _)| *other == e)
+                .and_then(|(_, _, p)| p.map(|p| p.0))
+                .unwrap_or(0);
+            if now != ghost_paint {
+                if ghost_paint != 0 {
+                    commands.entity(e).insert(bevy_emerge::Paint(ghost_paint));
+                } else {
+                    commands.entity(e).remove::<bevy_emerge::Paint>();
+                }
             }
         }
         None => {
@@ -13060,6 +13092,9 @@ fn drive_ghost(
                 y,
             ) {
                 commands.entity(e).insert((Ghost, GhostOf(brush_ix, patched_ghost)));
+                if ghost_paint != 0 {
+                    commands.entity(e).insert(bevy_emerge::Paint(ghost_paint));
+                }
             }
         }
     }
