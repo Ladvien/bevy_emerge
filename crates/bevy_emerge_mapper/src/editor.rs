@@ -5397,6 +5397,42 @@ pub fn size_field_for_test(world: &mut World, axis: char) {
     world.flush();
 }
 
+/// **Click one palette row, the way a person's press does** — E-041's gap.
+///
+/// Fires the same `Activate` the button sends, so [`on_row_click`]'s observer runs, which is
+/// [`arm_piece`] → `brush_arm`. Nothing in the suite could reach a row until this existed: the
+/// brush's other route under test is the keyboard's (`walk_palette`), a different function with its
+/// own writes, and the closest a test got was calling `arm_piece` itself — which skips the guard
+/// that makes a click on a *menu* row safe, the filter blur, and the row's own `PaletteRow` index.
+///
+/// `descriptor` is the library id, resolved against the library the way the palette names it, so a
+/// test states what it clicked rather than which row number it happened to be.
+///
+/// Panics when the row is not on screen, because a test that silently clicked nothing would pass
+/// for the wrong reason — [`size_field_for_test`] and `tiles::click_tag_chip_for_test` make the same
+/// argument.
+pub fn click_palette_row_for_test(world: &mut World, descriptor: &str) {
+    let ix = world
+        .get_resource::<Project>()
+        .and_then(|p| p.library.descriptors.iter().position(|d| d.id == descriptor))
+        .unwrap_or_else(|| {
+            panic!("click_palette_row_for_test: no descriptor `{descriptor}` in the library")
+        });
+    let mut rows = world.query::<(Entity, &PaletteRow)>();
+    let Some(entity) = rows
+        .iter(world)
+        .find(|(_, r)| r.0 == ix)
+        .map(|(e, _)| e)
+    else {
+        panic!(
+            "click_palette_row_for_test: `{descriptor}` has no row on screen — the palette is \
+             folded, filtered, or the map's bash leaves its kit out"
+        )
+    };
+    world.trigger(Activate { entity });
+    world.flush();
+}
+
 /// **A run of `descriptor` between two points**, reachable from `tests/headless.rs`.
 ///
 /// The release path of the run tool, without the mouse — the same split `fill_for_test` makes. The
