@@ -1559,3 +1559,4 @@ Top 5 remaining:
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; no unblocked in-budget item (E-066/E-056/E-086 need an evaluator pass). No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; no unblocked in-budget item chosen (E-066/E-056/E-086 need an evaluator pass). No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; E-050 already shipped (ee47069); remaining open items need an evaluator pass (E-066/E-056/E-086) or are out of budget. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items (E-066/E-056/E-086) still need an evaluator pass. No release: E-006 open.
