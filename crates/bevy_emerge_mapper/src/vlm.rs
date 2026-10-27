@@ -10,8 +10,10 @@
 //! - **Closed vocabulary only.** A suggestion carrying a token the vocabulary does not implement
 //!   is rejected WHOLE at [`validate`], naming the axis — the early gate. `library.resolve`
 //!   inside the commit door stays the final gate on the exact bytes written.
-//! - **Human review is mandatory.** Nothing here writes a descriptor; the output is a
-//!   [`Suggestion`] the review UI pre-stages and a human applies.
+//! - **Nothing here writes a descriptor; provenance records who decided.** The output is a
+//!   [`Suggestion`]; `labels` applies each accepted axis on arrival through the commit door,
+//!   stamped `By::Model`, so a person's own axes stay theirs and the model's can be told apart
+//!   and reverted.
 //! - **One path.** One configured endpoint per run (no fallback chain); an unconfigured endpoint
 //!   is a loud refusal at the verb; a rejected suggestion is rejected whole, never salvaged into
 //!   a degraded guess.

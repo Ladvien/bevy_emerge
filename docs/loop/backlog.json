@@ -270,7 +270,7 @@
       "area": "docs",
       "title": "Stale code comments the docs rewrite found",
       "status": "open",
-      "evidence": "vlm.rs header says a human applies each suggestion (labels apply on arrival, By::Model); keys.rs comments describe a Cmd+2 row and Compose lattice keys that no longer exist and a retired twelve-row ceiling; bevy_emerge_mcp main.rs module doc says eleven tools (there are twelve); tiles.rs ~6428 calls an agent's label_set a person's decision; labels.rs writes proposals to a file nothing loads.",
+      "evidence": "[vlm.rs header fixed 2026-10-27; mcp main.rs already says fourteen] keys.rs comments describe a Cmd+2 row and Compose lattice keys that no longer exist and a retired twelve-row ceiling; bevy_emerge_mcp main.rs module doc says eleven tools (there are twelve); tiles.rs ~6428 calls an agent's label_set a person's decision; labels.rs writes proposals to a file nothing loads.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
