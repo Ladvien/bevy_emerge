@@ -117,16 +117,6 @@
       "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only)."
     },
     {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
-      "id": "E-020",
-      "kind": "enhancement",
-      "area": "editor",
-      "status": "open",
-      "title": "Ghosts and previews do not get draw levels, and relevel is O(n^2) per map change",
-      "evidence": "From the z-fight fix (bd5116a/63e6631): ghost/preview spawns in editor.rs and redraw_stamps get no paint or lift, so a ghost over a field can draw differently from the committed piece; relevel_placements compares every pair when the map changes (727 pieces: about 0.5 M pairs)."
-    },
-    {
       "id": "E-023",
       "kind": "enhancement",
       "area": "perf",
