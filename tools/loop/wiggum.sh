@@ -30,6 +30,8 @@
 #   WIGGUM_PASS_TIMEOUT  hard ceiling on one pass in seconds, default 4500 (75 min)
 #   WIGGUM_CHECKPOINT    seconds between mid-pass snapshots, default 600 (0 disables)
 #   WIGGUM_MIN_FREE_GB   refuse to start a pass with less free space, default 150
+#   WIGGUM_IDLE_UNDER    a pass that ends rc=0 in under this many seconds did no work, default 120
+#   WIGGUM_IDLE_MAX      longest sleep after repeated idle passes, default 3600 (0 disables backoff)
 
 set -uo pipefail
 
@@ -55,6 +57,18 @@ PASS_TIMEOUT="${WIGGUM_PASS_TIMEOUT:-4500}"
 # is killed cannot commit, and a cgroup kill takes the driver with it, so the interval bounds how much
 # a death can cost: at most this much work, never the whole pass. Set 0 to disable.
 CHECKPOINT_EVERY="${WIGGUM_CHECKPOINT:-600}"
+
+# **A pass that ends cleanly in under two minutes did no work, and the driver backs off from it.**
+# Measured 2026-10-27: bevy_lights logged 50 consecutive passes of about 20 s each (iterations 61 to
+# 110), every one a refusal to build on a tree it had not made, and bevy_emerge ran 25 passes of about 26 s
+# whose only output was a log line, 19 of them pushed to `main` as commits. Each was a full model call
+# every 90 seconds, so a loop with nothing it may do cost the same as one working. A real pass takes
+# minutes (the shortest real fix seen, emerge's issue #83, took 5), so `rc=0` under `IDLE_UNDER` seconds
+# is idle, and each consecutive idle pass doubles the sleep up to `IDLE_MAX`. A pass that takes longer,
+# or fails, resets it; `WIGGUM_IDLE_MAX=0` turns it off. It does not ask *why* a pass idled: a stranded
+# tree, a blocked backlog and a missing tool all look the same from here, and all deserve the same answer.
+IDLE_UNDER="${WIGGUM_IDLE_UNDER:-120}"
+IDLE_MAX="${WIGGUM_IDLE_MAX:-3600}"
 
 # **State lives outside the repository.** A loop's own bookkeeping must never appear in a pass's
 # `git status` — a dirty tree is the first thing a pass is told to fix, and a driver writing logs into the
@@ -382,6 +396,7 @@ driver() {
   # `TimeoutStopSec` in the unit must be longer than one pass (45 min) for this to be honest.
   trap 'touch "$STOPFILE"; log "driver: SIGTERM received, finishing the pass in flight"' TERM INT
   log "driver START pid=$$ model=$MODEL repo=$REPO sleep=${SLEEP_BETWEEN}s max=${MAX_PASSES:-forever}"
+  local idle_streak=0
 
   while :; do
     [ -f "$STOPFILE" ] && { log "driver STOP: stop file"; break; }
@@ -390,8 +405,10 @@ driver() {
       break
     fi
 
+    local pass_started; pass_started=$(date +%s)
     one_pass
     rc=$?
+    local pass_secs=$(( $(date +%s) - pass_started ))
 
     # **Five consecutive hard failures stop the loop.** A pass that exits non-zero once is ordinary —
     # a rate limit, a killed process. Five in a row means the machine or the checkout is broken, and
@@ -413,8 +430,24 @@ driver() {
     # child and the trap only fires after it returns. A stop that takes a minute looks like a hung unit
     # (`deactivating`) and, with `TimeoutStopSec` short, becomes a killed driver instead of a clean one.
     # Polling in one-second slices makes a stop land within a second.
+    # **How long to wait, which is longer after a pass that did nothing.** Doubling from the normal sleep
+    # and capped, so 60 s becomes 2, 4, 8, 16 and 32 minutes and then an hour: a new issue or a freed
+    # tree is still noticed within the hour, and the steady idle cost is about one pass an hour.
+    local sleep_for="$SLEEP_BETWEEN"
+    if [ "$rc" -eq 0 ] && [ "$pass_secs" -lt "$IDLE_UNDER" ] && [ "$IDLE_MAX" -gt "$SLEEP_BETWEEN" ]; then
+      idle_streak=$(( idle_streak + 1 ))
+      local doublings=0
+      while [ "$doublings" -lt "$idle_streak" ] && [ "$sleep_for" -lt "$IDLE_MAX" ]; do
+        sleep_for=$(( sleep_for * 2 ))
+        doublings=$(( doublings + 1 ))
+      done
+      [ "$sleep_for" -gt "$IDLE_MAX" ] && sleep_for="$IDLE_MAX"
+      log "pass $(cat "$COUNTER" 2>/dev/null || echo '?') idle (${pass_secs}s, streak ${idle_streak}): next pass in ${sleep_for}s"
+    else
+      idle_streak=0
+    fi
     local waited=0
-    while [ "$waited" -lt "$SLEEP_BETWEEN" ]; do
+    while [ "$waited" -lt "$sleep_for" ]; do
       [ -f "$STOPFILE" ] && break
       sleep 1
       waited=$(( waited + 1 ))
