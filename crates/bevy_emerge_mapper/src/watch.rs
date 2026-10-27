@@ -429,22 +429,29 @@ fn adopt_map(path: &Path, open: &mut OpenMap) -> Result<bool, String> {
 /// **One file at a time, and only the ones the editor reads.** The vocabulary is re-read through
 /// the editor's own gate — [`Project::reload_vocab`], which resolves the masks and swaps
 /// all-or-nothing — and a failure there is a refusal with the file and the parser's own message.
+///
+/// # A kit's save re-reads that kit, and the project-wide files still go through the open (E-003)
+///
+/// A kit's `library.ron` or `project.ron` can only change that kit: which directory answers for
+/// which namespace is `kits.ron`'s business and a different file. So the two kit files go through
+/// [`Project::reload_kit`], which re-reads the one directory, re-merges, and re-does every check
+/// the open does over the result — instead of re-opening the project, its GLBs and every other kit.
+///
+/// **`kits.ron`, `vocab.ron`, `compositions.ron` and `rules.ron` are the project's**, and a change
+/// to one of them still goes through a whole open: the binding decides which directories are read
+/// at all, and the other two are parsed and validated against the merge.
 fn adopt(path: &Path, project: &mut Project) -> Result<(), String> {
     if path.ends_with("vocab.ron") {
-        project.reload_vocab()
-    } else {
-        // **A kit's library and policy are re-read by re-opening the project**, which is the only
-        // code that knows how to merge every bound kit. It is heavier than a re-read, and it is
-        // the honest thing: a library change can change what every other kit resolves to, and a
-        // partial reload would leave the editor showing two versions of the truth.
-        let root = project.root.clone();
-        let kit = project
-            .kits
-            .iter()
-            .find(|k| k.namespace == project.namespace)
-            .and_then(|k| k.dir.file_name())
-            .map(|n| n.to_string_lossy().into_owned());
-        let fresh = Project::open(&root, kit.as_deref())?;
+        return project.reload_vocab();
+    }
+    // **Which kit, if any, this file belongs to.** Both of a kit's files are named by the core's
+    // own constants, so a kit directory cannot be recognised by a filename pattern that drifts.
+    let kit_dir = project
+        .kits
+        .iter()
+        .find(|k| path.parent() == Some(k.dir.as_path()))
+        .map(|k| k.dir.clone());
+    if let Some(dir) = kit_dir {
         // **And the Map is told which pieces changed, through the same comparison the Tiles tab
         // uses** ([`crate::tiles::changed_ids`]).
         //
@@ -456,22 +463,37 @@ fn adopt(path: &Path, project: &mut Project) -> Result<(), String> {
         // over, where the number agrees with the file and the picture is a lie.
         //
         // `touched` is compared against the library being replaced, not against the file, so a
-        // hand-written `library.ron` with its own formatting cannot read as a change — and it is
-        // carried onto the fresh project after the swap, because `Project::open` starts empty.
-        let touched = crate::tiles::changed_ids(&project.library, &fresh.library);
-        // **And the map the author has open is still the map they have open.** `Project::open`
-        // starts with `open_map_name: None`, which is right for a first open and wrong here: this
-        // is the same project, re-read, and the name is the author's intent about which map they
-        // are working on. Dropping it made a kit edit the same as never having opened a map, so
-        // the next crossing from the Kit door back to the Map door refused with "none has been
-        // open".
-        let open_map_name = project.open_map_name.clone();
-        let mut fresh = fresh;
-        fresh.open_map_name = open_map_name;
-        *project = fresh;
+        // hand-written `library.ron` with its own formatting cannot read as a change — and
+        // [`Project::reload_kit`] returns every refusal before it touches `self`, so a bad file
+        // leaves the editor holding the last good project whole.
+        let touched = project.reload_kit(&dir)?;
         project.touched.extend(touched);
-        Ok(())
+        return Ok(());
     }
+    // **A project-wide file.** Nothing smaller than the open knows how to re-read these: the
+    // binding decides which kits are loaded at all, and the other three are validated against the
+    // merge it produces.
+    let root = project.root.clone();
+    let kit = project
+        .kits
+        .iter()
+        .find(|k| k.namespace == project.namespace)
+        .and_then(|k| k.dir.file_name())
+        .map(|n| n.to_string_lossy().into_owned());
+    let fresh = Project::open(&root, kit.as_deref())?;
+    let touched = crate::tiles::changed_ids(&project.library, &fresh.library);
+    // **And the map the author has open is still the map they have open.** `Project::open`
+    // starts with `open_map_name: None`, which is right for a first open and wrong here: this
+    // is the same project, re-read, and the name is the author's intent about which map they
+    // are working on. Dropping it made a kit edit the same as never having opened a map, so
+    // the next crossing from the Kit door back to the Map door refused with "none has been
+    // open".
+    let open_map_name = project.open_map_name.clone();
+    let mut fresh = fresh;
+    fresh.open_map_name = open_map_name;
+    *project = fresh;
+    project.touched.extend(touched);
+    Ok(())
 }
 
 /// **A file's size and modification time.**
