@@ -279,8 +279,8 @@
       "kind": "enhancement",
       "area": "mcp",
       "title": "emerge_capture_sequence is annotated destructiveHint true but only writes frame files",
-      "status": "open",
-      "evidence": "DocAgents 2026-10-23 from docs/mcp-tools.md.",
+      "status": "blocked",
+      "evidence": "DocAgents 2026-10-23 from docs/mcp-tools.md. Blocked 2026-10-27: tests/an_agent_calls_the_server.rs:228 pins (\"emerge_capture_sequence\", false, true, false), a protected file; flipping destructive in docs.rs:221 fails it. Needs an evaluator pass.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
