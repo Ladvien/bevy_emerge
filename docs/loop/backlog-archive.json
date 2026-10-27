@@ -1570,6 +1570,16 @@
       "evidence": "Fixed: `mount_options` now inserts one `Mount::OnSurfaceOrFloor` per surface class declared, after the plain surface entries, instead of for `surfaces.first()` alone. `assets/emerge/vocab.ron` declares support/worktop/shelf, so an author or the VLM labeler could previously express `on support or floor` and nothing else. `crates/bevy_emerge_core/tests/every_surface_class_has_a_two_way_mount.rs` — `every_surface_class_has_a_two_way_mount` failed at the base commit (offered list held only 'on support or floor') and passes after; three more tests pin per-class names, ordering after the plain entries, no-classes = no two-way entry, and the one-class case unchanged. Report: docs/loop/iterations/2026-10-27-kits-e060-f0b2145.md",
       "last_failure": "",
       "first_seen": "2026-10-24"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-020",
+      "kind": "enhancement",
+      "area": "editor",
+      "status": "shipped",
+      "title": "Ghosts and previews do not get draw levels, and relevel is O(n^2) per map change",
+      "evidence": "**Shipped in two halves.** 709d733: `drive_ghost` inserted no `Paint`, so a preview drew at level 0 while every map spawn path reads `drawn_paints`; `bevy_emerge::paint_for_candidate` answers the same question for a row not yet in the map and the ghost inserts it (tests/a_preview_draws_at_the_level_the_piece_lands_at.rs, 3 tests). e55a239: `draw_levels` compared every piece with every piece below it (O(n^2) separating-axis tests); it now files each piece under the grid cells its bounding box covers and tests only those plus pieces too large to file, with the pairwise order kept in the test as the reference (tests/draw_levels_only_compares_pieces_that_can_overlap.rs, 8 tests). Measured on a 403-piece scattered town: 81,003 overlap tests -> 104; at 709d733 with only the counter added, *the pairwise order would make 81003 overlap tests for 403 pieces and this made 81003*."
     }
   ]
 }
