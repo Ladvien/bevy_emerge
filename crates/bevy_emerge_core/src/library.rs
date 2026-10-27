@@ -43,7 +43,67 @@ pub struct Library {
     pub descriptors: Vec<Descriptor>,
 }
 
+/// A declared `extent.height` that the mesh does not bear out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeightDisagreement {
+    pub id: String,
+    /// `placed_height`: the declared height times `align.stretch_y`.
+    pub declared: f32,
+    /// The mesh's `ymax − ymin` times `align.stretch_y`, from [`crate::glb::Glb::bounds`] (node
+    /// transforms applied).
+    pub measured: f32,
+    /// `declared − measured`; positive means the lid is declared above the mesh.
+    pub error: f32,
+}
+
+/// What [`Library::height_disagreements`] found.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HeightCheck {
+    pub disagreements: Vec<HeightDisagreement>,
+    /// Descriptors that offer a surface but whose mesh could not be measured, with why. Listed rather
+    /// than passed silently.
+    pub unmeasured: Vec<(String, String)>,
+}
+
 impl Library {
+    /// **Does each surface-offering descriptor's declared height match its mesh?**
+    ///
+    /// A guest `on` a host rests `extent.height` above the host's base, so any difference between that
+    /// and the mesh's real `ymax − ymin` is a gap or an interpenetration. Descriptors that offer no
+    /// surface are skipped (nothing can rest on them); a surface offerer with no declared height, no
+    /// mesh, or an unreadable glb comes back in `unmeasured`. `asset_root` is what `mesh` paths are
+    /// relative to; `tolerance_m` is the largest `|error|` accepted.
+    pub fn height_disagreements(&self, asset_root: &std::path::Path, tolerance_m: f32) -> HeightCheck {
+        let mut out = HeightCheck::default();
+        for d in self.descriptors.iter().filter(|d| !d.offers.surfaces.is_empty()) {
+            let Some(declared) = crate::descriptor::placed_height(d) else {
+                out.unmeasured.push((d.id.clone(), "no extent.height declared".into()));
+                continue;
+            };
+            let Some(mesh) = d.mesh.as_deref() else {
+                out.unmeasured.push((d.id.clone(), "no mesh".into()));
+                continue;
+            };
+            let bounds = crate::glb::Glb::open(&asset_root.join(mesh)).and_then(|g| g.bounds());
+            match bounds {
+                Ok((lo, hi)) => {
+                    let measured = (hi[1] - lo[1]) * d.align.stretch_y.unwrap_or(1.0);
+                    let error = declared - measured;
+                    if error.abs() > tolerance_m {
+                        out.disagreements.push(HeightDisagreement {
+                            id: d.id.clone(),
+                            declared,
+                            measured,
+                            error,
+                        });
+                    }
+                }
+                Err(e) => out.unmeasured.push((d.id.clone(), e)),
+            }
+        }
+        out
+    }
+
     pub fn parse(text: &str) -> Result<Library, String> {
         let lib: Library = ron::from_str(text).map_err(|e| format!("library: {e}"))?;
         lib.validate()?;

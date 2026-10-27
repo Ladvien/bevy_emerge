@@ -1038,7 +1038,11 @@ pub struct Align {
 pub struct Extent {
     /// (width, depth) before yaw.
     pub footprint: Option<(f32, f32)>,
-    /// Top of the piece. For anything offering a surface, this is the plane props rest on.
+    /// The piece's top **above its base**: `ymax − ymin` of its mesh, whatever [`Align::y_offset`] is.
+    /// For anything offering a surface this is the plane props rest on: a guest placed `on` the piece
+    /// rests this far above the piece's base ([`crate::stack::surface_lift`] takes away the offset
+    /// `datum` added). Declare `ymax − ymin`, not `ymax`; [`Library::height_disagreements`] checks it
+    /// against the glb.
     pub height: Option<f32>,
 }
 

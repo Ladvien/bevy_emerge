@@ -1553,3 +1553,17 @@ Top 5 remaining:
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean; `gh` not used (no retry); E-066/E-056/E-086 still need an evaluator pass for protected tests, remaining items are demo/decision work outside a 45-minute pass. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean; `gh` not used; remaining unblocked items (E-047, E-052) are naming/refactor work outside the pass rules, and E-066/E-056/E-086 need an evaluator pass. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean; #82 (only open issue) fixed by 089705f, left open for the owner to close; E-066/E-056/E-086 still need an evaluator pass. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; E-066/E-056/E-086 still need an evaluator pass for protected tests, no unblocked in-budget item. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; no unblocked in-budget item (E-066/E-056/E-086 need an evaluator pass). No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; no unblocked in-budget item (E-066/E-056/E-086 need an evaluator pass). No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; no unblocked in-budget item (E-066/E-056/E-086 need an evaluator pass). No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; no unblocked in-budget item chosen (E-066/E-056/E-086 need an evaluator pass). No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; E-050 already shipped (ee47069); remaining open items need an evaluator pass (E-066/E-056/E-086) or are out of budget. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items (E-066/E-056/E-086) still need an evaluator pass. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items (E-066/E-056/E-086) still need an evaluator pass. No release: E-006 open.
+- 2026-10-27 loop (laptop): shipped #83 doc + CHANGELOG.md + Library::height_disagreements (new test, core suite green). #82 already fixed by 089705f. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean and pushed, backlog check ok; gh absent so issues unread; remaining open items need an evaluator pass (E-066/E-056/E-086) or a display/VLM. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items still need an evaluator pass or a display/VLM. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items still need an evaluator pass or a display/VLM. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items still need an evaluator pass or a display/VLM. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; E-066 still blocked by E-086 (protected test hardcodes UI tables); other open items need evaluator pass, display or VLM. No release: E-006 open.
