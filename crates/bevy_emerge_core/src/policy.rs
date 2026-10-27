@@ -49,6 +49,34 @@ pub const LIBRARY_FILE: &str = "library.ron";
 /// The policy file, inside a project directory.
 pub const POLICY_FILE: &str = "project.ron";
 
+thread_local! {
+    /// **Which kit directories this thread has layered**, in order — the measure E-003 needed.
+    ///
+    /// A thread, not a process: libtest gives every test its own thread, so one test's re-reads
+    /// cannot be read as another's. The work itself does not change; only the count of directories
+    /// it was done for, which is the thing that was wrong — a save to one kit re-opened the whole
+    /// project, and so re-layered every bound kit and re-read every `.glb` in the merge.
+    ///
+    /// **A count of directories, not a clock.** A wall-clock assertion on a shared machine is a
+    /// flaky test (E-011's lesson); which directories were read is the same question answered
+    /// deterministically.
+    static LAYERED: std::cell::RefCell<Vec<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// **The kit directories this thread has layered since the last [`forget_layered_for_test`].**
+///
+/// Test-only in intent, product code in substance: the increment is at the one place a library is
+/// layered, so a test cannot pass by measuring somewhere the work does not go.
+pub fn layered_for_test() -> Vec<std::path::PathBuf> {
+    LAYERED.with(|l| l.borrow().clone())
+}
+
+/// **Start the count over**, so an editor's own open is not charged to the change under test.
+pub fn forget_layered_for_test() {
+    LAYERED.with(|l| l.borrow_mut().clear());
+}
+
 /// **The** way a library is loaded: measurements, then this project's policy over them.
 ///
 /// One function because there are two readers — the editor and the game — and a library layered one
@@ -60,6 +88,7 @@ pub const POLICY_FILE: &str = "project.ron";
 /// branch would then be two ways to say the same thing, and only one of them would get tested. A
 /// project states its policy, even when its policy is nothing.
 pub fn layered_library(dir: &Path) -> Result<Layered, String> {
+    LAYERED.with(|l| l.borrow_mut().push(dir.to_path_buf()));
     let read = |name: &str| -> Result<String, String> {
         let path = dir.join(name);
         std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))
