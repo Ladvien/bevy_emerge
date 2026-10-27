@@ -445,7 +445,31 @@ fn adopt(path: &Path, project: &mut Project) -> Result<(), String> {
             .and_then(|k| k.dir.file_name())
             .map(|n| n.to_string_lossy().into_owned());
         let fresh = Project::open(&root, kit.as_deref())?;
+        // **And the Map is told which pieces changed, through the same comparison the Tiles tab
+        // uses** ([`crate::tiles::changed_ids`]).
+        //
+        // Without this the re-read is a change to the editor's *memory* only: the placed pieces
+        // were spawned from the library the editor held then, and the systems that draw them are
+        // driven by [`Project::touched`] — which only `tiles::commit_measured` filled. So a person
+        // editing a piece's `stretch_y`, `scale`, `extent` or `mesh` in a text editor got the
+        // palette and the inspector updated and **the world unchanged**: E-007's shape, one file
+        // over, where the number agrees with the file and the picture is a lie.
+        //
+        // `touched` is compared against the library being replaced, not against the file, so a
+        // hand-written `library.ron` with its own formatting cannot read as a change — and it is
+        // carried onto the fresh project after the swap, because `Project::open` starts empty.
+        let touched = crate::tiles::changed_ids(&project.library, &fresh.library);
+        // **And the map the author has open is still the map they have open.** `Project::open`
+        // starts with `open_map_name: None`, which is right for a first open and wrong here: this
+        // is the same project, re-read, and the name is the author's intent about which map they
+        // are working on. Dropping it made a kit edit the same as never having opened a map, so
+        // the next crossing from the Kit door back to the Map door refused with "none has been
+        // open".
+        let open_map_name = project.open_map_name.clone();
+        let mut fresh = fresh;
+        fresh.open_map_name = open_map_name;
         *project = fresh;
+        project.touched.extend(touched);
         Ok(())
     }
 }

@@ -48,8 +48,84 @@ pub struct Ground {
 /// is not overlap.
 const EPSILON: f32 = 1e-4;
 
+/// The most grid cells one piece may be filed under before it is kept aside and compared with
+/// everything instead. A field-sized piece over a town's cell size would otherwise be filed under
+/// tens of thousands of cells it may share with nothing — the insertion cost the grid exists to avoid.
+const MAX_CELLS_PER_PIECE: i64 = 256;
+
+thread_local! {
+    /// **How many separating-axis tests this thread's `draw_levels` has run** — E-020's measure.
+    ///
+    /// A thread, not a process: libtest gives every test its own thread. The levels themselves do not
+    /// change; only the number of pairs the order has to look at does, which is the thing that was
+    /// wrong — a whole map's change compared every standing pair when almost none of them can
+    /// overlap.
+    static OVERLAP_TESTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// **The pairwise overlap tests `draw_levels` has made on this thread**, for the test that pins the
+/// cost of a whole-map redraw.
+///
+/// Reads a count rather than a clock: a level answer is the same however it was reached, so a
+/// comparison of the returned levels cannot see the wasted work at all — which is why it survived.
+pub fn overlap_tests_for_test() -> usize {
+    OVERLAP_TESTS.with(std::cell::Cell::get)
+}
+
+/// The axis-aligned box a footprint occupies: `(min x, min z, max x, max z)`.
+fn bounds(corners: &[(f32, f32); 4]) -> (f32, f32, f32, f32) {
+    corners.iter().fold(
+        (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY),
+        |(x0, y0, x1, y1), &(x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+    )
+}
+
+/// **The side of one grid cell, in metres** — the mean footprint span, so a typical piece touches a
+/// handful of cells. Falls back to one metre rather than zero, which would divide by nothing.
+fn cell_size(order: &[usize], ground: &[Option<Ground>]) -> f32 {
+    let mut span = 0.0f32;
+    let mut n = 0usize;
+    for &i in order {
+        if let Some(g) = ground[i].as_ref() {
+            let (x0, y0, x1, y1) = bounds(&g.corners);
+            span += (x1 - x0).max(y1 - y0);
+            n += 1;
+        }
+    }
+    let mean = if n == 0 { 0.0 } else { span / n as f32 };
+    if mean.is_finite() && mean > 0.0 {
+        mean
+    } else {
+        1.0
+    }
+}
+
+/// One piece's cells, as an inclusive integer range, or `None` when its box cannot be placed in the
+/// grid (a non-finite corner, or a span too large to file).
+fn cell_range(
+    corners: &[(f32, f32); 4],
+    cell: f32,
+) -> Option<(i32, i32, i32, i32)> {
+    let (x0, y0, x1, y1) = bounds(corners);
+    if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
+        return None;
+    }
+    let (cx0, cy0) = ((x0 / cell).floor(), (y0 / cell).floor());
+    let (cx1, cy1) = ((x1 / cell).floor(), (y1 / cell).floor());
+    let span = ((cx1 - cx0 + 1.0) * (cy1 - cy0 + 1.0)) as f64;
+    if !(span.is_finite() && span >= 1.0 && span <= MAX_CELLS_PER_PIECE as f64) {
+        return None;
+    }
+    Some((cx0 as i32, cy0 as i32, cx1 as i32, cy1 as i32))
+}
+
 /// The level of each piece under the rule in the module docs. `None` is a piece with no footprint:
 /// it draws at level `0` and is ordered against nothing.
+///
+/// **Only pieces that can overlap are compared.** A level is a maximum over the pieces below that
+/// overlap, and two footprints that overlap must share a grid cell, so each piece asks the cells it
+/// covers rather than every piece ordered before it — E-020's second half. On the shipped town this
+/// is a few dozen tests where the pairwise loop made hundreds of thousands per whole-map change.
 pub fn draw_levels(ground: &[Option<Ground>]) -> Vec<i8> {
     let mut levels = vec![0i8; ground.len()];
     let mut order: Vec<usize> = (0..ground.len()).filter(|&i| ground[i].is_some()).collect();
@@ -64,16 +140,58 @@ pub fn draw_levels(ground: &[Option<Ground>]) -> Vec<i8> {
             _ => a.cmp(&b),
         }
     });
+    let cell = cell_size(&order, ground);
+    // **The cells already filled, by footprint**, and the pieces too large to file. Both are keyed by
+    // position in `order`, so every candidate is a piece that is already below the one being levelled.
+    let mut cells: std::collections::HashMap<(i32, i32), Vec<usize>> =
+        std::collections::HashMap::new();
+    let mut aside: Vec<usize> = Vec::new();
+    // One stamp per piece, so a piece filed under several cells is still tested once.
+    let mut seen = vec![0u64; order.len()];
+    let mut candidates: Vec<usize> = Vec::new();
     for (k, &i) in order.iter().enumerate() {
         let gi = ground[i].as_ref().expect("filtered to footprints");
+        let stamp = k as u64 + 1;
+        candidates.clear();
+        let range = cell_range(&gi.corners, cell);
+        match range {
+            Some((cx0, cy0, cx1, cy1)) => {
+                // **A piece kept aside may overlap this one anywhere**, so it is always a candidate.
+                candidates.extend_from_slice(&aside);
+                for cx in cx0..=cx1 {
+                    for cy in cy0..=cy1 {
+                        if let Some(bucket) = cells.get(&(cx, cy)) {
+                            candidates.extend_from_slice(bucket);
+                        }
+                    }
+                }
+            }
+            // **Too large (or unplaceable) to file**: nothing about its box prunes anything, so it
+            // compares with every piece below it, exactly as the pairwise loop did.
+            None => candidates.extend(0..k),
+        }
         let mut level = 0i8;
-        for &j in &order[..k] {
-            let gj = ground[j].as_ref().expect("filtered to footprints");
+        for j in candidates.drain(..) {
+            if seen[j] == stamp {
+                continue;
+            }
+            seen[j] = stamp;
+            let gj = ground[order[j]].as_ref().expect("filtered to footprints");
             if overlaps(&gi.corners, &gj.corners) {
-                level = level.max(levels[j].saturating_add(1));
+                level = level.max(levels[order[j]].saturating_add(1));
             }
         }
         levels[i] = level;
+        match range {
+            Some((cx0, cy0, cx1, cy1)) => {
+                for cx in cx0..=cx1 {
+                    for cy in cy0..=cy1 {
+                        cells.entry((cx, cy)).or_default().push(k);
+                    }
+                }
+            }
+            None => aside.push(k),
+        }
     }
     levels
 }
@@ -81,6 +199,7 @@ pub fn draw_levels(ground: &[Option<Ground>]) -> Vec<i8> {
 /// Whether two convex quadrilaterals overlap with positive area, by the separating-axis test: they
 /// are disjoint exactly when some edge normal of either one separates the two projections.
 fn overlaps(a: &[(f32, f32); 4], b: &[(f32, f32); 4]) -> bool {
+    OVERLAP_TESTS.with(|n| n.set(n.get() + 1));
     !separated(a, b) && !separated(b, a)
 }
 

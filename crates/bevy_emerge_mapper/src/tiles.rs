@@ -3274,6 +3274,23 @@ fn write_library(project: &mut Project) -> Result<std::path::PathBuf, String> {
     commit_measured(project, edited)
 }
 
+thread_local! {
+    /// **How many times this thread has written a kit's `library.ron`** — E-049's measure.
+    ///
+    /// A thread, not a process: libtest gives every test its own thread, so one test's writes cannot
+    /// be read as another's. The write itself does not change; only the count of them does, which is
+    /// the thing that was wrong — a chip click wrote the file, then wrote the identical file again.
+    static LIBRARY_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// **The writes of `library.ron` this thread has made**, for the test that pins one per edit.
+///
+/// Reads a count rather than the file: two identical writes leave the same bytes on disk, so a
+/// file comparison cannot see the duplicate at all — which is exactly why it survived.
+pub fn library_writes_for_test() -> usize {
+    LIBRARY_WRITES.with(std::cell::Cell::get)
+}
+
 /// **Write these measurements, and adopt them only if that worked.**
 ///
 /// The structural edits — adding an imported piece, removing one — need to *propose* a library rather
@@ -3313,6 +3330,7 @@ pub(crate) fn commit_measured(
     let path = project.library_path.clone();
     let text = measured.to_ron()?;
     bevy_emerge_core::ron_surgery::save_atomic(&path, &text)?;
+    LIBRARY_WRITES.with(|n| n.set(n.get() + 1));
 
     // **What the Map has to redraw, worked out by comparison.** The already-placed entities were
     // built from the shapes in `project.library`; anything whose resolved descriptor differs in the
@@ -3345,7 +3363,13 @@ pub(crate) fn commit_measured(
 /// `Descriptor` derives `PartialEq`, so this is the whole of "did this piece change". An id that
 /// only exists in `old` is a removal, and a removed descriptor has no placements left to redraw —
 /// `commit_measured` refuses a removal the map still uses.
-fn changed_ids(
+///
+/// **Public to the crate because there is a second library door.** `commit_measured` is the
+/// in-editor one; `watch::adopt` is the file one, and it replaces the whole project with a fresh
+/// `Project::open` — which must name the same pieces, or the map keeps the shapes it was drawn
+/// with. Two callers, one definition: a second comparison would be a second answer to "what did
+/// the library change".
+pub(crate) fn changed_ids(
     old: &bevy_emerge_core::library::Library,
     new: &bevy_emerge_core::library::Library,
 ) -> Vec<String> {
@@ -6528,7 +6552,13 @@ fn toggle_tag(axis: Axis, token_ix: usize, project: &mut Project, state: &mut Im
         if crate::editor::set_label(state, project, &id, wire_axis(axis), &next) {
             state.record(history_before);
             let said = format!("{} tags updated", axis.label().to_lowercase());
-            state.status.say(persist(project, where_to, said));
+            // **No `persist` here — `label_set` already wrote the file.** Its commit is
+            // `commit_measured`, which is the one door to `library.ron`; `Persist::Library` would
+            // serialize and write the identical library a second time. That cost two `to_ron` ->
+            // `save_atomic` round trips per click, and no existing test could see it because the
+            // bytes on disk are right either way (E-049,
+            // `a_chip_click_writes_the_library_once.rs`).
+            state.status.note(said);
         }
         return;
     }
@@ -6645,12 +6675,29 @@ fn move_selection(
         );
         match library_landing(&ids, &cursor) {
             Some(land) => {
+                // **Arriving on the shelf is a selection, so it is the operation** (E-050). `right`
+                // used to write `selected_library_id` by hand, so the press that points the shelf
+                // at a piece left no `piece_select` line while the very next `down` did — one
+                // question, two answers depending on which key asked it. A selection that is
+                // already made is left alone: the seed is the arrival, not a re-selection.
+                //
+                // **On the Meshes shelf only.** `piece_select` names the Meshes shelf; on the Tiles
+                // tab this list is a tile's source, which no operation names yet, and logging a
+                // Meshes-shelf selection for it would make the log say something that did not
+                // happen.
                 if state.selected_library_id.is_none() {
-                    state.selected_library_id = Some(land);
+                    if tiles_tab {
+                        state.selected_library_id = Some(land);
+                    } else {
+                        crate::editor::select_piece(&mut state, &project, &land);
+                    }
                 }
                 // **The heading cursor goes when the library takes over.** Leaving it set meant two
                 // highlights on screen and two readers disagreeing about which was live.
                 state.focused_pack = None;
+                // **The note still says which list the arrows walk**, not which row they landed
+                // on: this press asked for the shelf, and the row is the answer to a question the
+                // author did not ask yet.
                 state.status.note("library".to_owned());
             }
             None => state.status.note("the library is empty".to_owned()),
@@ -8211,8 +8258,16 @@ fn on_shelf_click(
             let ids = library_ids(&project, &filters, *mode == Mode::Tiles, Some(&suggestions));
             match library_landing(&ids, &cursor) {
                 Some(land) => {
+                    // **The chip and the key are one press** (E-050): the seed goes through
+                    // `piece_select`, so a click on `MESHES` leaves the same line the arrow does —
+                    // and on the Tiles tab it stays a direct write, for the reason the key's arm
+                    // gives.
                     if state.selected_library_id.is_none() {
-                        state.selected_library_id = Some(land);
+                        if *mode == Mode::Tiles {
+                            state.selected_library_id = Some(land);
+                        } else {
+                            crate::editor::select_piece(&mut *state, &project, &land);
+                        }
                     }
                     state.focused_pack = None;
                     state.status.note("library".to_owned());

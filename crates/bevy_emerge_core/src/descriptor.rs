@@ -763,14 +763,24 @@ pub fn mount_options(surfaces: &[String]) -> Vec<Mount> {
                 },
             );
         }
-        // **The two-mount entry, right after the class it lifts from.** Only the first class, and
-        // deliberately: `mount_options` is a cycle list an author taps through with `M`, and one
-        // `or the floor` entry per class would put the list's length at the vocabulary's twice.
-        // A piece that may take any other class is authored in the file, where the class is a
-        // sentence rather than a rung.
-        if let Some(class) = surfaces.first() {
+        // **The two-mount entries, one per class, right after the classes they lift from** (E-060).
+        //
+        // They were the first class alone, on the argument that an `or the floor` entry per class
+        // would double the list. That is true and it was the wrong trade: this list is a cycle an
+        // author taps through with `M`, and **an entry that does not exist cannot be reached at any
+        // price**. `assets/emerge/vocab.ron` declares three classes, so a dressing set that belongs
+        // on a *shelf* or the floor had no rung, and the labeller's prompt offered the shape for one
+        // class while refusing the other two — the only way through was hand-editing the file, which
+        // is exactly what the cycle exists to make unnecessary. With the shipped three classes the
+        // list goes from 15 rungs to 17, which is a tap or two.
+        //
+        // **After the plain entries rather than beside each one**, so the cycle reads as two passes
+        // over the vocabulary — every class, then the same classes with `or floor` — instead of an
+        // interleaving an author has to decode.
+        let at = at + surfaces.len();
+        for (i, class) in surfaces.iter().enumerate() {
             out.insert(
-                at + surfaces.len(),
+                at + i,
                 Mount::OnSurfaceOrFloor {
                     class: class.clone(),
                 },

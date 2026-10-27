@@ -3901,13 +3901,18 @@ pub fn resolve_frame(
     open: &OpenMap,
     lock: Option<&str>,
 ) -> Result<Framing, String> {
-    let ys = heights(project, open)?;
+    // **The stack is resolved by the targets that stand pieces on something, and not before.**
+    // A map's own box is its floor plan and its height span, so no placement's Y can move it — and
+    // resolving heights up front turned a map with one bad stack into a refusal, which left the Map
+    // on `Rig::default()`'s 18 m close-up of the origin (B-018). The three targets that read
+    // placements resolve the stack and refuse exactly as they did.
     let (what, centre, size) = match target {
         FrameTarget::Map => {
             let (c, s) = map_bounds(open);
             ("the whole map".to_string(), c, s)
         }
         FrameTarget::Selection => {
+            let ys = heights(project, open)?;
             let id = lock.ok_or(
                 "nothing is selected: click a placement on the Map to lock it, or name placements or a rectangle",
             )?;
@@ -3918,6 +3923,7 @@ pub fn resolve_frame(
             if ids.is_empty() {
                 return Err("no placements named: give at least one placement id".to_string());
             }
+            let ys = heights(project, open)?;
             let (c, s) = named_box(project, open, &ys, ids)?;
             let names = ids
                 .iter()
@@ -3938,6 +3944,7 @@ pub fn resolve_frame(
                     "a rectangle needs finite numbers with x0 < x1 and z0 < z1, in map metres; got [{x0}, {z0}, {x1}, {z1}]"
                 ));
             }
+            let ys = heights(project, open)?;
             let o = open.map.origin;
             // A rectangle is ground: its footprint is the rectangle, and its height is what stands inside
             // it. A tall piece elsewhere on the map must not raise the frame (cycle-3 item 1).
@@ -4039,6 +4046,14 @@ fn frame_map_on_open(
     match resolve_frame(&FrameTarget::Map, &project, &open, None) {
         Ok(frame) => {
             apply_frame(&mut rig, &frame, aspect, &open);
+            // **The frame does not need the stack, and the author still does.** A map's own box is
+            // its floor plan and its height span, so a bad stack no longer refuses the frame (B-018)
+            // — but the reason it is bad is the one thing the author has to be told, and it used to
+            // arrive only as this refusal. Asking the same `heights` the draw asks costs one walk
+            // and keeps the sentence.
+            if let Err(e) = heights(&project, &open) {
+                state.status.problem(e);
+            }
         }
         Err(e) => state.status.problem(e),
     }
@@ -12486,11 +12501,50 @@ fn sync_proposal_ghosts(
             commands.entity(e).insert((ProposalGhost, Ghost));
         }
     }
-    // **Stamps are not drawn piece by piece, and that is a scope decision stated rather than
-    // hidden.** A stamp is a composition reference whose rows are expanded by `composition::expand`
-    // against the map it lands in; drawing its members here would duplicate that expansion's
-    // placement rules. The cell outline `draw_proposal` draws still covers them, and the count in the
-    // status line says how many. Logged as E-061.
+    // **A composed proposal is drawn piece by piece too** (E-061), through the same
+    // `composition::expand` `Enter` lands through — so the ghosts are the expansion's own rows,
+    // seated by the same `stamped_heights`, and the two cannot disagree about what a stamp puts
+    // where. Drawing nothing but a cell outline asked the author to keep a layout they could not see,
+    // which is the B-046 defect one source over.
+    if !p.composes || p.stamps.is_empty() {
+        return;
+    }
+    // **The map `Enter` will commit**: the open one with its unpinned stamps cleared and the
+    // proposal's laid on. `layout_accept`'s keep removes exactly the unpinned rows and extends with
+    // exactly these — so an expansion against anything else would preview a map nobody will get.
+    let mut landed = open.map.clone();
+    landed.stamps.retain(|s| s.owned);
+    landed.stamps.extend(p.stamps.iter().cloned());
+    let Ok(expanded) = bevy_emerge_core::composition::expand(
+        &landed,
+        &landed.stamps,
+        &project.compositions.compositions,
+        &project.library,
+    ) else {
+        // The commit would refuse this layout too, and the status line already says why.
+        return;
+    };
+    let Ok(ys) = stamped_heights(&landed, &project.library, &expanded) else {
+        return;
+    };
+    for (k, row) in expanded.placements.iter().enumerate() {
+        let Some(d) = bevy_emerge_core::stack::descriptor_of(&project.library, row) else {
+            continue;
+        };
+        let Some(&y) = ys.get(k) else {
+            continue;
+        };
+        if let Some(e) = spawn_piece(
+            &mut commands,
+            &assets,
+            Pose { d: &d, yaw: row.yaw, tip: row.tip },
+            row.at,
+            open.map.origin,
+            y,
+        ) {
+            commands.entity(e).insert((ProposalGhost, Ghost));
+        }
+    }
 }
 
 /// **Take the proposal, or leave it** — the other half of the commit door.
@@ -12791,7 +12845,10 @@ fn drive_ghost(
     hovered_ui: Query<&Hovered>,
     pointer: Res<crate::view::Pointer>,
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
-    ghosts: Query<(Entity, &GhostOf), With<Ghost>>,
+    // **The paint it already carries, read here rather than asked for separately** — a system at
+    // Bevy's parameter limit cannot afford another `Query` for one `i8`, and a ghost's paint is
+    // meaningless without the ghost.
+    ghosts: Query<(Entity, &GhostOf, Option<&bevy_emerge::Paint>), With<Ghost>>,
     mut transforms: Query<&mut Transform, With<Ghost>>,
     held: Res<MoveDrag>,
     // The ghost must snap exactly when the click will, or the preview is a lie about where the
@@ -12804,7 +12861,7 @@ fn drive_ghost(
     compose: Res<crate::compose::Armed>,
 ) {
     let clear = |commands: &mut Commands| {
-        for (e, _) in &ghosts {
+        for (e, _, _) in &ghosts {
             commands.entity(e).despawn();
         }
     };
@@ -12978,12 +13035,31 @@ fn drive_ghost(
         state.hint.clear();
     }
 
+    // **The paint the committed piece will be drawn with** (E-020) — asked of the same helper the
+    // spawn uses, against the map the drop lands in. A ghost carrying only its own `paint` sat at
+    // level 0 over a field while the click's row, ordered after it among equal-paint equal-area
+    // pieces, drew at level 1: the preview z-fought the floor it was previewing.
+    let ghost_paint = bevy_emerge::paint_for_candidate(
+        probe_map,
+        &project.library,
+        &bevy_emerge_core::map::Placed {
+            descriptor: d.id.clone(),
+            at,
+            yaw: want_yaw,
+            tip: want_tip,
+            // **The patch, because it is what changes the footprint** — a road in hand is a 4.9 m
+            // strip and not the one-square descriptor it is a patch of.
+            patch: ghost_patch.clone(),
+            ..bevy_emerge_core::map::Placed::default()
+        },
+    );
+
     let patched_ghost = ghost_patch.is_some();
     let existing = ghosts
         .iter()
-        .find(|(_, g)| g.0 == brush_ix && g.1 == patched_ghost)
-        .map(|(e, _)| e);
-    for (e, g) in &ghosts {
+        .find(|(_, g, _)| g.0 == brush_ix && g.1 == patched_ghost)
+        .map(|(e, _, _)| e);
+    for (e, g, _) in &ghosts {
         if g.0 != brush_ix || g.1 != patched_ghost {
             commands.entity(e).despawn();
         }
@@ -12994,6 +13070,19 @@ fn drive_ghost(
             if let Ok(mut tf) = transforms.get_mut(e) {
                 tf.translation = bevy_emerge::origin_of(at, open.map.origin, y);
                 tf.rotation = Quat::from_rotation_y(yaw.to_radians());
+            }
+            // Written only on a change: this runs every frame the cursor is over one cell.
+            let now = ghosts
+                .iter()
+                .find(|(other, _, _)| *other == e)
+                .and_then(|(_, _, p)| p.map(|p| p.0))
+                .unwrap_or(0);
+            if now != ghost_paint {
+                if ghost_paint != 0 {
+                    commands.entity(e).insert(bevy_emerge::Paint(ghost_paint));
+                } else {
+                    commands.entity(e).remove::<bevy_emerge::Paint>();
+                }
             }
         }
         None => {
@@ -13006,6 +13095,9 @@ fn drive_ghost(
                 y,
             ) {
                 commands.entity(e).insert((Ghost, GhostOf(brush_ix, patched_ghost)));
+                if ghost_paint != 0 {
+                    commands.entity(e).insert(bevy_emerge::Paint(ghost_paint));
+                }
             }
         }
     }

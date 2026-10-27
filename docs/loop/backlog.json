@@ -28,7 +28,7 @@
         "evidence": "watch.rs::adopt re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. A per-kit re-read would be better."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt",
+      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt still re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. B-053 (2026-10-27) fixed the half that made the full reload WRONG — touched was never filled, so the screen kept the old shapes — and carried open_map_name across it. What remains is the cost: the whole project, its GLBs re-measured for triangle counts, and every other kit re-read, per save.",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -117,16 +117,6 @@
       "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only)."
     },
     {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
-      "id": "E-020",
-      "kind": "enhancement",
-      "area": "editor",
-      "status": "open",
-      "title": "Ghosts and previews do not get draw levels, and relevel is O(n^2) per map change",
-      "evidence": "From the z-fight fix (bd5116a/63e6631): ghost/preview spawns in editor.rs and redraw_stamps get no paint or lift, so a ghost over a field can draw differently from the committed piece; relevel_placements compares every pair when the map changes (727 pieces: about 0.5 M pairs)."
-    },
-    {
       "id": "E-023",
       "kind": "enhancement",
       "area": "perf",
@@ -135,38 +125,6 @@
       "evidence": "target/loop/2026-10-21-b6ee5af/ab*.txt; the commit adds no per-frame work beyond view::drive reading the viewport aspect. Check with a profiler (Tracy or bevy_debugger frame timings) before claiming either way.",
       "last_failure": "",
       "first_seen": "2026-10-21"
-    },
-    {
-      "id": "B-018",
-      "kind": "bug",
-      "area": "view",
-      "status": "open",
-      "title": "A map whose stacking does not resolve opens unframed on the 18 m close-up",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "reviewer P3 of the E-022 iteration (docs/loop/iterations/2026-10-21-view-b51da72.md): the open-framed path resolves the whole map through resolve_frame, which needs stack heights; when stacking fails it shows the stacking toast and leaves the old close-up"
-      },
-      "evidence": "Not must-fix: only maps with an unresolvable stack, and the toast already says why; emerge_frame_view {target: map} or the wheel still frames it. The whole-map box needs no stack heights (editor::map_bounds), so framing could fall back to it.",
-      "last_failure": "",
-      "first_seen": "2026-10-21"
-    },
-    {
-      "id": "E-027",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "A human R or T turn writes two undo records: an oplog line and the editor's own stack entry",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "Since 6aa6185, R and T dispatch placement_set_yaw, which appends an oplog line. The editor also keeps its Undo::Turned record so Cmd+Z still takes the turn back. One human turn is therefore two records that undo through two stacks. No defect was observed in a live run; the duplicate is inferred from reading the code and is a design question for one undo history (E-013, B-019)."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs Undo::Turned; crates/bevy_emerge_mapper/src/ops.rs placement_set_yaw; commit 6aa6185 message. Partly addressed by 4364dd4 (one history). Gap: no test shows a human turn writes one entry, not two.",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
     },
     {
       "id": "B-021",
@@ -309,26 +267,6 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-049",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "A chip click writes library.ron twice (review gap 9)",
-      "status": "open",
-      "evidence": "tiles.rs:6321-6324: set_label -> commit_measured writes the file, then persist(Library) writes the identical file again. Fix: state.status.say(Ok(said)) in that branch. Review note, not judged. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
-      "id": "E-050",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "The Meshes right-arrow seed selects without the operation; correct the walk keys' reason (review gap 10)",
-      "status": "open",
-      "evidence": "tiles.rs:6442: FocusLibrary still sets selected_library_id = Some(land) directly, with no log line. Fix: route the seed through select_piece. The walk keys PrevCandidate and NextCandidate stay unmigrated because they also walk the candidate list, which no operation covers; the stated reason was wrong. UNMIGRATED_MAX stays 119. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
       "id": "E-051",
       "kind": "enhancement",
       "area": "editor",
@@ -387,38 +325,6 @@
       "evidence": "2026-10-23 round: agent-drives shipped as the README hero. build-a-map failed on caption sync and small pieces; label-a-kit waits on B-047; generate-a-layout waits on B-046. Storyboards and attempts in /tmp/gifs/ (not committed).",
       "last_failure": "",
       "first_seen": "2026-10-23"
-    },
-    {
-      "id": "E-060",
-      "kind": "enhancement",
-      "area": "kits",
-      "title": "`mount_options` offers the two-way mount for the first surface class only",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "The M cycle is a fixed-length list; one entry per class would double it. Authoring another class is a file edit, so a workaround exists."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_core/src/descriptor.rs::mount_options",
-      "last_failure": "",
-      "first_seen": "2026-10-24"
-    },
-    {
-      "id": "E-061",
-      "kind": "enhancement",
-      "area": "fill",
-      "title": "A stamp proposal is outlined by cell but its member pieces are not drawn",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "B-046's fix draws proposed *placements* only: a `composes` proposal lays stamps whose rows `expand` produces against the landing map, and duplicating that expansion in the preview is its own design. The cell outline and the count in the status line still cover them."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::sync_proposal_ghosts (the stamps arm is a comment)",
-      "last_failure": "",
-      "first_seen": "2026-10-24"
     },
     {
       "id": "E-066",
@@ -507,6 +413,22 @@
       },
       "status": "open",
       "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip)",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
+    },
+    {
+      "id": "E-086",
+      "kind": "enhancement",
+      "area": "parity",
+      "status": "open",
+      "title": "A new operation cannot be added without editing a protected test file: the UI entry-point tables live inside the parity test",
+      "must_fix": {
+        "blocks": true,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass — the pass stops and says so rather than editing the ratchet."
+      },
+      "evidence": "Proposed fix, for an evaluator pass: move both tables into product code as an exported constant (`ops::ui_entry_points()`), so an operation and its entry point are one commit in product code and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
       "last_failure": "",
       "first_seen": "2026-10-26"
     }

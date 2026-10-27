@@ -1502,6 +1502,116 @@
       "evidence": "Both halves shipped. **Doorway** (d27e452): crates/bevy_emerge_core/src/stack.rs::blocked_openings — the hole is `InOpening`'s `clear` rectangle (not the frame's footprint), vertical is read, another opening and a rider on the door are exempt, `clear: None` reports nothing; checks::Found::doorways carries it as `doorways_in_the_way`. **Clearance** (this pass): stack::blocked_clearances — each `Descriptor::clearance` becomes a rectangle starting at the keeper's own footprint edge, direction = world `yaw + align.front`, extent = the exact projection `half.0*|a0.u| + half.1*|a1.u|` (so a 45-degree piece reserves from its edge, not a circumscribed square), `Around` = four widened bands covering the corners. Tutenel et al. (2010)'s exemption is implemented: an intruder that reserves space itself may share the band, plus `Tiled`/`Decal` intruders, a rider on the keeper, and a piece whose span misses the keeper's. The vertical bound is stated in the doc rather than derived — head height is not in the schema. Carried as `checks.clearances_in_the_way` {\"new\":[{\"keeper\",\"intruder\"}],\"new_total\",\"total\"}. Shared `stack::bodies()` now resolves `resolve_y` once for both checks so they cannot disagree about where a piece is. Regression: crates/bevy_emerge_core/tests/a_piece_in_a_doorway_is_reported.rs (8 tests), crates/bevy_emerge_core/tests/a_piece_in_reserved_space_is_reported.rs (8 tests, mutation-tested: zeroing the edge projection fails the_front_band_points_out_of_the_pieces_own_front and the_list_is_deduplicated_and_ordered), crates/bevy_emerge_mapper/tests/a_placement_in_a_doorway_says_so.rs, crates/bevy_emerge_mapper/tests/a_placement_in_reserved_space_says_so.rs.",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-061",
+      "kind": "enhancement",
+      "area": "fill",
+      "title": "A stamp proposal is outlined by cell but its member pieces are not drawn",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "B-046's fix draws proposed *placements* only: a `composes` proposal lays stamps whose rows `expand` produces against the landing map, and duplicating that expansion in the preview is its own design. The cell outline and the count in the status line still cover them."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::sync_proposal_ghosts now draws a composed proposal through `composition::expand` + `stamped_heights` against the map `layout_accept`'s keep lands in (unpinned stamps cleared, the proposal's laid on), so the ghosts ARE the rows Enter commits rather than a second expansion. Proof: crates/bevy_emerge_mapper/tests/a_composed_proposal_draws_its_members.rs (2 tests, the first fails at the base commit: 0 ghosts drawn for a proposal whose expansion holds 4 rows).",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
+    },
+    {
+      "id": "B-018",
+      "kind": "bug",
+      "area": "view",
+      "status": "fixed",
+      "title": "A map whose stacking does not resolve opens unframed on the 18 m close-up",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "reviewer P3 of the E-022 iteration (docs/loop/iterations/2026-10-21-view-b51da72.md): the open-framed path resolves the whole map through resolve_frame, which needs stack heights; when stacking fails it shows the stacking toast and leaves the old close-up"
+      },
+      "evidence": "Fixed 23d2c41. `resolve_frame` resolved every placement's Y before it read the target, so `FrameTarget::Map` — which reads only `map_bounds` (floor plan + height span + bounds, no placement) — was refused by a bad stack and `frame_map_on_open` left the Rig at its 18 m default. Heights are now resolved inside the three arms that consume them, and the stacking reason is asked for separately and still reported so the frame is not bought by silencing it. The reachable broken stack is a host that exists and offers nothing the guest needs: `Map::validate` already refuses a missing host. Regression: tests/a_broken_stack_still_opens_framed.rs (2 tests; the frame one failed before, the report one failed on the first version of the fix). accept.py 10/10 -> 10/10.",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-050",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "The Meshes right-arrow seed selects without the operation; correct the walk keys' reason (review gap 10)",
+      "status": "shipped",
+      "evidence": "Shipped ee47069. `tiles::move_selection`'s FocusLibrary arm and `on_shelf_click`'s Shelf::Library arm now dispatch `editor::select_piece` (the `piece_select` a row click and an agent use) instead of writing `selected_library_id`, so the arrival writes the log line the walk already wrote. The Tiles-tab arms keep the direct write — `piece_select` names the Meshes shelf and that tab's list is a tile's source, which no operation names yet — and `tests/the_library_seed_is_a_selection.rs::the_tiles_tab_seed_is_not_logged_as_a_meshes_selection` pins that boundary. UNMIGRATED_MAX unchanged: FocusLibrary still names no operation because it both switches the list and seeds it. Tests: 3 in `tests/the_library_seed_is_a_selection.rs`, the key and chip ones failing at the pre-fix source with 0 `piece_select` lines. Report: docs/loop/iterations/2026-10-26-kit-seed-ee47069.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-049",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "A chip click writes library.ron twice (review gap 9)",
+      "status": "fixed",
+      "evidence": "Fixed in 4cb7946: `tiles::toggle_tag`'s success arm no longer calls `persist(.., Persist::Library, ..)` after `editor::set_label` (whose commit is `commit_measured`, the one door to library.ron) already wrote the file. Measure is a count: `tiles::library_writes_for_test()` reads a thread-local incremented exactly where `commit_measured` writes; `tests/a_chip_click_writes_the_library_once.rs` failed at the base with `got 2` and passes after, and a refused token writes nothing. Report: docs/loop/iterations/2026-10-26-kit-e049-4cb7946.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-060",
+      "kind": "enhancement",
+      "area": "kits",
+      "title": "`mount_options` offers the two-way mount for the first surface class only",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "The M cycle is a fixed-length list; one entry per class would double it. Authoring another class is a file edit, so a workaround exists."
+      },
+      "status": "fixed",
+      "evidence": "Fixed: `mount_options` now inserts one `Mount::OnSurfaceOrFloor` per surface class declared, after the plain surface entries, instead of for `surfaces.first()` alone. `assets/emerge/vocab.ron` declares support/worktop/shelf, so an author or the VLM labeler could previously express `on support or floor` and nothing else. `crates/bevy_emerge_core/tests/every_surface_class_has_a_two_way_mount.rs` — `every_surface_class_has_a_two_way_mount` failed at the base commit (offered list held only 'on support or floor') and passes after; three more tests pin per-class names, ordering after the plain entries, no-classes = no two-way entry, and the one-class case unchanged. Report: docs/loop/iterations/2026-10-27-kits-e060-f0b2145.md",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-020",
+      "kind": "enhancement",
+      "area": "editor",
+      "status": "shipped",
+      "title": "Ghosts and previews do not get draw levels, and relevel is O(n^2) per map change",
+      "evidence": "**Shipped in two halves.** 709d733: `drive_ghost` inserted no `Paint`, so a preview drew at level 0 while every map spawn path reads `drawn_paints`; `bevy_emerge::paint_for_candidate` answers the same question for a row not yet in the map and the ghost inserts it (tests/a_preview_draws_at_the_level_the_piece_lands_at.rs, 3 tests). e55a239: `draw_levels` compared every piece with every piece below it (O(n^2) separating-axis tests); it now files each piece under the grid cells its bounding box covers and tests only those plus pieces too large to file, with the pairwise order kept in the test as the reference (tests/draw_levels_only_compares_pieces_that_can_overlap.rs, 8 tests). Measured on a 403-piece scattered town: 81,003 overlap tests -> 104; at 709d733 with only the counter added, *the pairwise order would make 81003 overlap tests for 403 pieces and this made 81003*."
+    },
+    {
+      "id": "B-053",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A kit edited on disk re-opened the project and never redrew the standing pieces, and dropped the open map's name",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "watch::adopt replaced the whole Project with a fresh Project::open, so a library edit changed the editor's memory and not the screen: the piece standing was drawn at Vec3(1.0, 1.0, 1.0) while the project's library said stretch_y: Some(2.0). The redraw is driven by Project::touched, which only tiles::commit_measured filled. The same door also dropped open_map_name (Project::open starts it at None), so a later Kit -> Map crossing refused with 'the Map door needs a map, and none has been open' about an author who was on a map a minute ago. E-007's shape, on the library path."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/tests/a_kit_edited_on_disk_reaches_the_screen.rs (a_piece_stretched_on_disk_is_drawn_stretched failed at 6955bc3 and passes at 150cb7e; a_kit_edit_does_not_forget_the_open_map pins the name). Fix: watch::adopt fills touched with tiles::changed_ids (now pub(crate), one definition shared with commit_measured) and carries open_map_name across the re-read.",
+      "last_failure": "the editor took the edit into its memory and left the world showing the piece as it was when the editor opened (scale Vec3(1.0, 1.0, 1.0) against stretch_y: Some(2.0))",
+      "first_seen": "2026-10-27"
+    },
+    {
+      "id": "E-027",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "A human R or T turn writes two undo records: an oplog line and the editor's own stack entry",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "Since 6aa6185, R and T dispatch placement_set_yaw, which appends an oplog line. The editor also keeps its Undo::Turned record so Cmd+Z still takes the turn back. One human turn is therefore two records that undo through two stacks. No defect was observed in a live run; the duplicate is inferred from reading the code and is a design question for one undo history (E-013, B-019)."
+      },
+      "status": "fixed",
+      "evidence": "Closed 2026-10-27 by measurement, not by a product change: the code on `main` was already right after 4364dd4, and what the item was missing was the check. `crates/bevy_emerge_mapper/tests/a_persons_turn_is_one_undo_step.rs` drives the real `R` key (after `Esc`, because a held brush makes R steer the ghost) over a real wall in a headless editor and counts what one keypress wrote: one operation-log line with source Human and op `placement_set_yaw`, one stack entry (`undo_depth` +1), one Cmd+Z restoring the yaw on screen, in the map and in the file, and a second Cmd+Z changing nothing. **Proved to bite**: with the pre-4364dd4 `state.record(Undo::Turned { .. })` put back beside `record_logged` in `turn_under_cursor`, the test fails with `R wrote 2 undo entries for one keypress ... left: 2 right: 1`; removed, it passes. editor.rs Undo::Turned; ops.rs placement_set_yaw. Report: docs/loop/iterations/2026-10-27-editor-e027-2aa055c.md",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
     }
   ]
 }
