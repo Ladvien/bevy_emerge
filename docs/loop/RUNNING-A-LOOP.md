@@ -167,12 +167,19 @@ The same ship step carries "README, demos and docs stay true", for a matching re
   together — and three restarts then retired the unit with `Failed with result 'start-limit-hit'`
   (`StartLimitBurst=3` in `[Unit]`). `oomctl` names the rule: *Swap Used Limit 90 %* against the
   **monitored ancestor** `/user.slice/user-1000.slice`, whose `memory.swap.current` was 9.4 GB of
-  31.2 GB (30 %) before a loop spilled into swap and pushed the slice's ratio over. The fix that held is
-  `MemorySwapMax=0` on **both** big units: a unit at 0 contributes nothing to the slice's swap and can
-  only be chosen on memory. `MemoryHigh`/`MemoryMax` stay — the plan's rule is to bound swap, never to
-  remove the memory cap. Check a unit's real position with
-  `cat .../memory.swap.current` against `memory.swap.max`, not with `MemoryPeak` alone: society sat at
-  95 % of its swap cap while its peak looked unremarkable.
+  31.2 GB (30 %) before a loop spilled into swap and pushed the slice's ratio over. `MemorySwapMax=0` on
+  both big units stopped a unit adding to that ratio, and it was enough while the loops were only
+  refusing dirty trees. **It was not enough once lights ran real builds:** oomd killed `wiggum@lights`
+  three times in 40 minutes (17:24, 17:54, 18:02), each at a 6 GB peak, while society, with four build
+  jobs, was killed zero times. Big's swap was 74 % full by then and almost none of it was the loops'
+  (vLLM 5.8 GB, `hs-mcp` 4.9 GB, qdrant 2.5 GB; the llama-swap cgroup holds 7.8 GB), so oomd reached its
+  90 % line on other services' memory and took the largest eligible cgroup, a lights build. Two changes
+  followed, and only one is more than a mitigation: `StartLimitBurst=8` on both units, because three oomd
+  kills are not a spin and had retired a healthy loop; and `CARGO_BUILD_JOBS=2` on lights, which is a guess
+  at lowering its peak, with kills per hour as the test. The real lever is the machine's swap, which is not
+  the loops' to free. `MemoryHigh`/`MemoryMax` stay: the rule is to bound swap, never to remove the memory
+  cap. Check a unit's real position with `cat .../memory.swap.current` against `memory.swap.max`, not with
+  `MemoryPeak` alone: society sat at 95 % of its swap cap while its peak looked unremarkable.
 - **A `target/` for a Bevy workspace is tens of GB, so disk is a real eligibility check.** `mac_air` has
   10 cores and 7.6 GB of disk, which makes it useless for a compile however idle it is;
   `--min-disk-gb 40` on the picker is the honest default. Reclaiming `~/target/sanctuary/release`
@@ -247,7 +254,7 @@ The same ship step carries "README, demos and docs stay true", for a matching re
 [Unit]
 Description=<repo> Wiggum loop (one fresh <command> pass at a time)
 StartLimitIntervalSec=86400
-StartLimitBurst=3
+StartLimitBurst=8
 Documentation=file:%h/<clone>/.omp/commands/<command>.md
 After=network-online.target
 Wants=network-online.target
