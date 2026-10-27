@@ -1562,3 +1562,4 @@ Top 5 remaining:
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items (E-066/E-056/E-086) still need an evaluator pass. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; gh absent so issues unread; open items (E-066/E-056/E-086) still need an evaluator pass. No release: E-006 open.
 - 2026-10-27 loop (laptop): shipped #83 doc + CHANGELOG.md + Library::height_disagreements (new test, core suite green). #82 already fixed by 089705f. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean and pushed, backlog check ok; gh absent so issues unread; remaining open items need an evaluator pass (E-066/E-056/E-086) or a display/VLM. No release: E-006 open.
