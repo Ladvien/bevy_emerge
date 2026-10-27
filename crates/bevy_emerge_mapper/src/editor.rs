@@ -3901,13 +3901,18 @@ pub fn resolve_frame(
     open: &OpenMap,
     lock: Option<&str>,
 ) -> Result<Framing, String> {
-    let ys = heights(project, open)?;
+    // **The stack is resolved by the targets that stand pieces on something, and not before.**
+    // A map's own box is its floor plan and its height span, so no placement's Y can move it — and
+    // resolving heights up front turned a map with one bad stack into a refusal, which left the Map
+    // on `Rig::default()`'s 18 m close-up of the origin (B-018). The three targets that read
+    // placements resolve the stack and refuse exactly as they did.
     let (what, centre, size) = match target {
         FrameTarget::Map => {
             let (c, s) = map_bounds(open);
             ("the whole map".to_string(), c, s)
         }
         FrameTarget::Selection => {
+            let ys = heights(project, open)?;
             let id = lock.ok_or(
                 "nothing is selected: click a placement on the Map to lock it, or name placements or a rectangle",
             )?;
@@ -3918,6 +3923,7 @@ pub fn resolve_frame(
             if ids.is_empty() {
                 return Err("no placements named: give at least one placement id".to_string());
             }
+            let ys = heights(project, open)?;
             let (c, s) = named_box(project, open, &ys, ids)?;
             let names = ids
                 .iter()
@@ -3938,6 +3944,7 @@ pub fn resolve_frame(
                     "a rectangle needs finite numbers with x0 < x1 and z0 < z1, in map metres; got [{x0}, {z0}, {x1}, {z1}]"
                 ));
             }
+            let ys = heights(project, open)?;
             let o = open.map.origin;
             // A rectangle is ground: its footprint is the rectangle, and its height is what stands inside
             // it. A tall piece elsewhere on the map must not raise the frame (cycle-3 item 1).
@@ -4039,6 +4046,14 @@ fn frame_map_on_open(
     match resolve_frame(&FrameTarget::Map, &project, &open, None) {
         Ok(frame) => {
             apply_frame(&mut rig, &frame, aspect, &open);
+            // **The frame does not need the stack, and the author still does.** A map's own box is
+            // its floor plan and its height span, so a bad stack no longer refuses the frame (B-018)
+            // — but the reason it is bad is the one thing the author has to be told, and it used to
+            // arrive only as this refusal. Asking the same `heights` the draw asks costs one walk
+            // and keeps the sentence.
+            if let Err(e) = heights(&project, &open) {
+                state.status.problem(e);
+            }
         }
         Err(e) => state.status.problem(e),
     }
