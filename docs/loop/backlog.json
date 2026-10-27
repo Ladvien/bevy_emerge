@@ -28,7 +28,7 @@
         "evidence": "watch.rs::adopt re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. A per-kit re-read would be better."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt",
+      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt still re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. B-053 (2026-10-27) fixed the half that made the full reload WRONG — touched was never filled, so the screen kept the old shapes — and carried open_map_name across it. What remains is the cost: the whole project, its GLBs re-measured for triangle counts, and every other kit re-read, per save.",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
