@@ -771,7 +771,8 @@ pub fn mount_options(surfaces: &[String]) -> Vec<Mount> {
         // price**. `assets/emerge/vocab.ron` declares three classes, so a dressing set that belongs
         // on a *shelf* or the floor had no rung, and the labeller's prompt offered the shape for one
         // class while refusing the other two — the only way through was hand-editing the file, which
-        // is exactly what the cycle exists to make unnecessary. Three more rungs is a tap or two.
+        // is exactly what the cycle exists to make unnecessary. With the shipped three classes the
+        // list goes from 15 rungs to 17, which is a tap or two.
         //
         // **After the plain entries rather than beside each one**, so the cycle reads as two passes
         // over the vocabulary — every class, then the same classes with `or floor` — instead of an

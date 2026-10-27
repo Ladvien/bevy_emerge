@@ -13,9 +13,9 @@
 //! # What it cost, and why it is worth the length
 //!
 //! The old comment justified the limit by list length: *"one `or the floor` entry per class would put
-//! the list's length at the vocabulary's twice."* That is true and it is the wrong trade — the list is
+//! the list's length at the vocabulary's twice."* That is true and it was the wrong trade — the list is
 //! a cycle an author taps through, and an entry that does not exist cannot be reached at any price.
-//! With the shipped three classes the list goes from 13 rungs to 16, which is a tap or two; the
+//! With the shipped three classes the list goes from 15 rungs to 17, which is a tap or two; the
 //! alternative is a mount that cannot be authored at all.
 //!
 //! # What this pins
