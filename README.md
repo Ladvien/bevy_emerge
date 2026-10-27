@@ -8,16 +8,16 @@ bevy_emerge is a world editor for Bevy games, for game developers who want to bu
 
 An agent calls `emerge_apply_operation` twice (a turn, then a removal). The inspector on the left names each change and who made it, and two presses of Cmd+Z take them back. [How agents work](docs/guide/agents.md).
 
-The full recording is [`docs/media/demo.mp4`](docs/media/demo.mp4), 64 seconds long.
+[`docs/media/demo.mp4`](docs/media/demo.mp4) is a longer recording, 64 seconds, and a different one rather than a longer cut of the clip above: it runs on a walled map, not the abbey, and its receipts name `wall_02_2` and `wall_02_3`. An agent frames the two wall pieces, turns `wall_02_2` to 90 degrees, and removes `wall_02_3`; the person's Cmd+Z reports `put back wall_02_3`. It ends with a snip: the person arms the snip, drags a box over the walled cluster, writes a note, and the receipt names the PNG it saved. [`docs/media/demo-poster.png`](docs/media/demo-poster.png) is a still from that recording, showing the snip box drawn over the cluster with the note typed.
 
 ## Why
 
-- **You and an agent use the same operations.** Turning, removing, pinning, renaming, opening a door and arming a piece are named operations. An agent changes the map only through them, so its change is the same kind of change as yours. Some of your keys still change the map without going through them.
+- **You and an agent use the same operations.** Turning, removing, pinning, renaming, opening a door and arming a piece are named operations. An agent changes the map only through them, so its change is the same kind of change as yours. Some of your keys still change the map without going through them; the list of those is explicit in the repository and only shrinks.
 - **One undo history.** Cmd+Z takes back the agent's last turn as well as your own. The agent's turn joins your history, so you do not need a second undo.
 - **Snips show the agent what you mean.** Cmd+\ lets you drag a rectangle over the editor and write a note. The agent can list your snips, read each note, and get each picture from its file.
 - **Edit data files and see the result.** The editor checks its project files every quarter of a second and re-reads the ones that changed.
 - **A generator shows you the layout before you keep it.** G proposes a whole arrangement and draws it as translucent pieces, so you look at the map rather than at a sentence about it, and Enter keeps exactly what you saw.
-- **A piece can rest on a surface or on the floor.** A library entry can say "on a `support` top, or on the floor", and each placement records which it took — so a dressing set goes on the bench in one room and on the floor in the next without a second library entry.
+- **A piece can rest on a surface or on the floor.** A library entry can say "on a surface of this class, or on the floor", and each placement records which it took — so a dressing set goes on the bench in one room and on the floor in the next without a second library entry.
 - **Layouts learned from your maps.** You lay out a corner the way you want it. The editor learns the rules from that arrangement, then continues it with wave function collapse, so it adds more of your layout, not a generic one.
 - **Labels that wait for you.** A vision model can propose a label for each piece. Each proposal is marked unchecked. To confirm an axis, toggle one of its label chips, which marks the whole axis as yours. No button confirms a proposal in place.
 
@@ -25,13 +25,13 @@ The full recording is [`docs/media/demo.mp4`](docs/media/demo.mp4), 64 seconds l
 
 **Works today:** the editor (`bevy_emerge_mapper`) for building maps from kits; the MCP server (`bevy_emerge_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout, drawn before you commit to it; pieces that may rest on a surface or on the floor.
 
-**Install:** use the crates by path or git. `bevy_emerge_rng` and `bevy_emerge_solver` are marked `publish = false`.
+**Not on a registry.** Use the crates by path or git. Every path dependency in this workspace names a path and no version, so no crate here can be published as it stands; `bevy_devshot` and `bevy_emerge_solver` are additionally marked `publish = false`.
 
 The mapper editor is AI-written and has not had a line-by-line human audit. It is covered by tests, but read [`crates/bevy_emerge_mapper/README.md`](crates/bevy_emerge_mapper/README.md) before you trust it with a project you care about.
 
-## Quickstart
+## Install and quick start
 
-You need a stable Rust toolchain and the graphics requirements of Bevy 0.20. Clone the repository and run the editor on its own project:
+You need a Rust toolchain and the graphics requirements of Bevy 0.20. The repository pins its toolchain in `rust-toolchain.toml`, so `rustup` selects the right one for you. Clone the repository and run the editor on its own project:
 
 ```sh
 git clone https://github.com/Ladvien/bevy_emerge
