@@ -156,6 +156,17 @@ directory cargo rebuilds.
   the host showed 1 GB available. `CARGO_BUILD_JOBS` is now 4 there, and one loop is held until the
   other's pass finishes. A loop that OOMs is worse than a loop that waits: systemd counts the kill as a
   restart, and `StartLimitBurst=3` can retire the unit entirely.
+- **`MemorySwapMax` is what oomd kills on, and 2 G was not enough.** Measured 2026-10-27, twice in an
+  hour: `wiggum@lights` died `oom-kill` at exactly `6G memory peak, 2G memory swap peak` — both caps hit
+  together — and three restarts then retired the unit with `Failed with result 'start-limit-hit'`
+  (`StartLimitBurst=3` in `[Unit]`). `oomctl` names the rule: *Swap Used Limit 90 %* against the
+  **monitored ancestor** `/user.slice/user-1000.slice`, whose `memory.swap.current` was 9.4 GB of
+  31.2 GB (30 %) before a loop spilled into swap and pushed the slice's ratio over. The fix that held is
+  `MemorySwapMax=0` on **both** big units: a unit at 0 contributes nothing to the slice's swap and can
+  only be chosen on memory. `MemoryHigh`/`MemoryMax` stay — the plan's rule is to bound swap, never to
+  remove the memory cap. Check a unit's real position with
+  `cat .../memory.swap.current` against `memory.swap.max`, not with `MemoryPeak` alone: society sat at
+  95 % of its swap cap while its peak looked unremarkable.
 - **A `target/` for a Bevy workspace is tens of GB, so disk is a real eligibility check.** `mac_air` has
   10 cores and 7.6 GB of disk, which makes it useless for a compile however idle it is;
   `--min-disk-gb 40` on the picker is the honest default. Reclaiming `~/target/sanctuary/release`
@@ -245,6 +256,16 @@ Environment=CARGO_BUILD_JOBS=6
 Environment=DISPLAY=:97
 Nice=19
 IOSchedulingClass=idle
+# **Bounded so a pass is throttled, not shot, and so oomd cannot pick it on swap.** oomd kills on a
+# 90 % swap-used limit against the monitored ancestor `/user.slice/<uid>.slice`; a unit that can swap
+# feeds that ratio, and at 2G both big loops were OOM-killed at their cap. `0` makes the unit
+# contribute no swap at all. `MemoryHigh` reclaims under pressure and `MemoryMax` bounds the cgroup —
+# keep both; the rule is to bound swap, never to remove the memory cap. `ManagedOOMPreference` belongs
+# on the *slice* (`app-wiggum.slice`), not here: a unit-level setting is ignored because oomd monitors
+# the ancestor.
+MemoryHigh=6G
+MemoryMax=7G
+MemorySwapMax=0
 KillSignal=SIGTERM
 TimeoutStopSec=25200
 Restart=on-failure
