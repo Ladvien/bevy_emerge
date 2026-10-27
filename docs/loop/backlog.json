@@ -293,16 +293,6 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-049",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "A chip click writes library.ron twice (review gap 9)",
-      "status": "fixed",
-      "evidence": "Fixed in 4cb7946: `tiles::toggle_tag`'s success arm no longer calls `persist(.., Persist::Library, ..)` after `editor::set_label` (whose commit is `commit_measured`, the one door to library.ron) already wrote the file. Measure is a count: `tiles::library_writes_for_test()` reads a thread-local incremented exactly where `commit_measured` writes; `tests/a_chip_click_writes_the_library_once.rs` failed at the base with `got 2` and passes after, and a refused token writes nothing. Report: docs/loop/iterations/2026-10-26-kit-e049-4cb7946.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
       "id": "E-051",
       "kind": "enhancement",
       "area": "editor",
@@ -363,28 +353,12 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-060",
-      "kind": "enhancement",
-      "area": "kits",
-      "title": "`mount_options` offers the two-way mount for the first surface class only",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "The M cycle is a fixed-length list; one entry per class would double it. Authoring another class is a file edit, so a workaround exists."
-      },
-      "status": "fixed",
-      "evidence": "Fixed: `mount_options` now inserts one `Mount::OnSurfaceOrFloor` per surface class declared, after the plain surface entries, instead of for `surfaces.first()` alone. `assets/emerge/vocab.ron` declares support/worktop/shelf, so an author or the VLM labeler could previously express `on support or floor` and nothing else. `crates/bevy_emerge_core/tests/every_surface_class_has_a_two_way_mount.rs` \u2014 `every_surface_class_has_a_two_way_mount` failed at the base commit (offered list held only 'on support or floor') and passes after; three more tests pin per-class names, ordering after the plain entries, no-classes = no two-way entry, and the one-class case unchanged. Report: docs/loop/iterations/2026-10-27-kits-e060-<sha>.md",
-      "last_failure": "",
-      "first_seen": "2026-10-24"
-    },
-    {
       "id": "E-066",
       "kind": "enhancement",
       "area": "editor",
       "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
       "status": "open",
-      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal \u2014 which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
+      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },
@@ -478,7 +452,7 @@
         "blocks": true,
         "common": true,
         "no_workaround": true,
-        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass \u2014 the pass stops and says so rather than editing the ratchet."
+        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass — the pass stops and says so rather than editing the ratchet."
       },
       "evidence": "Proposed fix, for an evaluator pass: move both tables into product code as an exported constant (`ops::ui_entry_points()`), so an operation and its entry point are one commit in product code and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
       "last_failure": "",

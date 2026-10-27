@@ -1544,6 +1544,32 @@
       "evidence": "Shipped ee47069. `tiles::move_selection`'s FocusLibrary arm and `on_shelf_click`'s Shelf::Library arm now dispatch `editor::select_piece` (the `piece_select` a row click and an agent use) instead of writing `selected_library_id`, so the arrival writes the log line the walk already wrote. The Tiles-tab arms keep the direct write — `piece_select` names the Meshes shelf and that tab's list is a tile's source, which no operation names yet — and `tests/the_library_seed_is_a_selection.rs::the_tiles_tab_seed_is_not_logged_as_a_meshes_selection` pins that boundary. UNMIGRATED_MAX unchanged: FocusLibrary still names no operation because it both switches the list and seeds it. Tests: 3 in `tests/the_library_seed_is_a_selection.rs`, the key and chip ones failing at the pre-fix source with 0 `piece_select` lines. Report: docs/loop/iterations/2026-10-26-kit-seed-ee47069.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-049",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "A chip click writes library.ron twice (review gap 9)",
+      "status": "fixed",
+      "evidence": "Fixed in 4cb7946: `tiles::toggle_tag`'s success arm no longer calls `persist(.., Persist::Library, ..)` after `editor::set_label` (whose commit is `commit_measured`, the one door to library.ron) already wrote the file. Measure is a count: `tiles::library_writes_for_test()` reads a thread-local incremented exactly where `commit_measured` writes; `tests/a_chip_click_writes_the_library_once.rs` failed at the base with `got 2` and passes after, and a refused token writes nothing. Report: docs/loop/iterations/2026-10-26-kit-e049-4cb7946.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-060",
+      "kind": "enhancement",
+      "area": "kits",
+      "title": "`mount_options` offers the two-way mount for the first surface class only",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "The M cycle is a fixed-length list; one entry per class would double it. Authoring another class is a file edit, so a workaround exists."
+      },
+      "status": "fixed",
+      "evidence": "Fixed: `mount_options` now inserts one `Mount::OnSurfaceOrFloor` per surface class declared, after the plain surface entries, instead of for `surfaces.first()` alone. `assets/emerge/vocab.ron` declares support/worktop/shelf, so an author or the VLM labeler could previously express `on support or floor` and nothing else. `crates/bevy_emerge_core/tests/every_surface_class_has_a_two_way_mount.rs` — `every_surface_class_has_a_two_way_mount` failed at the base commit (offered list held only 'on support or floor') and passes after; three more tests pin per-class names, ordering after the plain entries, no-classes = no two-way entry, and the one-class case unchanged. Report: docs/loop/iterations/2026-10-27-kits-e060-f0b2145.md",
+      "last_failure": "",
+      "first_seen": "2026-10-24"
     }
   ]
 }
