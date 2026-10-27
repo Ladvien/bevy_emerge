@@ -204,9 +204,10 @@ default_branch() {
 # **It never writes to `main` and never pushes it.** Dirty on `main` cuts a `wiggum/parked-pass-N-…`
 # branch from HEAD and commits there; dirty on any other branch commits on that branch; a detached HEAD
 # whose commit no branch holds gets a branch cut for it. That is the lesson of `snapshot()`: ungated work
-# must not land on a branch anybody builds from. A parked branch is not announced to the next pass, which
-# starts clean on `main` as if nothing had been left, so what was parked is in this log and on origin for
-# a person or a later pass to adopt.
+# must not land on a branch anybody builds from. **The commit is titled `WIP(pass N, parked)`, N being the
+# pass that left the work**, because that is what every loop command tells a pass to search for
+# (`git log --all --grep='WIP(pass'`), so a pass that goes looking for a killed pass's work finds a parked
+# tree the way it finds a snapshot. Nothing else announces it: the next pass starts clean on `main`.
 #
 # **What it will not touch:** a clone in the middle of a merge, rebase, revert or cherry-pick (somebody is
 # mid-decision), and more than 40 changed files (a scratch tree; that check comes first). Each of those
@@ -215,7 +216,8 @@ default_branch() {
 # person who edits the tree between passes has that edit parked, not lost. `WIGGUM_PARK=0` turns it off;
 # leftovers over `WIGGUM_PARK_MAX_MB` are committed but kept off origin.
 park_stranded_tree() {
-  local n="$1"                        # the pass about to start: used for names and log lines only
+  local n="$1"                        # the pass about to start
+  local left=$(( n - 1 ))             # the pass that left the work: the one the branch and commit are named for
   [ "${WIGGUM_PARK:-1}" = "0" ] && return 0
   ensure_state
 
@@ -253,7 +255,7 @@ park_stranded_tree() {
   local branch="$cur" parked_sha="" bytes=0 f s listing
   if [ "${dirty:-0}" -gt 0 ] || [ "$loose" -eq 1 ]; then
     if [ -z "$cur" ] || [ "$cur" = "$home_br" ]; then
-      branch="wiggum/parked-pass-$n-$(date '+%Y%m%d-%H%M%S')"
+      branch="wiggum/parked-pass-$left-$(date '+%Y%m%d-%H%M%S')"
       if ! git -C "$REPO" checkout -q -b "$branch" 2>/dev/null; then
         log "pass $n ABORTED: could not cut $branch to park work on"
         echo "ABORTED: could not cut $branch to park work on." >&2
@@ -269,8 +271,8 @@ park_stranded_tree() {
       git -C "$REPO" add -A >/dev/null 2>&1
       if ! git -C "$REPO" -c user.name=wiggum -c user.email=wiggum@localhost -c commit.gpgsign=false \
            commit -q --no-verify \
-           -m "WIP(parked by the driver before pass $n): $dirty file(s) a pass left behind" \
-           -m "Ungated: never built or tested. It was on $was when pass $n started, so the driver moved it here and put the clone back on $home_br." \
+           -m "WIP(pass $left, parked): $dirty file(s) left behind, parked by the driver before pass $n" \
+           -m "Ungated: never built or tested. It was on $was when pass $n started, so the driver moved it here and put the clone back on $home_br. Recover it as any killed pass's work: git log --all --grep='WIP(pass'." \
            -m "$listing" >/dev/null 2>&1; then
         log "pass $n ABORTED: could not commit the $dirty leftover file(s) on $branch"
         echo "ABORTED: could not commit the leftover files on $branch." >&2
