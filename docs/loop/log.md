@@ -1551,3 +1551,4 @@ Top 5 remaining:
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean; `gh` absent so the issue list was not read (no retry); open work is E-066/E-056/E-086, all needing an evaluator pass to touch protected tests. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean; remaining open work (E-066/E-056/E-086) needs an evaluator pass for protected tests. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean; `gh` not used (no retry); E-066/E-056/E-086 still need an evaluator pass for protected tests, remaining items are demo/decision work outside a 45-minute pass. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean; `gh` not used; remaining unblocked items (E-047, E-052) are naming/refactor work outside the pass rules, and E-066/E-056/E-086 need an evaluator pass. No release: E-006 open.
