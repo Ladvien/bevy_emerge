@@ -382,13 +382,25 @@ fn surface_of(host_d: &Descriptor, guest: &Descriptor, host_id: &str, guest_id: 
             }
         ));
     }
-    placed_height(host_d).ok_or_else(|| {
+    surface_lift(host_d).ok_or_else(|| {
         format!(
             "map: `{guest_id}` rests on `{host_id}`, whose descriptor records no height. An \
              unmeasured piece cannot say where its surface is — measure `{}` in the tiles tab.",
             host_d.id
         )
     })
+}
+
+/// How far above its own **resolved origin** a host's lid sits: `placed_height` less the host's own
+/// `align.y_offset`.
+///
+/// `datum` has already added `y_offset` to the host's Y, and `y_offset` is what seats the mesh's base
+/// on the ground (`-base_y`), so the lid stands `placed_height` above the *ground*, not above the
+/// shifted origin. Lifting a guest by the whole `placed_height` counted the offset twice and left a
+/// guest on `crate_wooden` (offset 0.052) floating above its lid. A host with no offset is unchanged.
+/// Public so a checker can ask a descriptor where its lid is without re-deriving the arithmetic.
+pub fn surface_lift(host_d: &Descriptor) -> Option<f32> {
+    placed_height(host_d).map(|h| h - host_d.align.y_offset.unwrap_or(0.0))
 }
 
 /// **The layer decides the height.** One function, so the editor's ghost and the game's spawner cannot
