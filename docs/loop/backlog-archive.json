@@ -1612,6 +1612,38 @@
       "evidence": "Closed 2026-10-27 by measurement, not by a product change: the code on `main` was already right after 4364dd4, and what the item was missing was the check. `crates/bevy_emerge_mapper/tests/a_persons_turn_is_one_undo_step.rs` drives the real `R` key (after `Esc`, because a held brush makes R steer the ghost) over a real wall in a headless editor and counts what one keypress wrote: one operation-log line with source Human and op `placement_set_yaw`, one stack entry (`undo_depth` +1), one Cmd+Z restoring the yaw on screen, in the map and in the file, and a second Cmd+Z changing nothing. **Proved to bite**: with the pre-4364dd4 `state.record(Undo::Turned { .. })` put back beside `record_logged` in `turn_under_cursor`, the test fails with `R wrote 2 undo entries for one keypress ... left: 2 right: 1`; removed, it passes. editor.rs Undo::Turned; ops.rs placement_set_yaw. Report: docs/loop/iterations/2026-10-27-editor-e027-2aa055c.md",
       "last_failure": "",
       "first_seen": "2026-10-22"
+    },
+    {
+      "id": "E-003",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "The kit's library and policy are re-read by a full project reload, which is slow and loses the open map",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "watch.rs::adopt re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. A per-kit re-read would be better."
+      },
+      "status": "shipped",
+      "evidence": "Done 2026-10-27. `Project::reload_kit` re-reads one bound kit's two files, re-merges, and re-does every check `Project::open` makes over the merge (namespace against the binding, duplicate ids, implied-effects settling, lattice ceiling, masks, compositions, rules) before swapping, so a refused edit leaves the last good project. `watch::adopt` routes a kit's `library.ron`/`project.ron` to it; `kits.ron`, `vocab.ron`, `compositions.ron` and `rules.ron` still go through a whole open because they are the project's, not a kit's. Triangles for another kit's `.glb` are carried over by id, not re-measured. `a_kit_save_rereads_only_that_kit.rs` (3 tests) pins it: 1 kit layered not 2, no other kit's `.glb` opened, the edited piece drawn at its new height, and a kit edit that breaks a composition refused with the old project kept. Proved to bite by making `adopt` skip the per-kit branch: the test failed at 2 layers vs 1.",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-041",
+      "kind": "enhancement",
+      "area": "tests",
+      "title": "The headless harness has no Activate event, so on_row_click is untested",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "Not judged: unconfirmed. Set when reproduced."
+      },
+      "status": "shipped",
+      "evidence": "Done 2026-10-27. The palette row click is reachable: `editor::click_palette_row_for_test` triggers the same `Activate` the button sends, so `on_row_click` runs with its row index, its filter blur and its `Option` resource guards. `a_palette_click_arms_the_piece.rs` (3 tests) pins the arm, the one human `brush_arm` log line, the tool returning to placing, and the keyboard leaving the filter box. The earlier half (`on_tag_chip` via `tiles::click_tag_chip_for_test`) was already done.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
     }
   ]
 }
