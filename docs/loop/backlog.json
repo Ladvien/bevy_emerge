@@ -28,7 +28,7 @@
         "evidence": "watch.rs::adopt re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. A per-kit re-read would be better."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt",
+      "evidence": "crates/bevy_emerge_mapper/src/watch.rs::adopt still re-opens the whole project for a library change, because only Project::open knows how to merge every bound kit. B-053 (2026-10-27) fixed the half that made the full reload WRONG \u2014 touched was never filled, so the screen kept the old shapes \u2014 and carried open_map_name across it. What remains is the cost: the whole project, its GLBs re-measured for triangle counts, and every other kit re-read, per save.",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -348,7 +348,7 @@
       "area": "editor",
       "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
       "status": "open",
-      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
+      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal \u2014 which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },
@@ -442,11 +442,27 @@
         "blocks": true,
         "common": true,
         "no_workaround": true,
-        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass — the pass stops and says so rather than editing the ratchet."
+        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass \u2014 the pass stops and says so rather than editing the ratchet."
       },
       "evidence": "Proposed fix, for an evaluator pass: move both tables into product code as an exported constant (`ops::ui_entry_points()`), so an operation and its entry point are one commit in product code and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
       "last_failure": "",
       "first_seen": "2026-10-26"
+    },
+    {
+      "id": "B-053",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A kit edited on disk re-opened the project and never redrew the standing pieces, and dropped the open map's name",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "watch::adopt replaced the whole Project with a fresh Project::open, so a library edit changed the editor's memory and not the screen: the piece standing was drawn at Vec3(1.0, 1.0, 1.0) while the project's library said stretch_y: Some(2.0). The redraw is driven by Project::touched, which only tiles::commit_measured filled. The same door also dropped open_map_name (Project::open starts it at None), so a later Kit -> Map crossing refused with 'the Map door needs a map, and none has been open' about an author who was on a map a minute ago. E-007's shape, on the library path."
+      },
+      "status": "fixed",
+      "evidence": "crates/bevy_emerge_mapper/tests/a_kit_edited_on_disk_reaches_the_screen.rs (a_piece_stretched_on_disk_is_drawn_stretched failed at 6955bc3 and passes at 150cb7e; a_kit_edit_does_not_forget_the_open_map pins the name). Fix: watch::adopt fills touched with tiles::changed_ids (now pub(crate), one definition shared with commit_measured) and carries open_map_name across the re-read.",
+      "last_failure": "the editor took the edit into its memory and left the world showing the piece as it was when the editor opened (scale Vec3(1.0, 1.0, 1.0) against stretch_y: Some(2.0))",
+      "first_seen": "2026-10-27"
     }
   ]
 }
