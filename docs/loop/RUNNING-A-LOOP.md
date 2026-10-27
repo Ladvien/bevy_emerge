@@ -142,6 +142,12 @@ tree alone was growing ~1 GB/min and `/home` was ~10 hours from full, which brea
 `deps/` generally, never `target/`: the deletion is limited to files a live process cannot own and to a
 directory cargo rebuilds.
 
+## A pass reads the filed issues before it picks what to build
+
+Each loop prompt carries a "Filed issues come before new features" step immediately before the step that ranks candidates, because the four repos had 15 open issues between them on 2026-10-27 (lights 3, society 4, elements 7, emerge 1) and no prompt had mentioned one. A bug issue is the pass's item ahead of any enhancement, an enhancement issue is ranked with the pass's own candidates and its number goes in the rank list, a fix says `Fixes #N` in the commit and the report, and a release issue is recorded and skipped because publishing is the owner's call. big has an authenticated `gh`; big_mac has none, so elements and emerge read `https://api.github.com/repos/Ladvien/<repo>/issues?state=open`, which allows 60 requests an hour per IP and answers 403 or 429 beyond that. The prompt therefore says a 403 or 429 is logged as "could not be read" and never as "no issues", because a pass that records silence it never looked at has hidden the list from every later pass.
+
+The same ship step carries "README, demos and docs stay true", for a matching reason: the 2026-10-27 audit found a false line in each of the four READMEs, and society's and emerge's prompts had never told a pass to touch the README or the clips at all.
+
 ## Facts that cost a cycle
 
 - **A loop cannot simply be moved to the idle machine, because the disk is the binding constraint, not
@@ -222,7 +228,11 @@ directory cargo rebuilds.
   The unit then finishes its stop and can be started. Root cause is elsewhere (a `podman run` from a
   service inherits that service's cgroup, so the container should be given its own `--cgroup-parent` or an
   `ExecStart` under a transient unit); treat the rescue as per-incident, not a fix.
-- **The driver refuses a tree with >40 modified files**, so it will not commit into an rsync scratch tree.
+- **The driver refuses a tree with >40 modified files**, so it will not run a pass in an rsync scratch tree.
+- **An uncommitted edit to a loop's own prompt stops every pass that meets it.** Measured 2026-10-27: a rule added to `bevy_lights`' skill file in the live clone and left uncommitted was found by 50 consecutive passes (iterations 61 to 110), each of which saw a tracked file it had not changed, stopped as its own rule says, built nothing, and logged the stop as a commit. The same happened once on 2026-10-26. After editing a command or skill in a clone, commit it at once by explicit path (`git commit -- <path>`) and push it, unless the clone already holds the loop's own unpushed commit: a plain `git push origin main` would publish that too, and publishing a pass's work is the pass's decision. A pass's own `git add -A` will otherwise sweep the edit into its commit (society's `688af75` carried one), which hides what changed.
+- **A loop whose model has no credit looks healthy.** Measured 2026-10-27: ollama-cloud answered `402 Insufficient credits` 109 times on big while both units were `active`, `consecutive-failures` was 0 and no unit had failed; every pass log held the 11 bytes `Working...` and nothing else. The tell is `grep -c 402 ~/.omp/logs/omp.<date>.<pid>.log` against a pass log that never grows. Switching `WIGGUM_MODEL` is not enough: omp's auxiliary roles in `~/.omp/agent/config.yml` (`modelRoles`, notably `smol`) each name their own provider, and `smol` was still on a second dry one, so skill-description compression and job-widget calls kept returning 402 after the main model answered. Check both, then confirm with a pass whose log grows.
+- **A GIF whose frames all carry a 0-centisecond delay is a still.** Measured 2026-10-27: two of `bevy_elements`' README GIFs (35 frames each) had every Graphic Control Extension delay at 0, so a viewer that honours the delay shows one frame under a caption that promises motion. Count the delays by scanning for the `21 f9 04` block header and reading the two bytes after its packed-flags byte; rewriting those two bytes (8 cs, 12.5 fps, was used) leaves the file size and every pixel unchanged, so it needs no GPU recapture.
+- **A pass can commit 131 MB in one commit.** Measured 2026-10-27 in society's `688af75`: ten `docs/loop/runs/2026-10-27-03/evidence/…/series.csv` files of 67,200 lines each (about 14 MB apiece), 69 files and 682,564 insertions, on a repository whose `.git` was already 253 MB. Earlier runs commit files of the same name (`36c4d8c`, `9938002`), so it is the loop's practice and not an accident, but each one is permanent once pushed. It is recorded here, not decided: whether evidence of that size belongs in history is the owner's call.
 
 ## Templates
 
@@ -304,12 +314,14 @@ things up.
 
 ## What the four loops are, today
 
-| loop | host | clone | command | display |
-|---|---|---|---|---|
-| lights | big | `~/bevy_lights_loop` | `lights-loop` | `:97` |
-| society | big | `~/bevy_society_loop` | `build-loop` | `:98` |
-| elements | big_mac | `~/bevy_elements` | `elements-loop` | native Metal |
-| emerge | big_mac | `~/bevy_emerge_loop` | `build-loop` | native Metal |
+| loop | host | clone | command | model | display |
+|---|---|---|---|---|---|
+| lights | big | `~/bevy_lights_loop` | `lights-loop` | `claude-sonnet-5-5` | `:97` |
+| society | big | `~/bevy_society_loop` | `build-loop` | `claude-sonnet-5-5` | `:98` |
+| elements | big_mac | `~/bevy_elements` | `elements-loop` | `ollama-cloud/deepseek-v4.1-flash:1017` | native Metal |
+| emerge | big_mac | `~/bevy_emerge_loop` | `build-loop` | `ollama-cloud/deepseek-v4.1-flash:1017` | native Metal |
+
+Lights and society moved off ollama-cloud on 2026-10-27 after it answered 402 on big (see the fact above); elements and emerge had no 402s and were left on it.
 
 ## Verify a loop is real, not just active
 
