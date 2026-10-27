@@ -1596,6 +1596,22 @@
       "evidence": "crates/bevy_emerge_mapper/tests/a_kit_edited_on_disk_reaches_the_screen.rs (a_piece_stretched_on_disk_is_drawn_stretched failed at 6955bc3 and passes at 150cb7e; a_kit_edit_does_not_forget_the_open_map pins the name). Fix: watch::adopt fills touched with tiles::changed_ids (now pub(crate), one definition shared with commit_measured) and carries open_map_name across the re-read.",
       "last_failure": "the editor took the edit into its memory and left the world showing the piece as it was when the editor opened (scale Vec3(1.0, 1.0, 1.0) against stretch_y: Some(2.0))",
       "first_seen": "2026-10-27"
+    },
+    {
+      "id": "E-027",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "A human R or T turn writes two undo records: an oplog line and the editor's own stack entry",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "Since 6aa6185, R and T dispatch placement_set_yaw, which appends an oplog line. The editor also keeps its Undo::Turned record so Cmd+Z still takes the turn back. One human turn is therefore two records that undo through two stacks. No defect was observed in a live run; the duplicate is inferred from reading the code and is a design question for one undo history (E-013, B-019)."
+      },
+      "status": "fixed",
+      "evidence": "Closed 2026-10-27 by measurement, not by a product change: the code on `main` was already right after 4364dd4, and what the item was missing was the check. `crates/bevy_emerge_mapper/tests/a_persons_turn_is_one_undo_step.rs` drives the real `R` key (after `Esc`, because a held brush makes R steer the ghost) over a real wall in a headless editor and counts what one keypress wrote: one operation-log line with source Human and op `placement_set_yaw`, one stack entry (`undo_depth` +1), one Cmd+Z restoring the yaw on screen, in the map and in the file, and a second Cmd+Z changing nothing. **Proved to bite**: with the pre-4364dd4 `state.record(Undo::Turned { .. })` put back beside `record_logged` in `turn_under_cursor`, the test fails with `R wrote 2 undo entries for one keypress ... left: 2 right: 1`; removed, it passes. editor.rs Undo::Turned; ops.rs placement_set_yaw. Report: docs/loop/iterations/2026-10-27-editor-e027-2aa055c.md",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
     }
   ]
 }

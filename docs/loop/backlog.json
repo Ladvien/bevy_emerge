@@ -127,22 +127,6 @@
       "first_seen": "2026-10-21"
     },
     {
-      "id": "E-027",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "A human R or T turn writes two undo records: an oplog line and the editor's own stack entry",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "Since 6aa6185, R and T dispatch placement_set_yaw, which appends an oplog line. The editor also keeps its Undo::Turned record so Cmd+Z still takes the turn back. One human turn is therefore two records that undo through two stacks. No defect was observed in a live run; the duplicate is inferred from reading the code and is a design question for one undo history (E-013, B-019)."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs Undo::Turned; crates/bevy_emerge_mapper/src/ops.rs placement_set_yaw; commit 6aa6185 message. Partly addressed by 4364dd4 (one history). Gap: no test shows a human turn writes one entry, not two.",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
       "id": "B-021",
       "kind": "bug",
       "area": "editor",
