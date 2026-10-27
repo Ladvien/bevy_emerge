@@ -1534,6 +1534,16 @@
       "evidence": "Fixed 23d2c41. `resolve_frame` resolved every placement's Y before it read the target, so `FrameTarget::Map` — which reads only `map_bounds` (floor plan + height span + bounds, no placement) — was refused by a bad stack and `frame_map_on_open` left the Rig at its 18 m default. Heights are now resolved inside the three arms that consume them, and the stacking reason is asked for separately and still reported so the frame is not bought by silencing it. The reachable broken stack is a host that exists and offers nothing the guest needs: `Map::validate` already refuses a missing host. Regression: tests/a_broken_stack_still_opens_framed.rs (2 tests; the frame one failed before, the report one failed on the first version of the fix). accept.py 10/10 -> 10/10.",
       "last_failure": "",
       "first_seen": "2026-10-21"
+    },
+    {
+      "id": "E-050",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "The Meshes right-arrow seed selects without the operation; correct the walk keys' reason (review gap 10)",
+      "status": "shipped",
+      "evidence": "Shipped ee47069. `tiles::move_selection`'s FocusLibrary arm and `on_shelf_click`'s Shelf::Library arm now dispatch `editor::select_piece` (the `piece_select` a row click and an agent use) instead of writing `selected_library_id`, so the arrival writes the log line the walk already wrote. The Tiles-tab arms keep the direct write — `piece_select` names the Meshes shelf and that tab's list is a tile's source, which no operation names yet — and `tests/the_library_seed_is_a_selection.rs::the_tiles_tab_seed_is_not_logged_as_a_meshes_selection` pins that boundary. UNMIGRATED_MAX unchanged: FocusLibrary still names no operation because it both switches the list and seeds it. Tests: 3 in `tests/the_library_seed_is_a_selection.rs`, the key and chip ones failing at the pre-fix source with 0 `piece_select` lines. Report: docs/loop/iterations/2026-10-26-kit-seed-ee47069.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
     }
   ]
 }

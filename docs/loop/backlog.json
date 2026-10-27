@@ -303,16 +303,6 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-050",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "The Meshes right-arrow seed selects without the operation; correct the walk keys' reason (review gap 10)",
-      "status": "open",
-      "evidence": "tiles.rs:6442: FocusLibrary still sets selected_library_id = Some(land) directly, with no log line. Fix: route the seed through select_piece. The walk keys PrevCandidate and NextCandidate stay unmigrated because they also walk the candidate list, which no operation covers; the stated reason was wrong. UNMIGRATED_MAX stays 119. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md | 2026-10-26: still open and NOT blocked — it needs no new operation, so it does not touch the protected parity tables. Confirmed live: tiles.rs:6649 (FocusLibrary seed), :6682 (Tiles-tab seed), :6719 (filtered-out re-arm) and :6737 (walk step) still write `selected_library_id` directly, while :6721 and :6743 already call `editor::select_piece`. The Tiles-tab arms are deliberately direct (the walk picks a tile's source, which no operation names), so the fix is the seed and the re-arm, with the status note `library` kept.",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
       "id": "E-051",
       "kind": "enhancement",
       "area": "editor",
