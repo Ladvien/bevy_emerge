@@ -221,8 +221,8 @@
         "no_workaround": false,
         "evidence": "Not judged: unconfirmed. Set when reproduced."
       },
-      "status": "open",
-      "evidence": "Partly closed: `on_tag_chip` is now reachable and tested through `tiles::click_tag_chip_for_test`, which fires the real `Activate`. The palette row click (`on_row_click`) still has no hook.",
+      "status": "shipped",
+      "evidence": "Done 2026-10-27. The palette row click is reachable: `editor::click_palette_row_for_test` triggers the same `Activate` the button sends, so `on_row_click` runs with its row index, its filter blur and its `Option` resource guards. `a_palette_click_arms_the_piece.rs` (3 tests) pins the arm, the one human `brush_arm` log line, the tool returning to placing, and the keyboard leaving the filter box. The earlier half (`on_tag_chip` via `tiles::click_tag_chip_for_test`) was already done.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
