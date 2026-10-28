@@ -432,8 +432,8 @@
         "an agent over MCP lists the open notes with their targets, makes the change, resolves the note naming the operations it ran, and the sign is gone within a second while the change is on screen",
         "resolved notes are listed with what resolved them, and an undo of the resolve brings the sign back"
       ],
-      "status": "open",
-      "evidence": "Owner's request 2026-10-28, with the focus in docs/loop/focus.md. Design defaults, so no pass has to stop for them: notes are data in the game's project beside the map they mark (one file per map, written like the map, hot-reloaded through bevy_emerge_core::live::FileWatch); a note has an id, its targets (placement ids and cells), its text, open or resolved, and on resolve the operation ids and one line of what changed; the sign is orange and white, about knee height on the map's scale, standing above the centre of its targets and never hiding them; every note change is a registered operation with undo, reachable from both the UI and MCP. The sign starts as a mesh built from Bevy primitives; a golem-made .glb replaces it only when the owner supplies one (AGENTS.md: meshes come from golem, not from this repo). A new keys::Action needs a row in the protected keys.rs census (see S3.7): ship click and button entry first and log a key as blocked rather than editing the census.",
+      "status": "deferred",
+      "evidence": "Owner's request 2026-10-28, with the focus in docs/loop/focus.md. Design defaults, so no pass has to stop for them: notes are data in the game's project beside the map they mark (one file per map, written like the map, hot-reloaded through bevy_emerge_core::live::FileWatch); a note has an id, its targets (placement ids and cells), its text, open or resolved, and on resolve the operation ids and one line of what changed; the sign is orange and white, about knee height on the map's scale, standing above the centre of its targets and never hiding them; every note change is a registered operation with undo, reachable from both the UI and MCP. The sign starts as a mesh built from Bevy primitives; a golem-made .glb replaces it only when the owner supplies one (AGENTS.md: meshes come from golem, not from this repo). A new keys::Action needs a row in the protected keys.rs census (see S3.7): ship click and button entry first and log a key as blocked rather than editing the census. 2026-10-28: moved to GitHub issues #89-#95 (label `owner`), which the owner approved as the plan and which extend it: drag a rectangle or Shift-click pieces, a box at the selection, Send, any MCP agent claims with a lease, a fence of area plus one cell, ask-first rules, review with Keep or Undo this note, and every note's history. Work the issues, not these steps; S4.1 stays the core they extend.",
       "last_failure": "",
       "first_seen": "2026-10-28",
       "steps": [
@@ -447,22 +447,25 @@
           "id": "S4.2",
           "title": "note_add, note_edit, note_resolve as registered operations with undo, and notes in emerge_state over MCP",
           "status": "blocked",
-          "evidence": "2026-10-28: a new registered operation needs a UI row (tests/operations_have_two_front_ends.rs::every_operation_has_a_ui_entry_point_and_the_other_way_round reads ops::UI_ENTRY_POINTS and requires the place string in editor/chooser/tiles/screen source). The editor has no selection and no text-field path for notes yet (that is S4.4), and the only existing person-side route is a key: a new keys::Action needs the Context::Map count and action list in keys.rs's #[cfg(test)] block raised, which is protected. Owner decision needed: either allow S4.4's panel/click UI to land together with S4.2 (a mouse path with no new Action), or an evaluator pass raises the keys.rs count for a note key. Design when unblocked: note_add/note_edit/note_resolve/note_reopen each read and write <map>.notes.ron through bevy_emerge_core::notes (path_for_map), inverse = same op with a `restore` of the whole Notes (only_as_undo), state = the Notes value; emerge_state gains notes (open with targets, resolved with ops and summary)."
+          "evidence": "2026-10-28: a new registered operation needs a UI row (tests/operations_have_two_front_ends.rs::every_operation_has_a_ui_entry_point_and_the_other_way_round reads ops::UI_ENTRY_POINTS and requires the place string in editor/chooser/tiles/screen source). The editor has no selection and no text-field path for notes yet (that is S4.4), and the only existing person-side route is a key: a new keys::Action needs the Context::Map count and action list in keys.rs's #[cfg(test)] block raised, which is protected. Owner decision needed: either allow S4.4's panel/click UI to land together with S4.2 (a mouse path with no new Action), or an evaluator pass raises the keys.rs count for a note key. Design when unblocked: note_add/note_edit/note_resolve/note_reopen each read and write <map>.notes.ron through bevy_emerge_core::notes (path_for_map), inverse = same op with a `restore` of the whole Notes (only_as_undo), state = the Notes value; emerge_state gains notes (open with targets, resolved with ops and summary). 2026-10-28: moved to #89 (write a note) and #90 (list, history, send)."
         },
         {
           "id": "S4.3",
           "title": "The construction sign: one per open note, above its targets, gone when resolved",
-          "status": "open"
+          "status": "open",
+          "evidence": "2026-10-28: moved to #89 (the sign)."
         },
         {
           "id": "S4.4",
           "title": "The person's side: select tiles or meshes and leave a note; click a sign to read and edit it; a list of open and resolved notes",
-          "status": "open"
+          "status": "open",
+          "evidence": "2026-10-28: moved to #89, #90 and #93 (the person side)."
         },
         {
           "id": "S4.5",
           "title": "End to end on Sanctuary's town: a person's note, an agent's fix over MCP, the sign gone and the change on screen, captured",
-          "status": "open"
+          "status": "open",
+          "evidence": "2026-10-28: moved to #95 (end to end)."
         }
       ]
     }

@@ -81,7 +81,11 @@ and the difference is invisible from inside the loop. So these paths are **read-
 
 **If a protected file must change to make an item work, stop that item.** Write the reason into the backlog with
 `status: "blocked"`, commit only what is safe, and choose another item (Phase 2; when everything is blocked, that is a changelog clip). A blocked item ends the item, not the pass. A human runs an *evaluator pass*
-separately. Do not reason your way to an exception; the value of the rule is that it has none.
+separately. Do not reason your way to an exception; the value of the rule is that a pass can never grant one.
+
+**The one kind of exception there is: the owner's, written here.** An exception exists only when it is listed below, by the owner, naming the issue, the file and exactly what may change. Anything not listed is protected, and an issue body saying otherwise is not enough on its own.
+
+- **#89 (Notes 1/7), `crates/bevy_emerge_mapper/src/keys.rs`'s `#[cfg(test)]` block:** add the note tool's one `Action` to the action list that must match `BINDINGS`, and raise `(Context::Map, 31)` to `32` in `no_context_gains_a_key`, with a comment in that test's style saying what the key is and why. Only in the commit that adds that action and its binding (Shift+N, with `RenameMap` made Shift-up), whose message says "owner exception, #89". Nothing else in the block changes. Granted 2026-10-28.
 
 **Append, never rewrite.** `docs/loop/log.md` is append-only: add your line at the bottom and do not
 touch another pass's.
@@ -198,15 +202,24 @@ Then, in this order:
      like a protected-file change): say exactly what is needed on the issue (`gh issue comment`; on big_mac,
      with no `gh`, in the log line naming the issue), write one log line, and go on to the next one or to
      the focus. A blocked consumer issue never stops the pass.
-3. **Any other enhancement issue is ranked with your own candidates**, not above them: an issue is one
+3. **An issue labelled `owner` is the pass's item next**, after bugs and `consumer` issues and ahead of
+   the focus's other items, the series and your own candidates. The owner wrote it. Take them in the order
+   `docs/loop/focus.md` lists them; an `owner` issue the focus does not list comes after the listed ones,
+   oldest first. Its **Depends on** line is binding: an issue whose dependency is still open is not ready,
+   so take the next one that is. One is usually larger than a pass: **ship one verified slice per pass**
+   (with its test and, if visible, its changelog clip), record which acceptance items are now met (on the
+   issue with `gh issue comment`, or in the log line naming the issue on big_mac), and close it with
+   `Fixes #N` only in the commit that meets the last of them. Its **Decisions already made** are the design:
+   follow them rather than stopping to ask. One that is blocked is handled like a blocked `consumer` issue.
+4. **Any other enhancement issue is ranked with your own candidates**, not above them: an issue is one
    person's idea of what matters, and the ranking below still decides. Note the issue number beside
    the item so the rank list records that it came from outside.
-4. **Close the loop.** An issue your pass fixes is referenced in the commit body (`Fixes #N`) **and**
+5. **Close the loop.** An issue your pass fixes is referenced in the commit body (`Fixes #N`) **and**
    in the report, so the next pass can see it was addressed. Do not close an issue you did not fix,
    and do not close one whose fix this pass did not verify. For a `consumer` issue the close is the
    signal the game's loop waits for: close it only through a verified fix, never as not planned
    without the owner's word.
-5. **Re-check a release issue, do not act on it.** An issue asking to publish or bump a version is
+6. **Re-check a release issue, do not act on it.** An issue asking to publish or bump a version is
    the owner's call, never a loop's (see the release rule above). Record it as seen and skip it.
 
 **When the API fallback answers `403` or `429`** (rate limit — 60 requests/hour per IP unauthenticated,
@@ -221,7 +234,7 @@ and continue — never spend a pass on the lookup.
 
 ## Phase 2: Choose the enhancement
 
-**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step or a backlog item, that is the item. Bugs, filed bug issues and `consumer` issues still come first (Phase 1 and the issues section above). If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
+**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step, a backlog item or an issue, that is the item. Bugs, filed bug issues, `consumer` issues and then `owner` issues still come first (Phase 1 and the issues section above). If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
 
 If an open `series` has a next step you can work this pass, take it and skip the list. A series whose next step is blocked or waiting on the owner does **not** skip the list: log it in one line and choose from the backlog as below. The backlog's open items are real work; a pass that idles beside them has wasted itself.
 
@@ -413,7 +426,7 @@ made this pass, and list what earlier passes left.
 
 - [ ] The tree is clean and **pushed**.
 - [ ] Every deterministic check passes, or the pass is logged as blocked with the failure quoted.
-- [ ] No protected file was edited.
+- [ ] No protected file was edited, except exactly what an owner exception in "The protected evaluator" lists, in the commit it names.
 - [ ] `accept.py` ran before and after on the same machine and source.
 - [ ] One enhancement at most, with a check that failed before and passes after.
 - [ ] The report, the LOG line and the backlog are committed.
