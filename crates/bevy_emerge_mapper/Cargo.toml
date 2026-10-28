@@ -45,8 +45,14 @@ repository = "https://github.com/Ladvien/bevy_emerge"
 # process fails to bind. That is a loud failure, not a silent one.
 default = ["debugger"]
 debugger = ["bevy/bevy_remote", "dep:bevy_debugger_bevy"]
+# **Family crates (#96).** One optional feature per crate, named after it, off by default: a game
+# that lists none pays nothing. Pinned by git revision on the crate's `main`, never a path. A project's
+# `family.ron` lists the crates it uses; listing one this build lacks is a problem message
+# (`family_host::problems`). The engine-free core crates never depend on these.
+bevy_elements = ["dep:bevy_elements"]
 
 [dependencies]
+bevy_elements = { git = "https://github.com/Ladvien/bevy_elements", rev = "ef87797468db6264f24785fe9d1ffaa9d4deb9f0", optional = true }
 bevy_emerge_core = { path = "../bevy_emerge_core" }
 # The runtime half. The editor spawns pieces through `bevy_emerge::spawn_descriptor` rather than its
 # own copy, so a map cannot look one way here and another in the game — the failure `bake.rs` and
