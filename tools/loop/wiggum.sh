@@ -19,6 +19,7 @@
 #   ~/wiggum.sh tail           # follow the driver's own log
 #   ~/wiggum.sh one            # run exactly one pass in the foreground, for a smoke test
 #   ~/wiggum.sh guard          # exit 1 if a pass is running — call before reset/checkout/clean
+#   ~/wiggum.sh settings       # what the repo's own settings file sets and what the environment overrides, before anything runs
 #
 # Environment, all optional:
 #   WIGGUM_MODEL   default claude-sonnet-5-5, which every loop has run since 2026-10-27 (ollama-cloud answered 402 and 429)
@@ -37,16 +38,109 @@
 #   WIGGUM_BRANCH        the branch a clone returns to, default origin's HEAD, else main or master
 #   WIGGUM_PUSH_MAX_MB   a snapshot or parked branch adding more than this many MB of new data stays local, default 10
 #   WIGGUM_MAX_DIRTY     most modified files a tree may have when a pass starts, default 40; a checkout people work in needs more
+#   WIGGUM_SNAPSHOT      0 writes no refs/wiggum snapshot, mid-pass or final (a checkout other people work in), default 1
+#
+# A repo may carry its own settings in `<repo>/.omp/wiggum/<command>.env`: NAME=VALUE lines for the WIGGUM_ knobs above
+# (not REPO, COMMAND or STATE), `#` comments in column 1. The environment still wins over the file. A line the driver
+# cannot use stops it with exit 2, because a safety setting dropped without a word puts its default back. `settings` shows it.
+# `<repo>/.omp/wiggum/<command>.omp.yml`, when present, is passed to omp as `--config` for this loop's passes only (an omp
+# settings overlay: model fallback chains, retry budget).
 
 set -uo pipefail
 
-MODEL="${WIGGUM_MODEL:-claude-sonnet-5-5}"
 REPO="${WIGGUM_REPO:-$HOME/bevy_emerge}"
 # **The command this repo's passes run: `build-loop`, in every loop repo.** The owner's rule since 2026-10-28
 # is that a loop's prompt is `.omp/commands/build-loop.md` wherever it lives, so there is one name to know.
 # This driver is about *how* a loop runs (one fresh pass, stop between passes, never mid-edit), not about
 # what a pass does; set `WIGGUM_COMMAND` only for a repo that has no such file (then `bevy-loop`, the generic one).
 COMMAND="${WIGGUM_COMMAND:-build-loop}"
+
+# **A repo carries its own settings, in `.omp/wiggum/<command>.env`.** Found 2026-10-28 reading the code for
+# Sanctuary's emerge loop, whose start line carried no flags: the first pass would have run `git add -A` over
+# the 29 files other agents were editing in that checkout, committed them to `wiggum/parked-pass-0-…` and
+# checked `main` out under them, all before the free-space gate got to refuse the pass. A checkout people work
+# in needs `WIGGUM_PARK=0`, `WIGGUM_CHECKPOINT=0` and a raised `WIGGUM_MAX_DIRTY` on every start, and a start
+# line is a poor place to keep them: whoever types it has to remember. The repo that needs them says so in a
+# file this driver reads. **The environment wins**, so one run can still override one setting. **A line the
+# driver cannot use stops it** (`start`, `one` and `__driver` exit 2): the likeliest typo, `WIGGUM_PARK = 0`,
+# would otherwise be dropped without a word and put the default back. Only the knobs in the header may be set
+# (not REPO, COMMAND or STATE: the file is found through them), and values are plain words, so a file can
+# never run anything. It is read once, when the driver starts, so a pass, which can edit the tree, cannot
+# change the settings of the loop that is running it.
+SETTINGS_FILE="$REPO/.omp/wiggum/$COMMAND.env"
+OMP_OVERLAY="$REPO/.omp/wiggum/$COMMAND.omp.yml"
+SETTINGS_KNOBS=" WIGGUM_MODEL WIGGUM_SLEEP WIGGUM_MAX WIGGUM_THINK WIGGUM_PASS_TIMEOUT WIGGUM_CHECKPOINT WIGGUM_MIN_FREE_GB WIGGUM_IDLE_UNDER WIGGUM_IDLE_MAX WIGGUM_PARK WIGGUM_BRANCH WIGGUM_PUSH_MAX_MB WIGGUM_MAX_DIRTY WIGGUM_NO_FETCH WIGGUM_SNAPSHOT "
+SETTINGS_NL=$'\n'
+SETTINGS_ACCEPTED=""   # NAME=VALUE, one per line, in file order
+SETTINGS_REJECTED=""   # one line each: where, and why
+
+reject_setting() { SETTINGS_REJECTED="$SETTINGS_REJECTED$SETTINGS_NL$1"; }
+
+load_settings() {
+  [ -f "$SETTINGS_FILE" ] || return 0
+  local line name value n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    case "$line" in '' | '#'*) continue ;; esac
+    name=${line%%=*}
+    value=${line#*=}
+    if [ "$name" = "$line" ]; then reject_setting "line $n: not NAME=VALUE: $line"; continue; fi
+    case "$SETTINGS_KNOBS" in
+      *" $name "*) ;;
+      *) reject_setting "line $n: '$name' is not a setting a file may carry"; continue ;;
+    esac
+    case "$value" in
+      '' | *[!A-Za-z0-9_./:@%+-]*) reject_setting "line $n: $name has an empty value or characters outside A-Za-z0-9_./:@%+-"; continue ;;
+    esac
+    case "$SETTINGS_ACCEPTED" in
+      *"$SETTINGS_NL$name="*) reject_setting "line $n: $name is set twice"; continue ;;
+    esac
+    SETTINGS_ACCEPTED="$SETTINGS_ACCEPTED$SETTINGS_NL$name=$value"
+    eval "[ -n \"\${$name+x}\" ]" || export "$name=$value"
+  done <"$SETTINGS_FILE"
+}
+
+print_settings() {
+  local rel="${SETTINGS_FILE#"$REPO"/}" pair name value eff
+  if [ -f "$OMP_OVERLAY" ]; then
+    echo "omp overlay: ${OMP_OVERLAY#"$REPO"/} (passed to omp with --config)"
+  else
+    echo "omp overlay: none"
+  fi
+  if [ ! -f "$SETTINGS_FILE" ]; then
+    echo "settings file: $rel (none: every setting is the environment's or the default in this script's header)"
+    return 0
+  fi
+  echo "settings file: $rel"
+  while IFS= read -r pair; do
+    [ -z "$pair" ] && continue
+    name=${pair%%=*}; value=${pair#*=}
+    eff=$(eval "printf %s \"\${$name-}\"")
+    if [ "$eff" = "$value" ]; then
+      echo "  $name=$value   (from the file)"
+    else
+      echo "  $name=$eff   (the environment overrides the file's $value)"
+    fi
+  done <<EOF
+$SETTINGS_ACCEPTED
+EOF
+  if [ -n "$SETTINGS_REJECTED" ]; then
+    echo "REJECTED (the driver will not run with these):"
+    printf '%s\n' "$SETTINGS_REJECTED" | sed '/^$/d; s/^/  /'
+  fi
+  return 0
+}
+
+refuse_bad_settings() {
+  [ -z "$SETTINGS_REJECTED" ] && return 0
+  echo "refusing to run: ${SETTINGS_FILE#"$REPO"/} has lines the driver cannot use, and a safety setting dropped without a word puts its default back:" >&2
+  printf '%s\n' "$SETTINGS_REJECTED" | sed '/^$/d; s/^/  /' >&2
+  exit 2
+}
+
+load_settings
+
+MODEL="${WIGGUM_MODEL:-claude-sonnet-5-5}"
 SLEEP_BETWEEN="${WIGGUM_SLEEP:-60}"
 MAX_PASSES="${WIGGUM_MAX:-0}"
 THINKING="${WIGGUM_THINK:-medium}"
@@ -168,6 +262,7 @@ commit_adds_bytes() {
 # snapshot reachable from the branch even if the ref is lost. Never fails the pass: every failure path
 # returns 0 and says so in the log.
 snapshot() {
+  [ "${WIGGUM_SNAPSHOT:-1}" = "0" ] && return 0
   local n="$1" tag="$2"            # tag: "checkpoint" | "final"
   local tmpidx; tmpidx=$(mktemp -t wiggum-idx.XXXXXX) || return 0
   rm -f "$tmpidx"
@@ -482,7 +577,10 @@ one_pass() {
     snapshot "$n" checkpoint
   }
   rm -f "$STATE/pass-timed-out"
-  ( cd "$REPO" && exec omp --model "$MODEL" --thinking "$THINKING" -p "/$COMMAND" ) \
+  local -a omp_args
+  omp_args=(--model "$MODEL" --thinking "$THINKING")
+  [ -f "$OMP_OVERLAY" ] && omp_args+=(--config "$OMP_OVERLAY")
+  ( cd "$REPO" && exec omp "${omp_args[@]}" -p "/$COMMAND" ) \
     >"$passlog" 2>&1 &
   pass_pid=$!
   while kill -0 "$pass_pid" 2>/dev/null; do
@@ -584,7 +682,10 @@ driver() {
   # existed this comment said a stop finished the pass, and on 2026-10-27 two passes, 78 and 48 minutes in,
   # were ended by a stop issued on its word.) A driver started before `drain` existed never reads the file.
   trap 'touch "$STOPFILE"; log "driver: SIGTERM received, ending the pass in flight"' TERM INT
-  log "driver START pid=$$ model=$MODEL repo=$REPO sleep=${SLEEP_BETWEEN}s max=${MAX_PASSES:-forever}"
+  local omp_config=none
+  [ -f "$OMP_OVERLAY" ] && omp_config="${OMP_OVERLAY#"$REPO"/}"
+  log "driver START pid=$$ model=$MODEL repo=$REPO sleep=${SLEEP_BETWEEN}s max=${MAX_PASSES:-forever} omp_config=$omp_config"
+  if [ -f "$SETTINGS_FILE" ]; then log "driver settings from ${SETTINGS_FILE#"$REPO"/}:$(printf ' %s' $SETTINGS_ACCEPTED)"; fi
   local idle_streak=0
 
   while :; do
@@ -650,6 +751,7 @@ driver() {
 case "${1:-}" in
   start)
     if running; then echo "already running (pid $(cat "$PIDFILE"))"; exit 0; fi
+    refuse_bad_settings
     # **The state directory first, or the redirect below fails.** `>>"$DRIVER_LOG"` needs the directory
     # to exist, and the clone guard lives in `one_pass` — so a fresh repo's first `start` died on
     # `No such file or directory` before it ever checked the tree. Measured on bevy_debugger_mcp.
@@ -685,6 +787,7 @@ case "${1:-}" in
     done
     if [ "$up" = 1 ]; then
       echo "started (pid $(cat "$PIDFILE")). status: $0 status   /   follow: $0 tail"
+      if [ -f "$SETTINGS_FILE" ] || [ -f "$OMP_OVERLAY" ]; then print_settings; fi
     else
       echo "FAILED to start: no driver came up within 10 s. The last lines of $DRIVER_LOG:" >&2
       tail -n 8 "$DRIVER_LOG" >&2
@@ -692,6 +795,7 @@ case "${1:-}" in
     fi
     ;;
   __driver)
+    refuse_bad_settings
     # **The marker is an argv token, because that is the only place `pgrep -f` reads.** The environment
     # form this used to use was measured on 2026-10-26 to match nothing at all, so two drivers shared
     # one checkout. It stays in the environment as well so an operator can see which loop they are
@@ -712,12 +816,20 @@ case "${1:-}" in
     # **It is still a pass in this checkout**, so it must not run beside a driver that is mid-pass: the
     # same interleaving, and `one` is how an operator checks the loop while it is running. Refused rather
     # than queued, because a smoke test that has to wait is one nobody trusts the timing of.
+    refuse_bad_settings
     if other_driver_running; then
       echo "refusing to run a pass: a wiggum driver is working this checkout ($MARKER)" >&2
       echo "use '$0 status' to see it, or '$0 stop' to end it (the pass in flight is terminated)" >&2
       exit 1
     fi
     one_pass
+    ;;
+  settings)
+    # **What this loop will do, before it does it.** A repo's settings file is what makes a plain `start` safe on
+    # a checkout people work in (see the top of this script), so an operator needs to read it as the driver will:
+    # each line the file sets, whether the environment overrides it, and every line it rejects (exit 1).
+    print_settings
+    [ -z "$SETTINGS_REJECTED" ] || exit 1
     ;;
   status)
     if running; then echo "RUNNING pid $(cat "$PIDFILE")"; else echo "not running"; fi
@@ -777,6 +889,6 @@ case "${1:-}" in
     tail -f "$DRIVER_LOG"
     ;;
   *)
-    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
     ;;
 esac
