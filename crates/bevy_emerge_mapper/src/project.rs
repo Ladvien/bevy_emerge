@@ -1098,8 +1098,8 @@ impl OpenMap {
         // library that draws a map is the merge of every bound kit, so filing it under one of them
         // picks a winner arbitrarily.
         let path = project.maps_dir.join(naming::map_file_name(&self.map.name));
-        let text = ron::ser::to_string_pretty(&self.map, ron::ser::PrettyConfig::default())
-            .map_err(|e| format!("map: serialize: {e}"))?;
+        // One placement a line (`Map::to_ron`), so an edit of one row is a diff of one line.
+        let text = self.map.to_ron()?;
 
         // **A rename is a move, and a move is not a copy.**
         //

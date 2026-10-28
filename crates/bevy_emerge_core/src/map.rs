@@ -448,12 +448,216 @@ pub enum Effect {
     Drain { drive: String, rate: f32 },
 }
 
+/// One value in the row printer's config, with the refusal naming what it was for.
+fn compact<T: Serialize>(
+    value: &T,
+    config: &ron::ser::PrettyConfig,
+    what: &str,
+) -> Result<String, String> {
+    ron::ser::to_string_pretty(value, config.clone())
+        .map_err(|e| format!("map: serialize `{what}`: {e}"))
+}
+
+/// **A patch written as only what it overrides**, or as all of it when that cannot be proved safe.
+///
+/// `full` and `default` are the patch and [`Descriptor::default`] in the row printer's compact
+/// form, so their struct fields line up one for one. Every field the two say alike is dropped, at
+/// every depth of nested structs; what is left is read back, and kept only if it is the same patch.
+/// A field whose serde default is not its `Default` value would read back differently, and then the
+/// whole patch is written, so the shortening can never lose an override.
+fn minimal_patch(patch: &Descriptor, full: &str, default: &str) -> String {
+    let short = prune(full, default).unwrap_or_else(|| "()".to_owned());
+    match ron::from_str::<Descriptor>(&short) {
+        Ok(back) if back == *patch => short,
+        _ => full.to_owned(),
+    }
+}
+
+/// `value` without the struct fields `default` also says, or `None` when it says nothing else.
+fn prune(value: &str, default: &str) -> Option<String> {
+    if value == default {
+        return None;
+    }
+    let (Some(fields), Some(defaults)) = (struct_fields(value), struct_fields(default)) else {
+        return Some(value.to_owned());
+    };
+    let kept: Vec<String> = fields
+        .iter()
+        .filter_map(|(name, field)| {
+            match defaults.iter().find(|(other, _)| other == name) {
+                Some((_, was)) => prune(field, was),
+                None => Some((*field).to_owned()),
+            }
+            .map(|written| format!("{name}: {written}"))
+        })
+        .collect();
+    if kept.is_empty() {
+        return Some(value.to_owned());
+    }
+    Some(format!("({})", kept.join(", ")))
+}
+
+/// The `name: value` fields of a compact struct, `(a: 1, b: (c: 2))`, or `None` for anything else
+/// (a tuple, a list, an option, a scalar, an empty `()`).
+fn struct_fields(text: &str) -> Option<Vec<(&str, &str)>> {
+    let inner = text.strip_prefix('(')?.strip_suffix(')')?;
+    let items = split_top(inner)?;
+    if items.is_empty() {
+        return None;
+    }
+    items
+        .into_iter()
+        .map(|item| {
+            let (name, value) = item.split_once(": ")?;
+            let ident = !name.is_empty()
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                && !name.starts_with(|c: char| c.is_ascii_digit());
+            ident.then_some((name, value))
+        })
+        .collect()
+}
+
+/// Split `inner` on the commas at its own depth, outside strings. `None` when the brackets do not
+/// balance, which means `inner` was not the inside of one value.
+fn split_top(inner: &str) -> Option<Vec<&str>> {
+    let mut items = Vec::new();
+    let (mut depth, mut start, mut in_string, mut escaped) = (0usize, 0usize, false, false);
+    for (i, c) in inner.char_indices() {
+        if in_string {
+            match (escaped, c) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '"') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.checked_sub(1)?,
+            ',' if depth == 0 => {
+                items.push(inner[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if depth != 0 || in_string {
+        return None;
+    }
+    let last = inner[start..].trim();
+    if !last.is_empty() {
+        items.push(last);
+    }
+    Some(items)
+}
+
+/// `\'` written back as `'`. The printer escapes a string with `char::escape_debug`, which escapes
+/// an apostrophe that RON reads the same either way. A backslash is always an escape's first
+/// character, so walking escape by escape never mistakes an escaped backslash for one.
+fn unescape_apostrophes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('\'') => out.push('\''),
+            Some(next) => {
+                out.push('\\');
+                out.push(next);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
 impl Map {
     /// Parse and validate. One path, no fallback — every failure names what and where.
     pub fn parse(text: &str) -> Result<Map, String> {
         let map: Map = ron::from_str(text).map_err(|e| format!("map: {e}"))?;
         map.validate()?;
         Ok(map)
+    }
+
+    /// **The map as its file: one placement a line.**
+    ///
+    /// # Why not `to_string_pretty` of the whole map
+    ///
+    /// The pretty printer puts every field of every placement on its own line, so a 739-row town is
+    /// four thousand lines and a person reading a diff scrolls past five lines to see one yaw. A
+    /// hand-exported map writes a row a line, and the first save of one through the plain printer
+    /// reformatted the whole file: an edit of one placement became a diff of every placement. That
+    /// matters most when the editor writes every change through to a running game (`--live`), where
+    /// each write is a commit-sized diff in someone's tree.
+    ///
+    /// So the header is the pretty printer's, unchanged, and each row is the same printer with
+    /// `compact_structs` (and compact arrays and maps), which writes a placement on one line. The
+    /// result reads back as the same map; a file already written this way reads back and writes byte
+    /// for byte.
+    ///
+    /// # Two things the printer says that a hand-written file does not
+    ///
+    /// - **A placement's `patch` states only what it overrides.** [`Descriptor`] writes every field,
+    ///   defaults included, because the library is written that way; a patch is an override, and a
+    ///   road's `Some((extent: (footprint: Some((4.877, 190.1975)))))` became a 400-character row
+    ///   of `None`s and empty lists. [`minimal_patch`] drops every field the default descriptor
+    ///   also says, and checks that what is left reads back as the same patch.
+    /// - **An apostrophe is written as itself.** The printer escapes every string with
+    ///   `char::escape_debug`, which writes `'` as `\'`; both read back as the same string, and
+    ///   prose with apostrophes is what notes are made of.
+    pub fn to_ron(&self) -> Result<String, String> {
+        let pretty = ron::ser::PrettyConfig::default();
+        let header = Map { placements: Vec::new(), ..self.clone() };
+        let mut text = ron::ser::to_string_pretty(&header, pretty.clone())
+            .map_err(|e| format!("map: serialize: {e}"))?;
+        if !self.placements.is_empty() {
+            const EMPTY: &str = "\n    placements: [],\n";
+            let at = text.find(EMPTY).ok_or_else(|| {
+                "map: serialize: the header has no `placements: [],` line to fill".to_owned()
+            })?;
+            let row_config = pretty
+                .compact_structs(true)
+                .compact_arrays(true)
+                .compact_maps(true);
+            let default_patch = compact(&Descriptor::default(), &row_config, "the default patch")?;
+            let mut rows = String::from("\n    placements: [\n");
+            for placed in &self.placements {
+                let row = match &placed.patch {
+                    None => compact(placed, &row_config, &placed.id)?,
+                    Some(patch) => {
+                        // The row with the default descriptor standing in for the patch, so the
+                        // patch's place in the row is the printer's, then the minimal patch in it.
+                        let stand_in = Placed {
+                            patch: Some(Descriptor::default()),
+                            ..placed.clone()
+                        };
+                        let row = compact(&stand_in, &row_config, &placed.id)?;
+                        let full = compact(patch, &row_config, &placed.id)?;
+                        let written = minimal_patch(patch, &full, &default_patch);
+                        row.replacen(
+                            &format!("patch: Some({default_patch})"),
+                            &format!("patch: Some({written})"),
+                            1,
+                        )
+                    }
+                };
+                rows.push_str("        ");
+                rows.push_str(&row);
+                rows.push_str(",\n");
+            }
+            rows.push_str("    ],\n");
+            text.replace_range(at..at + EMPTY.len(), &rows);
+        }
+        let mut text = unescape_apostrophes(&text);
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        Ok(text)
     }
 
     /// **The map as a consumer sees it**: the same map, with every stamp's rows in
@@ -809,6 +1013,40 @@ impl Map {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A map written a row a line reads back, and writes back, byte for byte.**
+    ///
+    /// The hand-exported style of Sanctuary's town file: a header, one placement a line, the
+    /// locations and the note. A live editor writes the file on every change, so a writer that
+    /// reformatted it would turn an edit of one yaw into a diff of every row.
+    #[test]
+    fn a_map_written_one_row_a_line_reads_back_byte_for_byte() -> Result<(), String> {
+        let text = r#"(
+    version: 7,
+    name: "yard",
+    origin: (0.0, 0.0, 0.0),
+    bounds: (300.0, 60.0, 1120.0),
+    bash: None,
+    placements: [
+        (id: "torch_00", descriptor: "town/torch", at: (-137.1617, -94.9464), yaw: 0.0, lift: 9.1441),
+        (id: "smelter_table", descriptor: "town/table", at: (-66.1, 120.6), yaw: 180.0, owned: true, owned_because: Some("the smith works here")),
+        (id: "smelter_ingots", descriptor: "dress_ingots_steel", at: (-66.1, 120.6), yaw: 0.0, on: Some("smelter_table")),
+        (id: "road_0_0", descriptor: "town/road", at: (-109.7293, 0.0), yaw: 90.0, patch: Some((extent: (footprint: Some((4.877, 190.1975)))))),
+    ],
+    locations: [],
+    note: Some("A yard, for the writer's test. Positions are metres."),
+    enclosure: (
+        wish: 0.25,
+        weight: 200,
+    ),
+)
+"#;
+        let map = Map::parse(text)?;
+        let written = map.to_ron()?;
+        assert_eq!(written, text);
+        assert_eq!(Map::parse(&written)?, map);
+        Ok(())
+    }
 
     /// **A map still carrying the lattice fields is refused by name, not read with them ignored.**
     ///

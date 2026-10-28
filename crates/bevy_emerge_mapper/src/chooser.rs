@@ -661,8 +661,7 @@ fn write_bash(path: &Path, bash: Option<&str>) -> Result<(), String> {
     let mut map = Map::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     map.bash = bash.map(str::to_owned);
     map.validate()?;
-    let out = ron::ser::to_string_pretty(&map, ron::ser::PrettyConfig::default())
-        .map_err(|e| format!("map: serialize: {e}"))?;
+    let out = map.to_ron()?;
     bevy_emerge_core::ron_surgery::save_atomic(path, &out)
 }
 
@@ -802,8 +801,7 @@ pub fn create_map(
         ..Map::default()
     };
     map.validate()?;
-    let text = ron::ser::to_string_pretty(&map, ron::ser::PrettyConfig::default())
-        .map_err(|e| format!("map: serialize: {e}"))?;
+    let text = map.to_ron()?;
     bevy_emerge_core::ron_surgery::save_atomic(&path, &text)?;
     Ok(path)
 }
@@ -6050,8 +6048,7 @@ pub fn write_settings(chooser: &mut Chooser, draft: &Draft) -> Result<(), String
     if path != old_path && path.exists() {
         return Err(format!("`{}` already exists in this project", map.name));
     }
-    let out = ron::ser::to_string_pretty(&map, ron::ser::PrettyConfig::default())
-        .map_err(|e| format!("map: serialize: {e}"))?;
+    let out = map.to_ron()?;
     bevy_emerge_core::ron_surgery::save_atomic(&path, &out)?;
     // Follow a rename, exactly as `Project::save` does — the file a map is in is the file its name
     // says it is.
