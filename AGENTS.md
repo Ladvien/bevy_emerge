@@ -48,6 +48,28 @@ The owner reads `CHANGELOG.md` to see what was added, so every shipped feature, 
 - `changelog.py check` before committing (the loop's gate runs it): every line has a clip or a reason, every clip is capped, has its still, is shown by a line and is in LFS. `changelog.py page --open` plays every clip in one page.
 - A machine needs `git-lfs` (and `git lfs install`) before it commits a clip, or the clip goes into git itself; `check` refuses when it is missing.
 
+## Use the ladvien crate family
+
+The owner's Bevy crates are meant to be the heart of this editor (issues #96–#108, labelled `family`). Use them before writing a system or adding a third-party crate for the same job; doing otherwise needs a logged reason.
+
+| Need | Crate |
+|---|---|
+| Sun, moon, sky, climate, weather, wind, clouds, fog, terrain, water, snow, rocks | `bevy_elements` |
+| Procedural trees and forests that grow, with seasons | `bevy_flora` |
+| SDF to mesh, caves, overhangs, carving | `isomesh` / `bevy_isomesh` |
+| Fires, torches, a budgeted light pool | `bevy_lights` |
+| Illuminance field for creature AI | `bevy_light_grid` |
+| People with needs, ties, factions, Rhai scripts | `bevy_society` |
+| Speech balloons, conversation graphs, dialog box | `bevy_speech_bubbles` |
+| Stigmergic fields, crowd avoidance | `bevy_stigmergy`, `bevy_orca` |
+| Fracture, wounds, blood | `bevy_carnage` |
+| An agent driving a running game over BRP | `bevy_fairy` (successor of `bevy_debugger_mcp`) |
+| A frame on demand | `bevy_devshot` |
+
+- **Configure, don't fork.** A crate's own serde types are the data, saved in the game's project and editable live. The editor never defines a second schema for a crate's settings.
+- **Each crate is an optional cargo feature** of the editor, pinned by git revision on the crate's `main`: never a path into another checkout, and never a crates.io version, which would need a publish.
+- **The two-way street.** A change the editor needs in a crate is made in that crate's repository, in its own commits with its own tests. It is requested there as an issue labelled `consumer` and `consumer:bevy_emerge`, and the editor takes it by moving its pin once that issue is closed as fixed. Never patch, wrap or vendor a crate here. The loop's procedure is in `.omp/commands/build-loop.md`, "the two-way street".
+
 ## Blender is a tool we own, and it is not rebuilt here
 
 **golem is ours** (`~/golem_mcp`, the MCP server that drives the open Blender: meshes, UVs, bakes,
