@@ -31,7 +31,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **E-050** `ee47069` Arriving on the Meshes shelf is a selection through `piece_select` *No clip: not visible: the same selection, now an operation; proved by the tests in its commit*
 - **E-061** `477b721` A composed proposal is drawn piece by piece, not as a cell outline *No clip: visible, not yet recorded (backfill)*
 - **E-079** `d27e452` A piece standing in a measured doorway is reported *No clip: not visible: a validator; proved by the tests in its commit*
-- **E-076** `dfac080` After an agent's undo, the person can redo it *No clip: visible, not yet recorded (backfill)*
+- **E-076** `dfac080` After an agent's undo, the person can redo it (recorded on the 2026-10-28 build)<br><a href="docs/changelog/media/2026-10-26-E-076.mp4"><img src="docs/changelog/media/2026-10-26-E-076.png" width="320" alt="clip"></a>
 - **E-082** `64e07a4` A rule weight that tunes no piece says so instead of reporting applied *No clip: not visible: a refusal message; proved by the tests in its commit*
 - **E-068** `f2c5b34` The agent's steps are on screen, one row each *No clip: visible, not yet recorded (backfill)*
 - **E-084** `0c5d95d` An agent's tool can take back its whole turn *No clip: not visible: undo ordering; proved by the tests in its commit*
@@ -50,11 +50,11 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **S2.4** `9831217` Series S-002 closed with a live proof through golem *No clip: not visible: a series close-out; proved by the tests in its commit*
 - **S2.3** The acceptance script imports a .glb (`--glb`) *No clip: not visible: acceptance tooling; proved by the tests in its commit*
 - **S2.2** `60912db` `piece_import`: an agent turns a .glb inside the project into a kit piece *No clip: visible, not yet recorded (backfill)*
-- **S2.1** `68d06d0` `placement_add`: an agent places one piece *No clip: visible, not yet recorded (backfill)*
+- **S2.1** `68d06d0` `placement_add`: an agent places one piece (recorded on the 2026-10-28 build)<br><a href="docs/changelog/media/2026-10-24-S2.1.mp4"><img src="docs/changelog/media/2026-10-24-S2.1.png" width="320" alt="clip"></a>
 - **S1.8** `9831217` Series S-001 closed: gate, acceptance, performance and live proof *No clip: not visible: a series close-out; proved by the tests in its commit*
-- **S1.7** `7be7ffd` `emerge_present`: an agent puts its result in front of the person, with keep or undo *No clip: visible, not yet recorded (backfill)*
+- **S1.7** `7be7ffd` `emerge_present`: an agent puts its result in front of the person, with keep or undo (recorded on the 2026-10-28 build)<br><a href="docs/changelog/media/2026-10-24-S1.7.mp4"><img src="docs/changelog/media/2026-10-24-S1.7.png" width="320" alt="clip"></a>
 - **S1.6** `b9d1a0f` `map_save`: an agent saves the map *No clip: not visible: a save; proved by the tests in its commit*
-- **S1.5** `b9d1a0f` `fill`: an agent flood-fills (F for the person) *No clip: visible, not yet recorded (backfill)*
+- **S1.5** `b9d1a0f` `fill`: an agent flood-fills (F for the person) (recorded on the 2026-10-28 build)<br><a href="docs/changelog/media/2026-10-24-S1.5.mp4"><img src="docs/changelog/media/2026-10-24-S1.5.png" width="320" alt="clip"></a>
 - **S1.4** `2668fb4` `layout_accept` and `layout_discard`: keep or throw away a proposal (Enter, Esc) *No clip: visible, not yet recorded (backfill)*
 - **S1.3** `2668fb4` `layout_propose`: an agent proposes a layout (G, Shift+G, Cmd+G for the person) *No clip: visible, not yet recorded (backfill)*
 - **S1.2** `7df0d30` A context carries the standing proposal, and a row delta undoes itself *No clip: not visible: plumbing for S1.3; proved by the tests in its commit*

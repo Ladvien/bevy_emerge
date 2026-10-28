@@ -172,6 +172,17 @@ class Clip(Repo):
         self.assertEqual(rc, 0, err)
         self.assertAlmostEqual(changelog.probe_seconds(out), 5.0, delta=0.2)
 
+    def test_the_still_is_written_for_any_frame_count(self):
+        # 38 frames at 10 fps: seeking an image sequence to its last frame writes nothing and exits 0,
+        # which left the editor's clips without a still (2026-10-28).
+        src = os.path.join(self.dir, "frames38")
+        frames(src, 3.8, 320, 240, fps=10)
+        self.assertEqual(len(os.listdir(src)), 38)
+        out = self.media("short.mp4")
+        rc, _, err = self.cl("clip", "--out", out, "--frames", src, "--fps", "10")
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(os.path.isfile(self.media("short.png")))
+
     def test_a_crop_frames_the_subject_before_the_scale(self):
         src = os.path.join(self.dir, "frames")
         frames(src, 1, 640, 480)

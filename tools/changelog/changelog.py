@@ -96,11 +96,21 @@ def encode(source_args, out, crf, seek, duration, pre=""):
     subprocess.run(cmd, check=True)
 
 
-def write_poster(source_args, seek_s, out_png, pre=""):
-    scale = pre + "scale='min({w},iw)':-2:flags=lanczos".format(w=STILL_WIDTH)
-    cmd = ["ffmpeg", "-loglevel", "error", "-y", "-ss", "{:.3f}".format(seek_s)] + source_args + [
-        "-frames:v", "1", "-vf", scale, out_png]
+def write_poster(clip, at_s, out_png):
+    """The still, taken from the finished clip, so it is exactly a frame the clip shows.
+
+    `at_s` None is the clip's last frame. Every frame of the tail is decoded and the file overwritten
+    (`-update 1`), so the last one written is the last frame: seeking to "the end" of an image
+    sequence fails silently (ffmpeg writes nothing and exits 0), which is why this reads the MP4."""
+    scale = "scale='min({w},iw)':-2:flags=lanczos".format(w=STILL_WIDTH)
+    seek = ["-sseof", "-0.5"] if at_s is None else ["-ss", "{:.3f}".format(at_s)]
+    if os.path.exists(out_png):
+        os.remove(out_png)
+    cmd = ["ffmpeg", "-loglevel", "error", "-y"] + seek + ["-i", clip, "-vf", scale, "-update", "1"] + \
+        ([] if at_s is None else ["-frames:v", "1"]) + [out_png]
     subprocess.run(cmd, check=True)
+    if not os.path.isfile(out_png):
+        raise Refusal("ffmpeg wrote no still at {}".format("the end" if at_s is None else "{} s".format(at_s)))
 
 
 def crop_filter(crop):
@@ -164,8 +174,7 @@ def _encode_capped(out, source, total, start, duration, poster, pre=""):
         os.remove(out)
         raise Refusal("still over {} bytes at crf {}: shorten it".format(MAX_BYTES, CRF_LADDER[-1]))
     # The still is the result, so by default the last frame of the clip, not the first.
-    at = (start + span - 0.05) if poster is None else poster
-    write_poster(source, max(0.0, at), os.path.splitext(out)[0] + ".png", pre)
+    write_poster(out, None if poster is None else max(0.0, poster - start), os.path.splitext(out)[0] + ".png")
     return span, os.path.getsize(out)
 
 
