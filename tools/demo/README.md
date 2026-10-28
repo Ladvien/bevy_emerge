@@ -31,6 +31,8 @@ python3 tools/demo/render.py /path/to/project/target/loop/demo/hero/events.json 
   --out docs/media/hero.gif --width 960 --sheet /tmp/hero_sheet.png --stills 2.0,5.0,9.8
 ```
 
+An `--out` ending in `.mp4` writes a changelog clip instead: H.264 capped at 20 s, 2 MB and 960 px, with its still beside it, ready for `tools/changelog/changelog.py add --clip` (AGENTS.md, "The changelog"). A storyboard's `name` must be snake_case: it becomes the capture's sequence name.
+
 ## Notes
 
 - Capture rate: the storyboard's `fps` is sent to `emerge_capture_sequence`, which accepts 2 to 15 fps. The storyboards use 15.
