@@ -456,7 +456,8 @@
         {
           "id": "S4.1",
           "title": "core notes: the note data, its file beside the map, round-trip and hot-reload",
-          "status": "open"
+          "status": "fixed",
+          "evidence": "crates/bevy_emerge_core/src/notes.rs; tests/notes.rs 6 green; clippy -D warnings clean"
         },
         {
           "id": "S4.2",
