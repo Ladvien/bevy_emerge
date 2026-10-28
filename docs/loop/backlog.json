@@ -398,7 +398,7 @@
         "the bevy_emerge runtime reloads a map without a restart"
       ],
       "status": "open",
-      "evidence": "Sanctuary decision 0403; docs/design/emerge-coevolution.md in Sanctuary. Every registered operation that changes a map already saves as it commits; --live reaches the keys that are not yet operations (lift, tip, move, straighten, the editor's undo).",
+      "evidence": "Sanctuary decision 0404; docs/design/emerge-coevolution.md in Sanctuary. Every registered operation that changes a map already saves as it commits; --live reaches the keys that are not yet operations (lift, tip, move, straighten, the editor's undo).",
       "last_failure": "",
       "first_seen": "2026-10-28",
       "steps": [
