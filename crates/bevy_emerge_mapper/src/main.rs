@@ -75,6 +75,10 @@ fn main() -> AppExit {
         preselect: args::split(&argv).kit.map(str::to_owned),
     });
     harness::add_editor_plugins(&mut app);
+    // **`--live`: every committed change goes to disk at once**, so a running game reloads it.
+    if args::split(&argv).live {
+        app.insert_resource(bevy_emerge_mapper::live::LiveWrite);
+    }
     // Behind the feature, so an ordinary build has no `bevy_remote` in its dependency graph at all.
     #[cfg(feature = "debugger")]
     harness::add_debugger_plugins(&mut app);

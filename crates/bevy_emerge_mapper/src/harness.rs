@@ -109,6 +109,9 @@ pub fn add_editor_plugins(app: &mut App) -> &mut App {
             // **The capture sequencer** -- the editor takes the frames, so frame 0 is the state
             // before the operation and the operation is applied after it.
             crate::sequencer::SequencerPlugin,
+            // **The write-through** (`--live`): every committed change is saved at once, so a game
+            // watching the project reloads it. Inert unless `live::LiveWrite` is inserted.
+            crate::live::LivePlugin,
         ),
     ));
     // **The paint system belongs to the editor too.** `bevy_emerge::apply_paint` is what gives a

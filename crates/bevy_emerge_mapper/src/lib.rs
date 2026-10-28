@@ -67,6 +67,7 @@ pub mod keys;
 pub mod label_booth;
 pub mod labels;
 pub mod notice;
+pub mod live;
 pub mod present;
 pub mod ops;
 #[cfg(feature = "debugger")]

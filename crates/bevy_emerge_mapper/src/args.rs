@@ -70,9 +70,13 @@ pub struct Split<'a> {
     pub positional: Vec<&'a str>,
     pub kit: Option<&'a str>,
     pub door: Option<&'a str>,
+    /// `--live`: write every committed change to disk at once, so a running game that watches the
+    /// project reloads it (see [`crate::live`]).
+    pub live: bool,
 }
 
-/// Split an argv into its positionals and the two flags this editor takes.
+/// Split an argv into its positionals and the three flags this editor takes: `--kit` and
+/// `--door`, which take a value, and `--live`, which does not.
 ///
 /// A flag's value is consumed with it, so it can never be mistaken for a positional.
 pub fn split(args: &[String]) -> Split<'_> {
@@ -80,12 +84,14 @@ pub fn split(args: &[String]) -> Split<'_> {
         positional: Vec::new(),
         kit: None,
         door: None,
+        live: false,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--kit" => out.kit = it.next().map(String::as_str),
             "--door" => out.door = it.next().map(String::as_str),
+            "--live" => out.live = true,
             other => out.positional.push(other),
         }
     }
@@ -97,6 +103,7 @@ pub fn open(args: &[String]) -> Result<Opened, String> {
         positional,
         kit,
         door: door_flag,
+        ..
     } = split(args);
     let root = root_from(&positional);
 
