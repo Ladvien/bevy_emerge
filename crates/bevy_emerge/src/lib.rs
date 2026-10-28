@@ -32,6 +32,8 @@
 //! than from a hand-maintained map. Both gotchas those pairs document apply here and are restated on
 //! the types.
 
+pub mod live;
+
 use std::collections::HashMap;
 
 use bevy::asset::AssetId;
@@ -626,11 +628,35 @@ pub fn mesh_rotation(d: &Descriptor) -> Quat {
 /// and the table may be authored after it. `EmergeWorld::new` has already resolved them once and
 /// refused the map if it could not, so this cannot fail here.
 fn spawn_world(mut commands: Commands, assets: Res<AssetServer>, world: Res<EmergeWorld>) {
+    let spawned = spawn_placements(&mut commands, &assets, &world, None, &HashMap::new());
+    info!(
+        "emerge: spawned {spawned} of {} placement(s) from map `{}`",
+        world.map.placements.len(),
+        world.map.name
+    );
+}
+
+/// Spawn the map's placements — all of them, or only the ids in `only` — and return how many became
+/// an entity.
+///
+/// `kept` is the entities that already stand for placements this call does not spawn, by id, so a
+/// rider spawned now can be mounted on a host spawned earlier. [`live`] respawns a subset; the first
+/// spawn passes `None` and an empty `kept`.
+fn spawn_placements(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    world: &EmergeWorld,
+    only: Option<&std::collections::BTreeSet<String>>,
+    kept: &HashMap<String, Entity>,
+) -> usize {
     let origin = world.map.origin;
     let mut spawned = 0usize;
     // Index by placement id so the `MountedOn` relationship can be attached once every entity exists.
-    let mut by_id: Vec<(&str, Entity)> = Vec::with_capacity(world.map.placements.len());
+    let mut by_id: HashMap<&str, Entity> = HashMap::with_capacity(world.map.placements.len());
     for (i, p) in world.map.placements.iter().enumerate() {
+        if only.is_some_and(|set| !set.contains(&p.id)) {
+            continue;
+        }
         let Some((d, masks)) = world.entry(&p.descriptor) else {
             // `EmergeWorld::new` refuses this, so reaching it means the resource was built by hand.
             warn!("`{}` names undefined descriptor `{}`", p.id, p.descriptor);
@@ -638,13 +664,13 @@ fn spawn_world(mut commands: Commands, assets: Res<AssetServer>, world: Res<Emer
         };
         let Some(&y) = world.y.get(i) else { continue };
         if let Some(e) =
-            spawn_descriptor(&mut commands, &assets, d, masks, p.at, p.yaw, p.tip, origin, y)
+            spawn_descriptor(commands, assets, d, masks, p.at, p.yaw, p.tip, origin, y)
         {
             commands.entity(e).insert(Placement(p.id.clone()));
             if p.paint != 0 {
                 commands.entity(e).insert(Paint(p.paint));
             }
-            by_id.push((p.id.as_str(), e));
+            by_id.insert(p.id.as_str(), e);
             spawned += 1;
         }
     }
@@ -652,14 +678,11 @@ fn spawn_world(mut commands: Commands, assets: Res<AssetServer>, world: Res<Emer
     // **`MountedOn` second**, because a host may be spawned after its guest and a relationship needs
     // an `Entity` that exists. The reverse index (`Supporting`) is the engine's to maintain.
     for p in &world.map.placements {
-        let (Some(host_id), Some(&(_, guest))) = (
-            p.on.as_ref(),
-            by_id.iter().find(|(id, _)| *id == p.id.as_str()),
-        ) else {
+        let (Some(host_id), Some(&guest)) = (p.on.as_ref(), by_id.get(p.id.as_str())) else {
             continue;
         };
-        match by_id.iter().find(|(id, _)| id == host_id) {
-            Some(&(_, host)) => {
+        match by_id.get(host_id.as_str()).or_else(|| kept.get(host_id)) {
+            Some(&host) => {
                 commands.entity(guest).insert(MountedOn(host));
             }
             // Only reachable when the host is a descriptor with neither a mesh nor a footprint, so
@@ -673,12 +696,7 @@ fn spawn_world(mut commands: Commands, assets: Res<AssetServer>, world: Res<Emer
             ),
         }
     }
-
-    info!(
-        "emerge: spawned {spawned} of {} placement(s) from map `{}`",
-        world.map.placements.len(),
-        world.map.name
-    );
+    spawned
 }
 
 // ── smart objects ────────────────────────────────────────────────────────────────────────────────
