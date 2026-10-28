@@ -12,7 +12,11 @@
 //! already holds (`watch::adopt_map` calls `mark_saved`). A map that fails to save stays dirty, so the
 //! next valid state is written; the refusal is logged once, not every frame.
 
+use std::time::{Duration, Instant, UNIX_EPOCH};
+
 use bevy::prelude::*;
+use bevy_emerge_core::live::Verdict;
+use serde_json::{Value, json};
 
 use crate::project::{OpenMap, Project};
 
@@ -26,10 +30,81 @@ pub struct LiveWrite;
 impl Plugin for LivePlugin {
     fn build(&self, app: &mut App) {
         // `PostUpdate`, so every `Update` dispatch and undo of the frame has landed first.
-        app.add_systems(
+        app.init_resource::<LiveGame>().add_systems(
             PostUpdate,
             write_through.run_if(resource_exists::<LiveWrite>),
         );
+        // Four looks a second at the game's verdict, only with `--live`.
+        app.add_systems(Update, poll_verdict.run_if(resource_exists::<LiveWrite>));
+    }
+}
+
+/// **The game's newest verdict on a reload**, as last read from `.live/game.ron`. Empty without
+/// `--live` and while no game has answered.
+#[derive(Resource, Default)]
+pub struct LiveGame {
+    pub verdict: Option<Verdict>,
+    /// The `at_unix_ms` already shown in the journal, so one verdict is reported once.
+    reported_ms: u64,
+}
+
+impl LiveGame {
+    /// **The `game` field of `emerge_state`.** `null` with no verdict; `"pending"` when the newest
+    /// verdict is not newer than the map file's last write (it answers an earlier write, never the
+    /// new one); otherwise the verdict.
+    pub fn state_json(&self, map_path: Option<&std::path::Path>) -> Value {
+        let Some(v) = &self.verdict else {
+            return Value::Null;
+        };
+        let wrote_ms = map_path
+            .and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_millis() as u64);
+        if v.at_unix_ms < wrote_ms {
+            return json!("pending");
+        }
+        json!({"ok": v.ok, "message": v.message, "at_unix_ms": v.at_unix_ms})
+    }
+}
+
+/// Read the verdict four times a second; say a new one in the journal (a refusal as a problem).
+fn poll_verdict(
+    project: Option<Res<Project>>,
+    mut game: ResMut<LiveGame>,
+    state: Option<ResMut<crate::editor::EditorState>>,
+    mut last: Local<Option<Instant>>,
+    mut last_error: Local<Option<String>>,
+) {
+    let Some(project) = project else { return };
+    if last.is_some_and(|t| t.elapsed() < Duration::from_millis(250)) {
+        return;
+    }
+    *last = Some(Instant::now());
+    let v = match Verdict::read(&project.emerge_dir) {
+        Ok(v) => v,
+        Err(e) => {
+            if last_error.as_deref() != Some(e.as_str()) {
+                warn!("live: {e}");
+                *last_error = Some(e);
+            }
+            return;
+        }
+    };
+    *last_error = None;
+    let Some(v) = v else { return };
+    if v.at_unix_ms > game.reported_ms {
+        game.reported_ms = v.at_unix_ms;
+        if let Some(mut state) = state {
+            if v.ok {
+                state.status.note(format!("game: {}", v.message));
+            } else {
+                state.status.problem(format!("game refused the reload: {}", v.message));
+            }
+        }
+    }
+    if game.verdict.as_ref() != Some(&v) {
+        game.verdict = Some(v);
     }
 }
 
