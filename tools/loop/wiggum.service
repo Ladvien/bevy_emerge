@@ -82,7 +82,7 @@ IOSchedulingClass=idle
 # therefore only has to cover a driver that is slow to exit, and a long one turns a leaked process in the
 # cgroup into a long stuck stop.
 KillSignal=SIGTERM
-TimeoutStopSec=3000
+TimeoutStopSec=300
 
 Restart=always
 RestartSec=120
