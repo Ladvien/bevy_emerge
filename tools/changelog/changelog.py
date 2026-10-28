@@ -7,7 +7,7 @@ heading, newest first. A visible change carries a short MP4 and a still of its r
 to see what was added, so a line that cannot be watched has to say why.
 
     changelog.py clip  --out docs/changelog/media/<date>-<id>.mp4 (--frames DIR [--fps N] | --video FILE)
-                       [--start S] [--duration S] [--poster S]
+                       [--start S] [--duration S] [--poster S] [--crop X0,Y0,X1,Y1|WxH]
     changelog.py add   --id ID --title TEXT [--sha SHA] [--date YYYY-MM-DD]
                        (--clip <date>-<id> | --link PATH | --no-clip REASON)
     changelog.py check [--since YYYY-MM-DD]
@@ -38,6 +38,7 @@ MAX_SECONDS = 20.0
 MAX_BYTES = 2 * 1024 * 1024
 MAX_STILL_BYTES = 600 * 1024
 MAX_WIDTH = 960
+STILL_WIDTH = 640
 CRF_LADDER = (28, 32, 36, 40)
 THUMB_WIDTH = 320
 DATE_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})\s*$")
@@ -87,28 +88,45 @@ def probe_seconds(path):
 
 # --- clip -----------------------------------------------------------------------------------------
 
-def encode(source_args, out, crf, seek, duration):
-    scale = "scale='min({w},iw)':-2:flags=lanczos,format=yuv420p".format(w=MAX_WIDTH)
+def encode(source_args, out, crf, seek, duration, pre=""):
+    scale = pre + "scale='min({w},iw)':-2:flags=lanczos,format=yuv420p".format(w=MAX_WIDTH)
     cmd = ["ffmpeg", "-loglevel", "error", "-y"] + seek + source_args + ["-t", "{:.3f}".format(duration),
            "-vf", scale, "-an", "-c:v", "libx264", "-preset", "slow", "-crf", str(crf),
            "-movflags", "+faststart", out]
     subprocess.run(cmd, check=True)
 
 
-def write_poster(source_args, seek_s, out_png):
-    scale = "scale='min({w},iw)':-2:flags=lanczos".format(w=MAX_WIDTH)
+def write_poster(source_args, seek_s, out_png, pre=""):
+    scale = pre + "scale='min({w},iw)':-2:flags=lanczos".format(w=STILL_WIDTH)
     cmd = ["ffmpeg", "-loglevel", "error", "-y", "-ss", "{:.3f}".format(seek_s)] + source_args + [
         "-frames:v", "1", "-vf", scale, out_png]
     subprocess.run(cmd, check=True)
 
 
-def make_clip(out, frames=None, fps=15, video=None, start=0.0, duration=None, poster=None):
+def crop_filter(crop):
+    """`x0,y0,x1,y1` in source pixels, or `WxH` centred on the frame -> an ffmpeg crop prefix; None -> ''."""
+    if not crop:
+        return ""
+    centred = re.match(r"^(\d+)x(\d+)$", crop)
+    if centred:
+        return "crop={}:{},".format(centred.group(1), centred.group(2))
+    try:
+        x0, y0, x1, y1 = [int(v) for v in crop.split(",")]
+    except ValueError:
+        raise Refusal("--crop is x0,y0,x1,y1 in source pixels, or WxH centred")
+    if x1 <= x0 or y1 <= y0 or x0 < 0 or y0 < 0:
+        raise Refusal("--crop needs x0 < x1 and y0 < y1, all >= 0")
+    return "crop={}:{}:{}:{},".format(x1 - x0, y1 - y0, x0, y0)
+
+
+def make_clip(out, frames=None, fps=15, video=None, start=0.0, duration=None, poster=None, crop=None):
     """Write `out` (.mp4) and its still `<base>.png`; return (seconds, bytes) of the clip written."""
     need("ffmpeg")
     if not out.endswith(".mp4"):
         raise Refusal("--out must end in .mp4")
     if (frames is None) == (video is None):
         raise Refusal("give exactly one of --frames and --video")
+    pre = crop_filter(crop)
     if frames is not None:
         pngs = sorted(glob.glob(os.path.join(frames, "*.png")))
         if not pngs:
@@ -119,16 +137,16 @@ def make_clip(out, frames=None, fps=15, video=None, start=0.0, duration=None, po
                 os.symlink(os.path.abspath(src), os.path.join(work, "{:06d}.png".format(i)))
             source = ["-framerate", str(fps), "-i", os.path.join(work, "%06d.png")]
             total = len(pngs) / float(fps)
-            return _encode_capped(out, source, total, start, duration, poster)
+            return _encode_capped(out, source, total, start, duration, poster, pre)
         finally:
             shutil.rmtree(work, ignore_errors=True)
     if not os.path.isfile(video):
         raise Refusal("no video at {}".format(video))
     total = probe_seconds(video)
-    return _encode_capped(out, ["-i", video], total, start, duration, poster)
+    return _encode_capped(out, ["-i", video], total, start, duration, poster, pre)
 
 
-def _encode_capped(out, source, total, start, duration, poster):
+def _encode_capped(out, source, total, start, duration, poster, pre=""):
     span = max(0.0, total - start)
     if duration is not None:
         span = min(span, duration)
@@ -139,7 +157,7 @@ def _encode_capped(out, source, total, start, duration, poster):
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     seek = ["-ss", "{:.3f}".format(start)] if start > 0 else []
     for crf in CRF_LADDER:
-        encode(source, out, crf, seek, span)
+        encode(source, out, crf, seek, span, pre)
         if os.path.getsize(out) <= MAX_BYTES:
             break
     else:
@@ -147,7 +165,7 @@ def _encode_capped(out, source, total, start, duration, poster):
         raise Refusal("still over {} bytes at crf {}: shorten it".format(MAX_BYTES, CRF_LADDER[-1]))
     # The still is the result, so by default the last frame of the clip, not the first.
     at = (start + span - 0.05) if poster is None else poster
-    write_poster(source, max(0.0, at), os.path.splitext(out)[0] + ".png")
+    write_poster(source, max(0.0, at), os.path.splitext(out)[0] + ".png", pre)
     return span, os.path.getsize(out)
 
 
@@ -358,7 +376,7 @@ def cmd_page(repo, args):
 
 def cmd_clip(repo, args):
     seconds, size = make_clip(args.out, frames=args.frames, fps=args.fps, video=args.video,
-                              start=args.start, duration=args.duration, poster=args.poster)
+                              start=args.start, duration=args.duration, poster=args.poster, crop=args.crop)
     print("{}: {:.1f} s, {:.2f} MB; still {}".format(args.out, seconds, size / 1048576.0,
                                                     os.path.splitext(args.out)[0] + ".png"))
     return 0
@@ -376,6 +394,7 @@ def main(argv=None):
     c.add_argument("--start", type=float, default=0.0)
     c.add_argument("--duration", type=float)
     c.add_argument("--poster", type=float, help="seconds into the source for the still (default: the clip's last frame)")
+    c.add_argument("--crop", help="x0,y0,x1,y1 in source pixels, or WxH centred: frame the subject before scaling")
     a = sub.add_parser("add", help="add one changelog line")
     a.add_argument("--id", required=True)
     a.add_argument("--title", required=True)

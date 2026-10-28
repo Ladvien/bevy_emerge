@@ -172,6 +172,26 @@ class Clip(Repo):
         self.assertEqual(rc, 0, err)
         self.assertAlmostEqual(changelog.probe_seconds(out), 5.0, delta=0.2)
 
+    def test_a_crop_frames_the_subject_before_the_scale(self):
+        src = os.path.join(self.dir, "frames")
+        frames(src, 1, 640, 480)
+        out = self.media("crop.mp4")
+        rc, _, err = self.cl("clip", "--out", out, "--frames", src, "--crop", "100,50,420,290")
+        self.assertEqual(rc, 0, err)
+        dims = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                               "stream=width,height", "-of", "csv=p=0", out],
+                              stdout=subprocess.PIPE, universal_newlines=True, check=True).stdout.strip()
+        self.assertEqual(dims, "320,240")
+        rc, _, err = self.cl("clip", "--out", out, "--frames", src, "--crop", "420,50,100,290")
+        self.assertEqual(rc, 2)
+        self.assertIn("x0 < x1", err)
+        rc, _, err = self.cl("clip", "--out", out, "--frames", src, "--crop", "200x100")
+        self.assertEqual(rc, 0, err)
+        dims = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                               "stream=width,height", "-of", "csv=p=0", out],
+                              stdout=subprocess.PIPE, universal_newlines=True, check=True).stdout.strip()
+        self.assertEqual(dims, "200,100")
+
 
 class Page(Repo):
     @unittest.skipUnless(HAVE_FFMPEG, "needs ffmpeg")
