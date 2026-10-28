@@ -385,20 +385,68 @@
       "first_seen": "2026-10-26"
     },
     {
-      "id": "E-086",
-      "kind": "enhancement",
-      "area": "parity",
-      "status": "fixed",
-      "title": "A new operation cannot be added without editing a protected test file: the UI entry-point tables live inside the parity test",
-      "must_fix": {
-        "blocks": true,
-        "common": true,
-        "no_workaround": true,
-        "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass — the pass stops and says so rather than editing the ratchet."
-      },
-      "evidence": "Fixed by the evaluator pass of 2026-10-28 (commit `fix(parity): the UI entry points are product code (E-086)`): `ops::UI_ENTRY_POINTS` and `ops::CHOOSER_ENTRY_POINTS` are product constants and the parity test imports them, so an operation and its UI row are one product-code commit and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
+      "id": "S-003",
+      "kind": "series",
+      "area": "live",
+      "title": "Live editing: the running game shows every edit, with no recompile",
+      "goal": "An agent or a person edits a map, a kit, a game data file or a tuning number in the editor, and the running game shows it within about a second, with the game's verdict reported back to the editor",
+      "approved_by": "owner 2026-10-28",
+      "acceptance": [
+        "a placement_set_yaw on Sanctuary's town reaches the running game",
+        "the game's refusal of a reload is visible in emerge_state",
+        "a data_set on a registered tuning file reaches the running game",
+        "the bevy_emerge runtime reloads a map without a restart"
+      ],
+      "status": "open",
+      "evidence": "Sanctuary decision 0403; docs/design/emerge-coevolution.md in Sanctuary. Every registered operation that changes a map already saves as it commits; --live reaches the keys that are not yet operations (lift, tip, move, straighten, the editor's undo).",
       "last_failure": "",
-      "first_seen": "2026-10-26"
+      "first_seen": "2026-10-28",
+      "steps": [
+        {
+          "id": "S3.1",
+          "title": "The parity tables are product code (E-086)",
+          "status": "fixed"
+        },
+        {
+          "id": "S3.2",
+          "title": "A map is written one placement a line",
+          "status": "fixed"
+        },
+        {
+          "id": "S3.3",
+          "title": "core live::FileWatch and diff_maps",
+          "status": "fixed"
+        },
+        {
+          "id": "S3.4",
+          "title": "--live writes every change through",
+          "status": "fixed"
+        },
+        {
+          "id": "S3.5",
+          "title": "The game's verdict reaches the editor",
+          "status": "open",
+          "issue": "https://github.com/Ladvien/bevy_emerge/issues/84"
+        },
+        {
+          "id": "S3.6",
+          "title": "core data_files: a registry of game data files and type-keeping leaf edits",
+          "status": "open",
+          "issue": "https://github.com/Ladvien/bevy_emerge/issues/85"
+        },
+        {
+          "id": "S3.7",
+          "title": "The data_set operation and the Data panel",
+          "status": "open",
+          "issue": "https://github.com/Ladvien/bevy_emerge/issues/86"
+        },
+        {
+          "id": "S3.8",
+          "title": "bevy_emerge::live: the runtime reloads and respawns what changed",
+          "status": "open",
+          "issue": "https://github.com/Ladvien/bevy_emerge/issues/87"
+        }
+      ]
     }
   ]
 }
