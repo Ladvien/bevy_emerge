@@ -72,6 +72,7 @@ pub mod present;
 pub mod ops;
 #[cfg(feature = "debugger")]
 pub mod ops_brp;
+pub mod ops_notes;
 pub mod project;
 pub mod screen;
 pub mod sequencer;
