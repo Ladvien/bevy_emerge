@@ -4,7 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-28
 
-- **f0-family-feature** `HEAD` bevy_elements is an optional cargo feature pinned by git rev; a family.ron crate the build lacks is a status problem (#96) *No clip: an API and a cargo feature; proved by crates/bevy_emerge_mapper/tests/family_host.rs*
+- **f0-family-feature** `dc7cbbe` bevy_elements is an optional cargo feature pinned by git rev; a family.ron crate the build lacks is a status problem (#96) *No clip: an API and a cargo feature; proved by crates/bevy_emerge_mapper/tests/family_host.rs*
 - **family-set-field** `5158321` family::set_field: write one field of a crate's settings RON, comments kept, old value returned for undo (#96) *No clip: an API; proved by crates/bevy_emerge_core/tests/family.rs*
 - **F0-family-ron** `pending` family.ron: a project names the family crates it uses, and one it lists but the build lacks is a problem message (#96, data slice) *No clip: data and API; proved by crates/bevy_emerge_core/tests/family.rs*
 - **#89-ops** Notes 1/7 (operations and Note tool): note_add, note_edit and note_remove are registered operations with undo; Shift+N arms a Note tool that drags a rectangle and opens a note box *No clip: visible, not yet recorded: no display on this pass; proved by tests/notes_are_operations.rs*
