@@ -34,6 +34,7 @@ pub mod census;
 pub mod clips;
 pub mod composition;
 pub mod constraints;
+pub mod data_files;
 pub mod convert;
 pub mod descriptor;
 pub mod draw_order;

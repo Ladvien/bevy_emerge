@@ -425,13 +425,13 @@
         {
           "id": "S3.5",
           "title": "The game's verdict reaches the editor",
-          "status": "open",
+          "status": "done",
           "issue": "https://github.com/Ladvien/bevy_emerge/issues/84"
         },
         {
           "id": "S3.6",
           "title": "core data_files: a registry of game data files and type-keeping leaf edits",
-          "status": "open",
+          "status": "done",
           "issue": "https://github.com/Ladvien/bevy_emerge/issues/85"
         },
         {
