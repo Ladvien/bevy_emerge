@@ -78,9 +78,9 @@
     <key>WIGGUM_REPO</key>
     <string>/Users/USER/bevy_elements</string>
     <key>WIGGUM_COMMAND</key>
-    <string>elements-loop</string>
+    <string>build-loop</string>
     <key>WIGGUM_MODEL</key>
-    <string>ollama-cloud/deepseek-v4.1-flash:1017</string>
+    <string>claude-sonnet-5-5</string>
     <key>WIGGUM_THINK</key>
     <string>medium</string>
     <key>WIGGUM_SLEEP</key>

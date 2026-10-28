@@ -41,9 +41,9 @@ ExecStopPost=-/usr/bin/pkill -f "Xvfb :99 "
 ExecStart=%h/bevy_emerge_loop/tools/loop/wiggum.sh __driver
 
 Environment=WIGGUM_REPO=%h/bevy_emerge_loop
-Environment=WIGGUM_MODEL=ollama-cloud/deepseek-v4.1-flash:1017
+Environment=WIGGUM_MODEL=claude-sonnet-5-5
 Environment=WIGGUM_SLEEP=60
-# The repo's own, sharper command. `/bevy-loop` is the generic fallback for repos without one.
+# Every loop repo's command is `.omp/commands/build-loop.md`. `/bevy-loop` is the generic fallback for a repo with none.
 Environment=WIGGUM_COMMAND=build-loop
 Environment=WIGGUM_THINK=medium
 Environment=WIGGUM_MAX=0

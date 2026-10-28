@@ -41,10 +41,10 @@ set -uo pipefail
 
 MODEL="${WIGGUM_MODEL:-ollama-cloud/deepseek-v4.1-flash:1017}"
 REPO="${WIGGUM_REPO:-$HOME/bevy_emerge}"
-# **The command this repo's passes run.** A repo that has its own loop command keeps it: this driver is
-# about *how* a loop runs (one fresh pass, stop between passes, never mid-edit), not about what a pass
-# does. `bevy_elements` has `elements-loop`, `bevy_debugger_mcp` has `bevy-debugger-loop`; anything else
-# gets the generic `build-loop`.
+# **The command this repo's passes run: `build-loop`, in every loop repo.** The owner's rule since 2026-10-28
+# is that a loop's prompt is `.omp/commands/build-loop.md` wherever it lives, so there is one name to know.
+# This driver is about *how* a loop runs (one fresh pass, stop between passes, never mid-edit), not about
+# what a pass does; set `WIGGUM_COMMAND` only for a repo that has no such file (then `bevy-loop`, the generic one).
 COMMAND="${WIGGUM_COMMAND:-build-loop}"
 SLEEP_BETWEEN="${WIGGUM_SLEEP:-60}"
 MAX_PASSES="${WIGGUM_MAX:-0}"
@@ -350,7 +350,7 @@ one_pass() {
     echo "ABORTED: $REPO is not a git clone" >&2
     return 1
   fi
-  # **Warn before a pass whose command may publish.** `bevy_debugger_mcp`'s `bevy-debugger-loop` says
+  # **Warn before a pass whose command may publish.** The loop command in `bevy_debugger_mcp` says
   # "every iteration ends pushed and **published**", and a publish cannot be undone: crates.io has no
   # unpublish and a yanked version is burned. A driver cannot read a command's intent, so it states what
   # it can see and lets the operator decide. A warning, not a block — only a human knows whether the

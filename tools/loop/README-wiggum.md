@@ -21,8 +21,9 @@ the gate prerequisite — is `docs/loop/RUNNING-A-LOOP.md`.** This file assumes 
 | generic command | `~/.omp/agent/commands/bevy-loop.md` | the same, for a repo with no loop command — it discovers the repo's conventions first |
 | protected evaluator | the repo's harness + tests | the score. **No pass may edit it.** |
 
-A repo's own command always wins over the generic one where both exist: `build-loop` here,
-`elements-loop` in `bevy_elements`, `bevy-debugger-loop` in `bevy_debugger_mcp`.
+Every loop repo's command is `.omp/commands/build-loop.md` (the owner's rule since 2026-10-28: one name to
+know, in bevy_emerge, bevy_elements, bevy_lights and bevy_society), and it wins over the generic `bevy-loop`
+where both exist. A repo with no loop command of its own, such as `bevy_debugger_mcp`, runs the generic one.
 
 ## What runs what
 
@@ -51,8 +52,8 @@ The driver is repo-agnostic. `WIGGUM_REPO` is the clone, `WIGGUM_COMMAND` is the
 runs, and both default sensibly:
 
 ```sh
-WIGGUM_REPO=/path/to/bevy_elements WIGGUM_COMMAND=elements-loop ~/wiggum.sh start
-WIGGUM_REPO=/path/to/bevy_debugger_mcp WIGGUM_COMMAND=bevy-debugger-loop ~/wiggum.sh start
+WIGGUM_REPO=/path/to/bevy_elements ~/wiggum.sh start     # runs /build-loop: the default
+WIGGUM_REPO=/path/to/bevy_debugger_mcp WIGGUM_COMMAND=bevy-loop ~/wiggum.sh start   # no command of its own
 WIGGUM_REPO=/path/to/anything WIGGUM_COMMAND=bevy-loop ~/wiggum.sh one   # foreground smoke test
 ```
 

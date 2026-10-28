@@ -79,7 +79,7 @@
     <key>WIGGUM_COMMAND</key>
     <string>build-loop</string>
     <key>WIGGUM_MODEL</key>
-    <string>ollama-cloud/deepseek-v4.1-flash:1017</string>
+    <string>claude-sonnet-5-5</string>
     <key>WIGGUM_SLEEP</key>
     <string>60</string>
     <!-- **Backstop, not a schedule.** The driver exits 0 at the cap and `KeepAlive` is `Crashed`
