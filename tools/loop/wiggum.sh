@@ -544,12 +544,18 @@ driver() {
   fi
   echo $$ >"$PIDFILE"
   rm -f "$STOPFILE"
-  # **A stop request finishes the pass in flight and then exits — it never kills one.** systemd's
-  # `systemctl --user stop` sends SIGTERM to the whole cgroup, which would otherwise kill `omp` in the
-  # middle of an edit and leave the tree the next pass has to repair. Trapping it turns the signal into
-  # the same thing `wiggum.sh stop` does: a stop file the loop checks between passes.
-  # `TimeoutStopSec` in the unit must be longer than one pass (45 min) for this to be honest.
-  trap 'touch "$STOPFILE"; log "driver: SIGTERM received, finishing the pass in flight"' TERM INT
+  # **A stop request ends the pass in flight, within seconds, and then exits.** Since `df7324e`
+  # (2026-10-26, "stop finishes in seconds and leaves no process behind") the stop file is acted on inside
+  # the pass's poll loop: the pass gets TERM, then KILL five seconds later. systemd's `systemctl --user
+  # stop` sends SIGTERM to the whole cgroup (KillMode=control-group), which kills the pass anyway;
+  # trapping the signal turns it into the same stop file, so the driver exits cleanly instead of being
+  # killed in the middle of its own bookkeeping. **There is no drain mode.** What the pass had uncommitted
+  # is saved by the final snapshot and parked on a branch at the next start, so the work survives and the
+  # pass's momentum does not. To restart onto a new driver or prompt without cutting a pass, stop between
+  # passes: `driver.log` shows `pass N END`, or `idle (…): next pass in …s`, at the boundary. (This
+  # comment used to say the opposite, and on 2026-10-27 two passes, 78 and 48 minutes in, were ended by a
+  # stop issued on its word.)
+  trap 'touch "$STOPFILE"; log "driver: SIGTERM received, ending the pass in flight"' TERM INT
   log "driver START pid=$$ model=$MODEL repo=$REPO sleep=${SLEEP_BETWEEN}s max=${MAX_PASSES:-forever}"
   local idle_streak=0
 
@@ -659,7 +665,7 @@ case "${1:-}" in
     # than queued, because a smoke test that has to wait is one nobody trusts the timing of.
     if other_driver_running; then
       echo "refusing to run a pass: a wiggum driver is working this checkout ($MARKER)" >&2
-      echo "use '$0 status' to see it, or '$0 stop' to end it after the pass in flight" >&2
+      echo "use '$0 status' to see it, or '$0 stop' to end it (the pass in flight is terminated)" >&2
       exit 1
     fi
     one_pass
@@ -692,7 +698,7 @@ case "${1:-}" in
     ;;
   stop)
     touch "$STOPFILE"
-    echo "stop requested: the driver exits after the pass in flight. Nothing is killed mid-pass."
+    echo "stop requested: the pass in flight is ended (TERM, then KILL after 5 s) and the driver exits. Its tree is snapshotted and parked at the next start."
     running && echo "pid $(cat "$PIDFILE") is still working"
     ;;
   tail)

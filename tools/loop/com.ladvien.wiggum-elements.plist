@@ -23,7 +23,7 @@
     tail -f ~/.local/state/wiggum/bevy_elements/driver.log
     ls -t ~/.local/state/wiggum/bevy_elements/passes/ | head -1
 
-  Stop gracefully (finishes the pass in flight, then exits):
+  Stop (ends the pass in flight within seconds, then exits; the driver snapshots its tree):
     WIGGUM_REPO=$HOME/bevy_elements ~/bevy_elements/tools/loop/wiggum.sh stop
 -->
 <!--
@@ -115,7 +115,7 @@
   <key>StandardErrorPath</key>
   <string>/Users/USER/Library/Logs/wiggum-elements/err.log</string>
 
-  <!-- Longer than WIGGUM_PASS_TIMEOUT, so a graceful stop can finish the pass in flight. -->
+  <!-- Generous: launchd's SIGKILL comes after this long. The driver exits within seconds of a stop, because it ends the pass in flight. -->
   <key>ExitTimeOut</key>
   <integer>25200</integer>
 </dict>

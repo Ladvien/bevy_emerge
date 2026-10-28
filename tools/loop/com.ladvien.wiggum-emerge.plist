@@ -16,7 +16,7 @@
     launchctl print gui/$(id -u)/com.ladvien.wiggum-emerge | head -40
     tail -f ~/.local/state/wiggum/bevy_emerge_loop/driver.log
 
-  Stop (graceful: finishes the pass in flight, then exits):
+  Stop (ends the pass in flight within seconds, then exits; the driver snapshots its tree):
     WIGGUM_REPO=$HOME/bevy_emerge_loop ~/bevy_emerge_loop/tools/loop/wiggum.sh stop
     launchctl bootout gui/$(id -u)/com.ladvien.wiggum-emerge
 -->
@@ -127,7 +127,7 @@
   <key>StandardErrorPath</key>
   <string>/Users/USER/Library/Logs/wiggum-emerge/err.log</string>
 
-  <!-- Long enough for the pass in flight: the driver traps SIGTERM and finishes. -->
+  <!-- Generous: launchd's SIGKILL comes after this long. The driver exits within seconds of a stop, because it ends the pass in flight. -->
   <key>ExitTimeOut</key>
   <integer>4800</integer>
 </dict>

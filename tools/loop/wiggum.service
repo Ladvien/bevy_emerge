@@ -74,9 +74,13 @@ Environment=DISPLAY=:99
 Nice=15
 IOSchedulingClass=idle
 
-# **Stop means stop after the pass in flight**, never mid-edit: the driver traps SIGTERM and writes its
-# stop file. 45 minutes is a pass, plus slack. A shorter timeout would kill an edit and leave the next
-# pass to repair the tree — the single most expensive failure this loop can make.
+# **Stop ends the pass in flight, within seconds.** The driver traps SIGTERM and writes its stop file, and
+# its poll loop answers a stop file by sending the pass TERM and then KILL five seconds later (since
+# `df7324e`); KillMode defaults to control-group, so systemd signals every process in the unit as well.
+# What the pass had uncommitted is saved by the final snapshot and parked on a branch at the next start.
+# There is no way to stop and let a pass finish: stop between passes if that matters. `TimeoutStopSec`
+# therefore only has to cover a driver that is slow to exit, and a long one turns a leaked process in the
+# cgroup into a long stuck stop.
 KillSignal=SIGTERM
 TimeoutStopSec=3000
 

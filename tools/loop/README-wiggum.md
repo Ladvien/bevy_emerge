@@ -79,18 +79,20 @@ Prefer a repo's own command where it has one.
 # on big
 ~/bevy_emerge_loop/tools/loop/wiggum.sh status   # running? how many passes? last lines
 ~/bevy_emerge_loop/tools/loop/wiggum.sh tail     # follow the driver's own log
-~/bevy_emerge_loop/tools/loop/wiggum.sh stop     # finish the pass in flight, then exit
+~/bevy_emerge_loop/tools/loop/wiggum.sh stop     # end the pass in flight (TERM, KILL after 5 s), then exit
 
 systemctl --user start wiggum@emerge          # the permanent way (enabled at boot)
-systemctl --user stop wiggum@emerge           # finishes the pass first; see TimeoutStopSec
+systemctl --user stop wiggum@emerge           # the same: the whole cgroup is signalled
 systemctl --user status wiggum@emerge
 journalctl --user -u wiggum@emerge -f
 ```
 
-**`stop` never kills a pass.** `systemctl --user stop` signals the whole cgroup, so the driver traps
-SIGTERM and writes its stop file; the unit allows 50 minutes (`TimeoutStopSec=3000`) for the pass in
-flight to finish. Otherwise a stop would kill an edit mid-write and the next pass would spend its budget
-repairing the tree.
+**`stop` ends the pass in flight, within seconds.** `wiggum.sh stop` writes a stop file and the driver's
+poll loop sends the pass `TERM`, then `KILL` five seconds later; `systemctl --user stop` signals the whole
+cgroup, so the driver traps SIGTERM and does the same. What the pass had uncommitted is saved by the final
+snapshot and parked on a branch at the next start, so no work is lost, but the pass's momentum is. There
+is no drain mode: to restart onto a new driver or prompt without cutting a pass, stop between passes,
+when `driver.log` shows `pass N END` or `idle (…): next pass in …s`.
 
 ## Never reset a repo a loop is driving
 
@@ -103,8 +105,9 @@ destroyed that pass's uncommitted `editor.rs` fix. The new test file survived on
 untracked and `reset --hard` leaves untracked files alone — the pass itself had no idea its work had
 gone. `guard` exists so the check is one command instead of a judgement call.
 
-The general rule: **a loop repo is owned by the loop.** To work in one, stop the driver and let the pass
-finish (`stop` does that; `stop` never kills a pass).
+The general rule: **a loop repo is owned by the loop.** To work in one, stop the driver first. `stop` ends
+the pass in flight (it does not wait for it), so its tree is saved as a snapshot and parked on a branch at
+the next start; if the pass matters, wait for a boundary in `driver.log` (`pass N END`) before you stop.
 
 ## Where the evidence is
 
