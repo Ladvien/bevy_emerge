@@ -19,6 +19,10 @@ use std::time::SystemTime;
 
 use crate::map::Map;
 
+#[path = "live_verdict.rs"]
+mod verdict;
+pub use verdict::{Verdict, VERDICT_VERSION};
+
 /// Seconds between looks at the files.
 pub const POLL_SECS: f64 = 0.5;
 /// How long the files must stay as they are before a reload is due.
