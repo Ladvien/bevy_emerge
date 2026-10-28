@@ -115,6 +115,16 @@ The general rule: **a loop repo is owned by the loop.** To work in one, drain th
 (`wiggum.sh drain --wait`), which lets the pass finish and then exits. `stop` ends the pass in flight, so
 its tree is saved as a snapshot and parked on a branch at the next start.
 
+## Tests for the driver
+
+Three regression suites sit beside the driver, each building a throwaway repo, an origin and a fake `omp` (no model, no waiting). Run them against the file you are about to install, on macOS (bash 3.2) and on Linux (bash 5); the driver was changed on 2026-10-28 and all three passed on the macOS laptop.
+
+```sh
+bash tools/loop/test_wiggum_start.sh tools/loop/wiggum.sh   # start without setsid, the default model, the dirty guard: 12 checks, about 30 s
+bash tools/loop/test_wiggum_drain.sh tools/loop/wiggum.sh   # drain versus stop: 23 checks
+bash tools/loop/test_wiggum_park.sh  tools/loop/wiggum.sh   # the park step: 57 checks across 18 cases
+```
+
 ## Where the evidence is
 
 | | |

@@ -21,7 +21,7 @@
 #   ~/wiggum.sh guard          # exit 1 if a pass is running — call before reset/checkout/clean
 #
 # Environment, all optional:
-#   WIGGUM_MODEL   default ollama-cloud/deepseek-v4.1-flash:1017
+#   WIGGUM_MODEL   default claude-sonnet-5-5, which every loop has run since 2026-10-27 (ollama-cloud answered 402 and 429)
 #   WIGGUM_REPO    default $HOME/bevy_emerge — any git clone
 #   WIGGUM_COMMAND slash command a pass runs, default build-loop
 #   WIGGUM_STATE   where the driver keeps its logs, default ~/.local/state/wiggum/<repo>
@@ -36,10 +36,11 @@
 #   WIGGUM_PARK          0 turns off parking a leftover tree on a branch before each pass, default 1
 #   WIGGUM_BRANCH        the branch a clone returns to, default origin's HEAD, else main or master
 #   WIGGUM_PUSH_MAX_MB   a snapshot or parked branch adding more than this many MB of new data stays local, default 10
+#   WIGGUM_MAX_DIRTY     most modified files a tree may have when a pass starts, default 40; a checkout people work in needs more
 
 set -uo pipefail
 
-MODEL="${WIGGUM_MODEL:-ollama-cloud/deepseek-v4.1-flash:1017}"
+MODEL="${WIGGUM_MODEL:-claude-sonnet-5-5}"
 REPO="${WIGGUM_REPO:-$HOME/bevy_emerge}"
 # **The command this repo's passes run: `build-loop`, in every loop repo.** The owner's rule since 2026-10-28
 # is that a loop's prompt is `.omp/commands/build-loop.md` wherever it lives, so there is one name to know.
@@ -361,8 +362,13 @@ one_pass() {
   fi
 
   local dirty; dirty=$(git -C "$REPO" status --short 2>/dev/null | wc -l | tr -d ' ')
-  if [ "${dirty:-0}" -gt 40 ]; then
-    echo "ABORTED: $REPO has $dirty modified files — a scratch tree, not a clone. Fix it by hand." >&2
+  # **A checkout that people and other agents work in at the same time is never under 40 files for long**
+  # (Sanctuary's had 34 on 2026-10-28, with six untracked .blend files). Such a loop needs `WIGGUM_MAX_DIRTY`
+  # raised, and `WIGGUM_PARK=0` and `WIGGUM_CHECKPOINT=0`: with the defaults the driver would commit everyone's
+  # unfinished files to a parked branch and return the checkout to `main` under them.
+  local max_dirty="${WIGGUM_MAX_DIRTY:-40}"
+  if [ "${dirty:-0}" -gt "$max_dirty" ]; then
+    echo "ABORTED: $REPO has $dirty modified files (WIGGUM_MAX_DIRTY=$max_dirty) — a scratch tree, not a clone. Fix it by hand." >&2
     return 1
   fi
 
@@ -652,18 +658,38 @@ case "${1:-}" in
       exit 2
     fi
     ensure_state
+    # **A session leader that exists on this machine, and a launch that is checked.** `setsid` is util-linux
+    # and macOS has none, so on a Mac the command below failed inside the background subshell, its error went
+    # to the driver log, and this script still printed "started." (found 2026-10-28, starting the Sanctuary
+    # loop on the owner's laptop). perl is on every Mac and `POSIX::setsid` is the same system call. After the
+    # launch the pidfile is awaited, so the message says what happened instead of what was meant to.
     # **setsid + nohup, so an ssh drop cannot kill the loop.** This is the same reason the loop's
     # own cargo jobs are launched that way.
     # **A plain re-exec of this same script**, not a serialised copy of its functions: the script is
     # the program, and a driver rebuilt from `declare -f` is a second copy that can drift from it.
     # The environment carries every setting across.
-    WIGGUM_MARKER="$MARKER" setsid nohup env \
+    if command -v setsid >/dev/null 2>&1; then
+      leader=(setsid)
+    else
+      leader=(perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' --)
+    fi
+    WIGGUM_MARKER="$MARKER" "${leader[@]}" nohup env \
       WIGGUM_MODEL="$MODEL" WIGGUM_REPO="$REPO" WIGGUM_SLEEP="$SLEEP_BETWEEN" \
       WIGGUM_MAX="$MAX_PASSES" WIGGUM_THINK="$THINKING" \
       WIGGUM_COMMAND="$COMMAND" WIGGUM_STATE="$STATE" \
       bash "$0" __driver "$MARKER" >>"$DRIVER_LOG" 2>&1 < /dev/null &
-    sleep 1
-    echo "started. status: $0 status   /   follow: $0 tail"
+    up=0
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      sleep 1
+      if running; then up=1; break; fi
+    done
+    if [ "$up" = 1 ]; then
+      echo "started (pid $(cat "$PIDFILE")). status: $0 status   /   follow: $0 tail"
+    else
+      echo "FAILED to start: no driver came up within 10 s. The last lines of $DRIVER_LOG:" >&2
+      tail -n 8 "$DRIVER_LOG" >&2
+      exit 1
+    fi
     ;;
   __driver)
     # **The marker is an argv token, because that is the only place `pgrep -f` reads.** The environment
