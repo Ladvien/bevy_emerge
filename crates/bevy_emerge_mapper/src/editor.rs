@@ -613,6 +613,9 @@ pub enum Tool {
     /// names it, and the posts it would lay stand on the map as a ghost while the drag is in
     /// progress. A click leaves it, like every other tool.
     Run,
+    /// **Drag a rectangle on the ground and type a note for an agent about it** (#89); click a
+    /// standing note's area to read or edit it. See [`NoteBox`].
+    Note,
 }
 
 impl Tool {
@@ -624,6 +627,7 @@ impl Tool {
             Tool::Move => "move mode",
             Tool::Clone => "clone mode",
             Tool::Run => "run mode",
+            Tool::Note => "note mode",
         }
     }
 }
@@ -1511,6 +1515,222 @@ impl Field {
     }
 }
 
+/// **What the note box holds while it is open** (#89): the area the note is about, the note being
+/// edited (none for a new one) and the text typed so far.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteDraft {
+    /// Inclusive cell rectangle `[min_x, min_z, max_x, max_z]`.
+    pub area: [i32; 4],
+    /// The id of the standing note being edited, or `None` for a new note.
+    pub editing: Option<String>,
+    pub text: String,
+}
+
+/// **The Note tool's state**: the corner a drag started at, and the box once the button comes up.
+/// Its own resource for the reason [`RemovalDrag`] gives.
+#[derive(Resource, Default)]
+pub struct NoteBox {
+    from: Option<(f32, f32)>,
+    pub draft: Option<NoteDraft>,
+}
+
+/// The cell a map-space coordinate is in.
+fn note_cell(v: f32) -> i32 {
+    (v / grid::TILE).floor() as i32
+}
+
+/// **The Note tool**: press, drag, release over the ground. A drag is the note's area; a click on a
+/// standing note's area opens that note, and a click on bare ground is a one-cell area.
+#[allow(clippy::too_many_arguments)]
+fn drive_note(
+    mouse: Res<ButtonInput<MouseButton>>,
+    hovered_ui: Query<&Hovered>,
+    pointer: Res<crate::view::Pointer>,
+    camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
+    open: Res<OpenMap>,
+    mut state: ResMut<EditorState>,
+    mut note_box: ResMut<NoteBox>,
+) {
+    if state.tool != Tool::Note || note_box.draft.is_some() {
+        if note_box.from.is_some() {
+            note_box.from = None;
+        }
+        return;
+    }
+    let Some(camera) = camera else {
+        return;
+    };
+    let (cam, cam_tf) = *camera;
+    let blocked = ui_blocks_gesture(hovered_ui.iter().any(|h| h.0), note_box.from.is_some());
+    let hit = cursor_ground(pointer.0, cam, cam_tf).filter(|_| !blocked);
+    let Some(hit) = hit else {
+        if mouse.just_released(MouseButton::Left) {
+            note_box.from = None;
+        }
+        return;
+    };
+    let at = open.map.to_map_space((hit.x, hit.z));
+    if mouse.just_pressed(MouseButton::Left) {
+        note_box.from = Some(at);
+    }
+    if !mouse.just_released(MouseButton::Left) {
+        return;
+    }
+    let Some(from) = note_box.from.take() else {
+        return;
+    };
+    let (a, b) = ((note_cell(from.0), note_cell(from.1)), (note_cell(at.0), note_cell(at.1)));
+    let clicked = (from.0 - at.0).abs() <= CLICK_EPS && (from.1 - at.1).abs() <= CLICK_EPS;
+    if clicked {
+        let notes = bevy_emerge_core::notes::Notes::load(&bevy_emerge_core::notes::path_for_map(&open.map_path))
+            .unwrap_or_default();
+        let standing = notes.notes.iter().find(|n| {
+            n.stands()
+                && n.site.as_ref().is_some_and(|s| {
+                    let (x0, z0, x1, z1) = s.cells;
+                    (x0..=x1).contains(&a.0) && (z0..=z1).contains(&a.1)
+                })
+        });
+        if let Some(n) = standing {
+            let cells = n.site.as_ref().map(|s| s.cells).unwrap_or((a.0, a.1, a.0, a.1));
+            note_box.draft = Some(NoteDraft {
+                area: [cells.0, cells.1, cells.2, cells.3],
+                editing: Some(n.id.clone()),
+                text: n.text.clone(),
+            });
+            state.status.note(format!("note {}: edit, Enter saves, an emptied note is removed, Esc leaves it", n.id));
+            return;
+        }
+    }
+    let area = [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)];
+    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new() });
+    state.status.note(format!(
+        "note on {}x{} cells: type it, Enter saves, Shift+Enter is a new line, Esc cancels",
+        area[2] - area[0] + 1,
+        area[3] - area[1] + 1
+    ));
+}
+
+/// **The note box's keys.** While it is open it holds the keyboard ([`Fields::typing`]).
+fn type_note(
+    mut events: MessageReader<KeyboardInput>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    camera: Option<Single<&GlobalTransform, With<MainCamera>>>,
+    mut project: Option<ResMut<Project>>,
+    mut open: ResMut<OpenMap>,
+    mut state: ResMut<EditorState>,
+    mut note_box: ResMut<NoteBox>,
+) {
+    if note_box.draft.is_none() {
+        // Drain, so the key that armed the tool is not read as the box's first character.
+        events.clear();
+        return;
+    }
+    let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    for event in events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        let Some(draft) = note_box.draft.as_mut() else {
+            break;
+        };
+        match &event.logical_key {
+            Key::Enter if shift => draft.text.push('\n'),
+            Key::Enter => {
+                let draft = note_box.draft.take().expect("checked above");
+                let pose = camera.as_ref().map(|t| {
+                    let (yaw, pitch, _) = t.rotation().to_euler(EulerRot::YXZ);
+                    let p = t.translation();
+                    [p.x, p.y, p.z, yaw.to_degrees(), pitch.to_degrees()]
+                });
+                match &draft.editing {
+                    None => add_note(project.as_deref_mut(), &mut open, &mut state, &draft, pose),
+                    Some(id) if draft.text.trim().is_empty() => {
+                        remove_note(project.as_deref_mut(), &mut open, &mut state, id)
+                    }
+                    Some(id) => edit_note(project.as_deref_mut(), &mut open, &mut state, id, &draft.text),
+                }
+            }
+            Key::Escape => {
+                note_box.draft = None;
+                state.status.note("note not saved");
+            }
+            Key::Backspace => {
+                draft.text.pop();
+            }
+            Key::Space => draft.text.push(' '),
+            Key::Character(s) => draft.text.push_str(s),
+            _ => {}
+        }
+        if let Some(d) = note_box.draft.as_ref() {
+            state.status.note(format!("note: {}\u{258f} — Enter saves, Esc cancels", d.text));
+        }
+    }
+}
+
+/// **Leave a note through the registry**, as an agent's `note_add` does. A refusal is a problem,
+/// where the author looks.
+fn add_note(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    draft: &NoteDraft,
+    pose: Option<[f32; 5]>,
+) {
+    dispatch_note(
+        project,
+        open,
+        state,
+        "note_add",
+        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose}),
+        "leave a note",
+    );
+}
+
+/// **Change a standing note's text through the registry.**
+fn edit_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, id: &str, text: &str) {
+    dispatch_note(project, open, state, "note_edit", serde_json::json!({"id": id, "text": text}), "edit a note");
+}
+
+/// **Take a note off the map through the registry.**
+fn remove_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, id: &str) {
+    dispatch_note(project, open, state, "note_remove", serde_json::json!({"id": id}), "remove a note");
+}
+
+/// The one dispatch the three note verbs share: build the context, dispatch, put the map back, and
+/// put the change on the undo stack so Cmd+Z takes it back.
+fn dispatch_note(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    name: &str,
+    params: serde_json::Value,
+    phrase: &str,
+) {
+    let mut ctx = crate::ops::Ctx {
+        project: project.as_ref().map(|p| (**p).clone()),
+        open: Some(std::mem::replace(
+            open,
+            OpenMap::new(bevy_emerge_core::map::Map::default(), std::path::PathBuf::new()),
+        )),
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let outcome = crate::ops::dispatch(&mut ctx, name, &params);
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary);
+            state.record(Undo::Logged { line: operation_id, phrase: phrase.to_owned(), agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(format!("cannot {phrase}: {}", e.0)),
+    }
+}
+
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
@@ -1518,6 +1738,7 @@ impl Plugin for EditorPlugin {
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()
+            .init_resource::<NoteBox>()
             // Registered in the same commit as `drive_move` and `keys` read it — a missing `ResMut`
             // panics its system in Bevy 0.19 rather than skipping it (`CLAUDE.md`).
             .init_resource::<MoveDrag>()
@@ -1720,9 +1941,13 @@ impl Plugin for EditorPlugin {
                         drive_move,
                         drive_clone,
                         drive_run,
+                        drive_note,
                     )
                         .run_if(not_typing)
                         .run_if(in_map_mode),
+                    // **Not behind `not_typing`**: it is the system that types, so it reads the keys
+                    // exactly while the note box holds them.
+                    type_note.run_if(in_map_mode),
                     // Nested for the same reason the pair below is: the tuple is at 20.
                     // `sense_under_cursor` is gated on the mode for `drive_target_marker`'s reason —
                     // it reads the MOUSE, which the census does not model, so context is not its
@@ -4522,6 +4747,8 @@ pub struct Fields<'w> {
     pub import: Res<'w, crate::tiles::ImportState>,
     pub cell: Res<'w, crate::tiles::CellEdit>,
     pub note: Res<'w, crate::tiles::NoteEdit>,
+    /// **The note box (#89).** Registered here so no other key fires while it is open.
+    pub note_box: Res<'w, NoteBox>,
     pub width: Res<'w, crate::tiles::ScaleEdit>,
     pub height: Res<'w, crate::tiles::HeightEdit>,
     /// The tile name prompt, added when naming became explicit (2026-08-15). Leaving it out is not
@@ -4571,6 +4798,7 @@ impl Fields<'_> {
             || self.import.renaming.is_some()
             || self.cell.typing()
             || self.note.typing()
+            || self.note_box.draft.is_some()
             || self.width.typing()
             || self.height.typing()
             || self.build.naming.is_some()
@@ -7844,6 +8072,22 @@ fn keys(
         return;
     }
 
+    // **The Note tool (#89).** Shift+N arms it; a dragged rectangle opens the note box.
+    if keys::just_pressed(&keyboard, *live, Action::NoteTool) {
+        state.tool = if state.tool == Tool::Note { Tool::Place } else { Tool::Note };
+        let said = if state.tool == Tool::Note {
+            format!(
+                "note mode: drag a rectangle, or click a note. {} or Esc to stop.",
+                keys::binding(Action::NoteTool).chord
+            )
+        } else {
+            "note mode off".to_owned()
+        };
+        state.status.note(said);
+        move_drag.held = None;
+        return;
+    }
+
     // **The move tool.** Same shape as removal: the key arms it, the click commits. Arming it also
     // clears what was armed to place — an author who means to move something is not also asking to
     // drop a copy of the brush on their first click, and `drive_place` refuses while this is live.
@@ -10692,6 +10936,7 @@ pub(crate) fn brush_ghost_subject(
         // **The run tool draws its own line**, and a brush ghost beside it would be a second
         // preview for a drag that repeats the piece rather than placing one.
         (None, Tool::Run) => None,
+        (None, Tool::Note) => None,
         // **A composition outranks the brush**, because `drive_place` stamps it and returns: the
         // click puts the group down, so previewing the palette piece would be a promise about a
         // placement that is not going to happen. `drive_stamp_ghost` draws what will land.

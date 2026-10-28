@@ -633,6 +633,10 @@ enumerated! {
     /// Arm the move tool: click a piece to pick it up, click again to put it down.
     MoveMode,
     RenameMap,
+    /// **Arm the Note tool** (#89): drag a rectangle on the ground, type an instruction for an
+    /// agent about that place, Enter leaves it as a draft note. It names `note_add`, the operation
+    /// the Enter dispatches.
+    NoteTool,
     /// **Set the open map's rule seed**, the person's half of `rules_set` (E-081). `K` opens a
     /// one-number field; Enter dispatches the operation, so a person tuning a rule and an agent
     /// calling `rules_set` are one change with one undo.
@@ -893,6 +897,7 @@ impl Action {
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::RenameMap => Some("map_rename"),
+            Action::NoteTool => Some("note_add"),
             Action::SetRule => Some("rules_set"),
             Action::Remove => Some("placement_remove"),
             Action::SwitchDoor | Action::TabSlot1 | Action::TabSlot2 | Action::TabSlot3 => {
@@ -1589,13 +1594,24 @@ pub const BINDINGS: &[Binding] = &[
         "move / Shift: clone / Cmd: run / M: keep as a composition",
     )
     .at(Home::Legend),
-    b(
+    bs(
         Action::RenameMap,
         KeyCode::KeyN,
+        false,
         false,
         Context::Map,
         "N",
         "rename map",
+    )
+    .at(Home::Control(ControlId::Title)),
+    bs(
+        Action::NoteTool,
+        KeyCode::KeyN,
+        false,
+        true,
+        Context::Map,
+        "Shift+N",
+        "leave a note for an agent",
     )
     .at(Home::Control(ControlId::Title)),
     b(
@@ -3596,6 +3612,7 @@ mod tests {
             Action::CloneMode,
             Action::RunMode,
             Action::RenameMap,
+            Action::NoteTool,
             Action::OwnToggle,
             Action::Generate,
             Action::GenerateDeclared,
@@ -4312,7 +4329,11 @@ mod tests {
             // collision ratchet is what found that `K` was already taken by a `Global` Shortcuts
             // row. `L` sits on the Control anchor beside `N` (rename) and `P` (frame), which are the
             // three verbs about the whole map rather than the piece under the cursor.
-            (Context::Map, 31),
+            // 31 -> 32: `NoteTool` (#89, owner exception), on `Shift+N`. A person could not leave an
+            // agent an instruction about a place, which the parity test refuses by name once
+            // `note_add` exists. `N` alone stays rename (now "Shift must be up"); the note shares the
+            // Control anchor beside it, as the two verbs that name the map's own data.
+            (Context::Map, 32),
             // 31 -> 32: `ExcludePack`. The importer scans every `.glb` under `assets/`, which is
             // right for finding art and wrong for offering it — a labelling batch spent its tenth
             // call of 778 describing `characters/cipher_field`, a character rig that could not be
