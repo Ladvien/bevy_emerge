@@ -34,7 +34,7 @@
 #   WIGGUM_IDLE_MAX      longest sleep after repeated idle passes, default 3600 (0 disables backoff)
 #   WIGGUM_PARK          0 turns off parking a leftover tree on a branch before each pass, default 1
 #   WIGGUM_BRANCH        the branch a clone returns to, default origin's HEAD, else main or master
-#   WIGGUM_PARK_MAX_MB   leftovers over this many MB are parked locally and not pushed, default 100
+#   WIGGUM_PUSH_MAX_MB   a snapshot or parked branch adding more than this many MB of new data stays local, default 10
 
 set -uo pipefail
 
@@ -128,6 +128,22 @@ other_driver_running() {
   return 1
 }
 
+# **How much new data a commit would publish: the blobs it adds beyond its first parent.** The figure the push
+# guards compare with `WIGGUM_PUSH_MAX_MB` (default 10). Measured 2026-10-27: the park step pushed a branch of
+# 82 MB to a **public** repository, six raw `series.csv` of about 14 MB each swept up by `git add -A`, and the
+# older `snapshot()` had already pushed the same blobs to hidden `refs/wiggum/*` refs 51 times: the owner had
+# ruled raw run output out of git an hour before. A leftover tree's source is small (elements' 11 files were
+# 0.45 MB), so a push over ten megabytes is data or media, never work worth publishing; the commit and the ref
+# stay local, and big's own copy is the backup. Measured on the commit's own additions, not on file sizes, so
+# content already in history is free and a branch that was pushed before is not charged for it again.
+commit_adds_bytes() {
+  local c="$1" base=""
+  git -C "$REPO" rev-parse -q --verify "$c^" >/dev/null 2>&1 && base="$c^"
+  git -C "$REPO" rev-list --objects "$c" ${base:+--not "$base"} 2>/dev/null | awk '{print $1}' \
+    | git -C "$REPO" cat-file --batch-check='%(objecttype) %(objectsize)' 2>/dev/null \
+    | awk '$1=="blob" {s+=$2} END {print s+0}'
+}
+
 # **Save the pass's tree without touching the pass's branch, its index or its HEAD.**
 #
 # Measured 2026-10-26: committing the tree to the pass's own branch and pushing it put ungated work on
@@ -172,6 +188,11 @@ Recover with: git -C $REPO show $ref"
              commit-tree "$tree" ${parent:+-p "$parent"} -m "$msg" 2>/dev/null)
   [ -n "$commit" ] || return 0
   git -C "$REPO" update-ref "$ref" "$commit" 2>/dev/null || return 0
+  local added; added=$(commit_adds_bytes "$commit")
+  if [ "${added:-0}" -gt $(( ${WIGGUM_PUSH_MAX_MB:-10} * 1048576 )) ]; then
+    log "pass $n $tag SNAPSHOT $ref (LOCAL ONLY — $(( added / 1048576 )) MB of new data is over WIGGUM_PUSH_MAX_MB, not pushed)"
+    return 0
+  fi
   git -C "$REPO" push -q origin "$ref:$ref" 2>/dev/null \
     && log "pass $n $tag SNAPSHOT $ref (pushed)" \
     || log "pass $n $tag SNAPSHOT $ref (LOCAL ONLY — push failed)"
@@ -214,7 +235,7 @@ default_branch() {
 # refuses the pass with the reason, which counts as a failure, so five in a row stop the loop. **The
 # contract it leans on** is the one `guard` states: nothing but the driver writes to a loop's clone. A
 # person who edits the tree between passes has that edit parked, not lost. `WIGGUM_PARK=0` turns it off;
-# leftovers over `WIGGUM_PARK_MAX_MB` are committed but kept off origin.
+# a leftover that adds more than `WIGGUM_PUSH_MAX_MB` of data is committed but kept off origin.
 park_stranded_tree() {
   local n="$1"                        # the pass about to start
   local left=$(( n - 1 ))             # the pass that left the work: the one the branch and commit are named for
@@ -252,7 +273,7 @@ park_stranded_tree() {
     loose=1                                                                   # a commit nothing else holds
   fi
 
-  local branch="$cur" parked_sha="" bytes=0 f s listing
+  local branch="$cur" parked_sha="" bytes=0 listing
   if [ "${dirty:-0}" -gt 0 ] || [ "$loose" -eq 1 ]; then
     if [ -z "$cur" ] || [ "$cur" = "$home_br" ]; then
       branch="wiggum/parked-pass-$left-$(date '+%Y%m%d-%H%M%S')"
@@ -263,10 +284,6 @@ park_stranded_tree() {
       fi
     fi
     if [ "${dirty:-0}" -gt 0 ]; then
-      while IFS= read -r -d '' f; do
-        s=$(wc -c < "$REPO/$f" 2>/dev/null | tr -d ' ')
-        bytes=$(( bytes + ${s:-0} ))
-      done < <(git -C "$REPO" ls-files -m -o --exclude-standard -z 2>/dev/null)
       listing=$(git -C "$REPO" status --short 2>/dev/null | head -20)
       git -C "$REPO" add -A >/dev/null 2>&1
       if ! git -C "$REPO" -c user.name=wiggum -c user.email=wiggum@localhost -c commit.gpgsign=false \
@@ -280,12 +297,13 @@ park_stranded_tree() {
       fi
     fi
     parked_sha=$(git -C "$REPO" rev-parse --short HEAD)
+    [ "${dirty:-0}" -gt 0 ] && bytes=$(commit_adds_bytes HEAD)
   fi
 
   local pushed="n/a" note=""
   if [ -n "$branch" ] && [ "$branch" != "$home_br" ]; then
-    if [ "$bytes" -gt $(( ${WIGGUM_PARK_MAX_MB:-100} * 1048576 )) ]; then
-      pushed=no; note=" ($(( bytes / 1048576 )) MB is over WIGGUM_PARK_MAX_MB, kept local)"
+    if [ "$bytes" -gt $(( ${WIGGUM_PUSH_MAX_MB:-10} * 1048576 )) ]; then
+      pushed=no; note=" ($(( bytes / 1048576 )) MB of new data is over WIGGUM_PUSH_MAX_MB, kept local)"
     elif git -C "$REPO" push -q origin "$branch" 2>/dev/null; then
       pushed=yes
     else
