@@ -1676,6 +1676,22 @@
       "status": "shipped",
       "title": "Frame time is unmeasurable through MCP and unreliable on a shared machine",
       "evidence": "emerge_state has no frame clock; bevy_debugger/status tick counting gave 33.1 / 20.2 / 67.2 ms medians at load 2 agents / idle / load-avg 30.8. A per-frame CPU-time diagnostic in emerge_state would separate the editor from the machine. | DONE 2026-10-28: emerge/state.frame {frame_ms, frame_ms_smoothed, fps, busy_ms, frame_count}; busy_ms is First..Last work time, so a high frame_ms with low busy_ms is the machine. Test: the_state_carries_a_frame_clock. Not CPU-time via getrusage (no new dependency)."
+    },
+    {
+      "id": "E-004",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "The operation log has a single-writer assumption, so two agents would claim the same sequence number",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "ops.rs::next_seq counts the lines in the log, and the MCP server and the editor are separate processes that could both append. An advisory file lock would fix it."
+      },
+      "status": "shipped",
+      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::next_seq | Shipped 2026-10-28: seq and operation_id are claimed inside append() under an exclusive File::lock on the log; test crates/bevy_emerge_mapper/tests/two_writers_never_share_a_sequence_number.rs failed before (15 of 48 lines survived) and passes after.",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
     }
   ]
 }

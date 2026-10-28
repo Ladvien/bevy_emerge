@@ -17,22 +17,6 @@
       "first_seen": "2026-10-21"
     },
     {
-      "id": "E-004",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "The operation log has a single-writer assumption, so two agents would claim the same sequence number",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "ops.rs::next_seq counts the lines in the log, and the MCP server and the editor are separate processes that could both append. An advisory file lock would fix it."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/ops.rs::next_seq",
-      "last_failure": "",
-      "first_seen": "2026-10-21"
-    },
-    {
       "id": "E-006",
       "kind": "enhancement",
       "area": "release",
