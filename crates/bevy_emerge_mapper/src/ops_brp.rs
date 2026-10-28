@@ -304,6 +304,7 @@ fn project_root(
 struct Loaded<'w> {
     project: Option<Res<'w, crate::project::Project>>,
     open: Option<Res<'w, crate::project::OpenMap>>,
+    game: Option<Res<'w, crate::live::LiveGame>>,
 }
 
 /// **The parameters of `emerge/state`.** Only the pin page is a parameter; the rest of the summary is
@@ -352,7 +353,7 @@ fn editor_state(
     // apart, and its predicate passed on the pre-fix build.
     screen: Option<Res<State<crate::screen::Screen>>>,
 ) -> Result<Value, String> {
-    let Loaded { project, open } = loaded;
+    let Loaded { project, open, game } = loaded;
     // **The agent's presentation, and the person's answer to it** (S1.7). `None` until an agent
     // presents something; then an object whose `answer` is `null` while the question is up. This is
     // the only channel an agent has for what a person did after its call returned.
@@ -492,6 +493,8 @@ fn editor_state(
         "project": project_summary,
         "editor": editor,
         "presentation": presentation,
+        // **The game's verdict on the last reload** (S3.5): null, "pending", or {ok, message, at_unix_ms}.
+        "game": game.map_or(Value::Null, |g| g.state_json(open.as_ref().map(|o| o.map_path.as_path()))),
         "armed_composition": armed.and_then(|a| a.id().map(|s| s.to_owned())),
         "selected": tiles.as_ref().map(|t| t.selected_library_id.clone()),
         "door": door.map(|d| d.label()),

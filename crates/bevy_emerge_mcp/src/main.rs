@@ -593,8 +593,10 @@ impl Emerge {
                        names the next undo and redo (undo_next, redo_next) and how many are stacked \
                        (undo_depth, redo_depth). The map section names up to 50 pinned placements \
                        by id and reason (pinned). pinned_total is the full count; past 50, pass \
-                       pinned_from (from pinned_next) to read the rest. Returns that summary as JSON, \
-                       and changes nothing. \
+                       pinned_from (from pinned_next) to read the rest. With --live, game is the running \
+                       game's verdict on the last reload: null (none), \"pending\" (it has not \
+                       answered the latest write) or {ok, message, at_unix_ms}. Returns that summary \
+                       as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
                        that it landed.",
         annotations(
