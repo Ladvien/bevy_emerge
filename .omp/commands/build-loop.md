@@ -73,6 +73,7 @@ and the difference is invisible from inside the loop. So these paths are **read-
 | `crates/*/tests/**`, `crates/*/src/**/#[cfg(test)]` blocks | the assertions |
 | `docs/loop/log.md`'s earlier lines, `docs/loop/iterations/**` | the record a pass is judged against |
 | `.omp/commands/build-loop.md` | this file |
+| `docs/loop/focus.md`, `.omp/wiggum/**` | the owner's steer and the loop's own settings: a pass that could write them could set its own course |
 
 **What you may write:** `docs/loop/backlog.json` (status and evidence fields), new files under
 `docs/loop/iterations/`, new test files, and product code.
@@ -111,6 +112,7 @@ broken tree having done a lot is a failure the next pass must clean up first.
   previous pass died mid-edit. Finish it, revert only your own pass's edits, or commit what is safe.
 - Read `docs/loop/backlog.json` (open items), `AGENTS.md`, and the **last 3** entries of
   `docs/loop/log.md`. Not more: the log is long and the pass is 45 minutes.
+- Read `docs/loop/focus.md`: what is below its `---` line is the owner's focus; nothing there, or no file, means no focus. It governs Phase 2.
 - `python3 tools/loop/backlog.py check`.
 - Record `uptime`, `df -h /`, `free -g`. On a machine with fewer than 20 GB free or under 4 GB available
   RAM, run tests with `-- --test-threads=4` and **do not start a build you cannot finish** — see
@@ -201,6 +203,8 @@ from silence that nothing is filed.
 and continue — never spend a pass on the lookup.
 
 ## Phase 2: Choose the enhancement
+
+**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step or a backlog item, that is the item. Bugs and filed bug issues still come first (Phase 1 and the issues section above). If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
 
 If an open `series` exists, take its next open step and skip the list.
 
