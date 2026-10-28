@@ -73,6 +73,7 @@ and the difference is invisible from inside the loop. So these paths are **read-
 | `crates/*/tests/**`, `crates/*/src/**/#[cfg(test)]` blocks | the assertions |
 | `docs/loop/log.md`'s earlier lines, `docs/loop/iterations/**` | the record a pass is judged against |
 | `.omp/commands/build-loop.md` | this file |
+| `tools/changelog/**`, `CHANGELOG.md`'s earlier lines | the clip caps and the record of what shipped; an earlier line may change only to replace a `not yet recorded` reason with its clip |
 | `docs/loop/focus.md`, `.omp/wiggum/**` | the owner's steer and the loop's own settings: a pass that could write them could set its own course |
 
 **What you may write:** `docs/loop/backlog.json` (status and evidence fields), new files under
@@ -267,8 +268,9 @@ stop and re-scope rather than run long.
 
 ## Phase 4: Prove it
 
-1. **Deterministic gate.** Build, clippy `-D warnings`, `cargo test --workspace`, the parity test, and
-   `backlog.py check`. The plan's check failed before and passes after; quote the failing assertion.
+1. **Deterministic gate.** Build, clippy `-D warnings`, `cargo test --workspace`, the parity test,
+   `backlog.py check` and `python3 tools/changelog/changelog.py check`. The plan's check failed before and
+   passes after; quote the failing assertion.
 2. **Visual proof**, where a surface changed: stills and a sequence, reviewed against a reference. On big
    this is impossible — say so and fall back to a layout assertion on `Text`/`ComputedNode` entities,
    which is stronger than a capture for "is it drawn".
@@ -288,6 +290,14 @@ stop and re-scope rather than run long.
 - Write `docs/loop/iterations/<date>-<area>-<short-sha>.md` from the template below, **short**: a pass
   that runs long and writes a 200-line report has spent the next pass's budget on prose.
 - Append one line to `docs/loop/log.md`. Append only.
+- **One changelog line, and a clip if the change can be seen** (AGENTS.md, "The changelog: a line for every
+  change, a clip for every visible one"). A visible change: a storyboard of the result run with
+  `tools/demo/record.py` on the fixture project, `render.py <events.json> --out
+  docs/changelog/media/<date>-<id>.mp4` (20 s at most; the still is written beside it), watch the still and
+  the clip, then `changelog.py add --id <id> --sha <sha> --title "<what it added>" --clip <date>-<id>`. A change
+  nobody can see: `--no-clip "<what kind of change>; proved by <test>"`. On a machine with no display, a visible
+  change gets `--no-clip "visible, not yet recorded: no display on <host>"` and a pass on a display records it.
+  A pass that has time left may record one older `not yet recorded` line and replace its reason with the clip.
 - Update `backlog.json`; `python3 tools/loop/backlog.py archive`, then `check`.
 - **Do not release.** E-006 stays open; write "no release: E-006 open".
 

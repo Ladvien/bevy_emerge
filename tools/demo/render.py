@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Render a record.py timeline (events.json) into a GIF: crop, cursor marker, keycaps, click pulses,
-captions, an optional title card, and the last frame held. Needs Pillow and ffmpeg.
+"""Render a record.py timeline (events.json) into a GIF or a changelog MP4: crop, cursor marker, keycaps,
+click pulses, captions, an optional title card, and the last frame held. Needs Pillow and ffmpeg.
 
-usage: render.py <events.json> --out <file.gif> [--hold 1.5] [--settle 0.5] [--colors 256] [--sheet <file.png>] [--stills t1,t2]
+usage: render.py <events.json> --out <file.gif|file.mp4> [--hold 1.5] [--settle 0.5] [--colors 256] [--sheet <file.png>] [--stills t1,t2]
+
+An --out ending in .mp4 is a changelog clip (tools/changelog/changelog.py): H.264 capped at 20 s, 2 MB
+and 960 px, with its still (the last frame) written beside it as <name>.png.
 
 Frames are sampled on a clock at the storyboard's fps: each output tick shows the latest editor
 frame taken at or before it, so every frame is shown for its real time and the GIF is uniform.
@@ -209,7 +212,13 @@ def main():
         for k, t in enumerate(ticks):
             img = r.frame(min(t, end))
             img.save(os.path.join(work, f"{offset + k:05d}.png"))
-        encode(work, fps, args.out, args.colors)
+        if args.out.endswith(".mp4"):
+            # A changelog clip: the same capped H.264 and still as every other clip (tools/changelog).
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "changelog"))
+            import changelog
+            changelog.make_clip(args.out, frames=work, fps=fps)
+        else:
+            encode(work, fps, args.out, args.colors)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

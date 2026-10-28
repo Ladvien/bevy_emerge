@@ -39,6 +39,15 @@ A game asks for what it needs here through GitHub issues, and that is the only c
 
 A game links only `bevy_emerge_core` (with `bevy_emerge_rng` and `bevy_emerge_solver`); the editor crates are a separate binary run from this repo on the game's project: `cargo run -p bevy_emerge_mapper -- <game-root> <map> --kit <kit>`, and with `--live` it writes every change through to disk for a game that watches its project (series S-003). So an editor-only change never touches the game's build, while a change to core is picked up by the game's next `cargo` run through its path dependency, with nothing to copy or bump. `cargo run -q -p bevy_emerge_mapper --example boot_headless -- <game-root>` proves a game's project still opens without a window. The per-game loop (what to run, what to commit where) is in the game's `AGENTS.md`; Sanctuary's is under "bevy_emerge: live editing, evolving with Sanctuary".
 
+## The changelog: a line for every change, a clip for every visible one
+
+The owner reads `CHANGELOG.md` to see what was added, so every shipped feature, enhancement or series step adds one line to it, newest first, written with `tools/changelog/changelog.py` (stdlib; `--help` for the rest):
+
+- **A change someone can see gets a clip**: at most 20 s, 2 MB and 960 px, an MP4 with its still, in `docs/changelog/media/<date>-<id>.{mp4,png}`, stored by Git LFS (`.gitattributes`). For the editor: a storyboard run with `tools/demo/record.py`, then `python3 tools/demo/render.py <events.json> --out docs/changelog/media/<date>-<id>.mp4`. From any frames or video: `changelog.py clip --out ... --frames DIR` or `--video FILE`. Then `changelog.py add --id <id> --sha <sha> --title "<what it added>" --clip <date>-<id>`. The clip shows the result, not the code: what a person or an agent now sees happen.
+- **A change nobody can see says so**: `--no-clip "<an API, a refactor, ...>; proved by <test>"`.
+- `changelog.py check` before committing (the loop's gate runs it): every line has a clip or a reason, every clip is capped, has its still, is shown by a line and is in LFS. `changelog.py page --open` plays every clip in one page.
+- A machine needs `git-lfs` (and `git lfs install`) before it commits a clip, or the clip goes into git itself; `check` refuses when it is missing.
+
 ## Blender is a tool we own, and it is not rebuilt here
 
 **golem is ours** (`~/golem_mcp`, the MCP server that drives the open Blender: meshes, UVs, bakes,

@@ -1,7 +1,106 @@
 # Changelog
 
+What each change added, newest first. A visible change has a clip: click the still to play it. `python3 tools/changelog/changelog.py page --open` plays them all in one page.
+
+## 2026-10-28
+
+- **E-011** `edf7109` `emerge_state` carries the editor's frame clock *No clip: not visible: an MCP state field; proved by the tests in its commit*
+- **S3.6** `9a493f9` `data_files`: a registry of game data files and type-keeping leaf edits *No clip: not visible: a core API; proved by the tests in its commit*
+- **S3.5** `63c37f6` The game's verdict on a reload reaches the editor *No clip: not visible: an MCP state field; proved by the tests in its commit*
+- **S3.4** `ac95eac` `--live` writes every change through to disk *No clip: not visible in the editor alone: a game that watches its project shows it; proved by the tests in its commit*
+- **S3.3** `e95e0e6` `bevy_emerge_core::live`: FileWatch and diff_maps *No clip: not visible: a core API; proved by the tests in its commit*
+- **S3.2** `3b254d7` A map is written one placement a line *No clip: not visible: the map file's format; proved by the tests in its commit*
+- **S3.1** `868800b` The parity tables are product code (E-086) *No clip: not visible: a refactor; proved by the tests in its commit*
+- **E-086** `868800b` The UI entry-point tables are product code, so a new operation needs no protected-file edit *No clip: not visible: a refactor; proved by the tests in its commit*
+
 ## 2026-10-27
 
-- **Behaviour change (`089705f`, #82): a guest `on` a host lands on the host's lid.** `stack::surface_lift` now takes away the `align.y_offset` that `datum` already added, so the lid stands `extent.height` above the host's *base*. Hosts with no `y_offset` are unchanged. A consumer that compensated for the old arithmetic (declaring `ymax`, not `ymax − ymin`) now sinks guests into the lid by the host's `y_offset`. **Migration: declare `ymax − ymin`, not `ymax`.**
-- `Extent::height` is documented as base-to-top, independent of `y_offset` (#83).
-- `Library::height_disagreements(asset_root, tolerance_m)` compares every surface-offering descriptor's declared height with its glb and lists the ones that disagree, plus those it could not measure (#83).
+- **Behaviour change (`089705f`, #82): a guest `on` a host lands on the host's lid.** `stack::surface_lift` now takes away the `align.y_offset` that `datum` already added, so the lid stands `extent.height` above the host's *base*. Hosts with no `y_offset` are unchanged. A consumer that compensated for the old arithmetic (declaring `ymax`, not `ymax − ymin`) now sinks guests into the lid by the host's `y_offset`. **Migration: declare `ymax − ymin`, not `ymax`.** *No clip: not visible: a placement rule, its documentation and a core API; proved by the tests in `089705f`*
+- `Extent::height` is documented as base-to-top, independent of `y_offset` (#83). *No clip: not visible: a placement rule, its documentation and a core API; proved by the tests in `089705f`*
+- `Library::height_disagreements(asset_root, tolerance_m)` compares every surface-offering descriptor's declared height with its glb and lists the ones that disagree, plus those it could not measure (#83). *No clip: not visible: a placement rule, its documentation and a core API; proved by the tests in `089705f`*
+- **E-041** `203fbc3` A test can click a palette row *No clip: not visible: test harness; proved by the tests in its commit*
+- **E-003** `8eecbe0` A kit's save re-reads that kit, not the whole project (kit hot reload) *No clip: visible, not yet recorded (backfill)*
+- **E-020** `709d733` A preview is drawn at the draw level the piece lands at *No clip: not visible: draw ordering; proved by the tests in its commit*
+- **E-060** `f0b2145` Every surface class gets its own 'or floor' mount *No clip: not visible: a kit data option; proved by the tests in its commit*
+
+## 2026-10-26
+
+- **E-049** `4cb7946` A chip click writes library.ron once, not twice *No clip: not visible: a file-write fix; proved by the tests in its commit*
+- **E-050** `ee47069` Arriving on the Meshes shelf is a selection through `piece_select` *No clip: not visible: the same selection, now an operation; proved by the tests in its commit*
+- **E-061** `477b721` A composed proposal is drawn piece by piece, not as a cell outline *No clip: visible, not yet recorded (backfill)*
+- **E-079** `d27e452` A piece standing in a measured doorway is reported *No clip: not visible: a validator; proved by the tests in its commit*
+- **E-076** `dfac080` After an agent's undo, the person can redo it *No clip: visible, not yet recorded (backfill)*
+- **E-082** `64e07a4` A rule weight that tunes no piece says so instead of reporting applied *No clip: not visible: a refusal message; proved by the tests in its commit*
+- **E-068** `f2c5b34` The agent's steps are on screen, one row each *No clip: visible, not yet recorded (backfill)*
+- **E-084** `0c5d95d` An agent's tool can take back its whole turn *No clip: not visible: undo ordering; proved by the tests in its commit*
+
+## 2026-10-25
+
+- **E-071** `8b27196` An agent's turn is one undo step *No clip: visible, not yet recorded (backfill)*
+- **E-080** `bea3ee0` A layout proposal says how varied it is *No clip: not visible: a measurement in the proposal's report; proved by the tests in its commit*
+- **E-081** `c560a45` `rules_set`: an agent changes a rule, and one Cmd+Z puts it back *No clip: not visible: a data edit with undo; proved by the tests in its commit*
+- **E-073** `0597d83` An agent reads the rules a layout is generated from *No clip: not visible: an MCP read; proved by the tests in its commit*
+- **E-074** `c989759` A whole-map overlap pass, and face directions by name *No clip: not visible: a validator; proved by the tests in its commit*
+- **E-078** `a2ae442` `map_open` on the menu enters the editor on that map *No clip: visible, not yet recorded (backfill)*
+
+## 2026-10-24
+
+- **S2.4** `9831217` Series S-002 closed with a live proof through golem *No clip: not visible: a series close-out; proved by the tests in its commit*
+- **S2.3** The acceptance script imports a .glb (`--glb`) *No clip: not visible: acceptance tooling; proved by the tests in its commit*
+- **S2.2** `60912db` `piece_import`: an agent turns a .glb inside the project into a kit piece *No clip: visible, not yet recorded (backfill)*
+- **S2.1** `68d06d0` `placement_add`: an agent places one piece *No clip: visible, not yet recorded (backfill)*
+- **S1.8** `9831217` Series S-001 closed: gate, acceptance, performance and live proof *No clip: not visible: a series close-out; proved by the tests in its commit*
+- **S1.7** `7be7ffd` `emerge_present`: an agent puts its result in front of the person, with keep or undo *No clip: visible, not yet recorded (backfill)*
+- **S1.6** `b9d1a0f` `map_save`: an agent saves the map *No clip: not visible: a save; proved by the tests in its commit*
+- **S1.5** `b9d1a0f` `fill`: an agent flood-fills (F for the person) *No clip: visible, not yet recorded (backfill)*
+- **S1.4** `2668fb4` `layout_accept` and `layout_discard`: keep or throw away a proposal (Enter, Esc) *No clip: visible, not yet recorded (backfill)*
+- **S1.3** `2668fb4` `layout_propose`: an agent proposes a layout (G, Shift+G, Cmd+G for the person) *No clip: visible, not yet recorded (backfill)*
+- **S1.2** `7df0d30` A context carries the standing proposal, and a row delta undoes itself *No clip: not visible: plumbing for S1.3; proved by the tests in its commit*
+- **S1.1** `35699c5` One pure layout proposer behind every generate key *No clip: not visible: a refactor, behaviour unchanged; proved by the tests in its commit*
+- **E-067** `11e18b0` `map_open`: an agent opens a map by name *No clip: visible, not yet recorded (backfill)*
+- **E-065** `bb9884f` A capture sequence that runs behind its schedule applies its operation before it finishes *No clip: not visible: capture timing; proved by the tests in its commit*
+- **E-064** `b5bc218` An effects write says when the vocabulary overruled it *No clip: visible, not yet recorded (backfill)*
+- **E-063** `c998324` A label kind write says which effects it re-settled *No clip: visible, not yet recorded (backfill)*
+- **E-062** `4b25016` A still read back over BRP says what the picture is, so a stale file is caught *No clip: not visible: capture plumbing; proved by the tests in its commit*
+- **E-059** `c651cc1` The readout names which layer a two-way piece took *No clip: visible, not yet recorded (backfill)*
+- **E-057** `9bf3698` A save writes only the fields that say something (maps 41% smaller) *No clip: not visible: the map file's format; proved by the tests in its commit*
+- **E-054** `b8952b5` Making a map opens it in the same press *No clip: visible, not yet recorded (backfill)*
+- **E-048** `a1e1ed6` An agent's kit edit says what it changed, in the door you are on *No clip: visible, not yet recorded (backfill)*
+- **E-008** `dadb7ef` An agent can make a map; the chooser's new-map dialog goes through the operation *No clip: not visible: the same dialog, now a registered operation; proved by the tests in its commit*
+- **E-005** `e5e5fc4` The enclosure wish and weight are the map's to set, not the editor's source *No clip: not visible: a map setting the layout reads; proved by the tests in its commit*
+
+## 2026-10-23
+
+- **E-044** `dbfc9c3` `piece_select`: an agent selects a shelf piece through the operation *No clip: visible, not yet recorded (backfill)*
+- **E-042** `46b88f8` `label_set`: an agent sets a piece's label axis through the operation *No clip: visible, not yet recorded (backfill)*
+- **E-040** The frame-the-map demo is cropped so the Home view fills the frame *No clip: not visible: demo tooling; proved by the tests in its commit*
+- **E-037** `bc2c98b` An operation arms a brush piece, so an agent can arm one and its hint shows *No clip: visible, not yet recorded (backfill)*
+- **E-036** `47f1099` record.py stamps MCP events when the call starts, so captions stay in time *No clip: not visible: demo tooling; proved by the tests in its commit*
+- **E-035** `83bdf63` The demo checker counts a frozen tail and MCP view changes correctly *No clip: not visible: demo tooling; proved by the tests in its commit*
+- **E-018** `52d7f84` The undo history is a list, and a click jumps to any point in it<br><a href="docs/loop/iterations/assets/2026-10-23-cycle3-52d7f84/cycle3_history_click.gif"><img src="docs/loop/iterations/assets/2026-10-23-cycle3-52d7f84/cycle3_history_click.gif" width="320" alt="clip"></a>
+
+## 2026-10-22
+
+- **E-027** `4364dd4` One undo history takes back an agent's change too *No clip: not visible: one undo record instead of two; proved by the tests in its commit*
+- **E-030** `12b8c26` `placement_remove`: an agent removes a piece and Cmd+Z puts it back<br><a href="docs/loop/iterations/assets/2026-10-22-12b8c26/remove-demo.gif"><img src="docs/loop/iterations/assets/2026-10-22-12b8c26/remove-demo.gif" width="320" alt="clip"></a>
+- **E-014** `a5b4dc0` Snip: the person drags a rectangle over the editor and the agent receives the crop and where it is<br><a href="docs/loop/iterations/assets/2026-10-22-a5b4dc0/snip-gesture.gif"><img src="docs/loop/iterations/assets/2026-10-22-a5b4dc0/snip-gesture.gif" width="320" alt="clip"></a>
+- **E-034** `66e4069` The frame's documentation says a row's children need `Pickable::IGNORE` too *No clip: not visible: documentation; proved by the tests in its commit*
+- **E-026** `77a7f60` `emerge_state` reports each placement's pin *No clip: not visible: an MCP state field; proved by the tests in its commit*
+- **E-032** `f1f69ce` A box's stamp half and stamp_remove's undo are covered by tests *No clip: not visible: test coverage; proved by the tests in its commit*
+- **E-029** `323965a` X's removal dispatches registered operations *No clip: not visible: the same removal, now a registered operation; proved by the tests in its commit*
+- **E-021** `900a6e0` Home frames the locked placement, or the whole map<br><a href="docs/media/frame-the-map.gif"><img src="docs/media/frame-the-map.gif" width="320" alt="clip"></a>
+
+## 2026-10-21
+
+- **E-024** `885ba4a` One key action moved into the operation registry, so new person actions can follow *No clip: not visible: a registry migration; proved by the tests in its commit*
+- **E-013** `602e1f3` The person's Cmd+Z takes back an agent's change<br><a href="docs/media/agent-removes-then-undo.gif"><img src="docs/media/agent-removes-then-undo.gif" width="320" alt="clip"></a>
+- **E-025** `2109326` How a migrated key action leaves the enum without bypassing the typing guard (a design decision) *No clip: not visible: a design decision; proved by the tests in its commit*
+- **E-022** `3834b0b` The Map opens framed on the map, not on an 18 m close-up of the origin *No clip: visible, not yet recorded (backfill)*
+- **E-017** `8c97677` An agent frames the view: the map, a placement, placements or a rectangle<br><a href="docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif" width="320" alt="clip"></a>
+- **E-016** `63e6631` The inspector names what Cmd+Z and Cmd+Shift+Z will do<br><a href="docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif" width="320" alt="clip"></a>
+- **E-010** `da9b549` Cmd+Z takes back a map-settings change, not only placements *No clip: visible, not yet recorded (backfill)*
+- **E-009** `39ab825` `emerge_undo_operation`: an agent takes its own change back by its id<br><a href="docs/loop/iterations/assets/2026-10-21-556158d/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-556158d/enh-after.gif" width="320" alt="clip"></a>
+
+## 2026-10-20
+
+- **E-001** An agent drives the editor through typed operations over MCP, and the map file changes under it<br><a href="docs/media/agent-drives.gif"><img src="docs/media/agent-drives.gif" width="320" alt="clip"></a>
