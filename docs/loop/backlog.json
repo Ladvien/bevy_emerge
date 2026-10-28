@@ -428,8 +428,9 @@
         {
           "id": "S3.8",
           "title": "bevy_emerge::live: the runtime reloads and respawns what changed",
-          "status": "open",
-          "issue": "https://github.com/Ladvien/bevy_emerge/issues/87"
+          "status": "done",
+          "issue": "https://github.com/Ladvien/bevy_emerge/issues/87",
+          "evidence": "crates/bevy_emerge/tests/live_reload.rs (4 tests) and live.rs unit tests (10) green on bmb; clippy -D warnings clean for bevy_emerge, mapper, mcp"
         }
       ]
     },
