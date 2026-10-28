@@ -23,6 +23,10 @@
     tail -f ~/.local/state/wiggum/bevy_elements/driver.log
     ls -t ~/.local/state/wiggum/bevy_elements/passes/ | head -1
 
+  Drain (lets the pass in flight FINISH, then exits; cuts nothing; launchd does not restart a clean exit, so
+  start it again with `launchctl start com.ladvien.wiggum-elements`):
+    WIGGUM_REPO=$HOME/bevy_elements ~/bevy_elements/tools/loop/wiggum.sh drain --wait
+
   Stop (ends the pass in flight within seconds, then exits; the driver snapshots its tree):
     WIGGUM_REPO=$HOME/bevy_elements ~/bevy_elements/tools/loop/wiggum.sh stop
 -->

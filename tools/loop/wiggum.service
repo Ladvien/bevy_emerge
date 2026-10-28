@@ -74,13 +74,14 @@ Environment=DISPLAY=:99
 Nice=15
 IOSchedulingClass=idle
 
-# **Stop ends the pass in flight, within seconds.** The driver traps SIGTERM and writes its stop file, and
-# its poll loop answers a stop file by sending the pass TERM and then KILL five seconds later (since
-# `df7324e`); KillMode defaults to control-group, so systemd signals every process in the unit as well.
-# What the pass had uncommitted is saved by the final snapshot and parked on a branch at the next start.
-# There is no way to stop and let a pass finish: stop between passes if that matters. `TimeoutStopSec`
-# therefore only has to cover a driver that is slow to exit, and a long one turns a leaked process in the
-# cgroup into a long stuck stop.
+# **Stop ends the pass in flight, within seconds; `wiggum.sh drain` does not.** The driver traps SIGTERM and
+# writes its stop file, and its poll loop answers a stop file by sending the pass TERM and then KILL five
+# seconds later (since `df7324e`); KillMode defaults to control-group, so systemd signals every process in
+# the unit as well. What the pass had uncommitted is saved by the final snapshot and parked on a branch at
+# the next start. `wiggum.sh drain --wait` is the way to let a pass finish: the driver then exits cleanly,
+# which `Restart=always` below turns into a restart onto whatever driver and prompt are installed by then.
+# `TimeoutStopSec` only has to cover a slow exit, and a long one turns a leaked process in the cgroup into
+# a long stuck stop.
 KillSignal=SIGTERM
 TimeoutStopSec=300
 

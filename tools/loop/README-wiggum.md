@@ -79,6 +79,7 @@ Prefer a repo's own command where it has one.
 # on big
 ~/bevy_emerge_loop/tools/loop/wiggum.sh status   # running? how many passes? last lines
 ~/bevy_emerge_loop/tools/loop/wiggum.sh tail     # follow the driver's own log
+~/bevy_emerge_loop/tools/loop/wiggum.sh drain --wait   # let the pass in flight FINISH, then exit; cuts nothing
 ~/bevy_emerge_loop/tools/loop/wiggum.sh stop     # end the pass in flight (TERM, KILL after 5 s), then exit
 
 systemctl --user start wiggum@emerge          # the permanent way (enabled at boot)
@@ -87,12 +88,16 @@ systemctl --user status wiggum@emerge
 journalctl --user -u wiggum@emerge -f
 ```
 
+**`drain` is the only stop that does not cut a pass.** `wiggum.sh drain` writes a file the driver reads
+only between passes, so the pass in flight runs to its own end (commit, push and log included) and the
+driver then exits cleanly; `--wait` blocks until it has. Use it to restart onto a new driver or prompt, or to
+work in the clone. A driver started before `drain` existed never reads the file: `status` shows `DRAINING`
+either way, and `--wait` gives up after `WIGGUM_DRAIN_WAIT` seconds (default 8 hours) and leaves the file.
+
 **`stop` ends the pass in flight, within seconds.** `wiggum.sh stop` writes a stop file and the driver's
 poll loop sends the pass `TERM`, then `KILL` five seconds later; `systemctl --user stop` signals the whole
 cgroup, so the driver traps SIGTERM and does the same. What the pass had uncommitted is saved by the final
-snapshot and parked on a branch at the next start, so no work is lost, but the pass's momentum is. There
-is no drain mode: to restart onto a new driver or prompt without cutting a pass, stop between passes,
-when `driver.log` shows `pass N END` or `idle (…): next pass in …s`.
+snapshot and parked on a branch at the next start, so no work is lost, but the pass's momentum is.
 
 ## Never reset a repo a loop is driving
 
@@ -105,9 +110,9 @@ destroyed that pass's uncommitted `editor.rs` fix. The new test file survived on
 untracked and `reset --hard` leaves untracked files alone — the pass itself had no idea its work had
 gone. `guard` exists so the check is one command instead of a judgement call.
 
-The general rule: **a loop repo is owned by the loop.** To work in one, stop the driver first. `stop` ends
-the pass in flight (it does not wait for it), so its tree is saved as a snapshot and parked on a branch at
-the next start; if the pass matters, wait for a boundary in `driver.log` (`pass N END`) before you stop.
+The general rule: **a loop repo is owned by the loop.** To work in one, drain the driver first
+(`wiggum.sh drain --wait`), which lets the pass finish and then exits. `stop` ends the pass in flight, so
+its tree is saved as a snapshot and parked on a branch at the next start.
 
 ## Where the evidence is
 

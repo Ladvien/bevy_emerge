@@ -16,6 +16,10 @@
     launchctl print gui/$(id -u)/com.ladvien.wiggum-emerge | head -40
     tail -f ~/.local/state/wiggum/bevy_emerge_loop/driver.log
 
+  Drain (lets the pass in flight FINISH, then exits; cuts nothing; launchd does not restart a clean exit, so
+  start it again with `launchctl start com.ladvien.wiggum-emerge`):
+    WIGGUM_REPO=$HOME/bevy_emerge_loop ~/bevy_emerge_loop/tools/loop/wiggum.sh drain --wait
+
   Stop (ends the pass in flight within seconds, then exits; the driver snapshots its tree):
     WIGGUM_REPO=$HOME/bevy_emerge_loop ~/bevy_emerge_loop/tools/loop/wiggum.sh stop
     launchctl bootout gui/$(id -u)/com.ladvien.wiggum-emerge

@@ -14,7 +14,8 @@
 # Usage, on big:
 #   ~/wiggum.sh start          # start in the background, detached from the shell
 #   ~/wiggum.sh status         # is it running, how many passes, what is the last log line
-#   ~/wiggum.sh stop           # stop after the current pass ends (never mid-pass)
+#   ~/wiggum.sh stop           # end the pass in flight (TERM, then KILL after 5 s) and exit; its tree is parked
+#   ~/wiggum.sh drain [--wait] # let the pass in flight FINISH, then exit; --wait blocks until it has. Cuts nothing
 #   ~/wiggum.sh tail           # follow the driver's own log
 #   ~/wiggum.sh one            # run exactly one pass in the foreground, for a smoke test
 #   ~/wiggum.sh guard          # exit 1 if a pass is running — call before reset/checkout/clean
@@ -83,6 +84,7 @@ COUNTER="$STATE/pass-count"
 DRIVER_LOG="$STATE/driver.log"
 PASS_LOG_DIR="$STATE/passes"
 STOPFILE="$STATE/stop"
+DRAINFILE="$STATE/drain"
 MARKER="wiggum-$USER-$(basename "$REPO")"
 
 # **The state directory is created only once the repo is known to be a clone.** A driver pointed at a
@@ -561,24 +563,27 @@ driver() {
     exit 1
   fi
   echo $$ >"$PIDFILE"
-  rm -f "$STOPFILE"
+  rm -f "$STOPFILE" "$DRAINFILE"
   # **A stop request ends the pass in flight, within seconds, and then exits.** Since `df7324e`
   # (2026-10-26, "stop finishes in seconds and leaves no process behind") the stop file is acted on inside
   # the pass's poll loop: the pass gets TERM, then KILL five seconds later. systemd's `systemctl --user
   # stop` sends SIGTERM to the whole cgroup (KillMode=control-group), which kills the pass anyway;
   # trapping the signal turns it into the same stop file, so the driver exits cleanly instead of being
-  # killed in the middle of its own bookkeeping. **There is no drain mode.** What the pass had uncommitted
-  # is saved by the final snapshot and parked on a branch at the next start, so the work survives and the
-  # pass's momentum does not. To restart onto a new driver or prompt without cutting a pass, stop between
-  # passes: `driver.log` shows `pass N END`, or `idle (…): next pass in …s`, at the boundary. (This
-  # comment used to say the opposite, and on 2026-10-27 two passes, 78 and 48 minutes in, were ended by a
-  # stop issued on its word.)
+  # killed in the middle of its own bookkeeping. What the pass had uncommitted is saved by the final
+  # snapshot and parked on a branch at the next start, so the work survives and the pass's momentum does
+  # not. **`drain` is the one stop that does not cut a pass.** `wiggum.sh drain` writes `$DRAINFILE`, which
+  # is read only BETWEEN passes: at the top of this loop and in the sleep that follows a pass. A pass in
+  # flight never looks at it, so it runs to its own end, commit and push included, and the driver then
+  # exits cleanly. That is how to restart a loop onto a new driver or prompt for free. (Until `drain`
+  # existed this comment said a stop finished the pass, and on 2026-10-27 two passes, 78 and 48 minutes in,
+  # were ended by a stop issued on its word.) A driver started before `drain` existed never reads the file.
   trap 'touch "$STOPFILE"; log "driver: SIGTERM received, ending the pass in flight"' TERM INT
   log "driver START pid=$$ model=$MODEL repo=$REPO sleep=${SLEEP_BETWEEN}s max=${MAX_PASSES:-forever}"
   local idle_streak=0
 
   while :; do
     [ -f "$STOPFILE" ] && { log "driver STOP: stop file"; break; }
+    [ -f "$DRAINFILE" ] && { log "driver STOP: drain requested, no pass in flight"; break; }
     if [ "$MAX_PASSES" -gt 0 ] && [ "$(cat "$COUNTER" 2>/dev/null || echo 0)" -ge "$MAX_PASSES" ]; then
       log "driver STOP: reached WIGGUM_MAX=$MAX_PASSES"
       break
@@ -627,7 +632,7 @@ driver() {
     fi
     local waited=0
     while [ "$waited" -lt "$sleep_for" ]; do
-      [ -f "$STOPFILE" ] && break
+      { [ -f "$STOPFILE" ] || [ -f "$DRAINFILE" ]; } && break
       sleep 1
       waited=$(( waited + 1 ))
     done
@@ -690,6 +695,7 @@ case "${1:-}" in
     ;;
   status)
     if running; then echo "RUNNING pid $(cat "$PIDFILE")"; else echo "not running"; fi
+    [ -f "$DRAINFILE" ] && echo "DRAINING: the pass in flight finishes, then the driver exits (a driver older than 'drain' ignores this)"
     echo "passes completed: $(cat "$COUNTER" 2>/dev/null || echo 0)"
     echo "consecutive failures: $(cat "$STATE/consecutive-failures" 2>/dev/null || echo 0)"
     echo "repo: $REPO   command: /$COMMAND   model: $MODEL"
@@ -704,7 +710,7 @@ case "${1:-}" in
     # pass then had no idea its work had gone. Exit 0 means safe to touch, 1 means a pass is running.
     if running || pgrep -f "wiggum-$USER-$(basename "$REPO")" >/dev/null 2>&1; then
       echo "A LOOP IS DRIVING $REPO — do not reset, checkout, clean or rebase it." >&2
-      echo "Stop it and wait for the pass to finish: $0 stop" >&2
+      echo "Let the pass finish and stop the loop: $0 drain --wait   (or $0 stop, which ends the pass now)" >&2
       exit 1
     fi
     if [ -n "$(git -C "$REPO" status --short 2>/dev/null)" ]; then
@@ -718,6 +724,28 @@ case "${1:-}" in
     touch "$STOPFILE"
     echo "stop requested: the pass in flight is ended (TERM, then KILL after 5 s) and the driver exits. Its tree is snapshotted and parked at the next start."
     running && echo "pid $(cat "$PIDFILE") is still working"
+    ;;
+  drain)
+    # **The stop that does not cut a pass.** Writes a file the driver reads only between passes, so the pass
+    # in flight finishes (its own commit, push and log included) and the driver then exits cleanly. `--wait`
+    # blocks until it has, so `wiggum.sh drain --wait && systemctl --user start wiggum@x` is a restart onto a
+    # new driver or prompt that costs nothing. A driver that predates this command never reads the file, so
+    # the wait is capped (`WIGGUM_DRAIN_WAIT`, default 8 hours) and leaves the file in place when it gives up.
+    if ! running; then echo "no driver is running for $REPO"; exit 0; fi
+    ensure_state
+    touch "$DRAINFILE"
+    echo "drain requested: the pass in flight (if any) finishes, then the driver exits. Nothing is cut."
+    if [ "${2:-}" = "--wait" ]; then
+      dpid=$(cat "$PIDFILE"); t0=$(date +%s); cap="${WIGGUM_DRAIN_WAIT:-28800}"
+      while kill -0 "$dpid" 2>/dev/null; do
+        if [ $(( $(date +%s) - t0 )) -gt "$cap" ]; then
+          echo "still running after ${cap}s; the drain file is left in place" >&2
+          exit 1
+        fi
+        sleep 2
+      done
+      echo "driver exited cleanly after $(( $(date +%s) - t0 )) s"
+    fi
     ;;
   tail)
     tail -f "$DRIVER_LOG"
