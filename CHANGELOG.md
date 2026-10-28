@@ -4,6 +4,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-28
 
+- **S4.1** `383a00f` Notes for agents: the note data and its file beside the map *No clip: not visible: data and its file; proved by `crates/bevy_emerge_core/tests/notes.rs`*
+- **S3.8** `ff89008` `bevy_emerge::live`: a running game reloads and respawns what changed *No clip: visible only in a running game, not in the editor; proved by `crates/bevy_emerge/tests/live_reload.rs`*
 - **E-011** `edf7109` `emerge_state` carries the editor's frame clock *No clip: not visible: an MCP state field; proved by the tests in its commit*
 - **S3.6** `9a493f9` `data_files`: a registry of game data files and type-keeping leaf edits *No clip: not visible: a core API; proved by the tests in its commit*
 - **S3.5** `63c37f6` The game's verdict on a reload reaches the editor *No clip: not visible: an MCP state field; proved by the tests in its commit*
