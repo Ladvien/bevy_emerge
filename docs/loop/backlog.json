@@ -428,8 +428,9 @@
         {
           "id": "S3.8",
           "title": "bevy_emerge::live: the runtime reloads and respawns what changed",
-          "status": "open",
-          "issue": "https://github.com/Ladvien/bevy_emerge/issues/87"
+          "status": "fixed",
+          "issue": "https://github.com/Ladvien/bevy_emerge/issues/87",
+          "evidence": "crates/bevy_emerge/tests/live_reload.rs (4 tests) and live.rs unit tests (10) green on bmb; clippy -D warnings clean for bevy_emerge, mapper, mcp"
         }
       ]
     },
@@ -455,12 +456,14 @@
         {
           "id": "S4.1",
           "title": "core notes: the note data, its file beside the map, round-trip and hot-reload",
-          "status": "open"
+          "status": "fixed",
+          "evidence": "crates/bevy_emerge_core/src/notes.rs; tests/notes.rs 6 green; clippy -D warnings clean"
         },
         {
           "id": "S4.2",
           "title": "note_add, note_edit, note_resolve as registered operations with undo, and notes in emerge_state over MCP",
-          "status": "open"
+          "status": "blocked",
+          "evidence": "2026-10-28: a new registered operation needs a UI row (tests/operations_have_two_front_ends.rs::every_operation_has_a_ui_entry_point_and_the_other_way_round reads ops::UI_ENTRY_POINTS and requires the place string in editor/chooser/tiles/screen source). The editor has no selection and no text-field path for notes yet (that is S4.4), and the only existing person-side route is a key: a new keys::Action needs the Context::Map count and action list in keys.rs's #[cfg(test)] block raised, which is protected. Owner decision needed: either allow S4.4's panel/click UI to land together with S4.2 (a mouse path with no new Action), or an evaluator pass raises the keys.rs count for a note key. Design when unblocked: note_add/note_edit/note_resolve/note_reopen each read and write <map>.notes.ron through bevy_emerge_core::notes (path_for_map), inverse = same op with a `restore` of the whole Notes (only_as_undo), state = the Notes value; emerge_state gains notes (open with targets, resolved with ops and summary)."
         },
         {
           "id": "S4.3",

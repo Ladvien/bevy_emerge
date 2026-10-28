@@ -49,6 +49,7 @@ pub mod library;
 pub mod live;
 pub mod map;
 pub mod naming;
+pub mod notes;
 pub mod placement;
 pub mod plot;
 pub mod policy;
