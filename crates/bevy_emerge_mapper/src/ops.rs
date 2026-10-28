@@ -2609,13 +2609,20 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
             .and_then(|i| i.as_str())
             .map(str::to_owned)
     };
-    let chain_map = |c: &str| map_of(&lines[newest[c]]);
     let chain: &str = match target {
         None => {
             let Some(chain) = in_effect
                 .iter()
                 .copied()
-                .filter(|c| chain_map(c).as_deref() == here)
+                .filter(|c| {
+                    let l = &lines[newest[c]];
+                    match map_of(l) {
+                        Some(m) => Some(m.as_str()) == here,
+                        // A line from before placements recorded their map belongs to the open
+                        // map; only a library change is scoped to no map at all.
+                        None => !matches!(l.op.as_str(), "label_set" | "piece_import"),
+                    }
+                })
                 .max_by_key(|c| newest[c])
             else {
                 return Err(Refusal::new(
@@ -3697,10 +3704,11 @@ pub mod placement_set_yaw {
                 }
             };
             let inverse = json!({"id": p.id, "yaw": old_yaw});
+            let map_name = open.map.name.clone();
             ctx.open = Some(open);
             // **Only the turned piece is recorded**: an undo checks that piece, not the whole map,
             // so an unrelated edit made by hand cannot block it.
-            let after = Some(json!({"id": p.id, "yaw": yaw}));
+            let after = Some(json!({"map": map_name, "id": p.id, "yaw": yaw}));
             Ok(Outcome {
                 summary,
                 affected: 1,
