@@ -57,22 +57,6 @@
       },
       "last_failure": "",
       "first_seen": "2026-10-21",
-      "id": "E-011",
-      "kind": "enhancement",
-      "area": "mcp",
-      "status": "open",
-      "title": "Frame time is unmeasurable through MCP and unreliable on a shared machine",
-      "evidence": "emerge_state has no frame clock; bevy_debugger/status tick counting gave 33.1 / 20.2 / 67.2 ms medians at load 2 agents / idle / load-avg 30.8. A per-frame CPU-time diagnostic in emerge_state would separate the editor from the machine."
-    },
-    {
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": ""
-      },
-      "last_failure": "",
-      "first_seen": "2026-10-21",
       "id": "E-012",
       "kind": "enhancement",
       "area": "tests",

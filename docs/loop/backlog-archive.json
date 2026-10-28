@@ -1660,6 +1660,22 @@
       "evidence": "Fixed by the evaluator pass of 2026-10-28, commit 868800b (`fix(parity): the UI entry points are product code (E-086)`): `ops::UI_ENTRY_POINTS` and `ops::CHOOSER_ENTRY_POINTS` are product constants and the parity test imports them, so an operation and its UI row are one product-code commit and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
       "last_failure": "",
       "first_seen": "2026-10-26"
+    },
+    {
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": ""
+      },
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-011",
+      "kind": "enhancement",
+      "area": "mcp",
+      "status": "shipped",
+      "title": "Frame time is unmeasurable through MCP and unreliable on a shared machine",
+      "evidence": "emerge_state has no frame clock; bevy_debugger/status tick counting gave 33.1 / 20.2 / 67.2 ms medians at load 2 agents / idle / load-avg 30.8. A per-frame CPU-time diagnostic in emerge_state would separate the editor from the machine. | DONE 2026-10-28: emerge/state.frame {frame_ms, frame_ms_smoothed, fps, busy_ms, frame_count}; busy_ms is First..Last work time, so a high frame_ms with low busy_ms is the machine. Test: the_state_carries_a_frame_clock. Not CPU-time via getrusage (no new dependency)."
     }
   ]
 }

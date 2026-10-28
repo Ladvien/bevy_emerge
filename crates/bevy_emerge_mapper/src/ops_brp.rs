@@ -299,12 +299,54 @@ fn project_root(
     }))
 }
 
+/// **The editor's own frame clock (E-011).** `frame_time` is wall time between frames, so a loaded
+/// machine inflates it; `busy_ms` is the time the main schedules spent working inside one frame
+/// (`First` to `Last`), which waiting on the present does not lengthen. Read both: a high frame
+/// time with a low busy time is the machine or the present, the reverse is the editor.
+#[derive(Resource, Default)]
+struct FrameBusy {
+    started: Option<std::time::Instant>,
+    ms: f64,
+}
+
+fn frame_busy_start(mut busy: ResMut<FrameBusy>) {
+    busy.started = Some(std::time::Instant::now());
+}
+
+fn frame_busy_end(mut busy: ResMut<FrameBusy>) {
+    if let Some(s) = busy.started.take() {
+        busy.ms = s.elapsed().as_secs_f64() * 1000.0;
+    }
+}
+
+/// The `frame` section of `emerge/state`: nulls until a frame has been measured.
+fn frame_json(
+    store: Option<&bevy::diagnostic::DiagnosticsStore>,
+    busy: Option<&FrameBusy>,
+) -> Value {
+    use bevy::diagnostic::FrameTimeDiagnosticsPlugin as F;
+    let get = |p: &bevy::diagnostic::DiagnosticPath| {
+        store.and_then(|s| s.get(p)).map(|d| (d.value(), d.average()))
+    };
+    let time = get(&F::FRAME_TIME);
+    let fps = get(&F::FPS);
+    json!({
+        "frame_ms": time.and_then(|t| t.0),
+        "frame_ms_smoothed": time.and_then(|t| t.1),
+        "fps": fps.and_then(|t| t.0),
+        "busy_ms": busy.filter(|b| b.ms > 0.0).map(|b| b.ms),
+        "frame_count": store.and_then(|s| s.get(&F::FRAME_COUNT)).and_then(|d| d.value()),
+    })
+}
+
 /// The project and the open map, both optional: `editor_state` answers for an editor with neither.
 #[derive(bevy::ecs::system::SystemParam)]
 struct Loaded<'w> {
     project: Option<Res<'w, crate::project::Project>>,
     open: Option<Res<'w, crate::project::OpenMap>>,
     game: Option<Res<'w, crate::live::LiveGame>>,
+    diagnostics: Option<Res<'w, bevy::diagnostic::DiagnosticsStore>>,
+    busy: Option<Res<'w, FrameBusy>>,
 }
 
 /// **The parameters of `emerge/state`.** Only the pin page is a parameter; the rest of the summary is
@@ -353,7 +395,7 @@ fn editor_state(
     // apart, and its predicate passed on the pre-fix build.
     screen: Option<Res<State<crate::screen::Screen>>>,
 ) -> Result<Value, String> {
-    let Loaded { project, open, game } = loaded;
+    let Loaded { project, open, game, diagnostics, busy } = loaded;
     // **The agent's presentation, and the person's answer to it** (S1.7). `None` until an agent
     // presents something; then an object whose `answer` is `null` while the question is up. This is
     // the only channel an agent has for what a person did after its call returned.
@@ -493,6 +535,7 @@ fn editor_state(
         "project": project_summary,
         "editor": editor,
         "presentation": presentation,
+        "frame": frame_json(diagnostics.as_deref(), busy.as_deref()),
         // **The game's verdict on the last reload** (S3.5): null, "pending", or {ok, message, at_unix_ms}.
         "game": game.map_or(Value::Null, |g| g.state_json(open.as_ref().map(|o| o.map_path.as_path()))),
         "armed_composition": armed.and_then(|a| a.id().map(|s| s.to_owned())),
@@ -1534,6 +1577,13 @@ pub struct OpsBridgePlugin;
 impl Plugin for OpsBridgePlugin {
     fn build(&self, app: &mut App) {
         use bevy_debugger_bevy::{DebugCommandInfo, DebugCommandsAppExt};
+
+        if !app.is_plugin_added::<bevy::diagnostic::FrameTimeDiagnosticsPlugin>() {
+            app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default());
+        }
+        app.init_resource::<FrameBusy>()
+            .add_systems(First, frame_busy_start)
+            .add_systems(Last, frame_busy_end);
 
         app.add_debug_command(
             DebugCommandInfo::new(
