@@ -150,6 +150,32 @@ Each loop prompt carries a "Filed issues come before new features" step immediat
 
 The same ship step carries "README, demos and docs stay true", for a matching reason: the 2026-10-27 audit found a false line in each of the four READMEs, and society's and emerge's prompts had never told a pass to touch the README or the clips at all.
 
+## Steer a loop: its settings, its provider, its keys and its focus
+
+All four are files in the loop's own repo or one command, so the start line stays `WIGGUM_REPO=<repo> WIGGUM_COMMAND=<command> wiggum.sh start` and nobody has to remember flags. A pass never edits any of them: they are in each loop command's protected list.
+
+|To change|Edit|Takes effect|
+|---|---|---|
+|the focus|the body below the `---` line of the repo's focus file (`docs/loop/focus.md` here, `docs/loop/emerge/focus.md` in Sanctuary); commit and push|the next pass; no restart|
+|driver settings (`WIGGUM_MODEL`, `WIGGUM_PARK`, `WIGGUM_SNAPSHOT`, ...)|`<repo>/.omp/wiggum/<command>.env`, `NAME=VALUE` lines|the next driver start: `wiggum.sh drain --wait`, then `start`|
+|omp's own settings for the loop's passes only|`<repo>/.omp/wiggum/<command>.omp.yml`, passed to omp as `--config`|the next pass|
+|which Ollama keys omp may rotate through|`python3 tools/loop/omp_keys.py ollama-cloud <command>` on that host, with `list`, `probe`, `keep` or `restore`|the next model call|
+
+`WIGGUM_REPO=<repo> WIGGUM_COMMAND=<command> wiggum.sh settings` prints what the driver will use: each line of the `.env` and whether the environment overrides it, every line it refuses (a refused line makes `start` and `one` exit 2), and the overlay or `omp overlay: none`. A checkout that people and other agents work in (Sanctuary's) carries `WIGGUM_PARK=0`, `WIGGUM_CHECKPOINT=0` and `WIGGUM_SNAPSHOT=0`: measured 2026-10-28, without the last one the driver still wrote and pushed a final `refs/wiggum/` snapshot of other agents' unfinished files.
+
+**Ollama first, Anthropic when Ollama is out.** `WIGGUM_MODEL=ollama-cloud/gpt-oss:20b` in the `.env` and this overlay:
+
+```yaml
+retry:
+  fallbackChains:
+    "ollama-cloud/*":
+      - anthropic/claude-sonnet-5-5
+```
+
+Measured 2026-10-28 with both Ollama accounts at their weekly limit: omp tried the `Ladvien` key (429), switched to the `cthomasbrittain` key (429), then answered from `anthropic/claude-sonnet-5-5`; the same overlay through the driver (`wiggum.sh one` on a scratch repo) did the same. Keep the overlay per loop: the same chain in `~/.omp/agent/config.yml` would move the owner's interactive sessions and subagents too.
+
+**One stored key per account.** On a usage-limit error omp first switches to a sibling stored key of the same provider, and Ollama's quota is per account, so extra keys of an exhausted account are extra failures before the fallback. On 2026-10-28 the laptop held nine `ollama-cloud` keys for two accounts plus a dead one; `omp_keys.py ollama-cloud keep <digest> <digest>` left one per account on each host (laptop and big_mac `fef2f5a0` and `6bce445a`, big `5341594b` and `6bce445a`). It names keys by the first 8 hex of their SHA-256 and never prints one; `keep` disables softly and prints the `restore` that undoes it; `export <digest> | ssh <host> python3 omp_keys.py ollama-cloud import` copies a key to a host that lacks one (`probe` says which account a key belongs to: a 429 names it).
+
 ## Facts that cost a cycle
 
 - **A loop cannot simply be moved to the idle machine, because the disk is the binding constraint, not
