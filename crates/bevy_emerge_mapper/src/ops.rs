@@ -2444,9 +2444,9 @@ fn dispatch_as(
     // (beyond the record that it was refused, which is itself worth having).
     op.plan(ctx, params)?;
     let outcome = op.commit(ctx, params)?;
-    let entry = Entry {
-        seq: next_seq(ctx),
-        operation_id: operation_id(ctx),
+    let mut entry = Entry {
+        seq: 0,
+        operation_id: String::new(),
         at: now_rfc3339(),
         source: ctx.source,
         session: ctx.session.clone(),
@@ -2467,7 +2467,7 @@ fn dispatch_as(
     // that happened and cannot be told about or undone, so a failed append takes the change back
     // through its recorded inverse and says so. The take-back itself is not logged: nothing the
     // log should describe happened. See [`take_back`].
-    append(ctx, &entry).map_err(|e| take_back(ctx, &*op, &outcome, e))?;
+    append(ctx, &mut entry).map_err(|e| take_back(ctx, &*op, &outcome, e))?;
     Ok(Applied::Done {
         outcome,
         operation_id: entry.operation_id.clone(),
@@ -2818,27 +2818,13 @@ pub fn read_entries(path: &std::path::Path) -> Vec<Entry> {
         .collect()
 }
 
-/// **The next sequence number** — the count of lines already in the log.
-///
-/// **Counted, not tracked**, so a log edited by hand does not desynchronise the count.
-fn next_seq(ctx: &Ctx) -> u64 {
-    let Some(project) = ctx.project.as_ref() else {
-        return 0;
-    };
-    std::fs::read_to_string(oplog_path(project))
-        .map(|t| t.lines().filter(|l| !l.trim().is_empty()).count() as u64)
-        .unwrap_or(0)
-}
-
 /// **An operation id** — unique within a project, and short enough to read aloud.
 ///
 /// **The sequence and the session's first four characters.** Two agents in one project therefore
 /// get different ids without a clock or a random source, and the id says which run made the
-/// change.
-fn operation_id(ctx: &Ctx) -> String {
-    let seq = next_seq(ctx);
-    let tag: String = ctx
-        .session
+/// change. The sequence is claimed by [`append`], under the log's lock.
+fn operation_id_for(seq: u64, session: &str) -> String {
+    let tag: String = session
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .take(4)
@@ -2893,26 +2879,41 @@ fn civil_from_unix(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
 /// **An append, not a replace.** The file is opened with `append(true)`, so the log cannot lose
 /// an earlier line by being rewritten — and the crate's own `ron_surgery::save_atomic` rules do
 /// not apply to it, because it is not a document anybody edits.
-fn append(ctx: &Ctx, entry: &Entry) -> Result<(), String> {
+fn append(ctx: &Ctx, entry: &mut Entry) -> Result<(), String> {
     // **A root is enough.** The log lives at a fixed place under it, and a change made from the menu
     // has a root but no loaded `Project` — see `Ctx::root`.
     let Some(root) = ctx.root_or_project() else {
         return Err("no project is open, so there is nowhere to write the log.".to_owned());
     };
     let path = oplog_path_at(&root);
-    // **A line that cannot be serialised is a failure, not a substitute.** A log line that says
-    // "unloggable" is a line about the log, in a log about the work, and a reader cannot tell
-    // the two apart.
-    let line = serde_json::to_string(entry)
-        .map_err(|e| format!("the log entry could not be written: {e}"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     }
     let mut f = std::fs::OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
         .open(&path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
+    // **The sequence number is claimed under an exclusive lock, in the same step as the append.**
+    // Counting before the lock let two writers count the same number and write the same
+    // `operation_id` (E-004). The lock is advisory and released when `f` is dropped; it is held
+    // across processes, so an editor and an MCP server writing one project do not collide.
+    f.lock().map_err(|e| format!("{}: {e}", path.display()))?;
+    let seq = {
+        use std::io::Read;
+        let mut text = String::new();
+        f.read_to_string(&mut text)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        text.lines().filter(|l| !l.trim().is_empty()).count() as u64
+    };
+    entry.seq = seq;
+    entry.operation_id = operation_id_for(seq, &ctx.session);
+    // **A line that cannot be serialised is a failure, not a substitute.** A log line that says
+    // "unloggable" is a line about the log, in a log about the work, and a reader cannot tell
+    // the two apart.
+    let line = serde_json::to_string(&*entry)
+        .map_err(|e| format!("the log entry could not be written: {e}"))?;
     use std::io::Write;
     writeln!(f, "{line}").map_err(|e| format!("{}: {e}", path.display()))?;
     f.sync_data()
