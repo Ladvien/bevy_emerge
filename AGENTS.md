@@ -27,6 +27,14 @@ Games depend on these crates by path and the editor runs on a game as its projec
 
 Consumers: Sanctuary (`/Users/ladvien/sanctuary`, decision 0087).
 
+### What a game needs, as an issue
+
+A game asks for what it needs here through GitHub issues, and that is the only coupling between its loop and this repo's: neither loop reads the other's code or backlog to decide what to build, so any game can join the same way.
+
+- **The game files** an issue on `Ladvien/bevy_emerge` with the labels `consumer`, `consumer:<game>` (create it the first time) and `bug` or `enhancement`: what the game needs and why, current behaviour, proposed API, edge cases, and acceptance criteria this repo can prove with its own test. It searches its open `consumer:<game>` issues first, so a need is filed once.
+- **This repo's loop** (`.omp/commands/build-loop.md`) takes an open `consumer` issue right after bug issues and ahead of the owner's focus. It builds the general form (the game is the example, never a name in the API), proves it with a test here, and closes the issue only through a verified fix (`Fixes #N`). One it cannot work gets a comment saying what it needs.
+- **The game waits** with `Needs: bevy_emerge#N` on its own item and takes it up again when the issue is closed as completed and its checkout of this repo has the fix. Closed as not planned means declined: that is a question for the owner, not a retry.
+
 ### Iterating from a consumer
 
 A game links only `bevy_emerge_core` (with `bevy_emerge_rng` and `bevy_emerge_solver`); the editor crates are a separate binary run from this repo on the game's project: `cargo run -p bevy_emerge_mapper -- <game-root> <map> --kit <kit>`, and with `--live` it writes every change through to disk for a game that watches its project (series S-003). So an editor-only change never touches the game's build, while a change to core is picked up by the game's next `cargo` run through its path dependency, with nothing to copy or bump. `cargo run -q -p bevy_emerge_mapper --example boot_headless -- <game-root>` proves a game's project still opens without a window. The per-game loop (what to run, what to commit where) is in the game's `AGENTS.md`; Sanctuary's is under "bevy_emerge: live editing, evolving with Sanctuary".

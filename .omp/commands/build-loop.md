@@ -165,14 +165,14 @@ Before you pick an item, list the repository's open issues and triage them:
 
 ```sh
 gh issue list --repo Ladvien/bevy_emerge --state open --limit 100 \
-  --json number,title,labels,createdAt --jq '.[] | "#\(.number) \(.title)"'
+  --json number,title,labels,createdAt --jq '.[] | "#\(.number) [\(.labels | map(.name) | join(","))] \(.title)"'
 ```
 
 If `gh` is absent (it is on big_mac), run this instead. It needs no login and prints the same list:
 
 ```sh
 curl -s "https://api.github.com/repos/Ladvien/bevy_emerge/issues?state=open&per_page=100" \
-  | python3 -c 'import json,sys; [print("#%s %s" % (i["number"], i["title"])) for i in json.load(sys.stdin) if "pull_request" not in i]'
+  | python3 -c 'import json,sys; [print("#%s [%s] %s" % (i["number"], ",".join(l["name"] for l in i["labels"]), i["title"])) for i in json.load(sys.stdin) if "pull_request" not in i]'
 ```
 
 A missing `gh` is never a reason to skip this step. If the command errors or prints a Python traceback, that is the rate-limit case below.
@@ -183,13 +183,29 @@ Then, in this order:
    a crash, a panic, a visual artifact, a value that is implausible, a documented promise that is not
    kept — is a bug. Take the oldest such issue that is still reproducible, and say why it beats the
    others.
-2. **An enhancement issue is ranked with your own candidates**, not above them: an issue is one
+2. **An issue labelled `consumer` is the pass's item next, ahead of the owner's focus, the series and
+   your own candidates.** A game that builds on these crates filed it and is waiting on it: its own loop
+   comes back to the work by itself when the issue is closed as completed, so a stalled consumer costs two
+   loops. Take the oldest open one you can work this pass, and say which. The `consumer:<game>` label
+   says who asked and changes nothing about how you build it:
+   - **Build what any game could use.** The game is the example, never a name in the API, a path or a
+     default; these crates serve other games too. Where the issue proposes something game-shaped, build
+     the general form and say so on the issue.
+   - **Prove it here**, with a test in this repo that fails before and passes after against the issue's
+     acceptance. Never edit, build or run the game to prove it, and never depend on it being on the machine.
+   - **One it cannot be worked this pass** (it needs a decision the issue does not settle, or is blocked
+     like a protected-file change): say exactly what is needed on the issue (`gh issue comment`; on big_mac,
+     with no `gh`, in the log line naming the issue), write one log line, and go on to the next one or to
+     the focus. A blocked consumer issue never stops the pass.
+3. **Any other enhancement issue is ranked with your own candidates**, not above them: an issue is one
    person's idea of what matters, and the ranking below still decides. Note the issue number beside
    the item so the rank list records that it came from outside.
-3. **Close the loop.** An issue your pass fixes is referenced in the commit body (`Fixes #N`) **and**
+4. **Close the loop.** An issue your pass fixes is referenced in the commit body (`Fixes #N`) **and**
    in the report, so the next pass can see it was addressed. Do not close an issue you did not fix,
-   and do not close one whose fix this pass did not verify.
-4. **Re-check a release issue, do not act on it.** An issue asking to publish or bump a version is
+   and do not close one whose fix this pass did not verify. For a `consumer` issue the close is the
+   signal the game's loop waits for: close it only through a verified fix, never as not planned
+   without the owner's word.
+5. **Re-check a release issue, do not act on it.** An issue asking to publish or bump a version is
    the owner's call, never a loop's (see the release rule above). Record it as seen and skip it.
 
 **When the API fallback answers `403` or `429`** (rate limit — 60 requests/hour per IP unauthenticated,
@@ -204,7 +220,7 @@ and continue — never spend a pass on the lookup.
 
 ## Phase 2: Choose the enhancement
 
-**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step or a backlog item, that is the item. Bugs and filed bug issues still come first (Phase 1 and the issues section above). If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
+**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step or a backlog item, that is the item. Bugs, filed bug issues and `consumer` issues still come first (Phase 1 and the issues section above). If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
 
 If an open `series` exists, take its next open step and skip the list.
 
