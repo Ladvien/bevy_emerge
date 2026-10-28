@@ -1578,3 +1578,7 @@ Top 5 remaining:
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; issues read (HTTP 200, none open); remaining items blocked or need display/VLM/decision. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; issues read (HTTP 200, none open); remaining items blocked or need display/VLM/decision. No release: E-006 open.
 - 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; issues read (HTTP 200, none open); open items need display/VLM/decision or a protected-file change (E-086 blocks E-066). No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; issues read (HTTP 200, none open); open items need display/VLM/decision or a protected-file change (E-086 blocks E-066). No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; issues read (HTTP 200, none open); open items need display/VLM/decision or a protected-file change (E-086 blocks E-066). No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; issues read (HTTP 200, none open); E-086 still needs a protected-test edit (evaluator pass), E-066 blocked behind it, rest need display/VLM/decision. No release: E-006 open.
+- 2026-10-27 loop (laptop): nothing shipped. Tree clean, backlog check ok; issues read (HTTP 200, none open); E-086 still needs a protected-test edit (evaluator pass), E-066 blocked behind it, rest need display/VLM/decision. No release: E-006 open.
