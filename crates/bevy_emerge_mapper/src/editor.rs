@@ -1611,6 +1611,70 @@ fn drive_note(
     ));
 }
 
+/// **The sign over every standing note, and the rectangle being dragged for a new one** (#89).
+///
+/// White for a draft (written, not sent), orange for an open note (an agent may work it); a
+/// resolved note has no sign. Gizmos, for `draw_edge_faults`'s reason: the notes file is the truth and
+/// a spawned marker would be a second copy to keep in step. The file is re-read only when its
+/// modification time moves, so the frame pays one `metadata` call.
+#[allow(clippy::too_many_arguments)]
+fn draw_notes(
+    open: Res<OpenMap>,
+    state: Res<EditorState>,
+    note_box: Res<NoteBox>,
+    pointer: Res<crate::view::Pointer>,
+    camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
+    mut cache: Local<Option<(std::path::PathBuf, Option<std::time::SystemTime>, bevy_emerge_core::notes::Notes)>>,
+    mut gizmos: Gizmos,
+) {
+    let path = bevy_emerge_core::notes::path_for_map(&open.map_path);
+    let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    if cache.as_ref().is_none_or(|(p, t, _)| *p != path || *t != stamp) {
+        let notes = bevy_emerge_core::notes::Notes::load(&path).unwrap_or_default();
+        *cache = Some((path, stamp, notes));
+    }
+    let (ox, oy, oz) = open.map.origin;
+    let mut rect = |x0: f32, z0: f32, x1: f32, z1: f32, color: Color| {
+        gizmos.rect(
+            Isometry3d::new(
+                Vec3::new(ox + (x0 + x1) * 0.5, oy + 0.03, oz + (z0 + z1) * 0.5),
+                Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+            ),
+            Vec2::new(x1 - x0, z1 - z0),
+            color,
+        );
+    };
+    if let Some((_, _, notes)) = cache.as_ref() {
+        for n in notes.notes.iter().filter(|n| n.stands()) {
+            if let Some(site) = &n.site {
+                let color = if n.is_draft() { Color::WHITE } else { ACCENT };
+                let (x0, z0, x1, z1) = site.world;
+                rect(x0, z0, x1, z1, color);
+            }
+        }
+    }
+    if state.tool != Tool::Note {
+        return;
+    }
+    let (Some(from), Some(camera)) = (note_box.from, camera) else {
+        return;
+    };
+    let (cam, cam_tf) = *camera;
+    let Some(hit) = cursor_ground(pointer.0, cam, cam_tf) else {
+        return;
+    };
+    let at = open.map.to_map_space((hit.x, hit.z));
+    let (a, b) = ((note_cell(from.0), note_cell(from.1)), (note_cell(at.0), note_cell(at.1)));
+    let t = grid::TILE;
+    rect(
+        a.0.min(b.0) as f32 * t,
+        a.1.min(b.1) as f32 * t,
+        (a.0.max(b.0) + 1) as f32 * t,
+        (a.1.max(b.1) + 1) as f32 * t,
+        ACCENT,
+    );
+}
+
 /// **The note box's keys.** While it is open it holds the keyboard ([`Fields::typing`]).
 fn type_note(
     mut events: MessageReader<KeyboardInput>,
@@ -1948,6 +2012,7 @@ impl Plugin for EditorPlugin {
                     // **Not behind `not_typing`**: it is the system that types, so it reads the keys
                     // exactly while the note box holds them.
                     type_note.run_if(in_map_mode),
+                    draw_notes.run_if(in_map_mode),
                     // Nested for the same reason the pair below is: the tuple is at 20.
                     // `sense_under_cursor` is gated on the mode for `drive_target_marker`'s reason —
                     // it reads the MOUSE, which the census does not model, so context is not its
