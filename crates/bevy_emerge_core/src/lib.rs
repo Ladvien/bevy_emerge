@@ -45,6 +45,7 @@ pub mod grid;
 pub mod import;
 pub mod kits;
 pub mod library;
+pub mod live;
 pub mod map;
 pub mod naming;
 pub mod placement;
