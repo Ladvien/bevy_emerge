@@ -38,6 +38,7 @@ pub mod data_files;
 pub mod convert;
 pub mod descriptor;
 pub mod draw_order;
+pub mod family;
 pub mod gait;
 pub mod geom;
 pub mod glb;
