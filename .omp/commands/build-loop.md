@@ -173,7 +173,7 @@ gh issue list --repo Ladvien/bevy_emerge --state open --limit 100 \
   --json number,title,labels,createdAt --jq '.[] | "#\(.number) [\(.labels | map(.name) | join(","))] \(.title)"'
 ```
 
-If `gh` is absent (it is on big_mac), run this instead. It needs no login and prints the same list:
+`gh` is installed and logged in on the laptop, big and big_mac (big_mac since 2026-10-28). If it is absent or its login fails, run this instead. It needs no login and prints the same list, but nothing can be filed or commented without `gh`, so say so in the log line:
 
 ```sh
 curl -s "https://api.github.com/repos/Ladvien/bevy_emerge/issues?state=open&per_page=100" \
@@ -199,8 +199,8 @@ Then, in this order:
    - **Prove it here**, with a test in this repo that fails before and passes after against the issue's
      acceptance. Never edit, build or run the game to prove it, and never depend on it being on the machine.
    - **One it cannot be worked this pass** (it needs a decision the issue does not settle, or is blocked
-     like a protected-file change): say exactly what is needed on the issue (`gh issue comment`; on big_mac,
-     with no `gh`, in the log line naming the issue), write one log line, and go on to the next one or to
+     like a protected-file change): say exactly what is needed on the issue (`gh issue comment`; with no
+     working `gh`, in the log line naming the issue), write one log line, and go on to the next one or to
      the focus. A blocked consumer issue never stops the pass.
 3. **An issue labelled `owner` is the pass's item next**, after bugs and `consumer` issues and ahead of
    the focus's other items, the series and your own candidates. The owner wrote it. Take them in the order
@@ -208,7 +208,7 @@ Then, in this order:
    oldest first. Its **Depends on** line is binding: an issue whose dependency is still open is not ready,
    so take the next one that is. One is usually larger than a pass: **ship one verified slice per pass**
    (with its test and, if visible, its changelog clip), record which acceptance items are now met (on the
-   issue with `gh issue comment`, or in the log line naming the issue on big_mac), and close it with
+   issue with `gh issue comment`, or in the log line naming the issue when `gh` is not working), and close it with
    `Fixes #N` only in the commit that meets the last of them. Its **Decisions already made** are the design:
    follow them rather than stopping to ask. One that is blocked is handled like a blocked `consumer` issue.
 4. **Any other enhancement issue is ranked with your own candidates**, not above them: an issue is one
@@ -232,9 +232,28 @@ from silence that nothing is filed.
 **An empty issue list costs nothing:** if it is empty or `gh` is unreachable, write one line saying so
 and continue — never spend a pass on the lookup.
 
+## What this editor needs from a family crate: the two-way street
+
+The owner's crates (`bevy_elements`, `bevy_flora`, `bevy_lights`, `bevy_society`, `bevy_speech_bubbles`, `bevy_stigmergy`, `bevy_light_grid`, `bevy_orca`, `bevy_carnage`, `bevy_fairy`, `isomesh`; issues #96–#108) are integrated by **configuring them, never by forking, wrapping or patching them here**. When an item needs a change in one of them (a missing API, a setting that cannot change at runtime, a bug), the change is made **in that crate's repository** and this editor then takes it by moving its pin.
+
+1. **Check for one first.** `gh issue list --repo Ladvien/<crate> --state open --label consumer:bevy_emerge` and read the titles. Add to an open one rather than filing a twin.
+2. **File it.** `gh issue create --repo Ladvien/<crate> --label consumer --label consumer:bevy_emerge`, with a title saying what the crate should do, and a body with **Problem** (what the editor cannot do, with the call or setting), **Want** (the crate-side behaviour, general enough for any game or tool), **Acceptance** (a test in that repository that fails before and passes after), and **Needed by: Ladvien/bevy_emerge#N**. Comment on the editor issue with the link.
+3. **Mark the editor item waiting.** Its backlog evidence (or a comment on its issue) gets `Needs: Ladvien/<crate>#M`. The item is not ready while that issue is open; choose another item. A waiting item never stops the pass.
+4. **Who builds it** depends on whether that crate's own loop is running. `docs/loop/focus.md` lists, under "Family loops running", the crates whose loops the owner has running.
+   - **Listed:** leave it to that loop, and re-check the issue each pass.
+   - **Not listed:** this pass may build it **at the source**, as its item for the pass:
+     - clone the crate's repository outside this clone (`~/family_src/<crate>`, fetched fresh);
+     - follow that repository's `AGENTS.md`, and never edit its existing tests or goldens;
+     - write the failing test first, make the fix, and run that crate's own test suite;
+     - commit there with `Fixes #M` and push to its `main`, merging `origin/main` if refused, never forcing;
+     - say on the issue what changed and which test proves it.
+   - **Never publish or bump that crate's version.** A crate-side change is one item: the pin bump below happens in the next pass, or in the same pass if time remains.
+5. **Take it.** When the issue is `CLOSED` as completed, find a commit on the crate's `main` that contains the fix (`git ls-remote https://github.com/Ladvien/<crate> refs/heads/main`). Move this editor's pin to it (`rev = "<sha>"` in the workspace `Cargo.toml`), run the full gate, and only then continue the editor item. A pin bump that breaks the gate is a bug in this pass, not in the crate: say so on the issue and leave the pin where it was.
+6. **Pins are git revisions, never paths.** A path dependency builds against another loop's clone mid-edit; a crates.io version needs a publish, which is the owner's.
+
 ## Phase 2: Choose the enhancement
 
-**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step, a backlog item or an issue, that is the item. Bugs, filed bug issues, `consumer` issues and then `owner` issues still come first (Phase 1 and the issues section above). If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
+**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step, a backlog item or an issue, that is the item. Bugs, filed bug issues, `consumer` issues and then `owner` issues still come first (Phase 1 and the issues section above). An item waiting on a family crate is not ready (see "the two-way street"); building that crate-side change at the source is an item of its own. If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
 
 If an open `series` has a next step you can work this pass, take it and skip the list. A series whose next step is blocked or waiting on the owner does **not** skip the list: log it in one line and choose from the backlog as below. The backlog's open items are real work; a pass that idles beside them has wasted itself.
 
