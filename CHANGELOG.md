@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-28
 
+- **E-004** `ae13f82` Two agents writing one project's operation log can no longer claim the same sequence number or operation id *No clip: an operation-log internals fix; proved by two_writers_never_share_a_sequence_number*
 - **S4.1** `383a00f` Notes for agents: the note data and its file beside the map *No clip: not visible: data and its file; proved by `crates/bevy_emerge_core/tests/notes.rs`*
 - **S3.8** `ff89008` `bevy_emerge::live`: a running game reloads and respawns what changed *No clip: visible only in a running game, not in the editor; proved by `crates/bevy_emerge/tests/live_reload.rs`*
 - **E-011** `edf7109` `emerge_state` carries the editor's frame clock *No clip: not visible: an MCP state field; proved by the tests in its commit*
