@@ -32,6 +32,7 @@
 //! operations.
 
 use bevy_emerge_mapper::keys::Action;
+use bevy_emerge_mapper::ops::{CHOOSER_ENTRY_POINTS, UI_ENTRY_POINTS};
 
 mod fixtures;
 
@@ -42,13 +43,7 @@ mod fixtures;
 /// against — **one vocabulary, not two.** The debugger refuses a name in its own namespace
 /// (`bevy_debugger/`, `world.`, `registry.`, `rpc.`, `schedule.`) at registration time — with a
 /// **panic** — so the `emerge/` prefix is load-bearing and it is written down in one place.
-const BRP_COMMANDS: &[&str] = &[
-    "emerge/operation_list",
-    "emerge/operation_preview",
-    "emerge/operation_apply",
-    "emerge/oplog_read",
-];
-
+///
 /// **Why there are four tools and not one per operation.**
 ///
 /// **The toolset is small on purpose.** The brief says *"Keep the always-loaded toolset small.
@@ -59,75 +54,15 @@ const BRP_COMMANDS: &[&str] = &[
 /// **So there are four**: a discovery one, a preview one, an apply one and a log reader — **and
 /// the apply one dispatches by name.** The operation's own name is the parameter, so the
 /// vocabulary is still the operation's, and `emerge_list_operations` says what the names are.
-/// **The operations that have a UI entry point.
 ///
-/// **A map's settings are set from the Map door's own settings panel**, and the panel's verbs are
-/// the ones this run migrated. The list is a table rather than a scan, because a scan of the
-/// mapper's twenty thousand lines for "which key writes a map's origin" is a heuristic and a
-/// heuristic that finds nothing is not a proof.
-/// **The menu's own entry points.** The second screen, and the one where a project's maps begin —
-/// so the verb that makes one belongs here, because the editor has no map to make one from.
-const CHOOSER_ENTRY_POINTS: &[(&str, &str)] = &[
-    // **The new-map dialog**, whose Enter dispatches `map_create` through `make_it`. The dialog is
-    // a front end: it collects the four fields and hands them to the operation, so the naming rule,
-    // the refusal for a name in use and the write are one implementation (E-008).
-    ("map_create", "\"map_create\""),
-];
-
-const UI_ENTRY_POINTS: &[(&str, &str)] = &[
-    // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
-    // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
-    ("placement_set_pin", "set_pin("),
-    // **The turn keys**, R and T, which dispatch `placement_set_yaw` through `set_yaw`.
-    ("placement_set_yaw", "set_yaw("),
-    // **The map's name field**, which the N key opens. Enter dispatches `map_rename` through
-    // `rename_map`, so the name rule and the file's move are the operation's.
-    ("map_rename", "rename_map("),
-    // **The removal click**, which deletes one placement, and what stands on it, through
-    // `remove_placement`, which dispatches `placement_remove`.
-    ("placement_remove", "remove_placement("),
-    // **The stamp click**, which takes a whole stamp off the map through `delete_stamp`, which
-    // dispatches `stamp_remove`. A stamp is removed whole, never by a piece of it.
-    ("stamp_remove", "delete_stamp("),
-    // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
-    // own way of doing what `map_set_settings` does. It dispatches the operation.
-    ("map_set_settings", "SizeField(Axis)"),
-    // **The palette click**, which arms a piece through `on_row_click`, which calls `arm_piece`
-    // and dispatches `brush_arm`.
-    ("brush_arm", "arm_piece("),
-    // **The three generate keys and the commit door** (S-001). `G`, `Shift+G` and `Cmd+G` all
-    // dispatch `layout_propose` through `propose_layout`; `Enter` dispatches `layout_accept`
-    // through `accept_layout`; `Esc` dispatches `layout_discard` through `discard_layout`.
-    ("layout_propose", "propose_layout("),
-    ("layout_accept", "accept_layout("),
-    ("layout_discard", "discard_layout("),
-    // **`F` floods** through `fill_at`, and **`Cmd+S` saves** through `save_map`; both dispatch the
-    // operation rather than calling `fill::flood` / `OpenMap::save` themselves.
-    ("fill", "fill_at("),
-    ("map_save", "save_map("),
-    // **The Map door's crossing** — `screen::cross` re-reads the map through `map_open`, so a person
-    // crossing to the Map door and an agent opening one by name are one operation.
-    ("map_open", "map_open",),
-    // **The placement click** — `place_one` calls `plan_placement` and dispatches
-    // `placement_add`, so a click and an agent put a piece down the same way (S2.1).
-    ("placement_add", "place_one("),
-    // **The Meshes tab's import door** — `commit_candidate` runs `admit_candidate` and dispatches
-    // `piece_import`, so an agent importing a .glb and a person accepting a scanned mesh are one
-    // operation (S2.2).
-    ("piece_import", "admit_candidate("),
-    // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
-    // runs the `door_open` operation (item 1 of cycle 8).
-    ("door_open", "open_door("),
-    // **The shelf's row click (E-044)**, which selects through `on_library_click`, which calls
-    // `select_piece` and dispatches `piece_select`.
-    ("piece_select", "select_piece("),
-    // **The label chips (E-042)**, which toggle one token on a library piece's axis through
-    // `toggle_tag`, which calls `set_label` and dispatches `label_set` with the person's source.
-    ("label_set", "set_label("),
-    // **The rule seed field (E-081)** — `K` opens a one-number field and Enter dispatches
-    // `rules_set` through `set_rule_seed`, so a person tuning a rule and an agent calling the
-    // operation are one change with one undo.
-    ("rules_set", "set_rule_seed("),
+/// **The UI entry-point tables are product code** (`ops::UI_ENTRY_POINTS` and
+/// `ops::CHOOSER_ENTRY_POINTS`, E-086), so a loop pass adds an operation and its UI row in one
+/// commit; this file reads them and the ratchet is unchanged.
+const BRP_COMMANDS: &[&str] = &[
+    "emerge/operation_list",
+    "emerge/operation_preview",
+    "emerge/operation_apply",
+    "emerge/oplog_read",
 ];
 
 /// **Every operation has a BRP command, and the editor running is what says so.**

@@ -388,7 +388,7 @@
       "id": "E-086",
       "kind": "enhancement",
       "area": "parity",
-      "status": "open",
+      "status": "fixed",
       "title": "A new operation cannot be added without editing a protected test file: the UI entry-point tables live inside the parity test",
       "must_fix": {
         "blocks": true,
@@ -396,7 +396,7 @@
         "no_workaround": true,
         "evidence": "`tests/operations_have_two_front_ends.rs` holds `UI_ENTRY_POINTS` and `CHOOSER_ENTRY_POINTS` as `const`s (lines 70 and 77) and fails any registry operation missing from them. The loop brief makes `crates/*/tests/**` read-only, so `map_remove` (E-066) and every other new operation is unshippable by a loop pass — the pass stops and says so rather than editing the ratchet."
       },
-      "evidence": "Proposed fix, for an evaluator pass: move both tables into product code as an exported constant (`ops::ui_entry_points()`), so an operation and its entry point are one commit in product code and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
+      "evidence": "Fixed by the evaluator pass of 2026-10-28 (commit `fix(parity): the UI entry points are product code (E-086)`): `ops::UI_ENTRY_POINTS` and `ops::CHOOSER_ENTRY_POINTS` are product constants and the parity test imports them, so an operation and its UI row are one product-code commit and the ratchet still bites on the product list. Blocker hit 2026-10-26 while attempting E-066.",
       "last_failure": "",
       "first_seen": "2026-10-26"
     }
