@@ -448,6 +448,52 @@
           "issue": "https://github.com/Ladvien/bevy_emerge/issues/87"
         }
       ]
+    },
+    {
+      "id": "S-004",
+      "kind": "series",
+      "area": "notes",
+      "title": "Notes for agents: a person marks tiles or meshes with a note, an agent works it, and the sign goes away",
+      "goal": "A person selects one or more tiles or placed meshes and leaves a note for an agent. The note stands in the viewport as a small 3D construction sign; clicking it opens the note to read and edit. An agent lists open notes over MCP, does the work through ordinary operations and resolves the note, and its sign disappears while the change it made stays on screen. Resolved notes stay on record, so what has been worked can still be read.",
+      "approved_by": "owner 2026-10-28",
+      "acceptance": [
+        "a note left on two placements and one tile is saved with the map's project and survives an editor restart",
+        "each open note shows one construction sign above its targets, and a resolved note shows none",
+        "clicking a sign opens its note; an edit to the text is saved and is one undo step",
+        "an agent over MCP lists the open notes with their targets, makes the change, resolves the note naming the operations it ran, and the sign is gone within a second while the change is on screen",
+        "resolved notes are listed with what resolved them, and an undo of the resolve brings the sign back"
+      ],
+      "status": "open",
+      "evidence": "Owner's request 2026-10-28, with the focus in docs/loop/focus.md. Design defaults, so no pass has to stop for them: notes are data in the game's project beside the map they mark (one file per map, written like the map, hot-reloaded through bevy_emerge_core::live::FileWatch); a note has an id, its targets (placement ids and cells), its text, open or resolved, and on resolve the operation ids and one line of what changed; the sign is orange and white, about knee height on the map's scale, standing above the centre of its targets and never hiding them; every note change is a registered operation with undo, reachable from both the UI and MCP. The sign starts as a mesh built from Bevy primitives; a golem-made .glb replaces it only when the owner supplies one (AGENTS.md: meshes come from golem, not from this repo). A new keys::Action needs a row in the protected keys.rs census (see S3.7): ship click and button entry first and log a key as blocked rather than editing the census.",
+      "last_failure": "",
+      "first_seen": "2026-10-28",
+      "steps": [
+        {
+          "id": "S4.1",
+          "title": "core notes: the note data, its file beside the map, round-trip and hot-reload",
+          "status": "open"
+        },
+        {
+          "id": "S4.2",
+          "title": "note_add, note_edit, note_resolve as registered operations with undo, and notes in emerge_state over MCP",
+          "status": "open"
+        },
+        {
+          "id": "S4.3",
+          "title": "The construction sign: one per open note, above its targets, gone when resolved",
+          "status": "open"
+        },
+        {
+          "id": "S4.4",
+          "title": "The person's side: select tiles or meshes and leave a note; click a sign to read and edit it; a list of open and resolved notes",
+          "status": "open"
+        },
+        {
+          "id": "S4.5",
+          "title": "End to end on Sanctuary's town: a person's note, an agent's fix over MCP, the sign gone and the change on screen, captured",
+          "status": "open"
+        }
+      ]
     }
   ]
 }
