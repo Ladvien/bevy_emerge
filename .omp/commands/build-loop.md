@@ -223,13 +223,13 @@ and continue — never spend a pass on the lookup.
 
 **The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step or a backlog item, that is the item. Bugs, filed bug issues and `consumer` issues still come first (Phase 1 and the issues section above). If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
 
-**Everything blocked is not a reason to stop: record a clip.** When the focus, the series and your candidates are all blocked or waiting on the owner, the pass's item is one `not yet recorded` line in `CHANGELOG.md`, newest first: record its clip on this build (Phase 5's recipe; scratch copy of the project, never the consumer's own files), look at the still and a contact sheet, confirm it shows what the line says, and replace the reason with the clip. A clip that does not show what the line says is not shipped; log which line and why, and leave it. Only when no such line is left may a pass end with nothing shipped.
-
-If an open `series` exists, take its next open step and skip the list.
+If an open `series` has a next step you can work this pass, take it and skip the list. A series whose next step is blocked or waiting on the owner does **not** skip the list: log it in one line and choose from the backlog as below. The backlog's open items are real work; a pass that idles beside them has wasted itself.
 
 Propose 2–3 candidates drawn from the backlog, from friction in Phase 1, or from the lenses below. One
 line each: the user problem, how often it is hit, the expected saving, the risk. Rank, pick one, record
 the others in the backlog.
+
+**Everything blocked is not a reason to stop: record a clip.** When the focus, the series and your candidates are all blocked or waiting on the owner, the pass's item is one `not yet recorded` line in `CHANGELOG.md`, newest first: record its clip on this build (Phase 5's recipe; scratch copy of the project, never the consumer's own files), look at the still and a contact sheet, confirm it shows what the line says, and replace the reason with the clip. A clip that does not show what the line says is not shipped; log which line and why, and leave it. Only when no such line is left may a pass end with nothing shipped.
 
 **Lenses**, and the research says which are already answered:
 
