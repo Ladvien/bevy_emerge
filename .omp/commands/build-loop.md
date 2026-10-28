@@ -79,8 +79,8 @@ and the difference is invisible from inside the loop. So these paths are **read-
 **What you may write:** `docs/loop/backlog.json` (status and evidence fields), new files under
 `docs/loop/iterations/`, new test files, and product code.
 
-**If a protected file must change to make the pass work, stop.** Write the reason into the backlog with
-`status: "blocked"`, commit only what is safe, and end the pass. A human runs an *evaluator pass*
+**If a protected file must change to make an item work, stop that item.** Write the reason into the backlog with
+`status: "blocked"`, commit only what is safe, and choose another item (Phase 2; when everything is blocked, that is a changelog clip). A blocked item ends the item, not the pass. A human runs an *evaluator pass*
 separately. Do not reason your way to an exception; the value of the rule is that it has none.
 
 **Append, never rewrite.** `docs/loop/log.md` is append-only: add your line at the bottom and do not
