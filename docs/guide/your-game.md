@@ -107,7 +107,24 @@ Use `--kit` to name the kit you are working on. The editor watches the files it 
 - If the file you save does not parse, the editor refuses the change. It keeps the last good state and says why.
 - The editor ignores its own writes. A file whose content matches what the editor holds is not a change.
 
-The game does not watch its files. It reads the project once, when it starts. To see an edit in the game, restart the game.
+The game follows the same files if you add `EmergeLivePlugin`:
+
+```rust
+app.add_plugins(bevy_emerge::live::EmergeLivePlugin {
+    dir: "assets/emerge".into(),
+    maps: vec!["town".into()],
+});
+```
+
+It needs an `EmergeWorld` resource, which `EmergePlugin` spawns from. About a second after the last write, the plugin reloads the project and redraws only what changed.
+
+- A placement that is new, edited, removed, or resting on something that was redrawn is despawned and spawned again. A placement that did not change keeps its `Entity`.
+- A placement whose height changed is redrawn too. Moving a table moves the lamp on it.
+- Editing a descriptor redraws every placement of that descriptor. `ProjectReloaded::library_changed` says so.
+- A successful reload replaces the `EmergeWorld` resource and writes a `ProjectReloaded` message. Its `diffs` hold one `MapDiff` per map you listed, so a game can react to the ids that changed.
+- If the project does not load, the plugin logs why, keeps every entity and the last good `EmergeWorld`, and writes no `ProjectReloaded`. The reason goes to `.live/game.ron`, where the editor shows it.
+- The map in the `EmergeWorld` resource is the one that is redrawn. Other maps in `maps` are diffed but not drawn.
+- The game's own derived data, such as a navmesh built from the map, is yours to rebuild when `ProjectReloaded` arrives.
 
 ## Generate a map
 
