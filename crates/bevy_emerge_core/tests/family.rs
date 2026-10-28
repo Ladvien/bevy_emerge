@@ -26,3 +26,33 @@ fn an_unknown_name_and_a_repeat_are_refused_or_reported() {
     assert!(Family::from_ron("(version: 1, crates: [\"isomesh\", \"isomesh\"])").unwrap_err().contains("twice"));
     assert!(Family::from_ron("(version: 2, crates: [])").is_err());
 }
+
+const SETTINGS: &str = "Settings(\n    // sun\n    sun: (hour: 6.5, tilt: 0.4),\n    label: \"a, (b)\",\n    wind: 3,\n)\n";
+
+#[test]
+fn set_field_rewrites_only_the_named_value_and_returns_the_old_one() {
+    use bevy_emerge_core::family::set_field;
+    let (text, old) = set_field(SETTINGS, "sun.hour", "12.0").unwrap();
+    assert_eq!(old, "6.5");
+    assert_eq!(text, SETTINGS.replace("hour: 6.5", "hour: 12.0"));
+    // The change undoes by writing the old value back.
+    let (back, _) = set_field(&text, "sun.hour", &old).unwrap();
+    assert_eq!(back, SETTINGS);
+    // A value holding commas and brackets inside a string is one value.
+    let (t, old) = set_field(SETTINGS, "label", "\"x\"").unwrap();
+    assert_eq!(old, "\"a, (b)\"");
+    assert!(t.contains("label: \"x\",") && t.contains("wind: 3"));
+    // A whole struct is a value too.
+    let (t, old) = set_field(SETTINGS, "sun", "(hour: 1.0, tilt: 0.0)").unwrap();
+    assert_eq!(old, "(hour: 6.5, tilt: 0.4)");
+    assert!(t.contains("sun: (hour: 1.0, tilt: 0.0),"));
+}
+
+#[test]
+fn set_field_names_what_is_missing_and_refuses_a_value_that_is_not_one() {
+    use bevy_emerge_core::family::set_field;
+    assert!(set_field(SETTINGS, "sun.nope", "1").unwrap_err().contains("nope"));
+    assert!(set_field(SETTINGS, "wind.deep", "1").is_err());
+    assert!(set_field(SETTINGS, "wind", "(1, 2").is_err());
+    assert!(set_field(SETTINGS, "wind", "1, other: 2").is_err());
+}
