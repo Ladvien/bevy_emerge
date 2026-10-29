@@ -13,11 +13,13 @@
 //! the endpoint, never a default answer.
 
 mod calibrate;
+mod check;
 mod config;
 mod transport;
 mod types;
 
 pub use calibrate::{Calibration, Sample, calibrate};
+pub use check::{BUILTIN_CHECKS_RON, Check, Checks, Evidence, Finding};
 pub use config::Config;
 pub use transport::{Http, Recorder, Replay, Transport};
 pub use types::{Answer, MAX_IMAGES, MAX_QUESTIONS, Question, Request, Response, Usage};
@@ -39,6 +41,10 @@ pub enum Error {
     Fixture(String),
     /// A calibration was asked of a set that cannot calibrate.
     Calibration(String),
+    /// A `checks.ron` that does not parse or breaks a rule (duplicate name, threshold outside 0..=1).
+    Checks(String),
+    /// A check was asked without an image or the facts it needs; it does not answer from less.
+    MissingEvidence { check: String, missing: String },
 }
 
 impl fmt::Display for Error {
@@ -56,6 +62,10 @@ impl fmt::Display for Error {
             }
             Error::Fixture(m) => write!(f, "decision fixture: {m}"),
             Error::Calibration(m) => write!(f, "decision calibration: {m}"),
+            Error::Checks(m) => write!(f, "checks.ron: {m}"),
+            Error::MissingEvidence { check, missing } => {
+                write!(f, "check `{check}` needs {missing}, which was not captured; it does not answer from less")
+            }
         }
     }
 }
