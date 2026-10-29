@@ -3061,31 +3061,10 @@ fn append(ctx: &Ctx, entry: &mut Entry) -> Result<(), String> {
     Ok(())
 }
 
-/// Edit distance between two ids. Core's `vocab::edit_distance` is private, and the ops that
-/// suggest ids need only a short list, so they share this one.
-fn levenshtein(a: &str, b: &str) -> usize {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.chars().enumerate() {
-        let mut prev = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let old = row[j + 1];
-            row[j + 1] = if ca == *cb {
-                prev
-            } else {
-                1 + prev.min(row[j]).min(old)
-            };
-            prev = old;
-        }
-    }
-    row[b.len()]
-}
-
 /// The three ids closest to `bad`, nearest first.
 fn nearest_ids(ids: &[&str], bad: &str) -> Vec<String> {
     let mut scored: Vec<(usize, &str)> =
-        ids.iter().map(|id| (levenshtein(id, bad), *id)).collect();
+        ids.iter().map(|id| (bevy_emerge_core::vocab::edit_distance(id, bad), *id)).collect();
     scored.sort();
     scored
         .into_iter()
