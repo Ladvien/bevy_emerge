@@ -546,12 +546,28 @@ pub mod map_create {
     use super::*;
     use serde_json::json;
 
+    /// **A removed map's file**, kept in the log so the removal can be put back exactly.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Restore {
+        pub name: String,
+        pub text: String,
+    }
+
     /// **The map to make.**
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct Params {
         /// **What it is called**, forced to snake_case by the same rule a file name uses.
+        #[serde(default)]
         pub name: String,
+        /// **An undo's form: take this map's file away.** The inverse of a create; refused from an
+        /// agent ([`Operation::only_as_undo`]) and refused while that map is open.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub remove: Option<String>,
+        /// **A redo's form: write this map's file back, byte for byte.** The inverse of the removal.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub restore: Option<Restore>,
         /// **How big, in metres on each axis.** Absent means a new map's default — 10 x 4 x 10 —
         /// so an agent that only knows a name does not have to state a size it has no opinion about.
         #[serde(default)]
@@ -613,19 +629,17 @@ pub mod map_create {
             "map_create"
         }
 
-        /// **No inverse, and the reason is a gap rather than a choice.**
-        ///
-        /// The truthful inverse of a create is the file's removal, and `take_back` applies an inverse
-        /// by calling **this same operation's `commit` with it** — so the inverse has to be this
-        /// operation's own parameters. There is no `map_remove` operation to carry that, and writing
-        /// one is a separate verb with its own refusals (what happens to the map another session has
-        /// open?), so this declares `Undo::None` the way `door_open` does and says so here rather
-        /// than inventing a parameter shape that would be refused on the way back.
-        ///
-        /// **What that costs, stated plainly:** Cmd+Z does not take a map away. The map is a file,
-        /// and deleting it is the chooser's `Delete` row. Logged as E-066.
+        /// **`Undo::Inverse`, and the inverse is this operation's own undo form.** `take_back`
+        /// applies an inverse by calling this same operation's `commit`, so the inverse of a create
+        /// is `{"remove": name}` and the inverse of that removal is `{"restore": {name, text}}`, the
+        /// file's bytes kept in the log. Both forms are [`Operation::only_as_undo`]: an agent
+        /// cannot delete a map by calling `map_create`. (E-066)
         fn undo(&self) -> Undo {
-            Undo::None
+            Undo::Inverse
+        }
+
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            Params::parse(params).is_ok_and(|p| p.remove.is_some() || p.restore.is_some())
         }
 
         fn schema(&self) -> serde_json::Value {
@@ -638,6 +652,38 @@ pub mod map_create {
             params: &serde_json::Value,
         ) -> Result<serde_json::Value, Refusal> {
             let p = Params::parse(params)?;
+            if p.remove.is_some() || p.restore.is_some() {
+                let (name, removing) = match (&p.remove, &p.restore) {
+                    (Some(n), None) => (n.clone(), true),
+                    (None, Some(r)) => (r.name.clone(), false),
+                    _ => {
+                        return Err(Refusal::new(
+                            "`remove` and `restore` are an undo's two forms and are never sent together.",
+                        ));
+                    }
+                };
+                let Some(maps_dir) = ctx.maps_dir_or_project() else {
+                    return Err(Refusal::new("no project is open, so there is no maps directory."));
+                };
+                let path = maps_dir.join(bevy_emerge_core::naming::map_file_name(&name));
+                if removing {
+                    if ctx.open.as_ref().is_some_and(|o| o.map.name == name) {
+                        return Err(Refusal::new(format!(
+                            "`{name}` is the open map, so taking it away would leave the editor holding a map with no file. Open another map first."
+                        )));
+                    }
+                    if !path.exists() {
+                        return Err(Refusal::new(format!(
+                            "`{name}` has no file in this project, so there is nothing to take away."
+                        )));
+                    }
+                } else if path.exists() {
+                    return Err(Refusal::new(format!(
+                        "`{name}` exists again, so the removed file is not put back over it."
+                    )));
+                }
+                return Ok(json!({"name": name, "map": name, "removing": removing}));
+            }
             let Some(maps_dir) = ctx.maps_dir_or_project() else {
                 return Err(Refusal::new("no project is open, so there is nowhere to put a map."));
             };
@@ -679,6 +725,34 @@ pub mod map_create {
         fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
             let plan = self.plan(ctx, params)?;
             let name = plan["name"].as_str().unwrap_or_default().to_owned();
+            if let Some(removing) = plan.get("removing").and_then(serde_json::Value::as_bool) {
+                let p = Params::parse(params)?;
+                let maps_dir = ctx.maps_dir_or_project().ok_or_else(|| Refusal::new("no project is open."))?;
+                let path = maps_dir.join(bevy_emerge_core::naming::map_file_name(&name));
+                let after = json!({"name": name, "map": name, "path": path.to_string_lossy()});
+                if removing {
+                    let text = std::fs::read_to_string(&path)
+                        .map_err(|e| Refusal::new(format!("could not read `{}`: {e}", path.display())))?;
+                    std::fs::remove_file(&path)
+                        .map_err(|e| Refusal::new(format!("could not remove `{}`: {e}", path.display())))?;
+                    return Ok(Outcome {
+                        summary: format!("took map `{name}` away; its file is kept in the log"),
+                        affected: 1,
+                        saved: true,
+                        inverse: Some(json!({"restore": {"name": name, "text": text}})),
+                        after: Some(after),
+                    });
+                }
+                let text = p.restore.map(|r| r.text).unwrap_or_default();
+                bevy_emerge_core::ron_surgery::save_atomic(&path, &text).map_err(Refusal::new)?;
+                return Ok(Outcome {
+                    summary: format!("put map `{name}` back from the log"),
+                    affected: 1,
+                    saved: true,
+                    inverse: Some(json!({"remove": name})),
+                    after: Some(after),
+                });
+            }
             let read = |key: &str| -> (f32, f32, f32) {
                 let v = &plan[key];
                 (
@@ -708,9 +782,8 @@ pub mod map_create {
                 ),
                 affected: 1,
                 saved: true,
-                // **No inverse**, for the reason `undo` gives: the faithful one is a `map_remove` that
-                // does not exist yet.
-                inverse: None,
+                // **The inverse is the removal of the file just made**, an undo form of this operation.
+                inverse: Some(json!({"remove": name})),
                 after: Some(json!({
                     "name": name,
                     "map": name,
@@ -2614,7 +2687,12 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
     // **The log is the project's; a change belongs to one map.** A line's map is the one its
     // recorded state names, and only changes to the open map are picked, or can block.
     let here = ctx.open.as_ref().map(|o| o.map.name.as_str());
+    // **A map's creation belongs to the project, not to the map it made** (E-066): it is taken back
+    // by naming it, whichever map is open, and it is never the "newest change" of the open map.
     let map_of = |l: &Entry| {
+        if l.op == "map_create" {
+            return None;
+        }
         l.after
             .as_ref()
             .and_then(|a| a.get("map"))
@@ -2622,11 +2700,13 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
             .map(str::to_owned)
     };
     // **The piece a library change set**, named by the `id` its recorded state carries. A map's
-    // changes have no piece, and a library change shares a scope only with its own piece.
+    // changes have no piece, and a library change shares a scope only with its own piece. A created
+    // map's scope is its own name, so two creations never block each other.
     let piece_of = |l: &Entry| {
+        let key = if l.op == "map_create" { "name" } else { "id" };
         l.after
             .as_ref()
-            .and_then(|a| a.get("id"))
+            .and_then(|a| a.get(key))
             .and_then(|i| i.as_str())
             .map(str::to_owned)
     };
@@ -2641,7 +2721,7 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
                         Some(m) => Some(m.as_str()) == here,
                         // A line from before placements recorded their map belongs to the open
                         // map; only a library change is scoped to no map at all.
-                        None => !matches!(l.op.as_str(), "label_set" | "piece_import"),
+                        None => !matches!(l.op.as_str(), "label_set" | "piece_import" | "map_create"),
                     }
                 })
                 .max_by_key(|c| newest[c])
