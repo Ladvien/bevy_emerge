@@ -14,6 +14,8 @@ bad() { fail=$((fail+1)); echo "FAIL  $*"; }
 trap 'rm -rf "$T"' EXIT
 # the caller's own loop settings must not leak into a test about which settings win
 for v in $(env | sed -n 's/^\(WIGGUM_[A-Z_]*\)=.*/\1/p'); do unset "$v"; done
+# nor the caller's build directory: a refused pass prunes it, and this Mac's real one is shared by every project
+unset CARGO_TARGET_DIR
 
 mkdir -p "$T/bin"
 cat > "$T/bin/omp" <<EOF
@@ -95,6 +97,22 @@ rm -f "$T/omp_ran"
 out=$(WIGGUM_MIN_FREE_GB=100000 drv envwins one 2>&1)
 [ ! -e "$T/omp_ran" ] && echo "$out" | grep -q 'ABORTED: only' && ok "WIGGUM_MIN_FREE_GB=100000 in the environment refused the pass although the file says 0" || bad "environment did not beat the file: $(echo "$out" | head -2)"
 [ "$(sums "$T/envwins")" = "$(sums "$T/shared")" ] && ok "and the refused pass still left the dirty files alone" || bad "dirty files changed on a refused pass"
+
+# 6b. a refused pass prunes the build directory cargo actually uses: $CARGO_TARGET_DIR when it is set (this Mac's
+# loops build into ~/.cargo-target-shared/global; on 2026-10-28 the driver pruned <repo>/target, freed nothing and
+# stopped Sanctuary's loop at 14 GB free). The build itself (deps/*.rlib) and a young linker temp file stay.
+mkrepo pruned yes
+ctd="$T/ctd"; mkdir -p "$ctd/debug/incremental/crate-x" "$ctd/debug/deps"
+echo x > "$ctd/debug/incremental/crate-x/q.bin"; echo rlib > "$ctd/debug/deps/libkeep.rlib"
+echo stale > "$ctd/debug/deps/libgone.tmp1"; touch -t 202601010000 "$ctd/debug/deps/libgone.tmp1"
+echo live > "$ctd/debug/deps/liblive.tmp2"
+out=$(CARGO_TARGET_DIR="$ctd" WIGGUM_MIN_FREE_GB=100000 drv pruned one 2>&1)
+[ ! -e "$ctd/debug/incremental" ] && [ ! -e "$ctd/debug/deps/libgone.tmp1" ] \
+  && ok "a refused pass pruned \$CARGO_TARGET_DIR: incremental/ and the stale linker temp file are gone" \
+  || bad "\$CARGO_TARGET_DIR was not pruned: $(find "$ctd" -type f | tr '\n' ' ')"
+[ -e "$ctd/debug/deps/libkeep.rlib" ] && [ -e "$ctd/debug/deps/liblive.tmp2" ] \
+  && ok "and kept the build (deps/libkeep.rlib) and a linker temp file under 20 minutes old" \
+  || bad "pruning removed the build or a live temp file: $(find "$ctd" -type f | tr '\n' ' ')"
 
 # 7. no file at all: settings says so and exits 0; the driver's own defaults apply
 mkrepo plain no

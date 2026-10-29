@@ -530,7 +530,10 @@ one_pass() {
   # **`-mmin +20` is the safety on the delete.** A live linker's temp file is younger than that, so the
   # window can only catch files whose linker is gone.
   local min_free_gb="${WIGGUM_MIN_FREE_GB:-150}"
-  local target_dir; target_dir="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)/target"
+  # The build directory cargo actually writes: `$CARGO_TARGET_DIR` when set (the Mac's loops build into one shared
+  # `~/.cargo-target-shared/global`). Pruning `<repo>/target` there freed nothing and stopped Sanctuary's loop at
+  # 14 GB free (2026-10-28).
+  local target_dir="${CARGO_TARGET_DIR:-$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)/target}"
   local free_gb
   free_gb=$(df -Pk "$REPO" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}')
   if [ -n "$free_gb" ] && [ "$free_gb" -lt "$min_free_gb" ]; then
