@@ -361,16 +361,21 @@ launchctl kickstart -k gui/$(id -u)/com.ladvien.wiggum-<name>
 `RunAtLoad` is `false` deliberately: installing an agent must not start a pass while a human is setting
 things up.
 
-## What the four loops are, today
+## What the loops are, today
 
-| loop | host | clone | command | model | display |
-|---|---|---|---|---|---|
-| lights | big | `~/bevy_lights_loop` | `build-loop` | `claude-sonnet-5-5` | `:97` |
-| society | big | `~/bevy_society_loop` | `build-loop` | `claude-sonnet-5-5` | `:98` |
-| elements | big_mac | `~/bevy_elements` | `build-loop` | `claude-sonnet-5-5` | native Metal |
-| emerge | big_mac | `~/bevy_emerge_loop` | `build-loop` | `claude-sonnet-5-5` | native Metal |
+**bevy_emerge runs as parallel workers** (owner, 2026-10-29): one clone per worker, all on `build-loop`, coordinated by `worker:<name>` issue labels (`build-loop.md`, "Parallel workers"). A worker's name is its clone's directory, unique across machines. GitHub Actions runs once a day; workers never wait for it.
 
-All four run `claude-sonnet-5-5`: lights and society moved off ollama-cloud on 2026-10-27 after it answered 402 on big (see the fact above), and elements and emerge followed at 16:20 that day, when their drivers restarted with it. Every loop's command is `.omp/commands/build-loop.md`, the owner's rule since 2026-10-28; `bevy_debugger_mcp` (now `bevy_fairy` on GitHub) has one too, with no loop running on it. A repo with no loop command runs the generic `/bevy-loop`.
+| worker / loop | host | clone | supervisor | target dir | jobs | display | floor |
+|---|---|---|---|---|---|---|---|
+| `bevy_emerge_loop` (also owns non-issue work) | big_mac | `~/bevy_emerge_loop` | `com.ladvien.wiggum-emerge` | `~/target/emerge-loop` | 4 | native Metal | 25 GB |
+| `bevy_emerge_w2` (records big's unrecorded clips) | big_mac | `~/bevy_emerge_w2` | `com.ladvien.wiggum-emerge-w2` | `~/target/emerge-w2` | 4 | native Metal | 25 GB |
+| `bevy_emerge_w3` (the GPU: #109) | big | `~/bevy_emerge_w3` | `wiggum@emerge-w3.service`, `MemoryMax=10G`, no swap | `~/target/emerge-w3` | 6 | Xvfb `:96` | 150 GB |
+| `bevy_emerge_w4` | laptop | `~/bevy_emerge_w4` | `com.ladvien.wiggum-emerge-w4` | `~/target/emerge-w4`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only` | 4 | native Metal | 20 GB, above Sanctuary's 15 so this worker stops first |
+| Sanctuary `emerge-loop` | laptop | `~/sanctuary` (shared checkout) | `wiggum.sh start` | `~/.cargo-target-shared/global` | — | native | 15 GB |
+| lights, society (stopped 2026-10-28) | big | `~/bevy_lights_loop`, `~/bevy_society_loop` | `wiggum@lights`, `wiggum@society` | | | `:97`, `:98` | |
+| elements (stopped 2026-10-28) | big_mac | `~/bevy_elements` | `com.ladvien.wiggum-elements` | | | native Metal | |
+
+Every running loop uses Claude Sonnet 5.5. Measured 2026-10-29, the machines not used: **bmb** (M4 Pro, 14 cores, 48 GB) has 16 GB of free disk against a 57 GB debug target, no `gh`, and is another user's account; **one, two, three, four** are Raspberry Pi 4/5 boards (4 cores, 3–15 GB, no `omp`); **big** takes one worker because its swap was 27 of 31 GB used under hs-distill and the model servers. Adding a worker: a fresh clone named `bevy_emerge_w<N>`, its own target dir, a supervisor copied from a row above, a display no other loop uses, and the row here.
 
 ## Verify a loop is real, not just active
 
