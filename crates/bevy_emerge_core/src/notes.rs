@@ -109,6 +109,9 @@ pub struct Site {
 }
 
 /// An agent works a note within one cell of its area.
+/// The statuses a filter may name, in the order the panel cycles them.
+pub const STATUSES: [&str; 3] = ["draft", "sent", "done"];
+
 pub const DEFAULT_MARGIN: i32 = 1;
 
 impl Site {
@@ -126,6 +129,33 @@ impl Note {
 
     pub fn is_draft(&self) -> bool {
         self.state == State::Draft
+    }
+
+    /// The word the Notes panel shows and filters by. The set grows as agents claim, ask and are
+    /// reviewed (#91–#93); today a note is a draft, sent, or done.
+    pub fn status(&self) -> &'static str {
+        match self.state {
+            State::Draft => "draft",
+            State::Open => "sent",
+            State::Resolved { .. } => "done",
+        }
+    }
+
+    /// The map-space rectangle `[x0, z0, x1, z1]` in metres a camera should frame to show this
+    /// note: where it was drawn, else the cells it names. `None` when it names placements only,
+    /// which the caller frames by id.
+    pub fn frame_rect(&self) -> Option<[f32; 4]> {
+        if let Some(s) = &self.site {
+            return Some([s.world.0, s.world.1, s.world.2, s.world.3]);
+        }
+        let t = crate::grid::TILE;
+        self.targets
+            .iter()
+            .filter_map(|t| if let Target::Cell(x, z) = t { Some((*x, *z)) } else { None })
+            .fold(None, |r: Option<[f32; 4]>, (x, z)| {
+                let (x0, z0, x1, z1) = (x as f32 * t, z as f32 * t, (x + 1) as f32 * t, (z + 1) as f32 * t);
+                Some(r.map_or([x0, z0, x1, z1], |r| [r[0].min(x0), r[1].min(z0), r[2].max(x1), r[3].max(z1)]))
+            })
     }
 
     /// A sign stands over it: a draft or an open note, not a resolved one.
@@ -209,6 +239,12 @@ impl Notes {
     }
 
     /// The notes an agent still has to work, in the order they were left.
+    /// Every note, newest first (ids are never reused, so file order is writing order), or only
+    /// those whose [`Note::status`] is `status`. Resolved notes are listed like any other.
+    pub fn listing(&self, status: Option<&str>) -> Vec<&Note> {
+        self.notes.iter().rev().filter(|n| status.is_none_or(|s| n.status() == s)).collect()
+    }
+
     pub fn open(&self) -> impl Iterator<Item = &Note> {
         self.notes.iter().filter(|n| n.is_open())
     }
