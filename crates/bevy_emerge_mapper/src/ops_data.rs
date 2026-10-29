@@ -134,3 +134,27 @@ impl Operation for DataSet {
         Self::apply(ctx, params, true)
     }
 }
+
+/// One leaf of a registered data file, as the Data panel lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeafRow {
+    pub file: String,
+    pub path: String,
+    /// The leaf's current token, exactly as written in the file.
+    pub value: String,
+}
+
+/// **Every leaf of every registered file**, in registry then file order. No `data.ron` is an empty
+/// list; a file that cannot be read or parsed contributes no rows (`data_set` names why on use).
+pub fn listing(root: &std::path::Path) -> Vec<LeafRow> {
+    let Ok(Some(reg)) = DataFiles::load(root) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for f in &reg.files {
+        let Ok(text) = std::fs::read_to_string(reg.resolve(f)) else { continue };
+        let Ok(leaves) = data_files::leaves(&text) else { continue };
+        rows.extend(leaves.into_iter().map(|(path, value)| LeafRow { file: f.id.clone(), path, value }));
+    }
+    rows
+}
