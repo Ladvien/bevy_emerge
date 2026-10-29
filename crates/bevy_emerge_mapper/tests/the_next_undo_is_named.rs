@@ -14,7 +14,7 @@ use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::project::{OpenMap, Project};
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor(tag: &str, id: &str) -> App {
     let root = fixtures::Fixture::new(tag)

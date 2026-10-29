@@ -15,7 +15,7 @@
 use bevy::prelude::*;
 use bevy_emerge_core::draw_order::LEVEL_LIFT;
 
-mod fixtures;
+use crate::fixtures;
 
 /// Float slack for heights built from sums of transforms.
 const TOL: f32 = 1e-6;

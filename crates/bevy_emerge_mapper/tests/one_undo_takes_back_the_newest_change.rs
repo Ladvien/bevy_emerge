@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::editor::Placement;
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor(tag: &str) -> App {
     let root = fixtures::Fixture::new(tag)

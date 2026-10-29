@@ -18,7 +18,7 @@
 //! 2. the count is the expanded member count, not the stamp count;
 //! 3. `Esc` takes them away with the proposal.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy::prelude::*;
 use bevy_emerge_mapper::editor::{Ghost, Proposal};

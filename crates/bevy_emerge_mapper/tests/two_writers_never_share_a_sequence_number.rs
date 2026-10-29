@@ -7,7 +7,7 @@
 use bevy_emerge_mapper::ops::{self, Ctx, Source};
 use serde_json::json;
 
-mod fixtures;
+use crate::fixtures;
 
 fn writer(root: std::path::PathBuf, session: String) -> Ctx {
     Ctx {

@@ -15,7 +15,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 use bevy_emerge_mapper::view::MainCamera;
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor(name: &str) -> App {
     let root = fixtures::Fixture::new(name)

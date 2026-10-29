@@ -17,7 +17,7 @@
 //! source scan would miss a resource inserted by a nested plugin, or one added by a `Commands` call,
 //! which is exactly the kind nobody remembers to classify.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::screen::{ownership, OWNERSHIP};

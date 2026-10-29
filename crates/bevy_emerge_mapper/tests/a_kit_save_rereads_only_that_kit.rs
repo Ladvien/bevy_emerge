@@ -29,7 +29,7 @@ use bevy_emerge_mapper::editor::Placement;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::Project;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **One test in this file at a time, because the counters are the process's.**
 ///
@@ -132,7 +132,12 @@ fn a_kit_save_relayers_only_that_kit() {
         "the editor never took the library edit, so this test would pass for the wrong reason"
     );
 
-    let layers = bevy_emerge_core::policy::layered_for_test();
+    // **Only this project's kits.** The editor's tests share one process (`tests/all.rs`), so other
+    // files' tests layer their own fixtures beside this one; the count is about this project.
+    let layers: Vec<_> = bevy_emerge_core::policy::layered_for_test()
+        .into_iter()
+        .filter(|dir| dir.starts_with(&root))
+        .collect();
     assert_eq!(
         layers.len(),
         1,

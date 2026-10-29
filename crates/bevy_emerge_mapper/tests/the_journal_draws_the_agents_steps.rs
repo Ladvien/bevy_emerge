@@ -17,7 +17,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::chrome::{Journal, JournalList, JournalPanel, ProblemLogLine};
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor(name: &str) -> (std::path::PathBuf, App) {
     let root = fixtures::Fixture::new(name)

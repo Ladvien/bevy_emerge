@@ -12,7 +12,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::live::LiveWrite;
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 const ID: &str = "crate_0";
 
