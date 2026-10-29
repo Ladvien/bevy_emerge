@@ -60,6 +60,8 @@
 //! 3. **A gap is a parameter of the run**, because a fence with no way through is not a fence.
 //! 4. **A refusal, not a degradation.** Every way this can fail is named.
 
+use serde::{Deserialize, Serialize};
+
 use crate::descriptor::Descriptor;
 use crate::library::Library;
 
@@ -75,27 +77,54 @@ pub const MAX_POSTS: usize = 1024;
 /// The whole of a run's *intent*. The posts it stands for are derived by [`lay`], and the same
 /// [`Run`] always derives the same posts — which is what lets the editor's ghost and its commit
 /// agree.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Run {
     /// The descriptor to repeat. Its own footprint is the default pitch.
     pub descriptor: String,
     /// Metres between posts. `None` means **the piece's own footprint along the run's direction**.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pitch: Option<f32>,
     /// Where the run starts, in map space (metres).
     pub from: (f32, f32),
     /// Where the run ends, in map space (metres).
     pub to: (f32, f32),
     /// **The turns**, in the order the path meets them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub corners: Vec<Corner>,
     /// **The openings** — posts that are missing, and where they would have been.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gaps: Vec<Gap>,
+}
+
+/// **A run a map holds**: the run itself, never the rows it lays.
+///
+/// [`crate::map::Map::expanded`] lays it with [`lay`] and names each row `<id>/<n>`, so moving an
+/// end of the fence is one edit and the rows follow. The id shares the placement and stamp id space.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunPlaced {
+    /// Unique within the map and shared with no placement or stamp: its rows are `<id>/<n>`.
+    pub id: String,
+    pub run: Run,
+    /// Owned by the author: every row this lays is owned, with this reason.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owned_because: Option<String>,
+}
+
+/// The id of post `n` of run `run`: the one convention [`crate::map::Map::expanded`] writes.
+pub fn post_id(run: &str, n: usize) -> String {
+    format!("{run}/{n}")
 }
 
 /// **One turn in a run's path.
 ///
 /// The point the path turns at, and the direction it takes *after* the turn. The post at the corner
 /// carries this yaw.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Corner {
     /// Where the turn is, in map space.
     pub at: (f32, f32),
@@ -108,7 +137,8 @@ pub struct Corner {
 /// `count` posts are missing, starting at `at_post` (0-based, counted along the run). The
 /// graveyard's south edge is one of these: three posts out of ten, and the posts either side of
 /// them are still at the run's pitch.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Gap {
     /// How many posts are missing.
     pub count: usize,
