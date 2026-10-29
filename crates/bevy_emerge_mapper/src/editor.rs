@@ -1306,6 +1306,22 @@ pub struct Folded(pub std::collections::HashSet<String>);
 #[derive(Component, Clone, Copy)]
 struct SizeReadout(Axis);
 
+/// **The family settings field** (#96): one line, `<crate> <field> <value>`, whose Enter dispatches
+/// `family_set` through [`set_family_field`].
+#[derive(Component, Clone, Copy)]
+struct FamilyField;
+
+/// The text of the family field, refreshed as it is typed into.
+#[derive(Component, Clone, Copy)]
+struct FamilyReadout;
+
+/// The family field's buffer while it is being typed into. Its own resource for [`SizeEdit`]'s reason:
+/// a keystroke on `EditorState` would rebuild the palette.
+#[derive(Resource, Default)]
+pub struct FamilyEdit {
+    active: Option<String>,
+}
+
 /// The node the palette is rebuilt into, so collapsing a category can redraw it.
 #[derive(Component)]
 struct PaletteList;
@@ -1836,6 +1852,7 @@ impl Plugin for EditorPlugin {
             // `resource_changed::<ThumbGeneration>` panics if only ThumbsPlugin — which also inits
             // it, idempotently — happens to be absent from the app.
             .init_resource::<SizeEdit>()
+            .init_resource::<FamilyEdit>()
             .init_resource::<Folded>()
             .init_resource::<EdgeFaults>()
             // Shared by both tabs' lists, so it is registered once here rather than by whichever
@@ -1987,7 +2004,7 @@ impl Plugin for EditorPlugin {
                         // goes down, rather than one where it is invisible and still eating keys.
                         leaving_a_tab_puts_the_name_prompt_down.in_set(keys::Phase::Sense),
                     ),
-                    size_edit_keys.in_set(keys::Phase::Text),
+                    (size_edit_keys, family_edit_keys).in_set(keys::Phase::Text),
                     // No `not_typing`, no `in_map_mode`: `keys::just_pressed` now refuses on both
                     // counts, and a run condition repeating it would be a second census. Dropping
                     // `in_map_mode` also makes `Cmd+S` and `Cmd+Z` work from every tab, which is what
@@ -2097,7 +2114,7 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    refresh_size,
+                    (refresh_size, refresh_family),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -2135,7 +2152,8 @@ impl Plugin for EditorPlugin {
             )
             .add_observer(on_row_click)
             .add_observer(on_category_click)
-            .add_observer(on_size_field_click);
+            .add_observer(on_size_field_click)
+            .add_observer(on_family_field_click);
     }
 }
 
@@ -2892,6 +2910,25 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                         );
                     });
                 }
+            });
+
+            // **Family settings (#96).** One line: `<crate> <field> <value>`, e.g.
+            // `bevy_elements sun.hour 6.5`. Enter writes it through `family_set`.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "FAMILY SETTINGS");
+                crate::chrome::text_field(
+                    s,
+                    Val::Percent(100.0),
+                    FamilyField,
+                    crate::chrome::text::BODY,
+                    ("crate field value".to_owned(), TEXT),
+                    FamilyReadout,
+                );
             });
 
             // **The composition picker** — the Map door's own way to arm a composition.
@@ -3711,6 +3748,124 @@ fn size_edit_keys(
                 }
             }
             _ => {}
+        }
+    }
+}
+
+fn on_family_field_click(
+    activate: On<Activate>,
+    fields: Query<&FamilyField>,
+    edit: Option<ResMut<FamilyEdit>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let (Some(mut edit), Some(mut state)) = (edit, state) else {
+        return;
+    };
+    if fields.get(activate.entity).is_err() {
+        return;
+    }
+    edit.active = Some(String::new());
+    state.status.note(
+        "family setting: `<crate> <field> <value>`, Enter to write it, Esc to leave it alone".to_owned(),
+    );
+}
+
+fn family_edit_keys(
+    mut events: MessageReader<KeyboardInput>,
+    mut edit: ResMut<FamilyEdit>,
+    project: Option<ResMut<Project>>,
+    mut state: ResMut<EditorState>,
+) {
+    if edit.active.is_none() {
+        return;
+    }
+    for event in events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        match &event.logical_key {
+            Key::Enter => {
+                let raw = edit.active.take().unwrap_or_default();
+                set_family_field(project.as_deref(), &mut state, &raw);
+                return;
+            }
+            Key::Escape => {
+                edit.active = None;
+                state.status.note("family setting unchanged".to_owned());
+                return;
+            }
+            Key::Backspace => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.pop();
+                }
+            }
+            Key::Space => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.push(' ');
+                }
+            }
+            Key::Character(c) => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.push_str(c);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// **Commit the typed line through the registry** as `family_set`: the first word is the crate, the
+/// second the dot-pathed field, and the rest one RON value.
+fn set_family_field(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+    let mut words = raw.trim().splitn(3, ' ');
+    let (Some(krate), Some(field), Some(value)) = (words.next(), words.next(), words.next()) else {
+        state.status.problem(format!("`{}` is not `<crate> <field> <value>`, so nothing was written", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = serde_json::json!({"crate": krate, "field": field, "value": value});
+    match crate::ops::dispatch(&mut ctx, "family_set", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+fn refresh_family(
+    edit: Res<FamilyEdit>,
+    mut readouts: Query<(&mut Text, &mut TextColor), With<FamilyReadout>>,
+    mut fields: Query<(&Hovered, &mut BackgroundColor), With<FamilyField>>,
+) {
+    for (mut text, mut colour) in &mut readouts {
+        let (want, want_colour) = crate::chrome::field_text(
+            edit.active.as_deref(),
+            ("crate field value".to_owned(), TEXT),
+        );
+        if text.0 != want {
+            text.0 = want;
+        }
+        if colour.0 != want_colour {
+            colour.0 = want_colour;
+        }
+    }
+    for (hovered, mut bg) in &mut fields {
+        let want = if edit.active.is_some() {
+            FOCUS_BG
+        } else if hovered.0 {
+            ROW_HOVER
+        } else {
+            ROW_BG
+        };
+        if bg.0 != want {
+            bg.0 = want;
         }
     }
 }
@@ -4810,6 +4965,8 @@ fn refresh_status(
 pub struct Fields<'w> {
     pub state: Res<'w, EditorState>,
     pub size: Res<'w, SizeEdit>,
+    /// **The family settings field (#96).**
+    pub family: Res<'w, FamilyEdit>,
     pub import: Res<'w, crate::tiles::ImportState>,
     pub cell: Res<'w, crate::tiles::CellEdit>,
     pub note: Res<'w, crate::tiles::NoteEdit>,
@@ -4861,6 +5018,7 @@ impl Fields<'_> {
             // actions for every letter typed — `corner` fired aim, turn, rename-map and turn-view.
             || self.state.grouping.is_some()
             || self.size.active.is_some()
+            || self.family.active.is_some()
             || self.import.renaming.is_some()
             || self.cell.typing()
             || self.note.typing()
