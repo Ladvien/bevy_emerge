@@ -208,7 +208,7 @@
       "area": "editor",
       "title": "Kit ops clone the whole Project per click, and a third Levenshtein copy exists (review gap 12)",
       "status": "open",
-      "evidence": "editor.rs:3030-3036: each shelf click or arrow step clones Project and appends an oplog line; a chip click clones Project once and measured twice. Third Levenshtein copy at ops.rs:2278, next to brush_arm's (ops.rs ~1894) and core's private one. Fix: share brush_arm's ranking helper. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md 2026-10-29 (w5): the third Levenshtein copy is removed (ops.rs uses core's now-pub vocab::edit_distance); the per-click Project clone is still open.",
+      "evidence": "editor.rs:3030-3036: each shelf click or arrow step clones Project and appends an oplog line; a chip click clones Project once and measured twice. Third Levenshtein copy at ops.rs:2278, next to brush_arm's (ops.rs ~1894) and core's private one. Fix: share brush_arm's ranking helper. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md 2026-10-29 (w5): the third Levenshtein copy is removed (ops.rs uses core's now-pub vocab::edit_distance); the per-click Project clone is still open. 2026-10-29 (w5 pass 1): analysis only. Ctx.project is Option<Project> (owned) and 13 tests/*.rs files build Ctx{project: Some(..)}, so changing its type breaks protected tests; a clone-free fix needs either Arc-wrapped heavy Project fields (measured, library, masks, kits, triangles; ~100 access sites) or a borrowed ctx variant added beside Ctx. Recommended: Arc the fields, one commit, owner exception not needed if reads stay field-compatible.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
