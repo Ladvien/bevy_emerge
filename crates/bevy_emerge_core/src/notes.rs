@@ -45,7 +45,16 @@ pub enum State {
     /// is renewed while the agent works; one not renewed in time expires and the note is `Open` again.
     Claimed { by: String, until: u64 },
     /// Worked. `ops` names the operations the agent ran; `summary` is one line of what changed.
-    Resolved { ops: Vec<String>, summary: String },
+    Resolved {
+        ops: Vec<String>,
+        summary: String,
+        /// What the agent assumed where the note did not say (#92). Empty for a note resolved by hand.
+        #[serde(default)]
+        assumptions: Vec<String>,
+        /// Capture paths of the area before the work and after it (#92); empty for a note resolved by hand.
+        #[serde(default)]
+        captures: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -90,6 +99,12 @@ pub enum What {
     Released,
     /// The lease ran out unrenewed, so the note went back to the queue.
     Expired,
+    /// The holder asked the person something before going on (#92).
+    Asked { question: String },
+    /// The person answered the latest question.
+    Answered { answer: String },
+    /// The holder resolved the note.
+    Resolved,
 }
 
 fn now() -> u64 {
@@ -129,6 +144,32 @@ pub const STATUSES: [&str; 3] = ["draft", "sent", "done"];
 
 pub const DEFAULT_MARGIN: i32 = 1;
 
+/// More pieces than this in one note's work must be asked about first (#92).
+pub const LARGE_CHANGE: usize = 10;
+
+/// What an agent's change would do, for [`Notes::fence`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Change {
+    /// Inclusive cell rectangle the change touches; `None` for one that touches no ground.
+    pub cells: Option<(i32, i32, i32, i32)>,
+    /// Pieces it adds, removes or moves.
+    pub pieces: usize,
+    /// Ids of pieces it removes that a person placed (the operation log's author says so).
+    pub person_placed: Vec<String>,
+    /// What the note asks for that the kit cannot supply, when the agent found something.
+    pub needs_unmapped: Option<String>,
+}
+
+/// What the holder records when it resolves a note.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Resolution {
+    pub summary: String,
+    pub assumptions: Vec<String>,
+    pub ops: Vec<String>,
+    /// `[before, after]` capture paths.
+    pub captures: Vec<String>,
+}
+
 impl Site {
     /// The cell rectangle an agent may work: the area grown by the margin.
     pub fn reach(&self) -> (i32, i32, i32, i32) {
@@ -166,6 +207,52 @@ impl Note {
         }
         let m = DEFAULT_MARGIN as f32 * t;
         self.frame_rect().map(|r| [r[0] - m, r[1] - m, r[2] + m, r[3] + m])
+    }
+
+    fn require_holder(&self, id: &str, by: &str, did: &str) -> Result<(), String> {
+        match self.holder() {
+            Some(h) if h == by => Ok(()),
+            Some(h) => Err(format!("notes: {id} is claimed by {h}, not {by}, so it was not {did}")),
+            None => Err(format!("notes: {id} is not claimed by {by}, so it was not {did}")),
+        }
+    }
+
+    /// The question the person has not answered yet, if one stands.
+    pub fn pending_question(&self) -> Option<&str> {
+        self.history
+            .iter()
+            .rev()
+            .find_map(|e| match &e.what {
+                What::Asked { question } => Some(Some(question.as_str())),
+                What::Answered { .. } => Some(None),
+                _ => None,
+            })
+            .flatten()
+    }
+
+    /// Whether the person has answered a question since the agent last claimed the note.
+    fn answered_since_claim(&self) -> bool {
+        let claim = self.history.iter().rposition(|e| matches!(e.what, What::Claimed { .. })).unwrap_or(0);
+        self.history[claim..].iter().any(|e| matches!(e.what, What::Answered { .. }))
+    }
+
+    /// The inclusive cell rectangle the person marked: where it was drawn, else the cells named.
+    pub fn area_cells(&self) -> Option<(i32, i32, i32, i32)> {
+        if let Some(s) = &self.site {
+            return Some(s.cells);
+        }
+        self.targets.iter().filter_map(|t| if let Target::Cell(x, z) = t { Some((*x, *z)) } else { None }).fold(
+            None,
+            |r: Option<(i32, i32, i32, i32)>, (x, z)| {
+                Some(r.map_or((x, z, x, z), |r| (r.0.min(x), r.1.min(z), r.2.max(x), r.3.max(z))))
+            },
+        )
+    }
+
+    /// [`Note::area_cells`] grown by the margin: the ground an agent may work.
+    pub fn reach_cells(&self) -> Option<(i32, i32, i32, i32)> {
+        let m = self.site.as_ref().map_or(DEFAULT_MARGIN, |s| s.margin);
+        self.area_cells().map(|(a, b, c, d)| (a - m, b - m, c + m, d + m))
     }
 
     pub fn is_draft(&self) -> bool {
@@ -566,8 +653,109 @@ impl Notes {
         if !note.is_open() && note.holder().is_none() {
             return Err(format!("notes: {id} is already resolved"));
         }
-        note.state = State::Resolved { ops, summary: summary.to_owned() };
+        note.state = State::Resolved { ops, summary: summary.to_owned(), assumptions: Vec::new(), captures: Vec::new() };
         Ok(())
+    }
+
+    /// The holder asks the person a question and waits. Only the holder may ask, and one question
+    /// stands at a time: it must be answered first.
+    pub fn ask(&mut self, id: &str, by: &str, question: &str, now: u64) -> Result<(), String> {
+        self.expire(now);
+        if question.trim().is_empty() {
+            return Err("notes: a question needs text".to_owned());
+        }
+        let note = self.get_mut(id)?;
+        note.require_holder(id, by, "asked")?;
+        if note.pending_question().is_some() {
+            return Err(format!("notes: {id} already has a question waiting for the person's answer"));
+        }
+        note.log_at(now, by, What::Asked { question: question.to_owned() });
+        Ok(())
+    }
+
+    /// The person answers the question that stands on a note.
+    pub fn answer(&mut self, id: &str, answer: &str, now: u64) -> Result<(), String> {
+        if answer.trim().is_empty() {
+            return Err("notes: an answer needs text".to_owned());
+        }
+        let note = self.get_mut(id)?;
+        if note.pending_question().is_none() {
+            return Err(format!("notes: {id} has no question waiting, so there is nothing to answer"));
+        }
+        note.log_at(now, "person", What::Answered { answer: answer.to_owned() });
+        Ok(())
+    }
+
+    /// The holder finishes the note with the record the person reviews (#92): a one-line summary,
+    /// the assumptions it made, the operation ids it ran, and the pictures of the area before and
+    /// after. Refused with no summary, with fewer or more than two captures, or while a question
+    /// is unanswered. The note becomes `done`, awaiting review.
+    pub fn resolve_record(&mut self, id: &str, by: &str, record: Resolution, now: u64) -> Result<(), String> {
+        self.expire(now);
+        if record.summary.trim().is_empty() {
+            return Err("notes: a resolve needs a one-line summary".to_owned());
+        }
+        if record.captures.len() != 2 || record.captures.iter().any(|c| c.trim().is_empty()) {
+            return Err("notes: a resolve names two captures, the area before the work and after it".to_owned());
+        }
+        let note = self.get_mut(id)?;
+        note.require_holder(id, by, "resolved")?;
+        if note.pending_question().is_some() {
+            return Err(format!("notes: {id} has a question the person has not answered, so it was not resolved"));
+        }
+        note.state = State::Resolved {
+            ops: record.ops,
+            summary: record.summary,
+            assumptions: record.assumptions,
+            captures: record.captures,
+        };
+        note.log_at(now, by, What::Resolved);
+        Ok(())
+    }
+
+    /// Whether `change`, made by `by`, may go ahead under note `id`, and why not if it may not
+    /// (#92). **The editor enforces this; it does not trust the agent.**
+    ///
+    /// - The agent must hold the note.
+    /// - Ground outside the area plus its margin is refused, whatever was asked.
+    /// - A change that must be asked about is refused until the person has answered a question the
+    ///   holder asked since it claimed the note: more than [`LARGE_CHANGE`] pieces, any ground in
+    ///   the margin, a piece a person placed removed (`person_placed`), or a piece the kit
+    ///   cannot supply (`needs_unmapped`).
+    pub fn fence(&self, id: &str, by: &str, change: &Change) -> Result<(), String> {
+        let note = self.get(id).ok_or_else(|| format!("notes: no note {id}"))?;
+        note.require_holder(id, by, "changed")?;
+        let reach = note.reach_cells();
+        if let (Some((x0, z0, x1, z1)), Some((rx0, rz0, rx1, rz1))) = (change.cells, reach)
+            && (x0 < rx0 || z0 < rz0 || x1 > rx1 || z1 > rz1)
+        {
+            return Err(format!(
+                "notes: the change reaches cells ({x0},{z0})..({x1},{z1}), outside note {id}'s area plus its margin ({rx0},{rz0})..({rx1},{rz1}); nothing was changed"
+            ));
+        }
+        let mut why = Vec::new();
+        if change.pieces > LARGE_CHANGE {
+            why.push(format!("it changes {} pieces, more than {LARGE_CHANGE}", change.pieces));
+        }
+        if let (Some((x0, z0, x1, z1)), Some((ax0, az0, ax1, az1))) = (change.cells, note.area_cells())
+            && (x0 < ax0 || z0 < az0 || x1 > ax1 || z1 > az1)
+        {
+            why.push("it touches the margin around the area".to_owned());
+        }
+        if !change.person_placed.is_empty() {
+            why.push(format!("it removes {}, placed by a person", change.person_placed.join(", ")));
+        }
+        if let Some(what) = &change.needs_unmapped {
+            why.push(format!("the kit has nothing for \"{what}\""));
+        }
+        if why.is_empty() || note.answered_since_claim() {
+            return Ok(());
+        }
+        let waiting = if note.pending_question().is_some() { " (a question is waiting for the person)" } else { "" };
+        Err(format!(
+            "notes: {id}: {}, so ask the person first with note_ask and go on once they answer{waiting}; nothing was changed",
+            why.join("; ")
+        ))
     }
 
     /// Puts a resolved note back to open (the undo of a resolve).
