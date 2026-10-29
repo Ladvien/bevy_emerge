@@ -719,6 +719,24 @@ impl Project {
             .collect();
     }
 
+    /// **The set a composition would make, validated and not written.** What a preview asks and what
+    /// [`Self::commit_composition`] writes, so the two cannot disagree.
+    pub fn plan_composition(
+        &self,
+        comp: bevy_emerge_core::composition::Composition,
+    ) -> Result<bevy_emerge_core::composition::Compositions, String> {
+        let mut proposed = self.compositions.clone();
+        match proposed.compositions.iter().position(|c| c.id == comp.id) {
+            Some(i) => proposed.compositions[i] = comp,
+            None => proposed.compositions.push(comp),
+        }
+        // Canonical order, so one set has one encoding and a diff shows what changed rather than
+        // where it was inserted.
+        proposed.compositions.sort_by(|a, b| a.id.cmp(&b.id));
+        bevy_emerge_core::composition::validate(&proposed.compositions, &self.library)?;
+        Ok(proposed)
+    }
+
     /// **The one door to `compositions.ron`.** Insert or replace by id, sort, validate the whole set,
     /// write atomically, and adopt only on success.
     ///
@@ -744,15 +762,7 @@ impl Project {
         &mut self,
         comp: bevy_emerge_core::composition::Composition,
     ) -> Result<(), String> {
-        let mut proposed = self.compositions.clone();
-        match proposed.compositions.iter().position(|c| c.id == comp.id) {
-            Some(i) => proposed.compositions[i] = comp,
-            None => proposed.compositions.push(comp),
-        }
-        // Canonical order, so one set has one encoding and a diff shows what changed rather than
-        // where it was inserted.
-        proposed.compositions.sort_by(|a, b| a.id.cmp(&b.id));
-        bevy_emerge_core::composition::validate(&proposed.compositions, &self.library)?;
+        let proposed = self.plan_composition(comp)?;
 
         // **The project's collection, not the authoring kit's.** A tile may seat `site/wall` beside
         // `lab/bench`, so it belongs to neither kit — filing it under whichever one happened to be
@@ -765,6 +775,60 @@ impl Project {
             .map_err(|e| format!("NOT WRITTEN: {e}"))?;
         self.compositions = proposed;
         Ok(())
+    }
+
+    /// **Take a composition out of the project.**
+    ///
+    /// The same single-writer door as [`Self::commit_composition`]: the proposal is validated as a
+    /// whole set (a composition another one nests cannot go) and written before anything in memory
+    /// moves. A composition a map stamps is refused, because the map would stop loading.
+    pub fn plan_remove_composition(
+        &self,
+        id: &str,
+    ) -> Result<(bevy_emerge_core::composition::Compositions, bevy_emerge_core::composition::Composition), String> {
+        let mut proposed = self.compositions.clone();
+        let at = proposed
+            .compositions
+            .iter()
+            .position(|c| c.id == id)
+            .ok_or_else(|| format!("`{id}` is not a composition in this project"))?;
+        let needle = format!("of: \"{id}\"");
+        let mut stamped_by: Vec<String> = Vec::new();
+        if let Ok(dir) = std::fs::read_dir(&self.maps_dir) {
+            for entry in dir.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "ron")
+                    && std::fs::read_to_string(&path).is_ok_and(|t| t.contains(&needle))
+                {
+                    stamped_by.push(
+                        path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+                    );
+                }
+            }
+        }
+        if !stamped_by.is_empty() {
+            stamped_by.sort();
+            return Err(format!(
+                "`{id}` is stamped by {}, so removing it would stop those maps loading. Remove the stamps first.",
+                stamped_by.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        let gone = proposed.compositions.remove(at);
+        bevy_emerge_core::composition::validate(&proposed.compositions, &self.library)?;
+        Ok((proposed, gone))
+    }
+
+    /// **Take a composition out of the project**, written only when the plan holds.
+    pub fn remove_composition(&mut self, id: &str) -> Result<bevy_emerge_core::composition::Composition, String> {
+        let (proposed, gone) = self.plan_remove_composition(id)?;
+        let path = self
+            .project_dir
+            .join(bevy_emerge_core::composition::Compositions::FILE);
+        let text = proposed.to_ron()?;
+        bevy_emerge_core::ron_surgery::save_atomic(&path, &text)
+            .map_err(|e| format!("NOT WRITTEN: {e}"))?;
+        self.compositions = proposed;
+        Ok(gone)
     }
 
     /// **Rename a composition, and every map that stamps it.**

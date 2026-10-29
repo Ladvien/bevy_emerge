@@ -12987,7 +12987,23 @@ pub fn keep_as_group(project: &mut Project,
         }
     }
 
-    project.commit_composition(comp)?;
+    // **Through the registry**, so a person keeping a group and an agent calling `composition_set`
+    // make one write with one log line. The context carries a copy of the project; what it wrote is
+    // adopted only once the operation said it was done.
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "composition_set", &serde_json::json!({"composition": comp})) {
+        Ok(crate::ops::Applied::Done { .. }) => {
+            if let Some(done) = ctx.project.take() {
+                *project = done;
+            }
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => return Err(e.0),
+    }
     Ok(match at {
         Some(_) => Kept::Replaced { id, stamps },
         None => Kept::Made(id),

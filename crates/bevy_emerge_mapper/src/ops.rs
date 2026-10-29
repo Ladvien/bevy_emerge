@@ -2369,6 +2369,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
         Box::new(crate::ops_data::DataSet),
+        Box::new(crate::ops_compose::CompositionSet),
         Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_runs::RunAdd),
         Box::new(crate::ops_runs::RunSet),
@@ -2474,6 +2475,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Data field (#86)** — Enter on `<file> <path> <value>` dispatches `data_set` through
     // `set_data_leaf`, the same write an agent's `apply` makes.
     ("data_set", "set_data_leaf("),
+    // **Keep as group (Shift+B, then the name)** — `keep_as_group` dispatches `composition_set`, the
+    // same write an agent's `apply` makes with a whole composition.
+    ("composition_set", "keep_as_group("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).
