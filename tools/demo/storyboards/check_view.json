@@ -1,0 +1,19 @@
+{
+  "name": "check_view",
+  "fps": 5,
+  "scale": 2,
+  "width": 960,
+  "setup": [],
+  "chunks": [
+    {"seconds": 2.5, "operation": {"name": "placement_add", "parameters": {"piece": "plant_a", "at": [0, 0]}}},
+    {"seconds": 2.5, "operation": {"name": "placement_add", "parameters": {"piece": "bin", "at": [0.2, 0.1]}}},
+    {"seconds": 10}
+  ],
+  "steps": [
+    {"at": 0.2, "caption": "agent: placement_add plant_a, then bin on the same spot"},
+    {"at": 5.2, "caption": "person: Cmd+E opens the journal, which now has a Check view button"},
+    {"at": 5.4, "key": "KeyE", "mods": ["SuperLeft"]},
+    {"at": 8.0, "caption": "person: Check view asks the project's checks about the picture now"},
+    {"at": 8.2, "click": [680, 206]}
+  ]
+}
