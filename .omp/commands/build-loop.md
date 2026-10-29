@@ -239,6 +239,20 @@ from silence that nothing is filed.
 **An empty issue list costs nothing:** if it is empty or `gh` is unreachable, write one line saying so
 and continue — never spend a pass on the lookup.
 
+## Parallel workers: claim an issue before you build it
+
+Several passes run at once (owner, 2026-10-29), each in its **own clone on its own machine**, all pushing to `main`. **Your worker name is your clone's directory name**: `basename "$(git rev-parse --show-toplevel)"` (`bevy_emerge_loop`, `bevy_emerge_w2`, `bevy_emerge_w3`, …). Names are unique across machines. The ranking above decides *what comes first*; these rules decide *who builds it*.
+
+1. **Your own claim first.** `gh issue list --state open --label worker:<name>`: an issue carrying your label is your item this pass, ahead of the ranking. Finishing beats starting.
+2. **Claim, then check.** Otherwise take the first issue the ranking gives you that carries no `worker:*` label, and claim it **before writing code**: `gh label create worker:<name> --color BFD4F2 2>/dev/null; gh issue edit <N> --add-label worker:<name>`, and a comment `claimed by <name> (pass <n>, <host>)`. Then re-read its labels: if another `worker:*` label is also on it, the name that sorts first keeps it; the other removes its own label and picks again.
+3. **Another worker's claim is not yours,** however high it ranks: skip it and name it in the log line. The one exception is a stale claim, with no comment, commit or push naming the issue for 8 hours: take it over with a comment saying whose claim you replaced, and remove that label.
+4. **Release when you stop.** Remove your label when the issue closes (`Fixes #N`), and when you leave it blocked (with the comment saying what it needs).
+5. **Work that is not an issue belongs to `bevy_emerge_loop` alone:** Phase 1's backlog bugs, the series, the focus's backlog items (items 4–6) and Phase 2's own candidates. A second worker on the same backlog item is the collision this rule prevents. Any other worker with no issue it can claim records one `not yet recorded` changelog clip (Phase 2's "Everything blocked" recipe); with none left, it ends the pass with one log line, and the driver's backoff waits.
+6. **A red check on `main` is everyone's bug, and one worker's item.** The first to see it opens a `bug` issue naming the failing test and the commit that turned it red (unless one is open) and claims it. The others treat that failure as pre-existing (Phase 1's triage) and go on.
+7. **GitHub Actions is not your gate.** CI runs once a day (`.github/workflows/ci.yml`). Never wait for, poll or re-run a workflow: the local gate (Phase 4) is the gate, and a green local gate is what lets you push. At the start of a pass, read the last daily run once: `gh run list --workflow ci.yml --limit 1 --json conclusion,headSha,url`. A `failure` is a bug: open a `bug` issue naming that run unless one is open, and the ranking takes it first.
+8. **Merge, never force.** On a refused push, `git pull --no-rebase origin main`; a conflict with another worker's change keeps both changes, and the full local gate runs again before the push.
+9. **Every visible feature ships with its clip and its docs** (Phase 5): a changelog line with a demo clip, and its section in the README or `docs/guide/`. A worker on big records under its unit's Xvfb display first. If no clip there passes the look, it writes `--no-clip "visible, not yet recorded: no display on big"`, and **`bevy_emerge_w2` (a Mac) records the oldest such line before claiming new work** in its next pass. A feature without a clip after a day is a bug in the docs.
+
 ## What this editor needs from a family crate: the two-way street
 
 The owner's crates (`bevy_elements`, `bevy_flora`, `bevy_lights`, `bevy_society`, `bevy_speech_bubbles`, `bevy_stigmergy`, `bevy_light_grid`, `bevy_orca`, `bevy_carnage`, `bevy_fairy`, `isomesh`; issues #96–#108) are integrated by **configuring them, never by forking, wrapping or patching them here**. When an item needs a change in one of them (a missing API, a setting that cannot change at runtime, a bug), the change is made **in that crate's repository** and this editor then takes it by moving its pin.
@@ -249,7 +263,7 @@ The owner's crates (`bevy_elements`, `bevy_flora`, `bevy_lights`, `bevy_society`
 4. **Who builds it** depends on whether that crate's own loop is running. `docs/loop/focus.md` lists, under "Family loops running", the crates whose loops the owner has running.
    - **Listed:** leave it to that loop, and re-check the issue each pass.
    - **Not listed:** this pass may build it **at the source**, as its item for the pass:
-     - clone the crate's repository outside this clone (`~/family_src/<crate>`, fetched fresh);
+     - clone the crate's repository outside this clone (`~/family_src/<worker>/<crate>`, fetched fresh; `<worker>` is yours, from "Parallel workers", so two workers on one machine never share a crate's tree);
      - follow that repository's `AGENTS.md`, and never edit its existing tests or goldens;
      - write the failing test first, make the fix, and run that crate's own test suite;
      - commit there with `Fixes #M` and push to its `main`, merging `origin/main` if refused, never forcing;

@@ -1,20 +1,11 @@
 name: CI
+# **Once a day, not on every push** (owner, 2026-10-29). Several loop workers push to `main` many times an hour,
+# and a run per push queued behind itself and slowed every iteration; each pass already builds, lints and tests
+# locally before it pushes. A red daily run is a bug the loops take first (`build-loop.md`, "Parallel workers").
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "**/*.gif"
-      - "**/*.png"
-      - "**/*.mp4"
-  pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "**/*.gif"
-      - "**/*.png"
-      - "**/*.mp4"
+  schedule:
+    - cron: "0 9 * * *"   # 09:00 UTC, 04:00 in Texas
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
