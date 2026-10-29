@@ -813,7 +813,7 @@ pub fn bundle(notes: &Notes, id: &str, map: &bevy_emerge_core::map::Map, library
 /// **The notes an agent can act on, for `emerge/state`**: sent and claimed notes with their holder
 /// and lease, oldest first, with `note` naming one to get its [`bundle`]. Leases that ran out by
 /// `now` show as sent again, as a claim would find them.
-pub fn state_json(open: &crate::project::OpenMap, library: Option<&bevy_emerge_core::library::Library>, want: Option<&str>, now: u64) -> serde_json::Value {
+pub fn state_json<L: std::ops::Deref<Target = bevy_emerge_core::library::Library>>(open: &crate::project::OpenMap, library: Option<&L>, want: Option<&str>, now: u64) -> serde_json::Value {
     let Ok(mut notes) = Notes::load(&notes::path_for_map(&open.map_path)) else {
         return json!({"error": "the notes file could not be read"});
     };
@@ -830,7 +830,7 @@ pub fn state_json(open: &crate::project::OpenMap, library: Option<&bevy_emerge_c
     json!({
         "lease_secs": notes.lease_secs,
         "sent": list,
-        "bundle": want.map(|id| bundle(&notes, id, &open.map, library).unwrap_or_else(|| json!({"error": format!("no note {id}")}))),
+        "bundle": want.map(|id| bundle(&notes, id, &open.map, library.map(|l| &**l)).unwrap_or_else(|| json!({"error": format!("no note {id}")}))),
     })
 }
 
@@ -961,7 +961,10 @@ pub fn fence_refusal(ctx: &Ctx, agent: &str, op: &str, params: &serde_json::Valu
         return None;
     }
     let operation = crate::ops::find(op)?;
-    let scratch_dir = std::env::temp_dir().join(format!("emerge-fence-{}-{}", std::process::id(), now));
+    // A counter, not the clock: two fences in the same second in one process shared a directory, and the first to finish deleted the other's.
+    static FENCES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = FENCES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch_dir = std::env::temp_dir().join(format!("emerge-fence-{}-{}-{}", std::process::id(), now, n));
     std::fs::create_dir_all(&scratch_dir).ok()?;
     let mut trial_project = project.clone();
     trial_project.maps_dir = scratch_dir.clone();
