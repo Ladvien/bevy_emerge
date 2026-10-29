@@ -79,6 +79,7 @@ pub mod project;
 pub mod screen;
 pub mod sequencer;
 pub mod snip;
+pub mod after_edit;
 pub mod steps;
 pub mod stages;
 pub mod surface;
