@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **notes-fence-core** `f97e646` Notes: the engine-free fence (area plus margin, ask-first thresholds), questions and answers, and the resolve record *No clip: core API, not yet wired to operations; proved by crates/bevy_emerge_core/tests/note_fence.rs*
 - **113-mount-front** `8a90ab8` Decision-model labelling also proposes a piece's mount and front (#113 slice 2) *No clip: an API, labelling internals; proved by tests/decision_labels_mount_front.rs*
 - **notes-claims** `e866c66` An agent claims a sent note over MCP: note_claim, note_renew, note_release leases, and emerge_state's notes bundle (text, area plus margin, pieces, palette, camera, earlier notes) *No clip: visible, not yet recorded: no display on big (the Claim, Renew and Release buttons on a note row); proved by bevy_emerge_core/tests/note_leases.rs and bevy_emerge_mapper/tests/note_claims.rs*
 - **e98-environment-data** `c1a546b` A map's climate, date, clock and forced weather are saved in bevy_elements' own types and applied to the preview *No clip: an API and data layer, the Environment panel is the next slice; proved by environment_applies*
