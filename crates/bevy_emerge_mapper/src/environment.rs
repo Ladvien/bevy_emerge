@@ -198,3 +198,26 @@ pub fn spawn_section(s: &mut ChildSpawnerCommands) {
         button(r, EnvAction::ReleaseWeather, "Release", Severity::Plain);
     });
 }
+
+/// **The preview's look** (#98): a project with a `family/bevy_elements.ron` gets `bevy_elements`'
+/// atmosphere, fog, clouds and sun on the editor camera, which is what the game draws; a project
+/// without one keeps the editor's own light. Follows the file's presence, so adding or deleting it
+/// switches the preview without a restart.
+pub fn dress_camera(
+    settings: Res<FamilySettings>,
+    camera: Query<(Entity, Has<bevy_elements::ElementsCamera>), With<crate::view::MainCamera>>,
+    mut commands: Commands,
+) {
+    let wanted = settings.text.contains_key(CRATE);
+    for (entity, has) in &camera {
+        match (wanted, has) {
+            (true, false) => {
+                commands.entity(entity).insert(bevy_elements::ElementsCamera::default());
+            }
+            (false, true) => {
+                commands.entity(entity).remove::<bevy_elements::ElementsCamera>();
+            }
+            _ => {}
+        }
+    }
+}
