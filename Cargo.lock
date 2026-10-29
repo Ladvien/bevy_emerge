@@ -944,6 +944,7 @@ dependencies = [
 name = "bevy_emerge_decide"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "ron",
  "serde",
  "serde_json",
