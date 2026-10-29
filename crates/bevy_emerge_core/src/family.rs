@@ -230,3 +230,87 @@ fn value_extent(t: &str, i: usize, end: usize) -> usize {
     }
     value_end(t, i, &[]).map_or(end, |e| e.min(end))
 }
+
+/// `<project>/family/`: one `<crate>.ron` of that crate's own settings each.
+pub fn settings_dir(root: &Path) -> PathBuf {
+    root.join("family")
+}
+
+/// **Notices a family settings file changing on disk, and says which crates it touched** (#96's hot
+/// reload). The editor's `family_set` and a person editing the file reach the same place: the
+/// file. A settled change is reported once, by crate name, with the new text, so the preview and a
+/// running game's own copy of the plugin read the same bytes. A file that no longer parses as RON is
+/// reported as a problem, never applied: the previous good settings stay in force.
+pub struct FamilyWatch {
+    files: crate::live::FileWatch,
+    dir: PathBuf,
+    good: std::collections::BTreeMap<String, String>,
+}
+
+/// One settled change to a crate's settings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SettingsChange {
+    /// The file now holds these settings.
+    Reloaded { krate: String, text: String },
+    /// The file is not valid RON; the last good settings stay in force.
+    Invalid { krate: String, error: String },
+    /// The file was deleted; the crate falls back to its own defaults.
+    Removed { krate: String },
+}
+
+impl FamilyWatch {
+    /// Stats and reads the project's settings now. Call before first use of them.
+    pub fn new(root: &Path) -> FamilyWatch {
+        let dir = settings_dir(root);
+        let mut watch = FamilyWatch { files: crate::live::FileWatch::new(&dir, &["ron"]), dir, good: Default::default() };
+        for (krate, text) in watch.read() {
+            if ron::from_str::<ron::Value>(&text).is_ok() {
+                watch.good.insert(krate, text);
+            }
+        }
+        watch
+    }
+
+    fn read(&self) -> Vec<(String, String)> {
+        let Ok(entries) = std::fs::read_dir(&self.dir) else { return Vec::new() };
+        let mut out: Vec<(String, String)> = entries
+            .flatten()
+            .filter_map(|e| {
+                let p = e.path();
+                if p.extension()? != "ron" || p.file_name()?.to_string_lossy().starts_with('.') {
+                    return None;
+                }
+                Some((p.file_stem()?.to_string_lossy().into_owned(), std::fs::read_to_string(&p).ok()?))
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// At most one look per [`crate::live::POLL_SECS`]; the changes once the files have settled.
+    pub fn poll(&mut self, now_secs: f64) -> Vec<SettingsChange> {
+        if !self.files.poll(now_secs) {
+            return Vec::new();
+        }
+        let now = self.read();
+        let mut out = Vec::new();
+        for (krate, text) in &now {
+            if self.good.get(krate) == Some(text) {
+                continue;
+            }
+            match ron::from_str::<ron::Value>(text) {
+                Ok(_) => {
+                    self.good.insert(krate.clone(), text.clone());
+                    out.push(SettingsChange::Reloaded { krate: krate.clone(), text: text.clone() });
+                }
+                Err(e) => out.push(SettingsChange::Invalid { krate: krate.clone(), error: e.to_string() }),
+            }
+        }
+        let gone: Vec<String> = self.good.keys().filter(|k| !now.iter().any(|(n, _)| n == *k)).cloned().collect();
+        for krate in gone {
+            self.good.remove(&krate);
+            out.push(SettingsChange::Removed { krate });
+        }
+        out
+    }
+}

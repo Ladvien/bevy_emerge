@@ -588,6 +588,7 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::editor::FamilyEdit", Ownership::Door),
     // The game's newest verdict on a reload, read from `.live/game.ron`: true for as long as the app runs.
     ("bevy_emerge_mapper::live::LiveGame", Ownership::Session),
+    ("bevy_emerge_mapper::family_host::FamilySettings", Ownership::Session),
     ("bevy_emerge_mapper::editor::Folded", Ownership::Door),
     ("bevy_emerge_mapper::editor::StampPicture", Ownership::Door),
     ("bevy_emerge_mapper::editor::TargetLock", Ownership::Door),

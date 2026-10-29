@@ -5,7 +5,7 @@
 //! compiled without is a problem the author is told about, never a silent no-op.
 
 use bevy::prelude::*;
-use bevy_emerge_core::family::Family;
+use bevy_emerge_core::family::{Family, FamilyWatch, SettingsChange};
 use std::path::PathBuf;
 
 use crate::editor::EditorState;
@@ -47,5 +47,44 @@ pub fn report_problems(
     *told = Some(project.root.clone());
     for p in problems_with(&project.root, &built()) {
         state.status.problem(p);
+    }
+}
+
+/// **Hot reload of family settings** (#96): a settings file that changes on disk, from `family_set`
+/// or from a person's editor, is read once it settles and reported on the status line. The new text
+/// is kept in [`FamilySettings`] for the crate's own plugin to apply; a file that does not parse is a
+/// problem and the previous settings stay.
+#[derive(Resource, Default, Debug)]
+pub struct FamilySettings {
+    /// Crate name → the last good settings text.
+    pub text: std::collections::BTreeMap<String, String>,
+}
+
+pub fn reload_settings(
+    project: Option<Res<Project>>,
+    mut settings: ResMut<FamilySettings>,
+    mut state: ResMut<EditorState>,
+    mut watch: Local<Option<(PathBuf, FamilyWatch, std::time::Instant)>>,
+) {
+    let Some(project) = project else { return };
+    if watch.as_ref().is_none_or(|(root, ..)| *root != project.root) {
+        settings.text.clear();
+        *watch = Some((project.root.clone(), FamilyWatch::new(&project.root), std::time::Instant::now()));
+    }
+    let Some((_, w, started)) = watch.as_mut() else { return };
+    for change in w.poll(started.elapsed().as_secs_f64()) {
+        match change {
+            SettingsChange::Reloaded { krate, text } => {
+                state.status.note(format!("{krate} settings reloaded"));
+                settings.text.insert(krate, text);
+            }
+            SettingsChange::Invalid { krate, error } => {
+                state.status.problem(format!("{krate} settings are not valid RON, so the previous ones stay: {error}"));
+            }
+            SettingsChange::Removed { krate } => {
+                state.status.note(format!("{krate} settings removed; its defaults apply"));
+                settings.text.remove(&krate);
+            }
+        }
     }
 }
