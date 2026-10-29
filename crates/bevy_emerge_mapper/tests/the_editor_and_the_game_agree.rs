@@ -18,7 +18,7 @@
 //! there too. What is left for here is the part only this crate can see: **that the editor's
 //! drawn rows and the consumer's loaded rows are the same rows.**
 
-mod fixtures;
+use crate::fixtures;
 
 use fixtures::Fixture;
 

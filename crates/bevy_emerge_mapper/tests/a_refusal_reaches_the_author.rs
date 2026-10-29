@@ -33,8 +33,6 @@
 //!   flood's sentence moved into `ops::fill`, then failed on `main` once it had. Removed rather
 //!   than re-pinned: a copy of a test is a place for two answers to disagree.
 
-mod fixtures;
-
 /// **The fill's refusals are problems, and the author can see them.**
 ///
 /// The `Status` type's own contract is the rule: a refusal handed back by the core is a `problem`.

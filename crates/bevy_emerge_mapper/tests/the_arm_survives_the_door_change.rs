@@ -17,7 +17,7 @@
 //! a door change resets it. So the arm is reset with it. **The table is the defect, stated in the
 //! table's own words.**
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::screen::{Ownership, ownership};

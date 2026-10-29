@@ -25,7 +25,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::ops::{self, Entry};
 use bevy_emerge_mapper::project::Project;
 
-mod fixtures;
+use crate::fixtures;
 
 /// A Map-door editor holding a wall and a gate, so a click can arm one while the other is armed.
 fn editor(name: &str) -> App {

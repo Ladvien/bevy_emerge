@@ -11,7 +11,7 @@
 //! - **The one writer is the one the crate names.** The core's ratchet asserts the file is not
 //!   written from a tab; this asserts the tab *reaches* the door.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::{OpenMap, Project};

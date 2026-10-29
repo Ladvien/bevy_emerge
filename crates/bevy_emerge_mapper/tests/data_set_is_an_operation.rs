@@ -3,26 +3,30 @@
 use bevy_emerge_mapper::ops::{self, Applied, Ctx};
 use serde_json::json;
 
-mod fixtures;
+use crate::fixtures;
 
 const TEXT: &str = "// tuning\n(mob: (speed: 1.50, name: \"orc\", hp: 7), fast: false)\n";
 
 fn project(tag: &str, registry: bool) -> (Ctx, std::path::PathBuf) {
     let root = fixtures::Fixture::new(tag).descriptor("site/wall", "alpha").build("m");
-    let file = root.join("mob.ron");
-    std::fs::write(&file, TEXT).unwrap();
-    if registry {
-        std::fs::write(
-            root.join("data.ron"),
-            "(version: 1, files: [(id: \"tuning/mob\", path: \"mob.ron\", bounds: {\"mob.speed\": (min: 0.0, max: 9.0)})])",
-        )
-        .unwrap();
-    }
     let mut app = bevy_emerge_mapper::harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
     for _ in 0..4 {
         app.update();
     }
     let project = app.world().resource::<bevy_emerge_mapper::project::Project>().clone();
+    let dir = project.emerge_dir.clone();
+    let file = dir.join("mob.ron");
+    std::fs::write(&file, TEXT).unwrap();
+    if registry {
+        std::fs::write(
+            dir.join("data.ron"),
+            "(version: 1, files: [(id: \"tuning/mob\", path: \"mob.ron\", bounds: {\"mob.speed\": (min: 0.0, max: 9.0)})])",
+        )
+        .unwrap();
+    }
+    assert_ne!(dir, root, "the registry lives in the emerge directory, not the project root (#116)");
+    let listed = bevy_emerge_mapper::ops_data::listing(&dir);
+    assert_eq!(listed.is_empty(), !registry);
     (Ctx { project: Some(project), session: "test".to_owned(), ..Ctx::default() }, file)
 }
 
@@ -100,10 +104,10 @@ fn an_agent_cannot_send_the_undos_own_form() {
 #[test]
 fn the_data_panel_lists_each_registered_leaf_with_its_token() {
     let (ctx, _) = project("listing", true);
-    let rows = bevy_emerge_mapper::ops_data::listing(&ctx.project.as_ref().unwrap().root);
+    let rows = bevy_emerge_mapper::ops_data::listing(&ctx.project.as_ref().unwrap().emerge_dir);
     let got: Vec<(&str, &str, &str)> = rows.iter().map(|r| (r.file.as_str(), r.path.as_str(), r.value.as_str())).collect();
     assert!(got.contains(&("tuning/mob", "mob.speed", "1.50")), "{got:?}");
     assert!(got.contains(&("tuning/mob", "fast", "false")), "{got:?}");
     let (ctx, _) = project("listing_none", false);
-    assert!(bevy_emerge_mapper::ops_data::listing(&ctx.project.as_ref().unwrap().root).is_empty());
+    assert!(bevy_emerge_mapper::ops_data::listing(&ctx.project.as_ref().unwrap().emerge_dir).is_empty());
 }

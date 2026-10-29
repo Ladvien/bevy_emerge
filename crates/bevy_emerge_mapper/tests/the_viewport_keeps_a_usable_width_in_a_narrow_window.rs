@@ -16,7 +16,7 @@ use bevy::window::{PrimaryWindow, Window, WindowResolution};
 use bevy_emerge_mapper::chrome::ViewportSlot;
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 /// The viewport's width in logical px, at the given window size.
 fn viewport_width(logical_w: f32, logical_h: f32, tag: &str) -> f32 {

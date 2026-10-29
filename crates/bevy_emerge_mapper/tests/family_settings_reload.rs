@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::family_host::{reload_settings, FamilySettings};
 
-mod fixtures;
+use crate::fixtures;
 
 #[test]
 fn an_edited_settings_file_reaches_the_editor_and_a_bad_one_is_a_problem() {
@@ -18,7 +18,7 @@ fn an_edited_settings_file_reaches_the_editor_and_a_bad_one_is_a_problem() {
     std::thread::sleep(std::time::Duration::from_millis(50));
     std::fs::write(&file, "(sun: (hour: 18.5))").unwrap();
     let start = std::time::Instant::now();
-    while start.elapsed().as_secs_f64() < 2.0 && app.world().resource::<FamilySettings>().text.is_empty() {
+    while start.elapsed().as_secs_f64() < 2.0 && app.world().resource::<FamilySettings>().text["bevy_elements"] != "(sun: (hour: 18.5))" {
         app.update();
         std::thread::sleep(std::time::Duration::from_millis(50));
     }

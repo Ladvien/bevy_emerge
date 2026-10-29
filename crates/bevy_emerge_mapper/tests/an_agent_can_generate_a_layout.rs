@@ -20,7 +20,7 @@ use bevy_emerge_mapper::editor::Proposal;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A project with two one-cell compositions.** The generator needs a grammar over compositions:
 /// `learned` has nothing to continue on a map holding one piece, and a kit with no `Bounded`

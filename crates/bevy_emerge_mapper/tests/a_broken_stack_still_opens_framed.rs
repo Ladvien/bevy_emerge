@@ -19,7 +19,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 use bevy_emerge_mapper::view::MainCamera;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A 1120 m map with one lamp seated on a piece that cannot hold it up.**
 ///

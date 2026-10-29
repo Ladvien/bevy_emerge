@@ -15,7 +15,7 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::gizmos::config::GizmoConfigStore;
 use bevy::prelude::*;
 
-mod fixtures;
+use crate::fixtures;
 
 #[test]
 fn only_the_world_camera_draws_gizmos() {

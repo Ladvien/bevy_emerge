@@ -40,6 +40,49 @@ pub const LIBRARY_FILE: &str = "library.ron";
 /// by it.
 const MAPS_DIR: &str = "maps";
 
+/// **A value a [`Project`] clone shares instead of copies.**
+///
+/// The operation context owns a `Project`, so every click that dispatches an operation clones it —
+/// and the library, its measurements, the kit layers and the masks are the heavy part of it. Behind
+/// an `Arc`, a clone is a few reference-count bumps. Reads go through [`Deref`](std::ops::Deref)
+/// unchanged; a write goes through [`DerefMut`](std::ops::DerefMut), which copies the value first
+/// only when a clone is still holding it (`Arc::make_mut`), so an operation's scratch copy can never
+/// change the live project and the live project pays for the copy only when it writes.
+#[derive(Debug, PartialEq, Default)]
+pub struct Shared<T>(std::sync::Arc<T>);
+
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Shared(std::sync::Arc::clone(&self.0))
+    }
+}
+
+impl<T> From<T> for Shared<T> {
+    fn from(value: T) -> Self {
+        Shared(std::sync::Arc::new(value))
+    }
+}
+
+impl<T> std::ops::Deref for Shared<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T: Clone> std::ops::DerefMut for Shared<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+}
+
+impl<T> Shared<T> {
+    /// Whether `self` and `other` are the same allocation — what a clone preserves.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 /// The opened project.
 /// **Cloned, because the operation context owns what it carries.** The registry's operations are
 /// a `dyn`, and a `dyn` cannot have a lifetime on its methods — so the context holds the project
@@ -81,7 +124,7 @@ pub struct Project {
     /// `--kit site` wrote SCP-9191's stretched 2.40 m wall heights into the measurements file the kit
     /// exists to share — and the next load applied the patches again on top of them. A library is
     /// measurements; the architecture is `project.ron`'s, and it must not leak downward.
-    pub measured: Library,
+    pub measured: Shared<Library>,
     /// **Every composition this project can stamp**, validated against [`Self::library`] at open.
     ///
     /// Read from `compositions.ron` beside the library, or empty when the project has none — which is
@@ -91,7 +134,7 @@ pub struct Project {
     /// reader here (the palette, the preview, the flood fill, the fault check) uses.
     ///
     /// Derived, never written. Rebuilt from `measured` after every edit by `write_library`.
-    pub library: Library,
+    pub library: Shared<Library>,
     /// **The authoring kit's** policy — the patches and the exclusions it applies to its own pieces.
     ///
     /// Per-kit and not merged, because `Policy::apply` refuses a rule that matches nothing: a kit's
@@ -112,7 +155,7 @@ pub struct Project {
     /// Held so an edit to the authoring kit can rebuild [`Self::library`] without re-reading the
     /// other kits off disk — `commit_measured` validates before it writes, so the file it would
     /// re-read is still the old one at the moment the merge is needed.
-    pub kits: Vec<bevy_emerge_core::kits::KitLayer>,
+    pub kits: Shared<Vec<bevy_emerge_core::kits::KitLayer>>,
     /// **The named combinations a map may draw on** — `kits.ron`'s `bash`, in file order.
     ///
     /// Held beside [`Self::kits`] because it is read at the same two moments: `OpenMap::open`
@@ -122,7 +165,7 @@ pub struct Project {
     pub bashes: Vec<bevy_emerge_core::kits::Bash>,
     /// Per-descriptor token masks, in library order — resolved once at load so the palette and the
     /// placement rules never re-resolve the same strings.
-    pub masks: Vec<Masks>,
+    pub masks: Shared<Vec<Masks>>,
     /// **The project's own directory** — `assets/emerge`, the one holding `vocab.ron`, `kits.ron`
     /// and `compositions.ron`. Not a kit; kits are its subdirectories.
     pub project_dir: PathBuf,
@@ -163,7 +206,7 @@ pub struct Project {
     /// than stored in the descriptor. Triangle count is a fact about the *file*, so keeping it in the
     /// schema would mean a number that silently goes stale the first time an artist re-exports. This
     /// costs a few milliseconds and cannot be wrong.
-    pub triangles: Vec<usize>,
+    pub triangles: Shared<Vec<usize>>,
 }
 
 impl Project {
@@ -362,7 +405,8 @@ impl Project {
             .descriptors
             .iter()
             .map(|d| triangles_of(root, d))
-            .collect();
+            .collect::<Vec<usize>>()
+            .into();
 
         Ok(Project {
             root: root.to_path_buf(),
@@ -370,15 +414,15 @@ impl Project {
             namespace,
             lattice: kits.lattice,
             bashes: kits.bash,
-            kits: layers,
+            kits: layers.into(),
             library_path,
             vocab,
-            measured,
+            measured: measured.into(),
             compositions,
-            library,
+            library: library.into(),
             rules,
             policy,
-            masks,
+            masks: masks.into(),
             project_dir,
             maps_dir,
             // **No map yet.** The Map door sets it when it opens one, and the crossing carries it.
@@ -429,7 +473,7 @@ impl Project {
             .resolve(&vocab)
             .map_err(|e| format!("{}: {e}", self.library_path.display()))?;
         self.vocab = vocab;
-        self.masks = masks;
+        self.masks = masks.into();
         Ok(())
     }
 
@@ -445,7 +489,7 @@ impl Project {
     /// refused here — at the commit door — rather than at the next open.
     pub fn merged_with(&self, layered: &Library) -> Result<Library, String> {
         let mut descriptors = Vec::new();
-        for k in &self.kits {
+        for k in self.kits.iter() {
             if k.dir == self.emerge_dir {
                 descriptors.extend(layered.descriptors.iter().cloned());
             } else {
@@ -594,7 +638,8 @@ impl Project {
                 }
                 triangles_of(root, d)
             })
-            .collect();
+            .collect::<Vec<usize>>()
+            .into();
 
         // **Nothing above this line has touched `self`** — every refusal returns before the swap.
         let touched = crate::tiles::changed_ids(&self.library, &library);
@@ -605,11 +650,11 @@ impl Project {
         kit.policy = layered.policy;
         if authoring {
             // The three fields that only ever describe the authoring kit's layer.
-            self.measured = self.kits[at].measured.clone();
+            self.measured = self.kits[at].measured.clone().into();
             self.policy = self.kits[at].policy.clone();
         }
-        self.library = library;
-        self.masks = masks;
+        self.library = library.into();
+        self.masks = masks.into();
         self.triangles = triangles;
         Ok(touched)
     }
@@ -716,7 +761,8 @@ impl Project {
             .descriptors
             .iter()
             .map(|d| triangles_of(root, d))
-            .collect();
+            .collect::<Vec<usize>>()
+            .into();
     }
 
     /// **The one door to `compositions.ron`.** Insert or replace by id, sort, validate the whole set,

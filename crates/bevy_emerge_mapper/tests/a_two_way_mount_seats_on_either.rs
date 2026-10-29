@@ -15,7 +15,7 @@
 //! 4. The strict surface-only piece is still refused over bare floor, so the permissive mount did not
 //!    silently relax its neighbour.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy_emerge_core::stack::resolve_y;
 use bevy_emerge_mapper::editor::{EditorState, fill_for_test, place_for_test};

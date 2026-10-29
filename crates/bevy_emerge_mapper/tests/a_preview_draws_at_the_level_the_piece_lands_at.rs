@@ -36,7 +36,7 @@ use bevy_emerge_core::map::Placed;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::{OpenMap, Project};
 
-mod fixtures;
+use crate::fixtures;
 
 /// A project with a road crossing a field, the shape the shipped town has: two flat pieces laid over
 /// one another, authored data rather than a click (`place` does not run the blocker rule, and the
@@ -55,7 +55,7 @@ fn library_of(root: &std::path::Path) -> (bevy_emerge_core::map::Map, bevy_emerg
     let world = app.world();
     (
         world.resource::<OpenMap>().map.clone(),
-        world.resource::<Project>().library.clone(),
+        (*world.resource::<Project>().library).clone(),
     )
 }
 

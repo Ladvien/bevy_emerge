@@ -3,7 +3,7 @@
 use bevy_emerge_mapper::ops::{self, Applied, Ctx};
 use serde_json::json;
 
-mod fixtures;
+use crate::fixtures;
 
 fn project(tag: &str, listed: &str) -> (Ctx, std::path::PathBuf) {
     let root = fixtures::Fixture::new(tag).descriptor("site/wall", "alpha").build("m");

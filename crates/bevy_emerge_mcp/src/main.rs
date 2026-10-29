@@ -85,6 +85,12 @@ pub struct ApplyParams {
     /// the log are all left alone, and the answer says what would have changed.
     #[serde(default)]
     pub dry_run: bool,
+    /// **Your name as the holder of a note you claimed.** While you hold one, an operation that
+    /// reaches outside the note's area plus one cell is refused, and so is one that needs a
+    /// question answered first (removing a piece a person placed, changing more than 10 pieces,
+    /// touching the margin): ask with note_ask, and go on once the person answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 /// **The parameters of `emerge_undo_operation`.**
@@ -563,6 +569,7 @@ impl Emerge {
                     "operation": p.operation,
                     "parameters": p.parameters,
                     "dry_run": p.dry_run,
+                    "agent": p.agent,
                 }),
             )
             .await

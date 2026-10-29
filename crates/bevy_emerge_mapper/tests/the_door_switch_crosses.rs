@@ -15,7 +15,7 @@
 //! - **The round trip still works.** `Cmd+O` → the chooser → the other door. The crossing is
 //!   **added, not substituted**.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::{OpenMap, Project};
