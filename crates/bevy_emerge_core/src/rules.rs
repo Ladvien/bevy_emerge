@@ -76,6 +76,13 @@ pub struct Rules {
     pub blocks: Vec<BlockRules>,
 }
 
+/// No block rules, at the version this program reads.
+impl Default for Rules {
+    fn default() -> Self {
+        Rules { version: RULES_VERSION, blocks: Vec::new() }
+    }
+}
+
 /// The rules for one kind of block.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
