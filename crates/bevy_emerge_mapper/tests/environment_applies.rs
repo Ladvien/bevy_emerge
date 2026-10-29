@@ -66,3 +66,30 @@ fn forcing_rain_holds_until_it_is_released_back_to_the_climate() {
     apply(&read(&file), &mut clock, &mut loc, &mut climate, &mut director, &mut applied);
     assert!(!director.is_forced(), "None releases the weather to the climate's schedule");
 }
+
+#[test]
+fn scrubbing_the_clock_moves_the_preview_clock_and_writes_nothing() {
+    use bevy::prelude::*;
+    use bevy_emerge_mapper::environment::{scrub_clock, ClockScrub};
+    let (mut ctx, file) = project("scrub");
+    let before = std::fs::read_to_string(&file).unwrap();
+    let mut app = App::new();
+    app.init_resource::<ClockScrub>().insert_resource(WorldClock::default()).add_systems(Update, scrub_clock);
+    app.update();
+    let untouched = app.world().resource::<WorldClock>().hour;
+
+    app.world_mut().resource_mut::<ClockScrub>().set(18.5);
+    app.update();
+    assert_eq!(app.world().resource::<WorldClock>().hour, 18.5);
+    app.world_mut().resource_mut::<ClockScrub>().set(-1.0);
+    app.update();
+    assert_eq!(app.world().resource::<WorldClock>().hour, 23.0, "wraps into the day");
+
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before, "scrubbing writes no file");
+    assert!(bevy_emerge_mapper::ops::undo(&mut ctx, None).is_err(), "scrubbing is not an undo step");
+
+    app.world_mut().resource_mut::<ClockScrub>().release();
+    app.world_mut().resource_mut::<WorldClock>().hour = untouched;
+    app.update();
+    assert_eq!(app.world().resource::<WorldClock>().hour, untouched, "released: the file's clock runs");
+}

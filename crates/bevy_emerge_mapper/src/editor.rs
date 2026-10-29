@@ -1929,7 +1929,13 @@ pub struct EditorPlugin;
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "bevy_elements")]
-        app.add_systems(Update, crate::environment::apply_environment.after(crate::family_host::reload_settings));
+        app.init_resource::<crate::environment::ClockScrub>().add_systems(
+            Update,
+            (
+                crate::environment::apply_environment.after(crate::family_host::reload_settings),
+                crate::environment::scrub_clock.after(crate::environment::apply_environment),
+            ),
+        );
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()

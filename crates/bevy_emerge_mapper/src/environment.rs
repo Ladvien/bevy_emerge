@@ -117,3 +117,33 @@ pub fn apply_environment(
         apply(&parsed, clock, location, climate, director, &mut applied_force);
     }
 }
+
+/// **The clock scrubber** (#98): camera-style state, not an operation. `Some(hour)` holds the
+/// preview's clock at that hour of day without touching `family/bevy_elements.ron`, so scrubbing
+/// writes no file and leaves no undo step; `None` lets the file's clock run.
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq)]
+pub struct ClockScrub(pub Option<f64>);
+
+impl ClockScrub {
+    /// Hold the clock at `hour`, wrapped into `[0, 24)`. A non-finite hour is ignored.
+    pub fn set(&mut self, hour: f64) {
+        if hour.is_finite() {
+            self.0 = Some(hour.rem_euclid(24.0));
+        }
+    }
+
+    /// Give the clock back to the settings file.
+    pub fn release(&mut self) {
+        self.0 = None;
+    }
+}
+
+/// Holds the preview's clock at the scrubbed hour, every frame after the file was applied.
+pub fn scrub_clock(scrub: Res<ClockScrub>, clock: Option<ResMut<WorldClock>>) {
+    if let (Some(hour), Some(mut clock)) = (scrub.0, clock)
+        && (clock.hour != hour || !clock.paused)
+    {
+        clock.hour = hour;
+        clock.paused = true;
+    }
+}
