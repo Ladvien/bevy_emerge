@@ -87,6 +87,8 @@ separately. Do not reason your way to an exception; the value of the rule is tha
 
 - **#89 (Notes 1/7), `crates/bevy_emerge_mapper/src/keys.rs`'s `#[cfg(test)]` block:** add the note tool's one `Action` to the action list that must match `BINDINGS`, and raise `(Context::Map, 31)` to `32` in `no_context_gains_a_key`, with a comment in that test's style saying what the key is and why. Only in the commit that adds that action and its binding (Shift+N, with `RenameMap` made Shift-up), whose message says "owner exception, #89". Nothing else in the block changes. Granted 2026-10-28.
 
+- **Family crates (#96–#108), `crates/bevy_emerge_mapper/tests/leaf.rs`'s `ALLOWED`:** the commit that adds a family crate (a Ladvien repo listed in `AGENTS.md`'s "Use the ladvien crate family") to the editor's `[dependencies]` adds that crate's one row to `ALLOWED`, with a reason naming its issue. The dependency must be `optional = true`, behind a cargo feature named after the crate, and pinned by git `rev`. Nothing else in `leaf.rs` changes, and no other crate is added this way. The commit message says "owner exception, family". Granted 2026-10-29; the first row, `bevy_elements`, the owner added himself.
+
 **Append, never rewrite.** `docs/loop/log.md` is append-only: add your line at the bottom and do not
 touch another pass's.
 

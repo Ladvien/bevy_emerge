@@ -61,6 +61,12 @@ const ALLOWED: &[(&str, &str)] = &[
          from the resolved graph of an ordinary build (`cargo tree -i` finds no package). It is \
          what lets an agent press a key in this editor without taking the machine's keyboard",
     ),
+    (
+        "bevy_elements",
+        "the owner's sky, climate, weather, terrain and water crate, hosted by the family layer (#96) — \
+         OPTIONAL, reached only by `--features bevy_elements` and pinned by git rev, so an ordinary \
+         build and a game that lists no family crate pay nothing",
+    ),
 ];
 
 fn declared_dependencies(manifest: &str) -> BTreeSet<String> {
