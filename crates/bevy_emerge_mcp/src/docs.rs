@@ -386,6 +386,7 @@ pub fn schemas() -> Value {
                 "operation": {"type": "string"},
                 "parameters": {"type": "object"},
                 "dry_run": {"type": "boolean", "default": false},
+                "agent": {"type": ["string", "null"]},
             },
         },
         "emerge_undo_operation": {
