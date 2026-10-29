@@ -2295,6 +2295,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(door_open::DoorOpen),
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
+        Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_notes::NoteAdd),
         Box::new(crate::ops_notes::NoteEdit),
         Box::new(crate::ops_notes::NoteRemove),
@@ -2383,6 +2384,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // `rules_set` through `set_rule_seed`, so a person tuning a rule and an agent calling the
     // operation are one change with one undo.
     ("rules_set", "set_rule_seed("),
+    // **The family settings field (#96)** — Enter on `<crate> <field> <value>` dispatches
+    // `family_set` through `set_family_field`, the same write an agent's `apply` makes.
+    ("family_set", "set_family_field("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).
