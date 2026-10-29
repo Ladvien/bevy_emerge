@@ -2296,6 +2296,9 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
         Box::new(crate::ops_family::FamilySet),
+        Box::new(crate::ops_runs::RunAdd),
+        Box::new(crate::ops_runs::RunSet),
+        Box::new(crate::ops_runs::RunRemove),
         Box::new(crate::ops_notes::NoteAdd),
         Box::new(crate::ops_notes::NoteEdit),
         Box::new(crate::ops_notes::NoteRemove),
@@ -2392,6 +2395,12 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).
     ("note_add", "add_note("),
+    // **The Run tool (#115)** — a drag in run mode dispatches `run_add` through `add_run`; a drag that
+    // starts on an end of a standing run moves that end through `set_run` (`run_set`); a click on a
+    // run with the removal tool takes it off whole through `remove_run` (`run_remove`).
+    ("run_add", "add_run("),
+    ("run_set", "set_run("),
+    ("run_remove", "remove_run("),
     ("note_edit", "edit_note("),
     ("note_remove", "remove_note("),
     // **Enter on the Note tool with no box open** sends every draft through `send_notes`, which
