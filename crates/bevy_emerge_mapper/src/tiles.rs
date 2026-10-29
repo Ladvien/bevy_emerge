@@ -273,7 +273,7 @@ pub struct ImportState {
 /// library would leave every pre-Accept edit — id, mount, size, height, lattice — outside the history.
 #[derive(Clone)]
 pub struct Snapshot {
-    pub measured: bevy_emerge_core::library::Library,
+    pub measured: crate::project::Shared<bevy_emerge_core::library::Library>,
     pub candidates: Vec<Candidate>,
     pub cursor: CursorMark,
 }
@@ -3305,8 +3305,9 @@ pub fn library_writes_for_test() -> usize {
 /// it. A derived layer is not a place to keep anything; this is the only door to the one that is.
 pub(crate) fn commit_measured(
     project: &mut Project,
-    measured: bevy_emerge_core::library::Library,
+    measured: impl Into<crate::project::Shared<bevy_emerge_core::library::Library>>,
 ) -> Result<std::path::PathBuf, String> {
+    let measured = measured.into();
     // Rebuild the layered view from the edited measurements, and prove it still holds together,
     // before anything touches the disk.
     // **The authoring kit's own layer**, since patches are per-kit and `Policy::apply` refuses a
@@ -3349,11 +3350,11 @@ pub(crate) fn commit_measured(
         .iter_mut()
         .find(|k| k.dir == project.emerge_dir)
     {
-        k.measured = project.measured.clone();
+        k.measured = (*project.measured).clone();
         k.library = layered;
     }
-    project.library = library;
-    project.masks = masks;
+    project.library = library.into();
+    project.masks = masks.into();
     project.remeasure_triangles();
     Ok(path)
 }
@@ -4890,17 +4891,17 @@ mod pack_fold_tests {
             maps_dir: std::path::PathBuf::from("/nonexistent/maps"),
             // A test project has no map open.
             open_map_name: None,
-            kits: Vec::new(),
+            kits: Vec::new().into(),
             bashes: Vec::new(),
             namespace: "nonexistent".to_owned(),
             library_path: std::path::PathBuf::from("/nonexistent/library.ron"),
             vocab: bevy_emerge_core::vocab::Vocabularies::default(),
             compositions: bevy_emerge_core::composition::Compositions::default(),
-            library,
-            measured,
+            library: library.into(),
+            measured: measured.into(),
             policy: bevy_emerge_core::policy::Policy::default(),
             lattice: bevy_emerge_core::kits::Lattice::default(),
-            masks: Vec::new(),
+            masks: Vec::new().into(),
             rules: bevy_emerge_core::rules::Rules {
                 version: bevy_emerge_core::rules::RULES_VERSION,
                 blocks: Vec::new(),
@@ -4908,7 +4909,7 @@ mod pack_fold_tests {
             // **No map anywhere in this fixture**, which is the point: the rule under test is about
             // a kit, and the Kits door has no map to consult. See `project::OpenMap`.
             touched: Vec::new(),
-            triangles: Vec::new(),
+            triangles: Vec::new().into(),
         }
     }
 
@@ -10957,7 +10958,8 @@ mod write_library_tests {
                 measured: measured.clone(),
                 library: library.clone(),
                 policy: policy.clone(),
-            }],
+            }]
+            .into(),
             // A test project declares no combinations; every map in it offers every bound kit.
             bashes: Vec::new(),
             lattice: bevy_emerge_core::kits::Lattice::default(),
@@ -10967,16 +10969,16 @@ mod write_library_tests {
                 .map_or_else(|| "emerge".to_owned(), |n| n.to_string_lossy().into_owned()),
             library_path: dir.join("library.ron"),
             vocab: bevy_emerge_core::vocab::Vocabularies::default(),
-            measured,
-            library,
+            measured: measured.into(),
+            library: library.into(),
             policy,
-            masks: Vec::new(),
+            masks: Vec::new().into(),
             rules: bevy_emerge_core::rules::Rules {
                 version: bevy_emerge_core::rules::RULES_VERSION,
                 blocks: Vec::new(),
             },
             touched: Vec::new(),
-            triangles: vec![0],
+            triangles: vec![0].into(),
         }
     }
 

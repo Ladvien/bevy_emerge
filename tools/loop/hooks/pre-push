@@ -24,7 +24,12 @@ while read -r _local_ref local_sha remote_ref remote_sha; do
   fi
 done
 [ -n "$target" ] || exit 0
-refuse() { echo "pre-push gate: REFUSED: $*" >&2; echo "pre-push gate: fix it, or log the item as blocked; never --no-verify." >&2; exit 1; }
+# Every gate run leaves one line per step in `<git-dir>/gate.log` (time, commit, step, seconds), so how long
+# the gate costs each worker is measured, not guessed: pass logs hold only the agent's final message.
+log="$(git rev-parse --git-dir)/gate.log"
+note() { printf '%s %s %s\n' "$(date +%FT%T)" "${target:0:9}" "$*" >> "$log"; }
+refuse() { note "REFUSED $*"; echo "pre-push gate: REFUSED: $*" >&2; echo "pre-push gate: fix it, or log the item as blocked; never --no-verify." >&2; exit 1; }
+timed() { local name=$1 t0 rc; shift; t0=$(date +%s); "$@"; rc=$?; note "$name rc=$rc $(( $(date +%s) - t0 ))s"; return $rc; }
 [ "$(git rev-parse HEAD)" = "$target" ] || refuse "push the checked-out commit (HEAD $(git rev-parse --short HEAD), pushing ${target:0:9})"
 [ -z "$(git status --porcelain -- crates Cargo.toml Cargo.lock tools)" ] || refuse "uncommitted changes under crates/, Cargo.*, tools/ would be tested instead of the commit; commit or stash them"
 python3 tools/loop/backlog.py check >/dev/null || refuse "python3 tools/loop/backlog.py check failed"
@@ -46,15 +51,16 @@ clean_merge_of_main() {
 # Git opens the connection before this hook runs, and GitHub drops it while a 30-minute gate runs
 # ("Connection to github.com closed by remote host", bevy_emerge_loop, 2026-10-29): the gate passed,
 # the push did not. Pushing the same commit again needs no second gate.
-if gated "$target"; then echo "pre-push gate: ${target:0:9} already passed the gate in this clone; pushing it again" >&2; exit 0; fi
+if gated "$target"; then note "already gated, pushing again"; echo "pre-push gate: ${target:0:9} already passed the gate in this clone; pushing it again" >&2; exit 0; fi
 start=$(date +%s)
 if clean_merge_of_main; then
   echo "pre-push gate: ${target:0:9} is a clean merge of main into a commit that passed the gate; clippy over every target only" >&2
-  $cargo clippy --workspace --all-targets -q -- -D warnings || refuse "cargo clippy --workspace --all-targets -- -D warnings failed on the merge"
+  timed clippy-merge $cargo clippy --workspace --all-targets -q -- -D warnings || refuse "cargo clippy --workspace --all-targets -- -D warnings failed on the merge"
 else
   echo "pre-push gate: clippy and cargo test --workspace on ${target:0:9}; this takes minutes, so give git push a timeout of 1800 s or more" >&2
-  $cargo clippy --workspace --all-targets -q -- -D warnings || refuse "cargo clippy --workspace --all-targets -- -D warnings failed"
-  $cargo test --workspace -q --no-fail-fast || refuse "cargo test --workspace failed (the failing tests are named above)"
+  timed clippy $cargo clippy --workspace --all-targets -q -- -D warnings || refuse "cargo clippy --workspace --all-targets -- -D warnings failed"
+  timed test $cargo test --workspace -q --no-fail-fast || refuse "cargo test --workspace failed (the failing tests are named above)"
 fi
 echo "$target" >> "$passed"
+note "passed $(( $(date +%s) - start ))s"
 echo "pre-push gate: passed in $(( $(date +%s) - start ))s" >&2
