@@ -100,3 +100,26 @@ fn state_lists_sent_notes_and_the_bundle_has_what_an_agent_needs() {
     let later = bevy_emerge_mapper::ops_notes::state_json(open, lib, None, 1000 + 300);
     assert_eq!(later["sent"][0]["holder"], Value::Null, "a lease that ran out shows as sent again");
 }
+
+#[test]
+fn the_holder_asks_the_person_answers_and_the_resolve_record_is_kept() {
+    let mut c = ctx("note_talk");
+    run(&mut c, "note_add", json!({"cells": [0, 0, 2, 2], "text": "tidy the wall"})).unwrap();
+    run(&mut c, "note_send", json!({})).unwrap();
+    let id = file(&c).notes[0].id.clone();
+    run(&mut c, "note_claim", json!({"id": id, "agent": "omp", "at": 1000})).unwrap();
+    assert!(run(&mut c, "note_ask", json!({"id": id, "agent": "other", "question": "q?", "at": 1001})).is_err());
+    run(&mut c, "note_ask", json!({"id": id, "agent": "omp", "question": "Remove the barrel?", "at": 1001})).unwrap();
+    assert_eq!(file(&c).get(&id).unwrap().pending_question(), Some("Remove the barrel?"));
+    let done = json!({"id": id, "agent": "omp", "summary": "tidied", "assumptions": ["wall stays"], "ops": ["op-1"], "captures": ["a.png", "b.png"], "at": 1002});
+    assert!(run(&mut c, "note_resolve", done.clone()).is_err(), "an unanswered question blocks the resolve");
+    run(&mut c, "note_answer", json!({"id": id, "answer": "yes", "at": 1003})).unwrap();
+    run(&mut c, "note_resolve", done).unwrap();
+    let n = file(&c).get(&id).unwrap().clone();
+    match n.state {
+        State::Resolved { ops, summary, assumptions, captures } => {
+            assert_eq!((ops, summary, assumptions, captures), (vec!["op-1".to_owned()], "tidied".to_owned(), vec!["wall stays".to_owned()], vec!["a.png".to_owned(), "b.png".to_owned()]));
+        }
+        other => panic!("{other:?}"),
+    }
+}
