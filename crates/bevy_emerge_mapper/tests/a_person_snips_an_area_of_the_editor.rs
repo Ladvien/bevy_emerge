@@ -20,7 +20,7 @@ use bevy_emerge_mapper::project::{OpenMap, Project};
 use bevy_emerge_mapper::snip::SnipEdit;
 use bevy_emerge_mapper::view::MainCamera;
 
-mod fixtures;
+use crate::fixtures;
 
 #[derive(Default)]
 struct Frame {

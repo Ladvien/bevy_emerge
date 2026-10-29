@@ -642,6 +642,7 @@ enum Talk {
     Ask,
     Answer,
     Resolve,
+    Keep,
 }
 
 impl Talk {
@@ -650,11 +651,13 @@ impl Talk {
             Talk::Ask => "note_ask",
             Talk::Answer => "note_answer",
             Talk::Resolve => "note_resolve",
+            Talk::Keep => "note_keep",
         }
     }
 
     fn schema(self) -> serde_json::Value {
         let (required, extra) = match self {
+            Talk::Keep => (json!(["id"]), json!({})),
             Talk::Ask => (json!(["id", "agent", "question"]), json!({
                 "agent": {"type": "string", "description": "Your name: the holder of the note."},
                 "question": {"type": "string", "description": "What you need the person to decide. The note shows it as waiting for them."}
@@ -694,6 +697,10 @@ impl Talk {
                 v.clone().ok_or_else(|| Refusal::new(format!("{} needs `{what}`. Nothing was changed.", self.name())))
             };
             let said = match self {
+                Talk::Keep => {
+                    notes.keep(id, now).map_err(Refusal::new)?;
+                    format!("kept note {id}: its sign is gone")
+                }
                 Talk::Ask => {
                     let by = need(&p.agent, "agent")?;
                     notes.ask(id, &by, &need(&p.question, "question")?, now).map_err(Refusal::new)?;
@@ -766,6 +773,185 @@ talk_operation!(
     NoteResolve, Talk::Resolve
 );
 
+talk_operation!(
+    /// **The person keeps a done note's work**: the note is archived and its sign goes away. Cmd+Z
+    /// brings it back to done (#93).
+    NoteKeep, Talk::Keep
+);
+
+/// **What `note_undo_work` is asked** (#93).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UndoWorkParams {
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
+    /// Undo only: the notes as they were, and the row changes that put the map back, in order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redo: Option<Redo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Redo {
+    pub notes: Vec<Note>,
+    pub deltas: Vec<crate::ops::RowDelta>,
+}
+
+/// The placement ids and cells one logged operation touched, read from what it recorded. Cells come
+/// from rows the operation names, else from where the piece stands on `map` now.
+pub(crate) fn footprint(e: &crate::ops::Entry, map: &bevy_emerge_core::map::Map) -> notes::Footprint {
+    let cell = |at: (f32, f32)| ((at.0 / bevy_emerge_core::grid::TILE).floor() as i32, (at.1 / bevy_emerge_core::grid::TILE).floor() as i32);
+    let mut ids: Vec<String> = Vec::new();
+    let mut cells: Vec<(i32, i32)> = Vec::new();
+    if let Some(d) = e.inverse.as_ref().and_then(|i| i.get("delta")).and_then(|d| serde_json::from_value::<crate::ops::RowDelta>(d.clone()).ok()) {
+        ids.extend(d.remove_placements.iter().cloned());
+        for a in &d.add_placements {
+            ids.push(a.row.id.clone());
+            cells.push(cell(a.row.at));
+        }
+    }
+    for v in [Some(&e.params), e.inverse.as_ref(), e.after.as_ref()].into_iter().flatten() {
+        if let Some(s) = v.get("id").and_then(|s| s.as_str()) {
+            ids.push(s.to_owned());
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    for id in &ids {
+        if let Some(p) = map.placements.iter().find(|p| &p.id == id) {
+            cells.push(cell(p.at));
+        }
+    }
+    cells.sort();
+    cells.dedup();
+    notes::Footprint { op: e.operation_id.clone(), placements: ids, cells }
+}
+
+fn state_with_rows(ctx: &Ctx) -> Option<serde_json::Value> {
+    let open = ctx.open.as_ref()?;
+    let notes = Notes::load(&notes::path_for_map(&open.map_path)).ok()?;
+    let ids: Vec<&String> = open.map.placements.iter().map(|p| &p.id).collect();
+    Some(json!({"map": open.map.name, "notes": serde_json::to_value(&notes).ok()?, "placements": ids}))
+}
+
+pub struct NoteUndoWork;
+
+impl NoteUndoWork {
+    fn apply(ctx: &mut Ctx, params: &serde_json::Value, write: bool) -> Result<Option<Outcome>, Refusal> {
+        let p: UndoWorkParams = serde_json::from_value(params.clone()).map_err(|e| bad_params("a note's work undone", "`id` and `at`", e))?;
+        let path = notes_path(ctx)?;
+        let Some(project) = ctx.project.as_ref() else {
+            return Err(Refusal::new("no project is open, so there is no operation log to undo from."));
+        };
+        let open = ctx.open.as_ref().expect("notes_path checked the map");
+        let mut notes = Notes::load(&path).map_err(Refusal::new)?;
+        let before_notes = notes.notes.clone();
+        let mut map = open.map.clone();
+        let mut inverses: Vec<crate::ops::RowDelta> = Vec::new();
+        let summary;
+        if let Some(redo) = &p.redo {
+            notes.notes = redo.notes.clone();
+            for d in &redo.deltas {
+                inverses.push(d.apply(&mut map)?);
+            }
+            summary = "took back a note's undo".to_owned();
+        } else {
+            let id = p.id.as_deref().ok_or_else(|| Refusal::new("note_undo_work names the note by `id`. Nothing was changed."))?;
+            let now = p.at.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()));
+            let ops: Vec<String> = match notes.get(id).map(|n| &n.state) {
+                Some(notes::State::Resolved { ops, .. }) => ops.clone(),
+                Some(_) => return Err(Refusal::new(format!("note {id} is not done, so there is no work to undo. Nothing was changed."))),
+                None => return Err(Refusal::new(format!("no note {id} on this map. Nothing was changed."))),
+            };
+            let entries = crate::ops::read_entries(&crate::ops::oplog_path(project));
+            let undone: Vec<&str> = entries.iter().filter(|e| e.outcome == "applied").filter_map(|e| e.undoes.as_deref()).collect();
+            let mut mine: Vec<&crate::ops::Entry> = Vec::new();
+            for op in &ops {
+                let e = entries
+                    .iter()
+                    .find(|e| &e.operation_id == op && e.outcome == "applied")
+                    .ok_or_else(|| Refusal::new(format!("operation {op}, which note {id} ran, is not in the log, so its work cannot be undone. Nothing was changed.")))?;
+                if !undone.contains(&e.operation_id.as_str()) {
+                    mine.push(e);
+                }
+            }
+            let first = mine.iter().map(|e| e.seq).min();
+            let note_fps: Vec<notes::Footprint> = mine.iter().map(|e| footprint(e, &map)).collect();
+            let later_fps: Vec<notes::Footprint> = entries
+                .iter()
+                .filter(|e| e.outcome == "applied" && first.is_some_and(|f| e.seq > f))
+                .filter(|e| !ops.contains(&e.operation_id) && !e.op.starts_with("note_"))
+                .filter(|e| e.undoes.as_deref().is_none_or(|u| !ops.iter().any(|o| o == u)))
+                .map(|e| footprint(e, &map))
+                .collect();
+            notes.undo_work(id, &note_fps, &later_fps, now).map_err(Refusal::new)?;
+            for e in mine.iter().rev() {
+                let delta = e
+                    .inverse
+                    .as_ref()
+                    .and_then(|i| i.get("delta"))
+                    .and_then(|d| serde_json::from_value::<crate::ops::RowDelta>(d.clone()).ok())
+                    .ok_or_else(|| Refusal::new(format!("{} ({}) changed more than pieces, so note {id}'s work cannot be undone in one step. Undo it by hand.", e.operation_id, e.op)))?;
+                inverses.push(delta.apply(&mut map)?);
+            }
+            summary = format!("undid note {id}'s work ({} operation(s)); the note is sent again", mine.len());
+        }
+        if !write {
+            return Ok(None);
+        }
+        inverses.reverse();
+        let inverse = json!({"redo": Redo { notes: before_notes, deltas: inverses }});
+        let affected = map.placements.len().abs_diff(open.map.placements.len());
+        let open = ctx.open.as_mut().expect("checked");
+        let old = std::mem::replace(&mut open.map, map);
+        if let Err(e) = open.save(ctx.project.as_ref().expect("checked")) {
+            open.map = old;
+            return Err(Refusal::new(format!("the map file refused the change, so nothing was written: {e}")));
+        }
+        if let Err(e) = notes.save(&path) {
+            open.map = old;
+            let _ = open.save(ctx.project.as_ref().expect("checked"));
+            return Err(Refusal::new(format!("the notes file refused the change, so nothing was written: {e}")));
+        }
+        Ok(Some(Outcome { summary, affected, saved: true, inverse: Some(inverse), after: state_with_rows(ctx) }))
+    }
+}
+
+impl Operation for NoteUndoWork {
+    fn name(&self) -> &'static str {
+        "note_undo_work"
+    }
+    fn undo(&self) -> Undo {
+        Undo::Inverse
+    }
+    fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+        params.get("redo").is_some()
+    }
+    fn schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+                "id": {"type": "string", "description": "A done note whose work to undo: every operation it ran is reverted as one step and the note is sent again with its history. Refused, naming the later operation, when one touched the same placements or cells."},
+                "at": {"type": "integer", "minimum": 0, "description": "The call's time in seconds since the Unix epoch. Omit it."}
+            }
+        })
+    }
+    fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+        state_with_rows(ctx)
+    }
+    fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let mut scratch = Ctx { open: ctx.open.clone(), project: ctx.project.clone(), source: ctx.source, ..Ctx::default() };
+        Self::apply(&mut scratch, params, false)?;
+        Ok(params.clone())
+    }
+    fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+        Ok(Self::apply(ctx, params, true)?.expect("a write returns its outcome"))
+    }
+}
+
 /// **What an agent reads to work a note** (#91): the text, the area plus its margin, the pieces in and
 /// around it, the kit's palette, the camera the person had, how to get a picture of the area, and the
 /// earlier notes on this map with how they turned out. `None` when no such note stands.
@@ -787,7 +973,8 @@ pub fn bundle(notes: &Notes, id: &str, map: &bevy_emerge_core::map::Map, library
         .iter()
         .filter(|n| n.id != id)
         .map(|n| json!({"id": n.id, "text": n.text, "status": n.status(), "result": match &n.state {
-            notes::State::Resolved { ops, summary, assumptions, captures } => {
+            notes::State::Resolved { ops, summary, assumptions, captures }
+            | notes::State::Kept { ops, summary, assumptions, captures } => {
                 json!({"ops": ops, "summary": summary, "assumptions": assumptions, "captures": captures})
             }
             _ => serde_json::Value::Null,

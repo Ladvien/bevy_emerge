@@ -6,7 +6,7 @@
 
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 const SNIPS: &str = "target/loop/captures/snips";
 

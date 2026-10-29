@@ -55,6 +55,16 @@ pub enum State {
         #[serde(default)]
         captures: Vec<String>,
     },
+    /// The person reviewed the work and kept it (#93): archived, its sign gone. Carries the record
+    /// [`State::Resolved`] held, so Cmd+Z on Keep brings the note back to done with nothing lost.
+    Kept {
+        ops: Vec<String>,
+        summary: String,
+        #[serde(default)]
+        assumptions: Vec<String>,
+        #[serde(default)]
+        captures: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -105,6 +115,12 @@ pub enum What {
     Answered { answer: String },
     /// The holder resolved the note.
     Resolved,
+    /// The person kept the work: the note is archived (#93).
+    Kept,
+    /// The person took Keep back (Cmd+Z): the note is done again, awaiting review.
+    Unkept,
+    /// The person undid the note's work as one step; the note is open again with its history intact.
+    WorkUndone,
 }
 
 fn now() -> u64 {
@@ -168,6 +184,35 @@ pub struct Resolution {
     pub ops: Vec<String>,
     /// `[before, after]` capture paths.
     pub captures: Vec<String>,
+}
+
+/// What one logged operation touched: the placement ids and the grid cells, read from the operation
+/// log by the editor (#93). Engine-free, so the review rule is provable here.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Footprint {
+    /// The operation's id, as the log names it.
+    pub op: String,
+    pub placements: Vec<String>,
+    pub cells: Vec<(i32, i32)>,
+}
+
+impl Footprint {
+    fn shares_with(&self, other: &Footprint) -> Option<String> {
+        if let Some(p) = self.placements.iter().find(|p| other.placements.contains(p)) {
+            return Some(format!("placement {p}"));
+        }
+        self.cells.iter().find(|c| other.cells.contains(c)).map(|(x, z)| format!("cell ({x},{z})"))
+    }
+}
+
+/// The first later operation that depends on the work of `note_ops`: one that touched a placement id
+/// or a cell they touched (#93's "depends on"). `later` is every operation logged after the note's
+/// first one that is not one of the note's own. Returns `(later op id, what it shares)`.
+pub fn undo_blocker(note_ops: &[Footprint], later: &[Footprint]) -> Option<(String, String)> {
+    later
+        .iter()
+        .filter(|l| !note_ops.iter().any(|n| n.op == l.op))
+        .find_map(|l| note_ops.iter().find_map(|n| l.shares_with(n)).map(|s| (l.op.clone(), s)))
 }
 
 impl Site {
@@ -267,6 +312,7 @@ impl Note {
             State::Open => "sent",
             State::Claimed { .. } => "claimed",
             State::Resolved { .. } => "done",
+            State::Kept { .. } => "kept",
         }
     }
 
@@ -289,7 +335,7 @@ impl Note {
 
     /// A sign stands over it: a draft or an open note, not a resolved one.
     pub fn stands(&self) -> bool {
-        !matches!(self.state, State::Resolved { .. })
+        !matches!(self.state, State::Resolved { .. } | State::Kept { .. })
     }
 }
 
@@ -579,7 +625,9 @@ impl Notes {
                 return Err(format!("notes: {id} is claimed by {holder} until {until}, so it was not claimed"));
             }
             State::Draft => return Err(format!("notes: {id} is a draft, not sent, so it was not claimed")),
-            State::Resolved { .. } => return Err(format!("notes: {id} is already resolved, so it was not claimed")),
+            State::Resolved { .. } | State::Kept { .. } => {
+                return Err(format!("notes: {id} is already resolved, so it was not claimed"));
+            }
             State::Open => {}
         }
         if let Some(mine) = note.reach_rect() {
@@ -783,6 +831,58 @@ impl Notes {
             }
         }
         out
+    }
+
+    /// The person keeps a done note's work: it is archived and its sign goes away (#93).
+    pub fn keep(&mut self, id: &str, now: u64) -> Result<(), String> {
+        let note = self.get_mut(id)?;
+        let State::Resolved { ops, summary, assumptions, captures } = &note.state else {
+            return Err(format!("notes: {id} is not done, so there is no work to keep"));
+        };
+        note.state = State::Kept {
+            ops: ops.clone(),
+            summary: summary.clone(),
+            assumptions: assumptions.clone(),
+            captures: captures.clone(),
+        };
+        note.log_at(now, "person", What::Kept);
+        Ok(())
+    }
+
+    /// Cmd+Z after Keep: the note is done again.
+    pub fn unkeep(&mut self, id: &str, now: u64) -> Result<(), String> {
+        let note = self.get_mut(id)?;
+        let State::Kept { ops, summary, assumptions, captures } = &note.state else {
+            return Err(format!("notes: {id} is not kept"));
+        };
+        note.state = State::Resolved {
+            ops: ops.clone(),
+            summary: summary.clone(),
+            assumptions: assumptions.clone(),
+            captures: captures.clone(),
+        };
+        note.log_at(now, "person", What::Unkept);
+        Ok(())
+    }
+
+    /// The person undoes a done note's work. `note_ops` is what its operations touched and `later`
+    /// what the operations logged after them touched. Refused, naming the later operation, when one
+    /// of them depends on the work ([`undo_blocker`]); otherwise the note is `sent` again (its sign
+    /// back), with its whole history and a `WorkUndone` event. The editor reverts the operations as
+    /// one undo step only when this accepts.
+    pub fn undo_work(&mut self, id: &str, note_ops: &[Footprint], later: &[Footprint], now: u64) -> Result<(), String> {
+        let note = self.get_mut(id)?;
+        if !matches!(note.state, State::Resolved { .. }) {
+            return Err(format!("notes: {id} is not done, so there is no work to undo"));
+        }
+        if let Some((op, what)) = undo_blocker(note_ops, later) {
+            return Err(format!(
+                "notes: {id}'s work was not undone: later operation {op} touched {what}, which the note's work made, so undoing would overwrite it. Undo {op} first"
+            ));
+        }
+        note.state = State::Open;
+        note.log_at(now, "person", What::WorkUndone);
+        Ok(())
     }
 }
 

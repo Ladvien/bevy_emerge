@@ -15,7 +15,7 @@
 use bevy::camera::Projection;
 use bevy::prelude::*;
 
-mod fixtures;
+use crate::fixtures;
 
 /// Depth of each corner of the map's bounds box along the camera's view axis, and the
 /// projection's `near` and `far`.

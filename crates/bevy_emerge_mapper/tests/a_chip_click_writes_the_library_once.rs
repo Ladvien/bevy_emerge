@@ -20,7 +20,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::tiles;
 
-mod fixtures;
+use crate::fixtures;
 use fixtures::Fixture;
 
 /// A project holding one piece, opened on the Meshes tab with it selected, so its `kind` chips are

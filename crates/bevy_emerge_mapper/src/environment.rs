@@ -160,20 +160,62 @@ pub enum EnvAction {
     Force(WeatherPreset),
     /// Return the weather to the climate's own schedule.
     ReleaseWeather,
+    /// Set the date's month (`clock.date.month`), the season.
+    Month(u8),
+    /// Replace the climate with one of the crate's own presets.
+    Climate(ClimatePreset),
+}
+
+/// The crate's climate constructors the panel offers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ClimatePreset {
+    Temperate,
+    Alpine,
+    Desert,
+    Tropical,
+    Tundra,
+}
+
+impl ClimatePreset {
+    pub const ALL: [(ClimatePreset, &'static str); 5] = [
+        (ClimatePreset::Temperate, "Temperate"),
+        (ClimatePreset::Alpine, "Alpine"),
+        (ClimatePreset::Desert, "Desert"),
+        (ClimatePreset::Tropical, "Tropical"),
+        (ClimatePreset::Tundra, "Tundra"),
+    ];
+
+    pub fn climate(self) -> Climate {
+        match self {
+            ClimatePreset::Temperate => Climate::temperate(),
+            ClimatePreset::Alpine => Climate::alpine(),
+            ClimatePreset::Desert => Climate::desert(),
+            ClimatePreset::Tropical => Climate::tropical(),
+            ClimatePreset::Tundra => Climate::tundra(),
+        }
+    }
 }
 
 impl EnvAction {
     /// Hours the scrubber offers: dawn, noon, dusk and night.
     pub const HOURS: [(f64, &'static str); 4] = [(6.0, "6:00"), (12.0, "12:00"), (18.5, "18:30"), (23.0, "23:00")];
 
+    /// Months the season row offers: the four solstice/equinox months.
+    pub const SEASONS: [(u8, &'static str); 4] = [(3, "Spring"), (6, "Summer"), (9, "Autumn"), (12, "Winter")];
+
     /// The `family_set` params this action writes, or `None` for the camera-style clock buttons.
     pub fn family_params(self) -> Option<serde_json::Value> {
-        let value = match self {
-            EnvAction::Force(p) => format!("Some({p:?})"),
-            EnvAction::ReleaseWeather => "None".to_owned(),
+        let (field, value) = match self {
+            EnvAction::Force(p) => ("forced_weather", format!("Some({p:?})")),
+            EnvAction::ReleaseWeather => ("forced_weather", "None".to_owned()),
+            EnvAction::Month(m) => ("clock.date.month", m.to_string()),
+            EnvAction::Climate(c) => (
+                "climate",
+                ron::ser::to_string(&c.climate()).expect("climate serialises"),
+            ),
             EnvAction::Scrub(_) | EnvAction::ReleaseClock => return None,
         };
-        Some(serde_json::json!({"crate": CRATE, "field": "forced_weather", "value": value}))
+        Some(serde_json::json!({"crate": CRATE, "field": field, "value": value}))
     }
 }
 
@@ -197,27 +239,75 @@ pub fn spawn_section(s: &mut ChildSpawnerCommands) {
         }
         button(r, EnvAction::ReleaseWeather, "Release", Severity::Plain);
     });
+    row(s, &mut |r| {
+        for (month, label) in EnvAction::SEASONS {
+            button(r, EnvAction::Month(month), label, Severity::Plain);
+        }
+    });
+    row(s, &mut |r| {
+        for (preset, label) in ClimatePreset::ALL {
+            button(r, EnvAction::Climate(preset), label, Severity::Plain);
+        }
+    });
 }
 
-/// **The preview's look** (#98): a project with a `family/bevy_elements.ron` gets `bevy_elements`'
+type WorldCamera = (Entity, Has<bevy_elements::ElementsCamera>, &'static mut Camera);
+
+/// **The preview's look** (#98): a project with a `family/bevy_elements.ron` gets `bevy_elements'`
 /// atmosphere, fog, clouds and sun on the editor camera, which is what the game draws; a project
 /// without one keeps the editor's own light. Follows the file's presence, so adding or deleting it
 /// switches the preview without a restart.
+///
+/// **The surface is recomposed with it (#118).** `ElementsCamera` requires `Hdr`, and an HDR camera
+/// renders into its own texture, not the one the ground and interface cameras share. Each camera then
+/// writes its own result into the image (`Camera::output_mode`), and with the default
+/// `blend_state: None` the later write replaces the earlier: the interface camera, which had drawn
+/// onto the shared texture holding only the ground colour, wiped the world out of every frame. So
+/// while dressed the interface camera clears that texture to transparent and both it and the world
+/// are written over what is below them with premultiplied alpha.
 pub fn dress_camera(
     settings: Res<FamilySettings>,
-    camera: Query<(Entity, Has<bevy_elements::ElementsCamera>), With<crate::view::MainCamera>>,
+    mut camera: Query<WorldCamera, (With<crate::view::MainCamera>, Without<crate::surface::SurfaceCamera>)>,
+    mut interface: Query<&mut Camera, With<crate::surface::SurfaceCamera>>,
     mut commands: Commands,
 ) {
     let wanted = settings.text.contains_key(CRATE);
-    for (entity, has) in &camera {
-        match (wanted, has) {
-            (true, false) => {
-                commands.entity(entity).insert(bevy_elements::ElementsCamera::default());
-            }
-            (false, true) => {
-                commands.entity(entity).remove::<bevy_elements::ElementsCamera>();
-            }
-            _ => {}
+    for (entity, has, mut world) in &mut camera {
+        if wanted == has {
+            continue;
         }
+        if wanted {
+            commands.entity(entity).insert(bevy_elements::ElementsCamera::default());
+        } else {
+            commands.entity(entity).remove::<bevy_elements::ElementsCamera>();
+        }
+        composite_surface(wanted, &mut world, interface.iter_mut());
+    }
+}
+
+/// **Sets the surface's cameras to compose an HDR world (`dressed`) or the shared texture (not).**
+pub fn composite_surface<'a>(
+    dressed: bool,
+    world: &mut Camera,
+    interface: impl Iterator<Item = Mut<'a, Camera>>,
+) {
+    use bevy::camera::{CameraOutputMode, ClearColorConfig};
+    use bevy::render::render_resource::BlendState;
+    let over = |dressed| {
+        if dressed {
+            CameraOutputMode::Write {
+                blend_state: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                clear_color: ClearColorConfig::None,
+            }
+        } else {
+            CameraOutputMode::default()
+        }
+    };
+    let clear = if dressed { ClearColorConfig::Custom(Color::NONE) } else { ClearColorConfig::None };
+    world.output_mode = over(dressed);
+    world.clear_color = clear;
+    for mut ui in interface {
+        ui.output_mode = over(dressed);
+        ui.clear_color = clear;
     }
 }

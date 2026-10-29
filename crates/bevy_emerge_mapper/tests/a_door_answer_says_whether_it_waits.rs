@@ -22,7 +22,7 @@ use bevy_emerge_mapper::project::OpenMap;
 use bevy_emerge_mapper::tiles::Door;
 use serde_json::json;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **The editor, with the bridge open.** Same plugin graph as `an_agent_change_is_on_the_receipt`.
 fn editor(name: &str) -> App {
