@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **98-launch** `e7866f0` Family settings already in the project at launch apply at once, so the environment preview is dressed without an edit *No clip: a launch-time bug fix; proved by tests/family_settings_at_launch.rs*
 - **fix-118-black-viewport** `HEAD` With bevy_elements on, the editor viewport no longer goes black once the camera is dressed (#118): the HDR world and the interface are composed over each other *No clip: a bug fix to the camera output chain; proved by tests/a_dressed_camera_leaves_the_world_on_the_surface.rs and a live capture of the scratch town project*
 - **E-051** `d59670d` Kit clicks no longer copy the whole project: a project's library, masks and kit layers are shared, and copied only when written *No clip: a performance refactor nobody can see; proved by crates/bevy_emerge_mapper/tests/project_clone_shares.rs*
 - **92-fence** `ba9dfba` An agent holding a note is fenced: apply with its name refuses changes outside the area plus one cell, and removing a person's piece until it has asked and been answered (#92) *No clip: visible only in an agent's refusal; clip owed with the issue's end-to-end clip; proved by crates/bevy_emerge_mapper/tests/note_fence.rs*
