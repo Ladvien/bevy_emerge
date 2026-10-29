@@ -1084,7 +1084,7 @@ impl OpenMap {
         // function `project_data::load` calls. Before this, the gate checked that the stamps
         // *could* expand while the game did not expand them at all, so the gate was on the wrong
         // side of the file: it proved the file was loadable, not that the game would load it.
-        if !self.map.stamps.is_empty() {
+        if !self.map.stamps.is_empty() || !self.map.runs.is_empty() {
             self.map
                 .expanded(&project.compositions.compositions, &project.library)
                 .map_err(|e| format!("not saved — the game could not load this: {e}"))?;
