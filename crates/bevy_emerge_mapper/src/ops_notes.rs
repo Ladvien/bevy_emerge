@@ -961,7 +961,11 @@ pub fn fence_refusal(ctx: &Ctx, agent: &str, op: &str, params: &serde_json::Valu
         return None;
     }
     let operation = crate::ops::find(op)?;
-    let scratch_dir = std::env::temp_dir().join(format!("emerge-fence-{}-{}", std::process::id(), now));
+    // A counter, not the clock: two fences in one process in one second shared a directory, and the
+    // first to finish removed it from under the other, whose trial then failed and let the call through.
+    static TRIALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let trial_no = TRIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch_dir = std::env::temp_dir().join(format!("emerge-fence-{}-{}", std::process::id(), trial_no));
     std::fs::create_dir_all(&scratch_dir).ok()?;
     let mut trial_project = project.clone();
     trial_project.maps_dir = scratch_dir.clone();
