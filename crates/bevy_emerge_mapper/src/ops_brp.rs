@@ -61,6 +61,11 @@ pub struct ApplyParams {
     /// description in front of it**, and an agent that reads it knows what it is asking for.
     #[serde(default = "yes")]
     pub dry_run: bool,
+    /// **Who is asking, when the caller holds a note (#92).** The name the note was claimed under.
+    /// An operation that would change anything outside that note's area plus its margin, or that
+    /// needs a question answered first, is refused and changes nothing. Omitted: no fence.
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 /// **The parameters of `emerge/operation_undo`.**
@@ -907,6 +912,25 @@ fn operation_apply(
             if let Some(state) = state.as_mut() {
                 state.problem_agent_refusal(&p.operation, &why);
             }
+            return Ok(json!({
+                "operation": p.operation,
+                "outcome": "refused",
+                "refusal": why,
+            }));
+        }
+    }
+    // **The fence of a held note (#92)**, found before anything is written, for a preview and an
+    // apply alike: a preview never says "would change" for a change the apply would refuse.
+    if let Some(agent) = p.agent.as_deref() {
+        let read = Ctx {
+            root: None,
+            project: project.as_deref().cloned(),
+            open: open.as_deref().cloned(),
+            source: Source::Agent,
+            session: crate::ops::session_id(),
+            proposal: proposal.as_deref().and_then(|r| r.0.clone()),
+        };
+        if let Some(why) = crate::ops_notes::fence_refusal(&read, agent, &p.operation, &p.parameters) {
             return Ok(json!({
                 "operation": p.operation,
                 "outcome": "refused",
