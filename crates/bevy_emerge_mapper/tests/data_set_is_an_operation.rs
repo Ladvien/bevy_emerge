@@ -96,3 +96,14 @@ fn an_agent_cannot_send_the_undos_own_form() {
     assert!(!e.is_empty());
     assert_eq!(std::fs::read_to_string(&file).unwrap(), TEXT);
 }
+
+#[test]
+fn the_data_panel_lists_each_registered_leaf_with_its_token() {
+    let (ctx, _) = project("listing", true);
+    let rows = bevy_emerge_mapper::ops_data::listing(&ctx.project.as_ref().unwrap().root);
+    let got: Vec<(&str, &str, &str)> = rows.iter().map(|r| (r.file.as_str(), r.path.as_str(), r.value.as_str())).collect();
+    assert!(got.contains(&("tuning/mob", "mob.speed", "1.50")), "{got:?}");
+    assert!(got.contains(&("tuning/mob", "fast", "false")), "{got:?}");
+    let (ctx, _) = project("listing_none", false);
+    assert!(bevy_emerge_mapper::ops_data::listing(&ctx.project.as_ref().unwrap().root).is_empty());
+}
