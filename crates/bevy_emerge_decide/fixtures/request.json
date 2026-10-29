@@ -1,0 +1,32 @@
+{
+ "state": "A screenshot of the bevy_emerge map editor.",
+ "images": [
+  "<data URL of docs/changelog/media/2026-10-24-S1.5.png, 640x390 PNG>"
+ ],
+ "questions": {
+  "has_ui": {
+   "type": "noul",
+   "instructions": "Does the image show an editor window with panels or a toolbar?"
+  },
+  "dominant": {
+   "type": "choice",
+   "instructions": "What fills most of the image?",
+   "criteria": {
+    "map_view": "a map or 3D scene",
+    "text": "mostly text",
+    "blank": "an empty or single-colour frame"
+   }
+  },
+  "clarity": {
+   "type": "score",
+   "instructions": "How readable and uncluttered is the image?",
+   "criteria": [
+    "unreadable",
+    "poor",
+    "fair",
+    "good",
+    "excellent"
+   ]
+  }
+ }
+}
