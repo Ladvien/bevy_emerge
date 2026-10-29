@@ -101,14 +101,36 @@ fn an_unreachable_endpoint_is_an_error_naming_it() {
 }
 
 /// A one-shot local server answering with `status` and `body`.
+///
+/// It reads the whole request (headers, then `Content-Length` bytes) before it answers: a socket
+/// closed with request bytes still unread sends a reset, and the client then sees `Connection reset
+/// by peer` instead of the answer. One `read` returned only part of the request in 165 of 200 runs.
 fn serve_once(status: u16, body: &'static str) -> String {
     use std::io::{Read, Write};
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/v1/systemone", l.local_addr().unwrap());
     std::thread::spawn(move || {
         let (mut s, _) = l.accept().unwrap();
+        let mut req = Vec::new();
         let mut buf = [0u8; 8192];
-        let _ = s.read(&mut buf);
+        loop {
+            let n = s.read(&mut buf).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            req.extend_from_slice(&buf[..n]);
+            if let Some(end) = req.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&req[..end]).to_ascii_lowercase();
+                let len = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if req.len() >= end + 4 + len {
+                    break;
+                }
+            }
+        }
         let _ = write!(
             s,
             "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
