@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **notes-panel** `cff4207` A Notes panel lists every note newest first, filters by status, sends all drafts, and a row frames its note *No clip: visible, not yet recorded: laptop pass did not record; proved by notes_listing and notes_panel_lists_every_note*
 - **86-data-panel** `pending` The Data panel lists every registered data file's leaves; clicking one opens the field with its file and path typed (#86) *No clip: visible, not yet recorded: panel not captured on a display this pass*
 - **data-set** `a046add` data_set: an agent or a person sets one leaf of a game's tuning file, logged and undoable *No clip: visible, not yet recorded: no display session this pass; the operation is proved by data_set_is_an_operation*
 - **115-rows-to-run** `c20aa71` Rows that are one line convert to a run: Map::placements_to_run (#115 slice 2) *No clip: an API; proved by maps_hold_runs::rows_a_run_laid_convert_back_to_the_run and a_row_off_the_pitch_does_not_convert*
