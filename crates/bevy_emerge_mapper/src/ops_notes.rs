@@ -605,6 +605,167 @@ lease_operation!(
     NoteRelease, Lease::Release, "release"
 );
 
+/// **What `note_ask`, `note_answer` and `note_resolve` are asked** (#92).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TalkParams {
+    pub id: Option<String>,
+    /// `note_ask`, `note_resolve`: the holder's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// `note_ask`: the question.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
+    /// `note_answer`: the person's answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
+    /// `note_resolve`: the one-line summary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub assumptions: Vec<String>,
+    /// `note_resolve`: ids of the operations the agent ran under the note.
+    #[serde(default)]
+    pub ops: Vec<String>,
+    /// `note_resolve`: `[before, after]` capture paths.
+    #[serde(default)]
+    pub captures: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
+    /// Undo only: the notes as they stood before, put back whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<Vec<Note>>,
+}
+
+#[derive(Clone, Copy)]
+enum Talk {
+    Ask,
+    Answer,
+    Resolve,
+}
+
+impl Talk {
+    fn name(self) -> &'static str {
+        match self {
+            Talk::Ask => "note_ask",
+            Talk::Answer => "note_answer",
+            Talk::Resolve => "note_resolve",
+        }
+    }
+
+    fn schema(self) -> serde_json::Value {
+        let (required, extra) = match self {
+            Talk::Ask => (json!(["id", "agent", "question"]), json!({
+                "agent": {"type": "string", "description": "Your name: the holder of the note."},
+                "question": {"type": "string", "description": "What you need the person to decide. The note shows it as waiting for them."}
+            })),
+            Talk::Answer => (json!(["id", "answer"]), json!({
+                "answer": {"type": "string", "description": "The person's answer to the question standing on the note."}
+            })),
+            Talk::Resolve => (json!(["id", "agent", "summary", "captures"]), json!({
+                "agent": {"type": "string", "description": "Your name: the holder of the note."},
+                "summary": {"type": "string", "description": "One line: what you did."},
+                "assumptions": {"type": "array", "items": {"type": "string"}, "description": "What you assumed."},
+                "ops": {"type": "array", "items": {"type": "string"}, "description": "Ids of the operations you ran under the note."},
+                "captures": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2, "description": "[before, after]: paths of two pictures of the area."}
+            })),
+        };
+        let mut props = json!({
+            "id": {"type": "string", "description": "The note."},
+            "at": {"type": "integer", "minimum": 0, "description": "The call's time in seconds since the Unix epoch. Omit it."}
+        });
+        props.as_object_mut().expect("object").extend(extra.as_object().expect("object").clone());
+        json!({"type": "object", "additionalProperties": false, "required": required, "properties": props})
+    }
+
+    fn apply(self, ctx: &mut Ctx, params: &serde_json::Value, write: bool) -> Result<Option<Outcome>, Refusal> {
+        let p: TalkParams = serde_json::from_value(params.clone())
+            .map_err(|e| bad_params(self.name(), "`id`, `agent`, `question`, `answer`, `summary`, `assumptions`, `ops`, `captures`", e))?;
+        let source = ctx.source;
+        run(ctx, write, |notes, _| {
+            let before = notes.notes.clone();
+            if let Some(before) = &p.restore {
+                *notes = Notes { notes: before.clone(), ..notes.clone() };
+                return Ok(Change { summary: format!("took back {}", self.name()), inverse: json!({}) });
+            }
+            let id = p.id.as_deref().ok_or_else(|| Refusal::new(format!("{} names the note by `id`. Nothing was changed.", self.name())))?;
+            let now = p.at.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()));
+            let need = |v: &Option<String>, what: &str| -> Result<String, Refusal> {
+                v.clone().ok_or_else(|| Refusal::new(format!("{} needs `{what}`. Nothing was changed.", self.name())))
+            };
+            let said = match self {
+                Talk::Ask => {
+                    let by = need(&p.agent, "agent")?;
+                    notes.ask(id, &by, &need(&p.question, "question")?, now).map_err(Refusal::new)?;
+                    format!("{by} asked on note {id}")
+                }
+                Talk::Answer => {
+                    notes.answer(id, &need(&p.answer, "answer")?, now).map_err(Refusal::new)?;
+                    format!("answered the question on note {id}")
+                }
+                Talk::Resolve => {
+                    let by = need(&p.agent, "agent")?;
+                    let mut captures = p.captures.clone();
+                    if captures.is_empty() && source != crate::ops::Source::Agent {
+                        // A person finishing a note by hand has no pictures to name; the record says so.
+                        captures = vec!["(none: resolved by a person)".to_owned(); 2];
+                    }
+                    let record = notes::Resolution { summary: need(&p.summary, "summary")?, assumptions: p.assumptions.clone(), ops: p.ops.clone(), captures };
+                    notes.resolve_record(id, &by, record, now).map_err(Refusal::new)?;
+                    format!("{by} resolved note {id}")
+                }
+            };
+            Ok(Change { summary: said, inverse: json!({"restore": before}) })
+        })
+    }
+}
+
+macro_rules! talk_operation {
+    ($(#[$doc:meta])* $ty:ident, $talk:expr) => {
+        $(#[$doc])*
+        pub struct $ty;
+
+        impl Operation for $ty {
+            fn name(&self) -> &'static str {
+                $talk.name()
+            }
+            fn undo(&self) -> Undo {
+                Undo::Inverse
+            }
+            fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+                params.get("restore").is_some()
+            }
+            fn schema(&self) -> serde_json::Value {
+                $talk.schema()
+            }
+            fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+                state_of_open(ctx)
+            }
+            fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+                let mut scratch = Ctx { open: ctx.open.clone(), source: ctx.source, ..Ctx::default() };
+                $talk.apply(&mut scratch, params, false)?;
+                Ok(params.clone())
+            }
+            fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+                Ok($talk.apply(ctx, params, true)?.expect("a write returns its outcome"))
+            }
+        }
+    };
+}
+
+talk_operation!(
+    /// **The holder asks the person a question** and waits; the note shows it (#92).
+    NoteAsk, Talk::Ask
+);
+talk_operation!(
+    /// **The person answers the question standing on a note** (#92).
+    NoteAnswer, Talk::Answer
+);
+talk_operation!(
+    /// **The holder finishes a note** with summary, assumptions, operation ids and two captures (#92).
+    NoteResolve, Talk::Resolve
+);
+
 /// **What an agent reads to work a note** (#91): the text, the area plus its margin, the pieces in and
 /// around it, the kit's palette, the camera the person had, how to get a picture of the area, and the
 /// earlier notes on this map with how they turned out. `None` when no such note stands.
@@ -626,7 +787,9 @@ pub fn bundle(notes: &Notes, id: &str, map: &bevy_emerge_core::map::Map, library
         .iter()
         .filter(|n| n.id != id)
         .map(|n| json!({"id": n.id, "text": n.text, "status": n.status(), "result": match &n.state {
-            notes::State::Resolved { ops, summary } => json!({"ops": ops, "summary": summary}),
+            notes::State::Resolved { ops, summary, assumptions, captures } => {
+                json!({"ops": ops, "summary": summary, "assumptions": assumptions, "captures": captures})
+            }
             _ => serde_json::Value::Null,
         }}))
         .collect();
