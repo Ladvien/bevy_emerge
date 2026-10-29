@@ -140,6 +140,7 @@ mod placement_undo_without_id;
 mod project_clone_shares;
 mod roads_and_fields_do_not_z_fight;
 mod runs_are_edited_through_operations;
+mod send_starts_the_notes_agent;
 mod stamp_remove;
 mod the_arm_crosses_the_door;
 mod the_arm_survives_the_door_change;

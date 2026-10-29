@@ -7,7 +7,7 @@ use bevy_emerge_mapper::project::{OpenMap, Project};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
-mod fixtures;
+use crate::fixtures;
 
 struct Rig {
     app: App,
