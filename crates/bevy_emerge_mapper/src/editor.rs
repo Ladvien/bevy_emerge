@@ -1911,9 +1911,15 @@ fn talk_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut Edit
     let params = match op {
         "note_ask" => serde_json::json!({"id": id, "agent": "person", "question": text}),
         "note_answer" => serde_json::json!({"id": id, "answer": text}),
+        "note_keep" => serde_json::json!({"id": id}),
         _ => serde_json::json!({"id": id, "agent": "person", "summary": text}),
     };
     dispatch_note(project, open, state, op, params, "talk on a note");
+}
+
+/// **Undo a done note's work as one step through the registry** (#93).
+fn undo_note_work(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, id: &str) {
+    dispatch_note(project, open, state, "note_undo_work", serde_json::json!({"id": id}), "undo a note's work");
 }
 
 /// **Take a note off the map through the registry.**
@@ -4182,7 +4188,9 @@ fn on_notes_click(
         send_notes(project.as_deref_mut(), &mut open, &mut state);
     } else if let Ok(lease) = leases.get(e) {
         let mut project = project;
-        if matches!(lease.op, "note_ask" | "note_answer" | "note_resolve") {
+        if lease.op == "note_undo_work" {
+            undo_note_work(project.as_deref_mut(), &mut open, &mut state, &lease.id);
+        } else if matches!(lease.op, "note_ask" | "note_answer" | "note_resolve" | "note_keep") {
             talk_note(project.as_deref_mut(), &mut open, &mut state, lease.op, &lease.id, lease.text);
         } else {
             lease_note(project.as_deref_mut(), &mut open, &mut state, lease.op, &lease.id);
@@ -4295,6 +4303,7 @@ fn refresh_notes_list(
                         ("note_ask", "Ask", "Is this what you meant me to do?"),
                         ("note_resolve", "Done", "finished by hand"),
                     ],
+                    ("done", _) => &[("note_keep", "Keep", ""), ("note_undo_work", "Undo this note", "")],
                     _ => &[],
                 };
                 if !ops.is_empty() {
