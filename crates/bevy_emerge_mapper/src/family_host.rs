@@ -68,8 +68,9 @@ pub fn reload_settings(
 ) {
     let Some(project) = project else { return };
     if watch.as_ref().is_none_or(|(root, ..)| *root != project.root) {
-        settings.text.clear();
-        *watch = Some((project.root.clone(), FamilyWatch::new(&project.root), std::time::Instant::now()));
+        let fresh = FamilyWatch::new(&project.root);
+        settings.text = fresh.current().clone();
+        *watch = Some((project.root.clone(), fresh, std::time::Instant::now()));
     }
     let Some((_, w, started)) = watch.as_mut() else { return };
     for change in w.poll(started.elapsed().as_secs_f64()) {
