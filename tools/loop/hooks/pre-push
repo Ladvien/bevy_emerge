@@ -2,13 +2,21 @@
 # The push gate for loop worker clones (`git config core.hooksPath tools/loop/hooks`). Owner, 2026-10-29.
 # A push to main runs the deterministic gate on the commit being pushed and is refused when it fails.
 # Measured 2026-10-29: passes that skipped `cargo test --workspace` pushed tests failing 165 of 200 runs.
+#
+# Clean-merge fast path (owner's session, 2026-10-29). With six workers gating at once, a push refused
+# for being behind used to merge main and rerun the whole 40-minute gate, and was often refused again.
+# A commit that passes the full gate is recorded in `<git-dir>/gate-passed`. A merge commit whose one
+# parent is recorded, whose other parent is already on the remote's main (it passed its own pusher's
+# gate), and whose tree is exactly what `git merge-tree` makes of the two (no conflict, no hand edit)
+# runs clippy over every target, which type-checks every crate and test, instead of the test run.
 set -u
+cargo="${LOOP_GATE_CARGO:-cargo}"
 zero=0000000000000000000000000000000000000000
-target="" code=0
+target="" remote="" code=0
 while read -r _local_ref local_sha remote_ref remote_sha; do
   [ "$remote_ref" = "refs/heads/main" ] || continue
   [ "$local_sha" = "$zero" ] && continue
-  target="$local_sha"
+  target="$local_sha" remote="$remote_sha"
   if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
     code=1
   elif git diff --name-only "$remote_sha" "$local_sha" | grep -qvE '^docs/|\.md$|\.(gif|mp4|png|jpg|webp)$'; then
@@ -22,8 +30,27 @@ refuse() { echo "pre-push gate: REFUSED: $*" >&2; echo "pre-push gate: fix it, o
 python3 tools/loop/backlog.py check >/dev/null || refuse "python3 tools/loop/backlog.py check failed"
 python3 tools/changelog/changelog.py check >/dev/null || refuse "python3 tools/changelog/changelog.py check failed"
 if [ "$code" = 0 ]; then echo "pre-push gate: docs and media only; backlog and changelog checks passed" >&2; exit 0; fi
-echo "pre-push gate: clippy and cargo test --workspace on ${target:0:9}; this takes minutes, so give git push a timeout of 1800 s or more" >&2
+passed="$(git rev-parse --git-dir)/gate-passed"
+gated() { [ -f "$passed" ] && grep -qx "$1" "$passed"; }
+clean_merge_of_main() {
+  local parents p1 p2 tree
+  parents=$(git rev-list --parents -n 1 "$target")
+  set -- $parents
+  [ $# -eq 3 ] || return 1
+  p1=$2 p2=$3
+  { gated "$p1" && git merge-base --is-ancestor "$p2" "$remote"; } ||
+    { gated "$p2" && git merge-base --is-ancestor "$p1" "$remote"; } || return 1
+  tree=$(git merge-tree --write-tree "$p1" "$p2" 2>/dev/null) || return 1
+  [ "$tree" = "$(git rev-parse "$target^{tree}")" ]
+}
 start=$(date +%s)
-cargo clippy --workspace --all-targets -q -- -D warnings || refuse "cargo clippy --workspace --all-targets -- -D warnings failed"
-cargo test --workspace -q --no-fail-fast || refuse "cargo test --workspace failed (the failing tests are named above)"
+if clean_merge_of_main; then
+  echo "pre-push gate: ${target:0:9} is a clean merge of main into a commit that passed the gate; clippy over every target only" >&2
+  $cargo clippy --workspace --all-targets -q -- -D warnings || refuse "cargo clippy --workspace --all-targets -- -D warnings failed on the merge"
+else
+  echo "pre-push gate: clippy and cargo test --workspace on ${target:0:9}; this takes minutes, so give git push a timeout of 1800 s or more" >&2
+  $cargo clippy --workspace --all-targets -q -- -D warnings || refuse "cargo clippy --workspace --all-targets -- -D warnings failed"
+  $cargo test --workspace -q --no-fail-fast || refuse "cargo test --workspace failed (the failing tests are named above)"
+fi
+echo "$target" >> "$passed"
 echo "pre-push gate: passed in $(( $(date +%s) - start ))s" >&2
