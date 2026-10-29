@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **99a** Heightfield for sculpted ground: raise, lower, smooth, flatten and noise strokes, ground query, 16-bit height-map import (#99 slice 1, engine-free) *No clip: an API in bevy_emerge_core, no editor surface yet; proved by bevy_emerge_core/tests/heightfield.rs*
 - **E-051** `d59670d` Kit clicks no longer copy the whole project: a project's library, masks and kit layers are shared, and copied only when written *No clip: a performance refactor nobody can see; proved by crates/bevy_emerge_mapper/tests/project_clone_shares.rs*
 - **92-fence** `ba9dfba` An agent holding a note is fenced: apply with its name refuses changes outside the area plus one cell, and removing a person's piece until it has asked and been answered (#92) *No clip: visible only in an agent's refusal; clip owed with the issue's end-to-end clip; proved by crates/bevy_emerge_mapper/tests/note_fence.rs*
 - **#116** data_set, the Data panel and project.data_files read data.ron from the emerge directory, so a game under assets/emerge can change its tuning files *No clip: a path fix in three readers; proved by data_set_is_an_operation (7 tests)*
