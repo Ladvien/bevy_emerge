@@ -213,9 +213,14 @@ Then, in this order:
    issue with `gh issue comment`, or in the log line naming the issue when `gh` is not working), and close it with
    `Fixes #N` only in the commit that meets the last of them. Its **Decisions already made** are the design:
    follow them rather than stopping to ask. One that is blocked is handled like a blocked `consumer` issue.
-4. **Any other enhancement issue is ranked with your own candidates**, not above them: an issue is one
-   person's idea of what matters, and the ranking below still decides. Note the issue number beside
-   the item so the rank list records that it came from outside.
+4. **Every other open enhancement issue is the pass's item next, ahead of the focus's backlog items, the
+   series and your own candidates** (the owner's rule, 2026-10-29): a filed request was asked for; a
+   candidate this pass invents was not. The order of work is: bugs (Phase 1, then bug issues), then
+   `consumer` issues, then `owner` issues in the focus's order, then every other open enhancement issue,
+   oldest first. Only when each of them is done, blocked or a release issue does Phase 2 choose from the
+   backlog, the series or your own candidates. A blocked issue gets its `gh issue comment` and is skipped;
+   it never stops the pass. Name the issues you skipped, and why, in the log line, so the next pass sees
+   the list was worked through.
 5. **Close the loop.** An issue your pass fixes is referenced in the commit body (`Fixes #N`) **and**
    in the report, so the next pass can see it was addressed. Do not close an issue you did not fix,
    and do not close one whose fix this pass did not verify. For a `consumer` issue the close is the
@@ -255,7 +260,7 @@ The owner's crates (`bevy_elements`, `bevy_flora`, `bevy_lights`, `bevy_society`
 
 ## Phase 2: Choose the enhancement
 
-**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step, a backlog item or an issue, that is the item. Bugs, filed bug issues, `consumer` issues and then `owner` issues still come first (Phase 1 and the issues section above). An item waiting on a family crate is not ready (see "the two-way street"); building that crate-side change at the source is an item of its own. If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
+**The owner's focus outranks the series and your own candidates.** If `docs/loop/focus.md` has a focus, choose the enhancement that best advances it; when it names a series step, a backlog item or an issue, that is the item. Bugs, filed bug issues, `consumer` issues, `owner` issues and then every other open enhancement issue still come first (Phase 1 and the issues section above): **you are choosing here only when none of them can be worked this pass.** An item waiting on a family crate is not ready (see "the two-way street"); building that crate-side change at the source is an item of its own. If the focus cannot be advanced this pass because it is done, blocked, or needs a decision, write one log line saying which and why, then choose as below. With no focus, choose as below.
 
 If an open `series` has a next step you can work this pass, take it and skip the list. A series whose next step is blocked or waiting on the owner does **not** skip the list: log it in one line and choose from the backlog as below. The backlog's open items are real work; a pass that idles beside them has wasted itself.
 
