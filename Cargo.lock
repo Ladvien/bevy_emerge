@@ -940,6 +940,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_emerge_decide"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "bevy_emerge_mapper"
 version = "0.1.0"
 dependencies = [
