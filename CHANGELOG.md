@@ -4,7 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
-- **98-panel-season-climate** `HEAD` Environment panel: season and climate preset buttons, each one undo step (#98, slice 5) *No clip: visible, not yet recorded: no clip pass on this machine yet; proved by tests/environment_applies.rs the_panels_season_and_climate_buttons_are_one_undo_step_each*
+- **98-panel-season-climate** `0ffc53a` Environment panel: season and climate preset buttons, each one undo step (#98, slice 5) *No clip: visible, not yet recorded: no clip pass on this machine yet; proved by tests/environment_applies.rs the_panels_season_and_climate_buttons_are_one_undo_step_each*
 - **98-launch** `e7866f0` Family settings already in the project at launch apply at once, so the environment preview is dressed without an edit *No clip: a launch-time bug fix; proved by tests/family_settings_at_launch.rs*
 - **one-test-binary** `16fa7bb` The editor's integration tests build as one binary: the push gate's mapper build and run went from 815 s to 132 s *No clip: test infrastructure; proved by every_test_file_is_a_module_here and the timings in 16fa7bb*
 - **n93-review** `pending` Review a done note: Keep it, or Undo this note reverts all its pieces as one step (#93 slice 2) *No clip: visible, not yet recorded: bmb has no clip run this pass*
