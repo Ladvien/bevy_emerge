@@ -435,7 +435,8 @@ pub(crate) fn suggest_labels(
     // The config check is the verb's gate: fail here, loudly, not after a photo shoot.
     // **A refusal, so a problem** — the editor could not label anything, and the remedy has to
     // outlive the next receipt.
-    if let Err(remedy) = VlmConfig::load(&project.root) {
+    if is_decide_path(&project.root) {
+    } else if let Err(remedy) = VlmConfig::load(&project.root) {
         state.status.problem(remedy);
         return;
     }
@@ -453,6 +454,12 @@ pub(crate) fn suggest_labels(
         Asked::Said(said) => state.status.note(said),
         Asked::Refused(why) => state.status.problem(why),
     }
+}
+
+/// The decision path reads its own endpoint config at the request, so the chat path's config
+/// gate does not apply to it. A bad `EMERGE_LABEL_PATH` is not decide here: the request names it.
+fn is_decide_path(root: &std::path::Path) -> bool {
+    matches!(crate::decide_labels::LabelPath::load(root), Ok(crate::decide_labels::LabelPath::Decide))
 }
 
 /// **Script driving, the devshot way**: `echo wall_light > labels.request` queues that library
@@ -490,7 +497,8 @@ pub(crate) fn watch_sentinel(
         return;
     }
     let Some(project) = project else { return };
-    if let Err(remedy) = VlmConfig::load(&project.root) {
+    if is_decide_path(&project.root) {
+    } else if let Err(remedy) = VlmConfig::load(&project.root) {
         state.status.problem(remedy);
         warn!("labels sentinel: {}", state.status.line());
         return;
@@ -540,12 +548,28 @@ pub(crate) fn spawn_request(
             // read as the endpoint being down — which is exactly what `poll_tasks`' substring match
             // over one joined string could not tell apart. The turbofish states the error type
             // rather than leaving it to be inferred back out of `InFlight`.
-            let cfg = VlmConfig::load(&root)?;
+            let path = crate::decide_labels::LabelPath::load(&root)?;
             let bytes = std::fs::read(&mesh_abs)
                 .map_err(|e| format!("cannot read {}: {e}", mesh_abs.display()))?;
             let fingerprint = bevy_emerge_core::glb::fnv1a(&bytes);
             let pngs = [encode_png(&images[0])?, encode_png(&images[1])?];
-            let (suggestion, provenance) = vlm::label_with_retry(&cfg, &pngs, &vocab, &ctx, date)?;
+            let (suggestion, provenance) = match path {
+                crate::decide_labels::LabelPath::Chat => {
+                    let cfg = VlmConfig::load(&root)?;
+                    vlm::label_with_retry(&cfg, &pngs, &vocab, &ctx, date)?
+                }
+                crate::decide_labels::LabelPath::Decide => {
+                    let http = bevy_emerge_decide::Http::new(bevy_emerge_decide::Config::from_env());
+                    crate::decide_labels::label_with_decisions(
+                        &http,
+                        &pngs,
+                        &vocab,
+                        &ctx,
+                        crate::decide_labels::DEFAULT_THRESHOLD,
+                        date,
+                    )?
+                }
+            };
             Ok::<_, vlm::LabelFailure>((suggestion, provenance, fingerprint))
         });
         tasks.0.push(InFlight {
