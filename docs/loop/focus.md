@@ -17,7 +17,7 @@ The owner's crates become the heart of the editor first; then notes for agents, 
 
 **A missing clip never holds an issue open** (owner, 2026-10-29). When an issue's code meets its acceptance and the gate is green, close it (`Fixes #N`) with its changelog line written `--no-clip "visible, not yet recorded: <why>"`; the clip is recorded later like any other `not yet recorded` line. Measured 2026-10-29: #90's code was done but it stayed open for its clip, so #91–#95 could not start and three workers idled for an hour. **Clips come from `tools/demo/record.py`**, which takes frames from the editor's own `emerge_capture_sequence`; never `screencapture`, which a launchd job is not allowed to use ("could not create image from display").
 
-**The decision model is live on `big:8093`** (owner's session, 2026-10-29, until about 15:15 CDT; a systemd user unit `clef-flash-8093` on big, under the GPU lease). From a Mac, use `http://big:8093/v1/systemone`. A pass that needs it after it stops says so in the log and moves on.
+**The decision model is live** (owner's session, 2026-10-29, until about 15:15 CDT; a systemd user unit `clef-flash-8093` on big, under the GPU lease). On big and on big_mac it answers at `http://127.0.0.1:8093/v1/systemone`: big's firewall blocks 8093 from the LAN, so big_mac reaches it through an ssh tunnel. The laptop has no tunnel. A pass that needs it after it stops says so in the log and moves on.
 
 **Family loops running** (the two-way street, step 4: a crate listed here is left to its own loop; any other is fixed at the source by this loop): none (2026-10-28; the owner stopped the lights, society and elements loops that day). The owner edits this line when a family loop is started or stopped.
 
