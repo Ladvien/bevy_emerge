@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 /// The editor's own checks, as shipped (`fixtures/checks.ron`). A project's `checks.ron` has the same shape.
 pub const BUILTIN_CHECKS_RON: &str = include_str!("../fixtures/checks.ron");
 
+/// The project's own checks, beside `kits.ron` and `rules.ron`.
+pub const PROJECT_CHECKS_FILE: &str = "checks.ron";
+
 /// A named yes/no question about what an operation changed, with what it needs and what it earned.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Check {
@@ -58,6 +61,18 @@ impl Checks {
     /// The editor's own checks.
     pub fn builtin() -> Self {
         Self::from_ron(BUILTIN_CHECKS_RON).expect("fixtures/checks.ron parses (a test reads it)")
+    }
+
+    /// The editor's checks with the project's own `assets/emerge/checks.ron` over them, read fresh so an
+    /// edit takes effect at once. No file is the editor's checks alone; an unreadable or invalid one is an error
+    /// naming the path.
+    pub fn for_project(project: &std::path::Path) -> Result<Self, String> {
+        let path = project.join("assets").join("emerge").join(PROJECT_CHECKS_FILE);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(Self::builtin().merged(Self::from_ron(&text).map_err(|e| format!("{}: {e}", path.display()))?)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::builtin()),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
     }
 
     pub fn get(&self, name: &str) -> Option<&Check> {
