@@ -567,6 +567,11 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
         "bevy_emerge_mapper::after_edit::AfterEditQueue",
         Ownership::Project,
     ),
+    // The channels the check threads and screenshots answer on, and operations waiting for a picture:
+    // plumbing true for as long as the app runs, never a value read off a project.
+    ("bevy_emerge_mapper::after_edit::Reports", Ownership::Session),
+    ("bevy_emerge_mapper::after_edit::Shots", Ownership::Session),
+    ("bevy_emerge_mapper::after_edit::ShotWait", Ownership::Session),
     // ── The door's own working state ────────────────────────────────────────────────────────────
     // The undo stack is the one this list was written for: `docs/2026-08-17-one-application.md` §1
     // names it as the value that survives into the next kit today.
