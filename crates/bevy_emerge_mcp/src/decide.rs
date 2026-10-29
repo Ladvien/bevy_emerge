@@ -13,9 +13,6 @@ use bevy_emerge_decide::{Check, Checks, Evidence, Question, Request, Transport};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-/// The project's own checks, beside `kits.ron` and `rules.ron`.
-pub const CHECKS_FILE: &str = "checks.ron";
-
 /// The name of the picture the server takes itself.
 pub const VIEW: &str = "view";
 
@@ -59,13 +56,7 @@ pub struct NamedImage {
 
 /// The editor's checks with the project's own over them.
 pub fn load_checks(project: &Path) -> Result<Checks, String> {
-    let builtin = Checks::builtin();
-    let path = project.join("assets").join("emerge").join(CHECKS_FILE);
-    match std::fs::read_to_string(&path) {
-        Ok(text) => Ok(builtin.merged(Checks::from_ron(&text).map_err(|e| format!("{}: {e}", path.display()))?)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(builtin),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    }
+    Checks::for_project(project)
 }
 
 /// **Whether the server must take the editor's picture before deciding.**

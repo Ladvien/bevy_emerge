@@ -963,6 +963,7 @@ dependencies = [
  "bevy_emerge",
  "bevy_emerge_anim",
  "bevy_emerge_core",
+ "bevy_emerge_decide",
  "bevy_emerge_snip",
  "image",
  "ron",

@@ -97,6 +97,8 @@ pub fn add_editor_plugins(app: &mut App) -> &mut App {
             // **The vocabulary prompt** — the tag block's `+` chip and `Shift+T` both land here.
             // In the shared list because a headless test drives `Shift+T` the same way a person does.
             crate::token_prompt::TokenPromptPlugin,
+            // **The after-edit checks owed** for each agent operation, never for a person's.
+            crate::after_edit::AfterEditPlugin,
             // Two plugins, two jobs: the capture rig is the shared crate, the verbs are ours.
             bevy_devshot::DevShotPlugin,
             crate::devshot::DrivePlugin,
