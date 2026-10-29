@@ -271,6 +271,11 @@ impl FamilyWatch {
         watch
     }
 
+    /// The settings that parsed when the watch was made, and every change since: what is in force now.
+    pub fn current(&self) -> &std::collections::BTreeMap<String, String> {
+        &self.good
+    }
+
     fn read(&self) -> Vec<(String, String)> {
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return Vec::new() };
         let mut out: Vec<(String, String)> = entries
