@@ -833,3 +833,163 @@ pub fn state_json(open: &crate::project::OpenMap, library: Option<&bevy_emerge_c
         "bundle": want.map(|id| bundle(&notes, id, &open.map, library).unwrap_or_else(|| json!({"error": format!("no note {id}")}))),
     })
 }
+
+/// **The operations that change pieces on the open map**, which the fence measures (#92). Every one of
+/// them writes only the map file, so a trial of it can run against a copy of the map in a scratch
+/// directory and leave the project untouched.
+const FENCED: &[&str] = &[
+    "placement_add",
+    "placement_set_pin",
+    "placement_set_yaw",
+    "placement_remove",
+    "stamp_remove",
+    "fill",
+    "layout_accept",
+    "run_add",
+    "run_set",
+    "run_remove",
+];
+
+/// **What a trial of a fenced operation changed on the map**, for [`notes::Notes::fence`].
+///
+/// `agent_made` is the set of ids the operation log credits to an agent; a removed id outside it is a
+/// piece a person placed (or one the file had before the log began, which is a person's too).
+fn measure(before: &bevy_emerge_core::map::Map, after: &bevy_emerge_core::map::Map, agent_made: &std::collections::HashSet<String>) -> notes::Change {
+    use std::collections::HashMap;
+    let cell = |v: f32| (v / bevy_emerge_core::grid::TILE).floor() as i32;
+    let mut change = notes::Change::default();
+    let touch = |at: (f32, f32), change: &mut notes::Change| {
+        let (x, z) = (cell(at.0), cell(at.1));
+        change.cells = Some(change.cells.map_or((x, z, x, z), |r| (r.0.min(x), r.1.min(z), r.2.max(x), r.3.max(z))));
+    };
+    fn diff<'a, T: PartialEq>(
+        before: &'a [T],
+        after: &'a [T],
+        id: impl Fn(&T) -> &str,
+    ) -> (Vec<&'a T>, Vec<&'a T>) {
+        let old: HashMap<&str, &T> = before.iter().map(|r| (id(r), r)).collect();
+        let new: HashMap<&str, &T> = after.iter().map(|r| (id(r), r)).collect();
+        let gone = before.iter().filter(|r| new.get(id(r)) != Some(r)).collect();
+        let came = after.iter().filter(|r| old.get(id(r)) != Some(r)).collect();
+        (gone, came)
+    }
+    let mut removed_ids: Vec<&str> = Vec::new();
+    let (gone, came) = diff(&before.placements, &after.placements, |r| r.id.as_str());
+    let still: std::collections::HashSet<&str> = after.placements.iter().map(|r| r.id.as_str()).collect();
+    for r in &gone {
+        touch(r.at, &mut change);
+        if !still.contains(r.id.as_str()) {
+            removed_ids.push(&r.id);
+        }
+    }
+    for r in &came {
+        touch(r.at, &mut change);
+    }
+    change.pieces += gone.len().max(came.len());
+    let (gone, came) = diff(&before.stamps, &after.stamps, |r| r.id.as_str());
+    let still: std::collections::HashSet<&str> = after.stamps.iter().map(|r| r.id.as_str()).collect();
+    for r in &gone {
+        touch(r.at, &mut change);
+        if !still.contains(r.id.as_str()) {
+            removed_ids.push(&r.id);
+        }
+    }
+    for r in &came {
+        touch(r.at, &mut change);
+    }
+    change.pieces += gone.len().max(came.len());
+    let (gone, came) = diff(&before.runs, &after.runs, |r| r.id.as_str());
+    let still: std::collections::HashSet<&str> = after.runs.iter().map(|r| r.id.as_str()).collect();
+    for r in gone.iter().chain(came.iter()) {
+        touch(r.run.from, &mut change);
+        touch(r.run.to, &mut change);
+        for c in &r.run.corners {
+            touch(c.at, &mut change);
+        }
+    }
+    for r in &gone {
+        if !still.contains(r.id.as_str()) {
+            removed_ids.push(&r.id);
+        }
+    }
+    change.pieces += gone.len().max(came.len());
+    change.person_placed = removed_ids.into_iter().filter(|id| !agent_made.contains(*id)).map(str::to_owned).collect();
+    change
+}
+
+/// **The ids the operation log credits to an agent**: what its applied, not-undone changes added,
+/// read from each line's inverse (`delta.remove_placements`, `delta.remove_stamps`, `take_back`).
+fn agent_made_ids(ctx: &Ctx) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    let Some(project) = ctx.project.as_ref() else { return ids };
+    for e in crate::ops::read_entries(&crate::ops::oplog_path(project)) {
+        if e.source != crate::ops::Source::Agent || e.outcome != "applied" || e.undoes.is_some() {
+            continue;
+        }
+        let Some(inv) = e.inverse.as_ref() else { continue };
+        for key in ["remove_placements", "remove_stamps"] {
+            if let Some(list) = inv.pointer(&format!("/delta/{key}")).and_then(|v| v.as_array()) {
+                ids.extend(list.iter().filter_map(|v| v.as_str().map(str::to_owned)));
+            }
+        }
+        if let Some(id) = inv.get("take_back").and_then(|v| v.as_str()) {
+            ids.insert(id.to_owned());
+        }
+    }
+    ids
+}
+
+/// **The fence on an agent's operation** (#92): `Some(why)` when `agent` holds a note and the
+/// operation would change something outside the note's area plus its margin, or something that
+/// needs a question answered first. Nothing has been changed when this answers.
+///
+/// The trial runs the operation's own `commit` on a copy of the project whose `maps_dir` and the
+/// copy's `map_path` point into a scratch directory, so the real map file, the log and the editor's
+/// state are untouched; the two maps are then compared. An operation the trial itself refuses is
+/// left to the real dispatch, which gives its own reason.
+pub fn fence_refusal(ctx: &Ctx, agent: &str, op: &str, params: &serde_json::Value) -> Option<String> {
+    if !FENCED.contains(&op) {
+        return None;
+    }
+    let open = ctx.open.as_ref()?;
+    let project = ctx.project.as_ref()?;
+    let mut notes = Notes::load(&notes::path_for_map(&open.map_path)).ok()?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    notes.expire(now);
+    let held: Vec<String> = notes.notes.iter().filter(|n| n.holder() == Some(agent)).map(|n| n.id.clone()).collect();
+    if held.is_empty() {
+        return None;
+    }
+    let operation = crate::ops::find(op)?;
+    let scratch_dir = std::env::temp_dir().join(format!("emerge-fence-{}-{}", std::process::id(), now));
+    std::fs::create_dir_all(&scratch_dir).ok()?;
+    let mut trial_project = project.clone();
+    trial_project.maps_dir = scratch_dir.clone();
+    let mut trial_open = open.clone();
+    trial_open.map_path = scratch_dir.join(bevy_emerge_core::naming::map_file_name(&trial_open.map.name));
+    let mut trial = Ctx {
+        project: Some(trial_project),
+        root: None,
+        open: Some(trial_open),
+        source: ctx.source,
+        session: ctx.session.clone(),
+        proposal: ctx.proposal.clone(),
+    };
+    let ran = operation.commit(&mut trial, params);
+    let _ = std::fs::remove_dir_all(&scratch_dir);
+    ran.ok()?;
+    let change = measure(&open.map, &trial.open.as_ref()?.map, &agent_made_ids(ctx));
+    if change == notes::Change::default() {
+        return None;
+    }
+    let mut first = None;
+    for id in &held {
+        match notes.fence(id, agent, &change) {
+            Ok(()) => return None,
+            Err(why) => {
+                first.get_or_insert(why);
+            }
+        }
+    }
+    first
+}
