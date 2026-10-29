@@ -290,7 +290,25 @@ pub fn wants_view(checks: &Checks) -> bool {
 
 /// Does any after-edit check ask for a picture the editor takes (`view`, or a `closeup` cut from it)?
 pub fn wants_picture(checks: &Checks) -> bool {
-    wants_view(checks) || checks.checks.iter().any(|c| c.after_edit && c.images.iter().any(|i| i == "closeup"))
+    wants_view(checks) || checks.checks.iter().any(|c| c.after_edit && c.images.iter().any(|i| matches!(i.as_str(), "closeup" | "before" | "after")))
+}
+
+/// **The editor's last picture of the scene**, kept so the next run has a `before`. A run's `view` is
+/// the scene after its edit; it is the next run's `before`. The first run has none, so a check that
+/// needs `before` is reported as skipped rather than answered from less.
+#[derive(Resource, Default, Debug)]
+pub struct PictureMemory {
+    last: Option<String>,
+}
+
+impl PictureMemory {
+    /// Remember `view` (the picture after this run's edits) and return the one it replaces.
+    pub fn swap(&mut self, view: Option<String>) -> Option<String> {
+        match view {
+            Some(v) => self.last.replace(v),
+            None => self.last.clone(),
+        }
+    }
 }
 
 /// The picture as the data URL a model request takes.
@@ -338,6 +356,7 @@ pub fn crop_data_url(image: &image::DynamicImage, rect: [u32; 4]) -> Option<Stri
 #[derive(Debug, Default)]
 struct Pictures {
     view: Option<String>,
+    before: Option<String>,
     closeups: BTreeMap<u64, String>,
 }
 
@@ -377,6 +396,12 @@ fn spawn_checks(edits: Vec<AgentEdit>, checks: Checks, pictures: Pictures, tx: S
         let http = Http::new(Config::from_env());
         let done = run_due(&edits, &checks, &http, &|e| {
             let mut out: BTreeMap<String, String> = pictures.view.iter().map(|v| ("view".to_string(), v.clone())).collect();
+            if let Some(v) = &pictures.view {
+                out.insert("after".into(), v.clone());
+            }
+            if let Some(b) = &pictures.before {
+                out.insert("before".into(), b.clone());
+            }
             if let Some(c) = pictures.closeups.get(&e.seq) {
                 out.insert("closeup".into(), c.clone());
             }
@@ -456,12 +481,15 @@ fn launch_shot_checks(
     reports: Res<Reports>,
     shots: Res<Shots>,
     mut wait: ResMut<ShotWait>,
+    mut memory: ResMut<PictureMemory>,
 ) {
     let mut ready: Vec<(Vec<AgentEdit>, Pictures)> = wait.tick().into_iter().map(|e| (e, Pictures::default())).collect();
     if let Ok(rx) = shots.rx.lock() {
         while let Ok((ticket, pictures)) = rx.try_recv() {
             if let Some(edits) = wait.deliver(ticket) {
-                ready.push((edits, pictures.unwrap_or_default()));
+                let mut pictures = pictures.unwrap_or_default();
+                pictures.before = memory.swap(pictures.view.clone());
+                ready.push((edits, pictures));
             }
         }
     }
@@ -499,6 +527,7 @@ impl Plugin for AfterEditPlugin {
             .init_resource::<Reports>()
             .init_resource::<Shots>()
             .init_resource::<ShotWait>()
+            .init_resource::<PictureMemory>()
             .add_systems(
                 Update,
                 (queue_after_edit, start_checks, launch_shot_checks, collect_reports).chain(),

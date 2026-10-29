@@ -572,6 +572,7 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::after_edit::Reports", Ownership::Session),
     ("bevy_emerge_mapper::after_edit::Shots", Ownership::Session),
     ("bevy_emerge_mapper::after_edit::ShotWait", Ownership::Session),
+    ("bevy_emerge_mapper::after_edit::PictureMemory", Ownership::Session),
     // ── The door's own working state ────────────────────────────────────────────────────────────
     // The undo stack is the one this list was written for: `docs/2026-08-17-one-application.md` §1
     // names it as the value that survives into the next kit today.
