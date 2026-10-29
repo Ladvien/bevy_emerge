@@ -54,6 +54,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "bevy_emerge_snip",
         "the one crop, shared by the editor's snip and the MCP's emerge_snip, so a picture from either door is cut the same way",
     ),
+    (
+        "bevy_emerge_decide",
+        "the after-edit checks (#111): typed yes/no questions to a decision model about what an agent's operation changed — authoring time only, never in a game",
+    ),
     ("arboard", "Cmd+C copies the live tab's text, problems first, for handing to an agent"),
     (
         "bevy_debugger_bevy",

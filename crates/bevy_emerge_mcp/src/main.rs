@@ -24,12 +24,13 @@
 //! | `emerge_capture_still` | one picture of the editor, plus the state |
 //! | `emerge_capture_sequence` | frames at 4 fps by default (2 to 15 a second), with an optional operation after frame 0 |
 //! | `emerge_snip` | one rectangle of the picture, cut out and written as a crop with its metadata |
+//! | `emerge_decide` | ask a named check or typed questions about pictures and facts; a probability for every answer |
 //! | `emerge_present` | put a result in front of the person and take their Keep or Undo all |
 //! | `emerge_list_pieces` | the library's pieces, a page at a time, with their label provenance |
 //! | `emerge_list_snips` | the snips the person took, newest first, with the newest picture |
 //! | `emerge_list_rules` | the block rules a layout is generated from, as the project states them |
 //!
-//! **Fourteen tools, and the set is small on purpose.** An agent's context is spent on the tools it
+//! **Fifteen tools, and the set is small on purpose.** An agent's context is spent on the tools it
 //! is offered, and a catalogue of ninety-six verbs is a catalogue of ninety-six things to choose
 //! badly from. **The operation tools are a discovery surface**: the first names what exists, and
 //! the others preview, run and take back what it names. Later iterations add one tool per
@@ -884,6 +885,62 @@ impl Emerge {
                 serde_json::to_string_pretty(&answer).unwrap_or_default(),
             ),
         ]))
+    }
+
+    /// **`emerge_decide` -- ask a decision model, and get a probability back.**
+    ///
+    /// **Advisory and authoring-time**: it changes no map data, and a finding never blocks or undoes
+    /// anything. The endpoint is one per run, from `EMERGE_DECIDE_ENDPOINT`, `_MODEL` and `_KEY`.
+    #[tool(
+        name = "emerge_decide",
+        description = "Ask a decision model a typed question about the editor's pictures and facts, and get a \
+                       probability for every allowed answer, with nothing to parse. Two forms. check: a \
+                       named check such as floating, clipping, outside_area, blank_frame or toast_visible \
+                       (the editor's own, with the project's assets/emerge/checks.ron over them, read on every \
+                       call); it answers a finding with the check's P(yes), its threshold and whether it was \
+                       found, and takes the editor's current picture itself when it needs view. questions: \
+                       ad-hoc typed questions by id, each noul (yes or no, P(yes)), choice (named options, \
+                       each one's probability) or score (levels, a weighted score), with state in words, \
+                       images (project files, at most four) and facts (JSON). A check that needs a picture or \
+                       facts it was not given is refused and names what is missing; it never answers from \
+                       less. Advisory: it changes no map data and a finding never blocks or undoes an \
+                       operation. The endpoint is one per run, local by default; a Cloudflare endpoint sends \
+                       pictures off the LAN and is opt-in.",
+        annotations(
+            title = "Ask a decision model",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn decide(
+        &self,
+        Parameters(p): Parameters<bevy_emerge_mcp::decide::DecideParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let checks = match bevy_emerge_mcp::decide::load_checks(&self.project) {
+            Ok(c) => c,
+            Err(e) => return Ok(refusal(&e)),
+        };
+        let view = if bevy_emerge_mcp::decide::needs_view(&p, &checks) {
+            match self.grab().await {
+                Ok(png) => Some(png),
+                Err(e) => return Ok(refusal(&e)),
+            }
+        } else {
+            None
+        };
+        let project = self.project.clone();
+        let answer = tokio::task::spawn_blocking(move || {
+            let http = bevy_emerge_decide::Http::new(bevy_emerge_decide::Config::from_env());
+            bevy_emerge_mcp::decide::decide(&p, &project, view.as_deref(), &http)
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        Ok(match answer {
+            Ok(v) => CallToolResult::structured(v),
+            Err(e) => refusal(&e),
+        })
     }
 
     /// **`emerge_list_snips` -- the snips the person took, newest first.**
