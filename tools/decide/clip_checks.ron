@@ -1,0 +1,17 @@
+// The clip check (issue #112): the still plus three frames of a changelog clip, asked against the line's title.
+// Yes means the clip does NOT show what the line says, so a finding is a mismatch, like every check here.
+// `{title}` is replaced by the changelog line's title. `calibration` stays None until
+// `tools/decide/check.py calibrate-clips` has measured it on the labelled clip set against a live model.
+(
+    checks: [
+        (
+            name: "clip_matches_title",
+            question: "These four images are the still and three frames of a short screen recording. Does the recording fail to show this: \"{title}\"? Answer yes if what the title describes cannot be seen happening in the frames.",
+            images: ["still", "frame1", "frame2", "frame3"],
+            facts: false,
+            threshold: 0.70,
+            after_edit: false,
+            calibration: None,
+        ),
+    ],
+)
