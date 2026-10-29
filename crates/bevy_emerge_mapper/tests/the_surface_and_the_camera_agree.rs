@@ -39,7 +39,7 @@ use bevy::prelude::*;
 
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 /// The surface image's current physical size.
 fn surface_size(app: &App) -> Option<(u32, u32)> {

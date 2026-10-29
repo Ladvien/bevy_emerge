@@ -2383,6 +2383,8 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_notes::NoteAsk),
         Box::new(crate::ops_notes::NoteAnswer),
         Box::new(crate::ops_notes::NoteResolve),
+        Box::new(crate::ops_notes::NoteKeep),
+        Box::new(crate::ops_notes::NoteUndoWork),
     ]
 }
 
@@ -2500,6 +2502,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("note_ask", "talk_note("),
     ("note_answer", "talk_note("),
     ("note_resolve", "talk_note("),
+    // **Keep and Undo this note (#93)** — a done note's row shows both; Keep dispatches `note_keep`
+    // through `talk_note`, Undo this note dispatches `note_undo_work` through `undo_note_work`.
+    ("note_keep", "talk_note("),
+    ("note_undo_work", "undo_note_work("),
 ];
 
 /// **Apply an operation, and record what happened.**

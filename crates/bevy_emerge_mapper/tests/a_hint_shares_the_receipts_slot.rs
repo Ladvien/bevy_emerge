@@ -18,7 +18,7 @@ use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::chrome::BODY_LINE_H;
 use bevy_emerge_mapper::project::{OpenMap, Project};
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor(tag: &str) -> App {
     let root = fixtures::Fixture::new(tag)

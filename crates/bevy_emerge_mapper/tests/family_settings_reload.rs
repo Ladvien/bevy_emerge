@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::family_host::{reload_settings, FamilySettings};
 
-mod fixtures;
+use crate::fixtures;
 
 #[test]
 fn an_edited_settings_file_reaches_the_editor_and_a_bad_one_is_a_problem() {

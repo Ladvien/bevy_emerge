@@ -6,7 +6,7 @@ use bevy_emerge_mapper::ops::{self, Applied, Ctx};
 use bevy_emerge_mapper::project::{OpenMap, Project};
 use serde_json::json;
 
-mod fixtures;
+use crate::fixtures;
 
 #[test]
 fn a_note_on_two_pieces_keeps_those_two_and_one_undo_takes_it_off() {

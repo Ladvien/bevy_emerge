@@ -31,7 +31,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::keys;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **How long to wait for the editor to notice a change, in frames.**
 ///

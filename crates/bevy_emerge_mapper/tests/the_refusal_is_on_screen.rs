@@ -17,7 +17,7 @@
 //! type with no device, so the UI still lays out and `ComputedNode` still has the geometry — which
 //! is what a "visible" claim is made of.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};

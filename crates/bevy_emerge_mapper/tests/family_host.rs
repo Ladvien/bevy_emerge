@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::family_host::{self, report_problems};
 
-mod fixtures;
+use crate::fixtures;
 
 fn problems_after_open(family_ron: Option<&str>, tag: &str) -> Vec<String> {
     let root = fixtures::Fixture::new(tag).descriptor("site/wall", "alpha").build("m");

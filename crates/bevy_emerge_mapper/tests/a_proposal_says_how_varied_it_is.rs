@@ -35,7 +35,7 @@
 use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A project whose pieces present walls, so a composed grammar can enclose a room.**
 ///

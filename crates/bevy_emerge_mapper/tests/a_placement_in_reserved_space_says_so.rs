@@ -17,7 +17,7 @@
 use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **The editor with the bridge open**, eight updates, as the other checks tests do.
 fn editor_with_bridge(root: &std::path::Path, map: &str) -> App {

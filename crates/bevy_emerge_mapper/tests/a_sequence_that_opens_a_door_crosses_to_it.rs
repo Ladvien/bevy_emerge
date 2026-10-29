@@ -16,7 +16,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::sequencer::{SequenceParams, Sequencer};
 use bevy_emerge_mapper::tiles::Door;
 
-mod fixtures;
+use crate::fixtures;
 
 #[test]
 fn a_sequence_that_opens_the_kit_door_leaves_the_editor_on_the_kit_door() {

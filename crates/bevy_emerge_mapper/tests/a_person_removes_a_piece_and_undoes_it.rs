@@ -20,7 +20,7 @@ use bevy_emerge_mapper::ops::{self, Entry};
 use bevy_emerge_mapper::project::{OpenMap, Project};
 use bevy_emerge_mapper::view::MainCamera;
 
-mod fixtures;
+use crate::fixtures;
 
 /// One frame's worth of person: the keys held down, the pointer, and a mouse press or release.
 #[derive(Default)]

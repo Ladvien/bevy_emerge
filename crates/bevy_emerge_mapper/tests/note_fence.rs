@@ -9,7 +9,7 @@ use bevy_emerge_mapper::project::{OpenMap, Project};
 use bevy::prelude::*;
 use serde_json::{Value, json};
 
-mod fixtures;
+use crate::fixtures;
 
 fn ctx(tag: &str) -> Ctx {
     let root = fixtures::Fixture::new(tag).descriptor("site/wall", "alpha").place("site/wall", (1.5, 1.5)).build("m");

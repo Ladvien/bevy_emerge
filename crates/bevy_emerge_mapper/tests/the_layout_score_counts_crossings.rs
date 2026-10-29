@@ -46,7 +46,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::keys;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **Hold the shortcut key down, so the badge overlay is up.**
 fn hold(app: &mut App, keys_down: Vec<KeyCode>) {
