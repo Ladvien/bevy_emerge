@@ -767,6 +767,51 @@ impl Project {
         Ok(())
     }
 
+    /// **Take a composition out of the project.**
+    ///
+    /// The same single-writer door as [`Self::commit_composition`]: the proposal is validated as a
+    /// whole set (a composition another one nests cannot go) and written before anything in memory
+    /// moves. A composition a map stamps is refused, because the map would stop loading.
+    pub fn remove_composition(&mut self, id: &str) -> Result<bevy_emerge_core::composition::Composition, String> {
+        let mut proposed = self.compositions.clone();
+        let at = proposed
+            .compositions
+            .iter()
+            .position(|c| c.id == id)
+            .ok_or_else(|| format!("`{id}` is not a composition in this project"))?;
+        let needle = format!("of: \"{id}\"");
+        let mut stamped_by: Vec<String> = Vec::new();
+        if let Ok(dir) = std::fs::read_dir(&self.maps_dir) {
+            for entry in dir.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "ron")
+                    && std::fs::read_to_string(&path).is_ok_and(|t| t.contains(&needle))
+                {
+                    stamped_by.push(
+                        path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+                    );
+                }
+            }
+        }
+        if !stamped_by.is_empty() {
+            stamped_by.sort();
+            return Err(format!(
+                "`{id}` is stamped by {}, so removing it would stop those maps loading. Remove the stamps first.",
+                stamped_by.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        let gone = proposed.compositions.remove(at);
+        bevy_emerge_core::composition::validate(&proposed.compositions, &self.library)?;
+        let path = self
+            .project_dir
+            .join(bevy_emerge_core::composition::Compositions::FILE);
+        let text = proposed.to_ron()?;
+        bevy_emerge_core::ron_surgery::save_atomic(&path, &text)
+            .map_err(|e| format!("NOT WRITTEN: {e}"))?;
+        self.compositions = proposed;
+        Ok(gone)
+    }
+
     /// **Rename a composition, and every map that stamps it.**
     ///
     /// # Why it lives here
