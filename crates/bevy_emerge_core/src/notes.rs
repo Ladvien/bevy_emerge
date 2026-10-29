@@ -41,6 +41,9 @@ pub enum State {
     /// Written by a person and not yet sent: no agent sees it, the sign stands on the map.
     Draft,
     Open,
+    /// An agent holds a lease on it (#91). The lease runs to `until` (seconds since the Unix epoch) and
+    /// is renewed while the agent works; one not renewed in time expires and the note is `Open` again.
+    Claimed { by: String, until: u64 },
     /// Worked. `ops` names the operations the agent ran; `summary` is one line of what changed.
     Resolved { ops: Vec<String>, summary: String },
 }
@@ -79,6 +82,14 @@ pub enum What {
     Edited { old: String },
     /// A draft was sent, so an agent may now claim it.
     Sent,
+    /// An agent took the lease, to `until`.
+    Claimed { until: u64 },
+    /// The holder renewed the lease, to `until`.
+    Renewed { until: u64 },
+    /// The holder, or the person, gave the note back.
+    Released,
+    /// The lease ran out unrenewed, so the note went back to the queue.
+    Expired,
 }
 
 fn now() -> u64 {
@@ -88,7 +99,11 @@ fn now() -> u64 {
 impl Note {
     /// Appends to the history, by the editor's own user.
     fn log(&mut self, what: What) {
-        self.history.push(Event { at: now(), by: "person".to_owned(), what });
+        self.log_at(now(), "person", what);
+    }
+
+    fn log_at(&mut self, at: u64, by: &str, what: What) {
+        self.history.push(Event { at, by: by.to_owned(), what });
     }
 }
 
@@ -127,6 +142,32 @@ impl Note {
         self.state == State::Open
     }
 
+    /// The agent holding the lease, if any.
+    pub fn holder(&self) -> Option<&str> {
+        match &self.state {
+            State::Claimed { by, .. } => Some(by),
+            _ => None,
+        }
+    }
+
+    /// When this note was sent, for send order: the time of its last `Sent` event.
+    fn sent_at(&self) -> u64 {
+        self.history.iter().rev().find(|e| e.what == What::Sent).map_or(0, |e| e.at)
+    }
+
+    /// The map-space rectangle `[x0, z0, x1, z1]` in metres an agent may work: the drawn area grown
+    /// by its margin, else the cells named, grown by the default margin. `None` for a note on
+    /// placements only, which claims no ground.
+    pub fn reach_rect(&self) -> Option<[f32; 4]> {
+        let t = crate::grid::TILE;
+        if let Some(s) = &self.site {
+            let (a, b, c, d) = s.reach();
+            return Some([a as f32 * t, b as f32 * t, (c + 1) as f32 * t, (d + 1) as f32 * t]);
+        }
+        let m = DEFAULT_MARGIN as f32 * t;
+        self.frame_rect().map(|r| [r[0] - m, r[1] - m, r[2] + m, r[3] + m])
+    }
+
     pub fn is_draft(&self) -> bool {
         self.state == State::Draft
     }
@@ -137,6 +178,7 @@ impl Note {
         match self.state {
             State::Draft => "draft",
             State::Open => "sent",
+            State::Claimed { .. } => "claimed",
             State::Resolved { .. } => "done",
         }
     }
@@ -170,11 +212,22 @@ impl Note {
 pub struct Notes {
     pub version: u32,
     pub notes: Vec<Note>,
+    /// How long an agent's lease on a note lasts before it must renew, in seconds. A project setting:
+    /// edit the file and the next claim uses it.
+    #[serde(default = "default_lease")]
+    pub lease_secs: u64,
+}
+
+/// Five minutes.
+pub const DEFAULT_LEASE_SECS: u64 = 300;
+
+fn default_lease() -> u64 {
+    DEFAULT_LEASE_SECS
 }
 
 impl Default for Notes {
     fn default() -> Self {
-        Notes { version: NOTES_VERSION, notes: Vec::new() }
+        Notes { version: NOTES_VERSION, notes: Vec::new(), lease_secs: DEFAULT_LEASE_SECS }
     }
 }
 
@@ -408,10 +461,109 @@ impl Notes {
         Ok(ids)
     }
 
+    /// Returns every note whose lease ran out by `now` to the queue, and says which.
+    pub fn expire(&mut self, now: u64) -> Vec<String> {
+        let mut gone = Vec::new();
+        for n in &mut self.notes {
+            if let State::Claimed { until, .. } = n.state
+                && until <= now
+            {
+                n.state = State::Open;
+                n.log_at(until, "lease", What::Expired);
+                gone.push(n.id.clone());
+            }
+        }
+        gone
+    }
+
+    /// An agent takes the lease on a sent note, for [`Notes::lease_secs`]; returns when it ends.
+    /// Refused for a note that is not sent, one another agent holds (naming it), one whose reach
+    /// overlaps a claimed note (until that resolves), and one whose reach overlaps a note sent
+    /// earlier and still waiting (overlapping notes are worked in send order). Leases that ran out
+    /// by `now` are given back first, so the clock is the caller's.
+    pub fn claim(&mut self, id: &str, by: &str, now: u64) -> Result<u64, String> {
+        if by.trim().is_empty() {
+            return Err("notes: a claim names the agent making it".to_owned());
+        }
+        self.expire(now);
+        let note = self.get(id).ok_or_else(|| format!("notes: no note {id}"))?;
+        match &note.state {
+            State::Claimed { by: holder, until } => {
+                return Err(format!("notes: {id} is claimed by {holder} until {until}, so it was not claimed"));
+            }
+            State::Draft => return Err(format!("notes: {id} is a draft, not sent, so it was not claimed")),
+            State::Resolved { .. } => return Err(format!("notes: {id} is already resolved, so it was not claimed")),
+            State::Open => {}
+        }
+        if let Some(mine) = note.reach_rect() {
+            let key = (note.sent_at(), self.notes.iter().position(|n| n.id == id));
+            for (i, other) in self.notes.iter().enumerate() {
+                if other.id == id || !other.reach_rect().is_some_and(|r| rects_overlap(mine, r)) {
+                    continue;
+                }
+                match &other.state {
+                    State::Claimed { by: holder, .. } => {
+                        return Err(format!(
+                            "notes: {id} overlaps {}, which {holder} is working, so it waits until that resolves",
+                            other.id
+                        ));
+                    }
+                    State::Open if (other.sent_at(), Some(i)) < key => {
+                        return Err(format!(
+                            "notes: {id} overlaps {}, which was sent first, so {} is worked first",
+                            other.id, other.id
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let until = now + self.lease_secs;
+        let note = self.get_mut(id)?;
+        note.state = State::Claimed { by: by.to_owned(), until };
+        note.log_at(now, by, What::Claimed { until });
+        Ok(until)
+    }
+
+    /// The holder keeps working: the lease runs another [`Notes::lease_secs`] from `now`. A lease
+    /// that already ran out is gone and cannot be renewed; claim again.
+    pub fn renew(&mut self, id: &str, by: &str, now: u64) -> Result<u64, String> {
+        self.expire(now);
+        let lease = self.lease_secs;
+        let note = self.get_mut(id)?;
+        match &note.state {
+            State::Claimed { by: holder, .. } if holder == by => {}
+            State::Claimed { by: holder, .. } => {
+                return Err(format!("notes: {id} is claimed by {holder}, not {by}, so it was not renewed"));
+            }
+            _ => return Err(format!("notes: {id} is not claimed by {by} (its lease may have expired), so it was not renewed")),
+        }
+        let until = now + lease;
+        note.state = State::Claimed { by: by.to_owned(), until };
+        note.log_at(now, by, What::Renewed { until });
+        Ok(until)
+    }
+
+    /// Gives a claimed note back to the queue. `by` is the agent releasing it, who must hold it;
+    /// `None` is the person, who may release any claim.
+    pub fn release(&mut self, id: &str, by: Option<&str>, now: u64) -> Result<(), String> {
+        self.expire(now);
+        let note = self.get_mut(id)?;
+        let State::Claimed { by: holder, .. } = &note.state else {
+            return Err(format!("notes: {id} is not claimed, so there is nothing to release"));
+        };
+        if by.is_some_and(|b| b != holder) {
+            return Err(format!("notes: {id} is claimed by {holder}, so only {holder} or the person may release it"));
+        }
+        note.state = State::Open;
+        note.log_at(now, by.unwrap_or("person"), What::Released);
+        Ok(())
+    }
+
     /// Resolves an open note, naming the operations that did the work and what they changed.
     pub fn resolve(&mut self, id: &str, ops: Vec<String>, summary: &str) -> Result<(), String> {
         let note = self.get_mut(id)?;
-        if !note.is_open() {
+        if !note.is_open() && note.holder().is_none() {
             return Err(format!("notes: {id} is already resolved"));
         }
         note.state = State::Resolved { ops, summary: summary.to_owned() };
@@ -444,4 +596,9 @@ impl Notes {
         }
         out
     }
+}
+
+/// Whether two map-space rectangles `[x0, z0, x1, z1]` share ground; touching edges do not.
+fn rects_overlap(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
 }
