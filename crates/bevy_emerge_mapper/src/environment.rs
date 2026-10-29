@@ -199,25 +199,64 @@ pub fn spawn_section(s: &mut ChildSpawnerCommands) {
     });
 }
 
-/// **The preview's look** (#98): a project with a `family/bevy_elements.ron` gets `bevy_elements`'
+/// **The preview's look** (#98): a project with a `family/bevy_elements.ron` gets `bevy_elements'`
 /// atmosphere, fog, clouds and sun on the editor camera, which is what the game draws; a project
 /// without one keeps the editor's own light. Follows the file's presence, so adding or deleting it
 /// switches the preview without a restart.
+///
+/// **The surface is recomposed with it (#118).** `ElementsCamera` requires `Hdr`, and an HDR camera
+/// renders into its own texture, not the one the ground and interface cameras share. Each camera then
+/// writes its own result into the image (`Camera::output_mode`), and with the default
+/// `blend_state: None` the later write replaces the earlier: the interface camera, which had drawn
+/// onto the shared texture holding only the ground colour, wiped the world out of every frame. So
+/// while dressed the interface camera clears that texture to transparent and both it and the world
+/// are written over what is below them with premultiplied alpha.
 pub fn dress_camera(
     settings: Res<FamilySettings>,
-    camera: Query<(Entity, Has<bevy_elements::ElementsCamera>), With<crate::view::MainCamera>>,
+    mut camera: Query<
+        (Entity, Has<bevy_elements::ElementsCamera>, &mut Camera),
+        (With<crate::view::MainCamera>, Without<crate::surface::SurfaceCamera>),
+    >,
+    mut interface: Query<&mut Camera, With<crate::surface::SurfaceCamera>>,
     mut commands: Commands,
 ) {
     let wanted = settings.text.contains_key(CRATE);
-    for (entity, has) in &camera {
-        match (wanted, has) {
-            (true, false) => {
-                commands.entity(entity).insert(bevy_elements::ElementsCamera::default());
-            }
-            (false, true) => {
-                commands.entity(entity).remove::<bevy_elements::ElementsCamera>();
-            }
-            _ => {}
+    for (entity, has, mut world) in &mut camera {
+        if wanted == has {
+            continue;
         }
+        if wanted {
+            commands.entity(entity).insert({ let f = std::env::var("W4F").unwrap_or_default(); bevy_elements::ElementsCamera { auto_exposure: f.contains('e'), atmosphere: f.contains('a'), distance_fog: f.contains('d'), volumetric_fog: f.contains('v'), ambient: f.contains('m'), msaa_off: f.contains('b') } });
+        } else {
+            commands.entity(entity).remove::<bevy_elements::ElementsCamera>();
+        }
+        composite_surface(wanted, &mut world, interface.iter_mut());
+    }
+}
+
+/// **Sets the surface's cameras to compose an HDR world (`dressed`) or the shared texture (not).**
+pub fn composite_surface<'a>(
+    dressed: bool,
+    world: &mut Camera,
+    interface: impl Iterator<Item = Mut<'a, Camera>>,
+) {
+    use bevy::camera::{CameraOutputMode, ClearColorConfig};
+    use bevy::render::render_resource::BlendState;
+    let over = |dressed| {
+        if dressed {
+            CameraOutputMode::Write {
+                blend_state: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                clear_color: ClearColorConfig::None,
+            }
+        } else {
+            CameraOutputMode::default()
+        }
+    };
+    let clear = if dressed { ClearColorConfig::Custom(Color::NONE) } else { ClearColorConfig::None };
+    world.output_mode = over(dressed);
+    world.clear_color = clear.clone();
+    for mut ui in interface {
+        ui.output_mode = over(dressed);
+        ui.clear_color = clear.clone();
     }
 }
