@@ -89,6 +89,8 @@ separately. Do not reason your way to an exception; the value of the rule is tha
 
 - **Family crates (#96–#108), `crates/bevy_emerge_mapper/tests/leaf.rs`'s `ALLOWED`:** the commit that adds a family crate (a Ladvien repo listed in `AGENTS.md`'s "Use the ladvien crate family") to the editor's `[dependencies]` adds that crate's one row to `ALLOWED`, with a reason naming its issue. The dependency must be `optional = true`, behind a cargo feature named after the crate, and pinned by git `rev`. Nothing else in `leaf.rs` changes, and no other crate is added this way. The commit message says "owner exception, family". Granted 2026-10-29; the first row, `bevy_elements`, the owner added himself.
 
+- **A new field on a saved schema type (`Map`, `Descriptor`, `Library`, a composition, a settings file; first needed by #115), in any test file or `#[cfg(test)]` block:** the commit that adds the field may (a) add that field with its empty default (`Vec::new()`, `None`, `Default::default()`) to struct literals that spell every field out, and (b) raise an assert on that type's format version (`MAP_VERSION` and its kin) by exactly one, to the version the commit introduces. Nothing else in those tests changes: no assertion is removed, loosened or re-pinned, and a test that fails for any other reason is a failure of the change. The commit must also load the previous version (a migration, with a test that reads an old-version file), and its message says "owner exception, schema field". Granted 2026-10-29.
+
 **Append, never rewrite.** `docs/loop/log.md` is append-only: add your line at the bottom and do not
 touch another pass's.
 
