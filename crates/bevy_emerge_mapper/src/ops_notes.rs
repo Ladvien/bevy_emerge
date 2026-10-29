@@ -450,3 +450,223 @@ impl Operation for NoteSend {
         Ok(Self::apply(ctx, params, true)?.expect("a write returns its outcome"))
     }
 }
+
+// ------------------------------------------------- note_claim, note_renew, note_release (#91)
+
+/// **What a lease operation is asked**, shared by `note_claim`, `note_renew` and `note_release`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LeaseParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Who holds, or is to hold, the lease. A person releasing a claim from the editor omits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// The call's time, in seconds since the Unix epoch. Omit it to use the clock; a replay or a
+    /// test that must not wait out a lease names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
+    /// Undo only: the notes as they stood before, put back whole, history included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<Vec<Note>>,
+}
+
+impl LeaseParams {
+    pub fn schema(what: &str) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "agent"],
+            "properties": {
+                "id": {"type": "string", "description": format!("The note to {what}.")},
+                "agent": {"type": "string", "description": "Your name, which shows on the note while you hold it."},
+                "at": {"type": "integer", "minimum": 0, "description": "The call's time in seconds since the Unix epoch. Omit it: the editor's clock is used."}
+            }
+        })
+    }
+
+    fn parse(raw: &serde_json::Value, what: &str) -> Result<LeaseParams, Refusal> {
+        let p: LeaseParams = serde_json::from_value(raw.clone()).map_err(|e| bad_params(what, "`id`, `agent`, and `at`", e))?;
+        if p.restore.is_none() && p.id.is_none() {
+            return Err(Refusal::new(format!("{what} names the note by `id`. Nothing was changed.")));
+        }
+        Ok(p)
+    }
+
+    fn clock(&self) -> u64 {
+        self.at.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()))
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Lease {
+    Claim,
+    Renew,
+    Release,
+}
+
+impl Lease {
+    fn name(self) -> &'static str {
+        match self {
+            Lease::Claim => "note_claim",
+            Lease::Renew => "note_renew",
+            Lease::Release => "note_release",
+        }
+    }
+    fn what(self) -> &'static str {
+        match self {
+            Lease::Claim => "a note claim",
+            Lease::Renew => "a note renewal",
+            Lease::Release => "a note release",
+        }
+    }
+
+    fn apply(self, ctx: &mut Ctx, params: &serde_json::Value, write: bool) -> Result<Option<Outcome>, Refusal> {
+        let p = LeaseParams::parse(params, self.what())?;
+        let source = ctx.source;
+        run(ctx, write, |notes, _| {
+            if let Some(before) = &p.restore {
+                *notes = Notes { notes: before.clone(), ..notes.clone() };
+                return Ok(Change { summary: format!("took back {}", self.what()), inverse: json!({}) });
+            }
+            let id = p.id.as_deref().expect("parse checked it");
+            let now = p.clock();
+            let before = notes.notes.clone();
+            let agent = p.agent.as_deref();
+            let said = match self {
+                Lease::Claim => {
+                    let by = agent.ok_or_else(|| Refusal::new("a claim names the agent making it in `agent`. Nothing was claimed."))?;
+                    let until = notes.claim(id, by, now).map_err(Refusal::new)?;
+                    format!("{by} claimed note {id} until {until}")
+                }
+                Lease::Renew => {
+                    let by = agent.ok_or_else(|| Refusal::new("a renewal names the holder in `agent`. Nothing was renewed."))?;
+                    let until = notes.renew(id, by, now).map_err(Refusal::new)?;
+                    format!("{by} renewed note {id} until {until}")
+                }
+                Lease::Release => {
+                    if agent.is_none() && source == crate::ops::Source::Agent {
+                        return Err(Refusal::new("an agent releases a note it holds by naming itself in `agent`. Nothing was released."));
+                    }
+                    notes.release(id, agent, now).map_err(Refusal::new)?;
+                    format!("released note {id}")
+                }
+            };
+            Ok(Change { summary: said, inverse: json!({"restore": before}) })
+        })
+    }
+}
+
+macro_rules! lease_operation {
+    ($(#[$doc:meta])* $ty:ident, $lease:expr, $what:literal) => {
+        $(#[$doc])*
+        pub struct $ty;
+
+        impl Operation for $ty {
+            fn name(&self) -> &'static str {
+                $lease.name()
+            }
+            fn undo(&self) -> Undo {
+                Undo::Inverse
+            }
+            fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+                LeaseParams::parse(params, $lease.what()).is_ok_and(|p| p.restore.is_some())
+            }
+            fn schema(&self) -> serde_json::Value {
+                LeaseParams::schema($what)
+            }
+            fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+                state_of_open(ctx)
+            }
+            fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+                let mut scratch = Ctx { open: ctx.open.clone(), source: ctx.source, ..Ctx::default() };
+                $lease.apply(&mut scratch, params, false)?;
+                Ok(params.clone())
+            }
+            fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+                Ok($lease.apply(ctx, params, true)?.expect("a write returns its outcome"))
+            }
+        }
+    };
+}
+
+lease_operation!(
+    /// **Take the lease on a sent note.** Refused for a held note (naming the holder), one overlapping
+    /// a held note, and one overlapping a note sent first. A lease not renewed in the project's lease
+    /// length returns the note to the queue.
+    NoteClaim, Lease::Claim, "claim"
+);
+lease_operation!(
+    /// **Keep the lease while working**: it runs another lease length from now.
+    NoteRenew, Lease::Renew, "renew"
+);
+lease_operation!(
+    /// **Give a claimed note back to the queue**, the agent that holds it or the person.
+    NoteRelease, Lease::Release, "release"
+);
+
+/// **What an agent reads to work a note** (#91): the text, the area plus its margin, the pieces in and
+/// around it, the kit's palette, the camera the person had, how to get a picture of the area, and the
+/// earlier notes on this map with how they turned out. `None` when no such note stands.
+pub fn bundle(notes: &Notes, id: &str, map: &bevy_emerge_core::map::Map, library: Option<&bevy_emerge_core::library::Library>) -> Option<serde_json::Value> {
+    let note = notes.get(id)?;
+    let reach = note.reach_rect();
+    let near = |at: (f32, f32)| reach.is_some_and(|r| at.0 >= r[0] && at.0 < r[2] && at.1 >= r[1] && at.1 < r[3]);
+    let pieces: Vec<_> = map
+        .placements
+        .iter()
+        .filter(|p| near(p.at))
+        .map(|p| json!({"id": p.id, "kind": p.descriptor, "at": [p.at.0, p.at.1], "yaw": p.yaw, "lift": p.lift}))
+        .collect();
+    let palette: Vec<_> = library.map_or_else(Vec::new, |l| {
+        l.descriptors.iter().map(|d| json!({"id": d.id, "extent": d.extent})).collect()
+    });
+    let earlier: Vec<_> = notes
+        .notes
+        .iter()
+        .filter(|n| n.id != id)
+        .map(|n| json!({"id": n.id, "text": n.text, "status": n.status(), "result": match &n.state {
+            notes::State::Resolved { ops, summary } => json!({"ops": ops, "summary": summary}),
+            _ => serde_json::Value::Null,
+        }}))
+        .collect();
+    Some(json!({
+        "id": note.id,
+        "text": note.text,
+        "status": note.status(),
+        "holder": note.holder(),
+        "area_cells": note.site.as_ref().map(|s| [s.cells.0, s.cells.1, s.cells.2, s.cells.3]),
+        "reach_cells": note.site.as_ref().map(|s| { let r = s.reach(); [r.0, r.1, r.2, r.3] }),
+        "reach_world": reach,
+        "margin": note.site.as_ref().map_or(notes::DEFAULT_MARGIN, |s| s.margin),
+        "pieces": pieces,
+        "palette": palette,
+        "camera": note.site.as_ref().map(|s| json!({"x": s.camera.0, "y": s.camera.1, "z": s.camera.2, "yaw": s.camera.3, "pitch": s.camera.4})),
+        "picture": reach.map(|r| json!({"tool": "emerge_frame_view", "rect": r, "then": "emerge_capture_still"})),
+        "earlier_notes": earlier,
+    }))
+}
+
+/// **The notes an agent can act on, for `emerge/state`**: sent and claimed notes with their holder
+/// and lease, oldest first, with `note` naming one to get its [`bundle`]. Leases that ran out by
+/// `now` show as sent again, as a claim would find them.
+pub fn state_json(open: &crate::project::OpenMap, library: Option<&bevy_emerge_core::library::Library>, want: Option<&str>, now: u64) -> serde_json::Value {
+    let Ok(mut notes) = Notes::load(&notes::path_for_map(&open.map_path)) else {
+        return json!({"error": "the notes file could not be read"});
+    };
+    notes.expire(now);
+    let list: Vec<_> = notes
+        .notes
+        .iter()
+        .filter(|n| matches!(n.state, notes::State::Open | notes::State::Claimed { .. }))
+        .map(|n| {
+            let until = if let notes::State::Claimed { until, .. } = n.state { Some(until) } else { None };
+            json!({"id": n.id, "text": n.text, "status": n.status(), "holder": n.holder(), "lease_until": until})
+        })
+        .collect();
+    json!({
+        "lease_secs": notes.lease_secs,
+        "sent": list,
+        "bundle": want.map(|id| bundle(&notes, id, &open.map, library).unwrap_or_else(|| json!({"error": format!("no note {id}")}))),
+    })
+}
