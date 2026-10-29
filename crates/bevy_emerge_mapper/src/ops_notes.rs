@@ -813,7 +813,7 @@ pub fn bundle(notes: &Notes, id: &str, map: &bevy_emerge_core::map::Map, library
 /// **The notes an agent can act on, for `emerge/state`**: sent and claimed notes with their holder
 /// and lease, oldest first, with `note` naming one to get its [`bundle`]. Leases that ran out by
 /// `now` show as sent again, as a claim would find them.
-pub fn state_json(open: &crate::project::OpenMap, library: Option<&bevy_emerge_core::library::Library>, want: Option<&str>, now: u64) -> serde_json::Value {
+pub fn state_json<L: std::ops::Deref<Target = bevy_emerge_core::library::Library>>(open: &crate::project::OpenMap, library: Option<&L>, want: Option<&str>, now: u64) -> serde_json::Value {
     let Ok(mut notes) = Notes::load(&notes::path_for_map(&open.map_path)) else {
         return json!({"error": "the notes file could not be read"});
     };
@@ -830,7 +830,7 @@ pub fn state_json(open: &crate::project::OpenMap, library: Option<&bevy_emerge_c
     json!({
         "lease_secs": notes.lease_secs,
         "sent": list,
-        "bundle": want.map(|id| bundle(&notes, id, &open.map, library).unwrap_or_else(|| json!({"error": format!("no note {id}")}))),
+        "bundle": want.map(|id| bundle(&notes, id, &open.map, library.map(|l| &**l)).unwrap_or_else(|| json!({"error": format!("no note {id}")}))),
     })
 }
 

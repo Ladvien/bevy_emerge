@@ -32,7 +32,7 @@ fn main() {
             project.library.descriptors.len(),
             project.kits.len()
         );
-        for kit in &project.kits {
+        for kit in project.kits.iter() {
             let start = std::time::Instant::now();
             let laid = bevy_emerge_core::policy::layered_library(&kit.dir).unwrap();
             println!(

@@ -103,7 +103,7 @@ impl Watched {
             project.project_dir.join(bevy_emerge_core::rules::FILE),
         ];
         // **Every bound kit's own files**, because each kit has a library and a policy of its own.
-        for kit in &project.kits {
+        for kit in project.kits.iter() {
             out.push(kit.dir.join("library.ron"));
             out.push(kit.dir.join("project.ron"));
         }
