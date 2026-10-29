@@ -2295,6 +2295,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(door_open::DoorOpen),
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
+        Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_notes::NoteAdd),
         Box::new(crate::ops_notes::NoteEdit),
@@ -2387,6 +2388,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The family settings field (#96)** — Enter on `<crate> <field> <value>` dispatches
     // `family_set` through `set_family_field`, the same write an agent's `apply` makes.
     ("family_set", "set_family_field("),
+    // **The Data field (#86)** — Enter on `<file> <path> <value>` dispatches `data_set` through
+    // `set_data_leaf`, the same write an agent's `apply` makes.
+    ("data_set", "set_data_leaf("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).
