@@ -79,7 +79,9 @@ use crate::placement::ir::Guard;
 /// **`7` added [`Map::enclosure`]** — how much of a generated region should close into rooms was a
 /// constant in the editor, so the author who wanted more enclosed rooms edited Rust (E-005). Its
 /// default is the pair of numbers the editor shipped, so an older map generates exactly as it did.
-pub const MAP_VERSION: u32 = 7;
+/// **`8` added [`Map::runs`]** — a piece repeated along a path, held as the run and not the rows it
+/// lays; an older map says `runs: []` by saying nothing.
+pub const MAP_VERSION: u32 = 8;
 
 /// One authored world.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -146,6 +148,12 @@ pub struct Map {
     /// somewhere else cannot renumber rows that were never here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stamps: Vec<crate::composition::Stamped>,
+    /// **Runs this map holds** — a piece repeated along a path, stored as the run (descriptor, path,
+    /// pitch, gaps) and never as the rows it lays. [`Self::expanded`] lays each with
+    /// [`crate::run::lay`] and names the rows `<run id>/<n>`; they are never written back into
+    /// [`Self::placements`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runs: Vec<crate::run::RunPlaced>,
     #[serde(default)]
     pub locations: Vec<Location>,
     /// What this map is and why it is laid out this way — the header prose, as data. See the module
@@ -209,6 +217,7 @@ impl Default for Map {
             bash: None,
             placements: Vec::new(),
             stamps: Vec::new(),
+            runs: Vec::new(),
             locations: Vec::new(),
             note: None,
             enclosure: Enclosure::default(),
@@ -696,18 +705,76 @@ impl Map {
         compositions: &[crate::composition::Composition],
         library: &crate::library::Library,
     ) -> Result<Map, String> {
-        if self.stamps.is_empty() {
+        if self.stamps.is_empty() && self.runs.is_empty() {
             return Ok(self.clone());
         }
-        let expansion = crate::composition::expand_map(self, compositions, library)?;
         let mut out = self.clone();
-        // **The rows, in the order `expand` emits them** — stamp id order, then member-path order.
-        // A total order, so two runs and two readers agree on which row is which.
-        out.placements.extend(expansion.placements);
-        // A stamp's locations come with it, or the group's affordances vanish: a location governs
-        // props by id, and those ids are the stamped ones.
-        out.locations.extend(expansion.locations);
+        if !self.stamps.is_empty() {
+            let expansion = crate::composition::expand_map(self, compositions, library)?;
+            // **The rows, in the order `expand` emits them** — stamp id order, then member-path order.
+            // A total order, so two runs and two readers agree on which row is which.
+            out.placements.extend(expansion.placements);
+            // A stamp's locations come with it, or the group's affordances vanish: a location governs
+            // props by id, and those ids are the stamped ones.
+            out.locations.extend(expansion.locations);
+        }
+        // **Runs last, in the order the map lists them**, each post named `<run id>/<n>` and owned
+        // like its run. A run that does not lay refuses here, naming the run.
+        for r in &self.runs {
+            let posts = crate::run::lay(&r.run, library)
+                .map_err(|e| format!("map: run `{}` does not lay: {e}", r.id))?;
+            for (n, post) in posts.iter().enumerate() {
+                out.placements.push(Placed {
+                    id: crate::run::post_id(&r.id, n),
+                    descriptor: r.run.descriptor.clone(),
+                    at: post.at,
+                    yaw: post.yaw,
+                    owned: r.owned,
+                    owned_because: r.owned_because.clone(),
+                    ..Placed::default()
+                });
+            }
+        }
         Ok(out)
+    }
+
+    /// **Replace rows by the run that lays exactly them** (#115, one way).
+    ///
+    /// `rows` are placement ids in path order; the run is added as `run_id` and the rows leave
+    /// `placements`. Refuses, naming the first row that does not fit (see
+    /// [`crate::run::rows_to_run`]), a taken id, and rows other things point at (a piece resting on
+    /// one, a location listing one), because the run names its rows `<id>/<n>` and those pointers
+    /// would dangle. The map is unchanged on a refusal.
+    pub fn placements_to_run(
+        &mut self,
+        run_id: &str,
+        rows: &[String],
+        library: &crate::library::Library,
+    ) -> Result<(), String> {
+        let mut picked: Vec<Placed> = Vec::with_capacity(rows.len());
+        for id in rows {
+            let row = self
+                .placements
+                .iter()
+                .find(|p| &p.id == id)
+                .ok_or_else(|| format!("map: there is no placement `{id}` to convert"))?;
+            picked.push(row.clone());
+        }
+        for id in rows {
+            if self.placements.iter().any(|p| p.on.as_deref() == Some(id) && !rows.contains(&p.id)) {
+                return Err(format!("map: something rests on `{id}`, so it cannot become part of a run"));
+            }
+            if self.locations.iter().any(|l| l.props.contains(id)) {
+                return Err(format!("map: a location lists `{id}`, so it cannot become part of a run"));
+            }
+        }
+        let (run, owned, owned_because) = crate::run::rows_to_run(&picked, library)?;
+        let mut next = self.clone();
+        next.placements.retain(|p| !rows.contains(&p.id));
+        next.runs.push(crate::run::RunPlaced { id: run_id.to_owned(), run, owned, owned_because });
+        next.validate()?;
+        *self = next;
+        Ok(())
     }
 
     /// **The stamp a row belongs to**, and the member within it — `None` for a hand-placed row.
@@ -916,6 +983,34 @@ impl Map {
                     "map: stamp `{}` is owned but says nothing about why. An owned stamp constrains a \
                      generator; in six months only that sentence can say whether it still should.",
                     st.id
+                ));
+            }
+        }
+        // **Runs share the same id space**, for the reason stamps do: their rows are `<run>/<n>`.
+        let mut runs_seen: Vec<&str> = Vec::with_capacity(self.runs.len());
+        for r in &self.runs {
+            if r.id.is_empty() {
+                return Err("map: a run has an empty id".to_owned());
+            }
+            if seen.contains(&r.id.as_str()) || self.stamps.iter().any(|s| s.id == r.id) {
+                return Err(format!(
+                    "map: run `{}` shares its id with a placement or a stamp. Every row a run lays \
+                     is named after it, so the id spaces are one.",
+                    r.id
+                ));
+            }
+            if runs_seen.contains(&r.id.as_str()) {
+                return Err(format!(
+                    "map: run id `{}` is used twice — the rows it lays are named after it",
+                    r.id
+                ));
+            }
+            runs_seen.push(&r.id);
+            if r.owned && r.owned_because.as_ref().is_none_or(|b| b.trim().is_empty()) {
+                return Err(format!(
+                    "map: run `{}` is owned but says nothing about why. An owned run constrains a \
+                     generator; in six months only that sentence can say whether it still should.",
+                    r.id
                 ));
             }
         }

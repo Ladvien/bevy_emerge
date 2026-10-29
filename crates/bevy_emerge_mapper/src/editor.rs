@@ -1764,8 +1764,14 @@ fn type_note(
     mut note_box: ResMut<NoteBox>,
 ) {
     if note_box.draft.is_none() {
-        // Drain, so the key that armed the tool is not read as the box's first character.
+        // Enter with the tool armed and no box open sends every draft; anything else is drained,
+        // so the key that armed the tool is not read as the box's first character.
+        let enter = state.tool == Tool::Note
+            && events.read().any(|e| e.state.is_pressed() && matches!(e.logical_key, Key::Enter));
         events.clear();
+        if enter {
+            send_notes(project.as_deref_mut(), &mut open, &mut state);
+        }
         return;
     }
     let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
@@ -1837,6 +1843,11 @@ fn add_note(
 /// **Change a standing note's text through the registry.**
 fn edit_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, id: &str, text: &str) {
     dispatch_note(project, open, state, "note_edit", serde_json::json!({"id": id, "text": text}), "edit a note");
+}
+
+/// **Send every draft through the registry**, as `note_send` does for an agent.
+fn send_notes(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState) {
+    dispatch_note(project, open, state, "note_send", serde_json::json!({}), "send the drafts");
 }
 
 /// **Take a note off the map through the registry.**

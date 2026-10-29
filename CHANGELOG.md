@@ -4,7 +4,19 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+<<<<<<< HEAD
 - **data-set** `a046add` data_set: an agent or a person sets one leaf of a game's tuning file, logged and undoable *No clip: visible, not yet recorded: no display session this pass; the operation is proved by data_set_is_an_operation*
+=======
+- **115-rows-to-run** `c20aa71` Rows that are one line convert to a run: Map::placements_to_run (#115 slice 2) *No clip: an API; proved by maps_hold_runs::rows_a_run_laid_convert_back_to_the_run and a_row_off_the_pitch_does_not_convert*
+- **111-check-view** `cfdaeda` Check view: a button in the journal runs the project's checks on what is on screen, findings and a clear answer land in the journal (#111) *No clip: visible, not yet recorded: no display on big*
+- **runs-in-maps** `4cc8a12` A map can hold a run (a fence as one line, not its rows); rows are laid on load as <id>/<n> *No clip: an API / data change; proved by crates/bevy_emerge_core/tests/maps_hold_runs.rs*
+- **d3b-after-edit** `01aae83` An agent's applied operation now owes the project's after-edit checks once; a person's own edit owes none (#111 slice 3) *No clip: an internal trigger; proved by tests/an_agents_edit_owes_checks_a_persons_does_not.rs*
+- **decide-d3b** emerge_decide over MCP: a named check or ad-hoc typed questions, a probability for every answer (#111 slice 2) *No clip: an MCP tool; proved by crates/bevy_emerge_mcp/tests/decide.rs with a recorded stand-in*
+- **D3a** `e2d2699` Checks as project data: checks.ron with five built-in checks (floating, clipping, out of area, blank frame, toast), findings 'floating 0.93 > 0.70' *No clip: an API and data format, no editor surface yet; proved by bevy_emerge_decide/tests/checks.rs*
+- **D2** `2abe1eb` bevy_emerge_decide: typed yes/no, choice and score questions to a decision model, recorded-fixture replay, and threshold calibration *No clip: an engine-free API crate; proved by crates/bevy_emerge_decide/tests/decide.rs*
+- **D1** `0373600` clef-flash serves typed decisions (probability per option) on the LAN: recipe and first recorded fixture *No clip: serving recipe and a fixture; proved by a recorded /v1/systemone request and response (0.187 s warm)*
+- **notes-history-send** `67a0f31` Notes keep an append-only history and Send sends all drafts in one undo step (#90, part) *No clip: visible, not yet recorded: no display on this pass; proved by notes_history_and_send*
+>>>>>>> 9a8858069207de6aaf49ed9147e3b927130230bd
 - **n89-pieces** `9b6dc87` Note tool: Shift-click pieces to leave a note on them *No clip: visible, not yet recorded: no display on this laptop pass; proved by tests/a_note_on_picked_pieces_is_saved.rs*
 
 ## 2026-10-28

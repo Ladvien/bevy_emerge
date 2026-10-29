@@ -133,7 +133,7 @@ fn a_map_from_before_the_field_keeps_the_shipped_pair() {
         Enclosure { wish: 0.25, weight: 200 },
         "a map written before `enclosure` existed must generate exactly as it did (E-005)"
     );
-    assert_eq!(MAP_VERSION, 7, "the field arrived with a version, so an older build refuses it");
+    assert_eq!(MAP_VERSION, 8, "the field arrived with a version, so an older build refuses it");
 }
 
 /// **A percentage typed as a number is refused by name**, rather than quietly clamped.

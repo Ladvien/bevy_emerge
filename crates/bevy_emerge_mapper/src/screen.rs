@@ -563,6 +563,16 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     // tab's working state, capped and cleared by `Esc`; this one answers *"what has gone wrong since
     // the application started"*, which a value thrown away with the door cannot.
     ("bevy_emerge_mapper::chrome::Journal", Ownership::Session),
+    // The agent operations whose checks are owed: a fact about this project's log.
+    (
+        "bevy_emerge_mapper::after_edit::AfterEditQueue",
+        Ownership::Project,
+    ),
+    // The channels the check threads and screenshots answer on, and operations waiting for a picture:
+    // plumbing true for as long as the app runs, never a value read off a project.
+    ("bevy_emerge_mapper::after_edit::Reports", Ownership::Session),
+    ("bevy_emerge_mapper::after_edit::Shots", Ownership::Session),
+    ("bevy_emerge_mapper::after_edit::ShotWait", Ownership::Session),
     // ── The door's own working state ────────────────────────────────────────────────────────────
     // The undo stack is the one this list was written for: `docs/2026-08-17-one-application.md` §1
     // names it as the value that survives into the next kit today.

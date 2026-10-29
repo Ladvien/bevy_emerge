@@ -13,6 +13,7 @@
 //! synthesising keystrokes.
 
 pub mod brp;
+pub mod decide;
 pub mod docs;
 
 /// **The version, for the server's own handshake.**

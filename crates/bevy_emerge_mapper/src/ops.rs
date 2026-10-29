@@ -2300,6 +2300,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_notes::NoteAdd),
         Box::new(crate::ops_notes::NoteEdit),
         Box::new(crate::ops_notes::NoteRemove),
+        Box::new(crate::ops_notes::NoteSend),
     ]
 }
 
@@ -2397,6 +2398,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("note_add", "add_note("),
     ("note_edit", "edit_note("),
     ("note_remove", "remove_note("),
+    // **Enter on the Note tool with no box open** sends every draft through `send_notes`, which
+    // dispatches `note_send` (#90).
+    ("note_send", "send_notes("),
 ];
 
 /// **Apply an operation, and record what happened.**
