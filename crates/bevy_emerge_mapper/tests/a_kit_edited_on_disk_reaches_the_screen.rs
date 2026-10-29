@@ -28,7 +28,7 @@ use bevy_emerge_mapper::editor::Placement;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::Project;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **Where a piece named `id` is drawn, as a scale.** The world, not the map.
 fn scale_of(app: &mut App, id: &str) -> Option<Vec3> {

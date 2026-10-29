@@ -20,7 +20,7 @@
 //! the second fill **cannot** continue, because the flood will not start on a cell that already
 //! holds a piece.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::harness;

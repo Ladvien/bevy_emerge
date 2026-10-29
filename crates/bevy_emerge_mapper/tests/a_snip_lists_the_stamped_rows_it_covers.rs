@@ -14,7 +14,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::snip;
 use bevy_emerge_mapper::view::MainCamera;
 
-mod fixtures;
+use crate::fixtures;
 use fixtures::Fixture;
 
 /// A map holding one stamp, `room@1`, of the composition `site/room`, and one free-standing piece,

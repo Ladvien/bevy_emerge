@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 /// The most pins `emerge/state` names. Matches the cap written into the state answer.
 const PINNED_CAP: usize = 50;

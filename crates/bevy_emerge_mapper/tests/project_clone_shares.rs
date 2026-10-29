@@ -8,7 +8,7 @@
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::Project;
 
-mod fixtures;
+use crate::fixtures;
 
 fn project(name: &str) -> Project {
     let root = fixtures::Fixture::new(name)

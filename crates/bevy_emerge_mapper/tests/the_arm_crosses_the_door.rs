@@ -18,7 +18,7 @@
 //! - **A refusal, not a degradation.** An arm naming a composition the project no longer defines is
 //!   refused **by name** and the arm is cleared, rather than a silent stamp of nothing.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy::prelude::{Mut, World};
 

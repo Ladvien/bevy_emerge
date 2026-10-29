@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A project with one floor piece and a map big enough to fill.**
 fn project(name: &str) -> std::path::PathBuf {

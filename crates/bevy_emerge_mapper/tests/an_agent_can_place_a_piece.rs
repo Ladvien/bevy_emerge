@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A project with two pieces and a saved map.**
 fn project(name: &str) -> std::path::PathBuf {

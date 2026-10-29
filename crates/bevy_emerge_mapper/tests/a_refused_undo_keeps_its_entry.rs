@@ -10,7 +10,7 @@ use bevy_emerge_mapper::editor::{EditorState, plant_stale_move_for_test, undo_fo
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 use fixtures::Fixture;
 

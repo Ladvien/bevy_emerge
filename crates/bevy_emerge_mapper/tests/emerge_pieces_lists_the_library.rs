@@ -9,7 +9,7 @@
 use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 /// The most rows one page of `emerge/pieces` names. Matches the cap written into the answer.
 const PIECE_CAP: usize = 50;

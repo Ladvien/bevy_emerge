@@ -17,7 +17,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::{OpenMap, Project};
 use bevy_emerge_mapper::view::{MainCamera, Pointer};
 
-mod fixtures;
+use crate::fixtures;
 
 /// One frame's worth of person: the pointer, and a mouse press or release.
 #[derive(Default)]

@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::{OpenMap, Project};
 
-mod fixtures;
+use crate::fixtures;
 
 const RULES: &str = "// the block rules: learned from `m`\n\
 (version: 1, blocks: [(example: \"m\", regions: [], cell: 2.0, \

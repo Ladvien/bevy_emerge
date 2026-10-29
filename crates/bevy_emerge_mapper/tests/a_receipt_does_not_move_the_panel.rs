@@ -13,7 +13,7 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor(tag: &str) -> App {
     let root = fixtures::Fixture::new(tag)
