@@ -47,6 +47,42 @@ pub struct AfterEditQueue {
     seen: Option<u64>,
 }
 
+/// The operation name a person's **Check view** run carries, which a finding's line names.
+pub const CHECK_VIEW: &str = "check view";
+
+/// The button in the journal panel that runs the after-edit checks on what is on screen now.
+#[derive(Component)]
+pub struct CheckViewButton;
+
+impl AfterEditQueue {
+    /// **A person asked for the checks on the current view.** It is queued like an agent's operation,
+    /// so it takes the same picture and the same path; only the person's click makes it, never an edit.
+    pub fn request_view(&mut self) {
+        self.pending.push(AgentEdit {
+            seq: 0,
+            op: CHECK_VIEW.into(),
+            operation_id: CHECK_VIEW.into(),
+            params: serde_json::Value::Null,
+            result: String::new(),
+        });
+    }
+}
+
+/// **The journal's Check view button was pressed.** Global observer: any `Activate` anywhere fires it,
+/// so the marker query is the guard and the queue is an `Option`.
+fn on_check_view(
+    activate: On<bevy::ui_widgets::Activate>,
+    buttons: Query<(), With<CheckViewButton>>,
+    queue: Option<ResMut<AfterEditQueue>>,
+) {
+    if !buttons.contains(activate.entity) {
+        return;
+    }
+    if let Some(mut queue) = queue {
+        queue.request_view();
+    }
+}
+
 /// **The agent operations in a log's text with a sequence above `after`**, oldest first.
 pub fn agent_edits(text: &str, after: Option<u64>) -> Vec<AgentEdit> {
     text.lines()
@@ -122,6 +158,9 @@ impl EditReport {
             .iter()
             .filter_map(|f| f.message().map(|m| format!("{m} (after {})", self.op)))
             .collect();
+        if self.op == CHECK_VIEW && lines.is_empty() && self.skipped.is_empty() && self.errors.is_empty() {
+            lines.push(format!("{CHECK_VIEW}: {} checks, nothing found", self.findings.len()));
+        }
         if !self.skipped.is_empty() {
             lines.push(format!(
                 "after {}: {} not asked, the editor cannot capture what they need yet",
@@ -361,7 +400,8 @@ pub struct AfterEditPlugin;
 
 impl Plugin for AfterEditPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AfterEditQueue>()
+        app.add_observer(on_check_view)
+            .init_resource::<AfterEditQueue>()
             .init_resource::<Reports>()
             .init_resource::<Shots>()
             .init_resource::<ShotWait>()

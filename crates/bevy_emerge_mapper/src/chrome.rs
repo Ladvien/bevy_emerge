@@ -1669,6 +1669,9 @@ pub fn journal_panel(mut commands: Commands, frame: Res<Frame>) {
             TextColor(DIM),
             font(text::LABEL),
         ));
+        // Asks the project's after-edit checks about the picture on screen now. A person's click only:
+        // nothing runs while they are simply editing.
+        button(p, crate::after_edit::CheckViewButton, "Check view", Severity::Plain);
         // A list to scroll: a session's worth of refusals is longer than a screen by design.
         //
         // FOLLOW-OK: prose, not a selection. Nothing walks this — there is no highlight for the
