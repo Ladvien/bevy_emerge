@@ -3739,8 +3739,11 @@ pub fn set_label(
     axis: &str,
     tokens: &[String],
 ) -> bool {
+    // **The context takes the live project and gives it back**, rather than holding a copy: a chip
+    // click used to clone the whole `Project` (every kit, vocabulary and library row) and then copy
+    // the library back. The operation sees the same state either way, and writes to it directly.
     let mut ctx = crate::ops::Ctx {
-        project: Some(project.clone()),
+        project: Some(std::mem::take(project)),
         open: None,
         source: crate::ops::Source::Human,
         root: None,
@@ -3748,13 +3751,12 @@ pub fn set_label(
         proposal: None,
     };
     let params = serde_json::json!({"id": id, "axis": axis, "tokens": tokens});
-    match crate::ops::dispatch(&mut ctx, "label_set", &params) {
-        Ok(crate::ops::Applied::Done { .. }) => {
-            if let Some(fresh) = ctx.project {
-                adopt_library(project, &fresh);
-            }
-            true
-        }
+    let result = crate::ops::dispatch(&mut ctx, "label_set", &params);
+    if let Some(back) = ctx.project.take() {
+        *project = back;
+    }
+    match result {
+        Ok(crate::ops::Applied::Done { .. }) => true,
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
             import.status.problem(e.0);
             false

@@ -45,7 +45,7 @@ const MAPS_DIR: &str = "maps";
 /// a `dyn`, and a `dyn` cannot have a lifetime on its methods — so the context holds the project
 /// and the map by value. One copy of a project's settings is a price worth paying for a registry
 /// that can hold more than one operation.
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Default)]
 pub struct Project {
     pub root: PathBuf,
     /// **The kit's directory** — `assets/emerge`, or a named subdirectory of it.
