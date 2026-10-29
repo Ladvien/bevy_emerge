@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::family_host::{reload_settings, FamilySettings};
 
-mod fixtures;
+use crate::fixtures;
 
 #[test]
 fn a_settings_file_present_at_launch_is_applied_without_an_edit() {

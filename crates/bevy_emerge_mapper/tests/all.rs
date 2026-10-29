@@ -114,6 +114,7 @@ mod every_resource_says_what_a_door_does_to_it;
 mod family_host;
 mod family_set_is_an_operation;
 mod family_settings_reload;
+mod family_settings_at_launch;
 mod font_fallback;
 mod frame_the_view;
 mod headless;
