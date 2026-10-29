@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::{OpenMap, Project};
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A project whose own fixture wrote a `.glb`**, copied into `assets/inbox/` under a name the test
 /// chose. The fixture's `descriptor` writes a mesh, so there is a real GLB to import without

@@ -22,7 +22,7 @@
 use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **The editor with the bridge open**, eight updates, as `a_change_says_what_it_broke.rs` does: the
 /// bridge's systems, the map watcher and the fault panel all settle inside that budget.

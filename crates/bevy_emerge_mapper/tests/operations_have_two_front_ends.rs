@@ -34,7 +34,7 @@
 use bevy_emerge_mapper::keys::Action;
 use bevy_emerge_mapper::ops::{CHOOSER_ENTRY_POINTS, UI_ENTRY_POINTS};
 
-mod fixtures;
+use crate::fixtures;
 
 /// **The BRP commands the editor registers.**
 ///

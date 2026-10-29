@@ -1369,7 +1369,21 @@ struct NotesFilterButton;
 struct NotesSendAll;
 
 /// What the Notes list last drew: the filter and `(id, status, text)` per row.
-type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool)>);
+type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool, NoteReview)>);
+
+/// What a done note shows for review (#93): its summary, assumptions, the before and after captures
+/// and the operations it ran. Empty for every other status.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct NoteReview {
+    lines: Vec<String>,
+    ops: Vec<String>,
+}
+
+/// An operation a done note ran: clicking it frames the pieces that operation changed (#93).
+#[derive(Component, Clone)]
+struct NoteOpButton {
+    op: String,
+}
 
 /// The status the Notes list is filtered to; `None` shows every note.
 #[derive(Resource, Default)]
@@ -1921,9 +1935,15 @@ fn talk_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut Edit
     let params = match op {
         "note_ask" => serde_json::json!({"id": id, "agent": "person", "question": text}),
         "note_answer" => serde_json::json!({"id": id, "answer": text}),
+        "note_keep" => serde_json::json!({"id": id}),
         _ => serde_json::json!({"id": id, "agent": "person", "summary": text}),
     };
     dispatch_note(project, open, state, op, params, "talk on a note");
+}
+
+/// **Undo a done note's work as one step through the registry** (#93).
+fn undo_note_work(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, id: &str) {
+    dispatch_note(project, open, state, "note_undo_work", serde_json::json!({"id": id}), "undo a note's work");
 }
 
 /// **Take a note off the map through the registry.**
@@ -4231,6 +4251,7 @@ fn on_notes_click(
     filters: Query<(), With<NotesFilterButton>>,
     sends: Query<(), With<NotesSendAll>>,
     leases: Query<&NoteLeaseButton>,
+    op_buttons: Query<&NoteOpButton>,
     filter: Option<ResMut<NotesFilter>>,
     project: Option<ResMut<Project>>,
     open: Option<ResMut<OpenMap>>,
@@ -4251,9 +4272,39 @@ fn on_notes_click(
     } else if sends.get(e).is_ok() {
         let mut project = project;
         send_notes(project.as_deref_mut(), &mut open, &mut state);
+    } else if let Ok(button) = op_buttons.get(e) {
+        let (Some(project), Some(mut rig)) = (project, rig) else {
+            return;
+        };
+        let entries = crate::ops::read_entries(&crate::ops::oplog_path(&project));
+        let ids: Vec<String> = entries
+            .iter()
+            .find(|x| x.operation_id == button.op)
+            .map(|x| crate::ops_notes::footprint(x, &open.map).placements)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|id| open.map.placements.iter().any(|p| &p.id == id))
+            .collect();
+        let Some(aspect) = cameras.single().ok().and_then(aspect_of) else {
+            state.status.problem("the Map camera has no viewport yet, so there is nothing to frame against".to_owned());
+            return;
+        };
+        if ids.is_empty() {
+            state.status.problem(format!("operation {} left no piece on the map to show", button.op));
+            return;
+        }
+        match resolve_frame(&FrameTarget::Placements(ids.clone()), &project, &open, None) {
+            Ok(frame) => {
+                apply_frame(&mut rig, &frame, aspect, &open);
+                state.status.note(format!("framed the {} piece(s) operation {} changed", ids.len(), button.op));
+            }
+            Err(why) => state.status.problem(why),
+        }
     } else if let Ok(lease) = leases.get(e) {
         let mut project = project;
-        if matches!(lease.op, "note_ask" | "note_answer" | "note_resolve") {
+        if lease.op == "note_undo_work" {
+            undo_note_work(project.as_deref_mut(), &mut open, &mut state, &lease.id);
+        } else if matches!(lease.op, "note_ask" | "note_answer" | "note_resolve" | "note_keep") {
             talk_note(project.as_deref_mut(), &mut open, &mut state, lease.op, &lease.id, lease.text);
         } else {
             lease_note(project.as_deref_mut(), &mut open, &mut state, lease.op, &lease.id);
@@ -4312,7 +4363,7 @@ fn refresh_notes_list(
     let all = open
         .and_then(|o| bevy_emerge_core::notes::Notes::load(&bevy_emerge_core::notes::path_for_map(&o.map_path)).ok())
         .unwrap_or_default();
-    let rows: Vec<(String, &'static str, String, bool)> = all
+    let rows: Vec<(String, &'static str, String, bool, NoteReview)> = all
         .listing(filter.0)
         .iter()
         .map(|n| {
@@ -4322,7 +4373,19 @@ fn refresh_notes_list(
                 (Some(by), None) => format!("{} (held by {by})", n.text),
                 (None, _) => n.text.clone(),
             };
-            (n.id.clone(), n.status(), text, waiting.is_some())
+            let review = match &n.state {
+                bevy_emerge_core::notes::State::Resolved { ops, summary, assumptions, captures } => {
+                    let mut lines = vec![format!("summary: {summary}")];
+                    lines.extend(assumptions.iter().map(|a| format!("assumed: {a}")));
+                    if let [before, after] = captures.as_slice() {
+                        lines.push(format!("before: {before}"));
+                        lines.push(format!("after: {after}"));
+                    }
+                    NoteReview { lines, ops: ops.clone() }
+                }
+                _ => NoteReview::default(),
+            };
+            (n.id.clone(), n.status(), text, waiting.is_some(), review)
         })
         .collect();
     let key = (filter.0, rows);
@@ -4349,7 +4412,7 @@ fn refresh_notes_list(
                     crate::chrome::font(crate::chrome::text::LABEL),
                 ));
             }
-            for (id, status, text, waiting) in rows {
+            for (id, status, text, waiting, review) in rows {
                 crate::chrome::list_row(p, false, NoteRow { id: id.clone() }).with_children(|row| {
                     row.spawn((
                         Text::new(format!("{id} [{status}] {text}")),
@@ -4357,6 +4420,16 @@ fn refresh_notes_list(
                         crate::chrome::font(crate::chrome::text::BODY),
                     ));
                 });
+                for line in &review.lines {
+                    p.spawn((Text::new(line.clone()), TextColor(DIM), crate::chrome::font(crate::chrome::text::LABEL)));
+                }
+                if !review.ops.is_empty() {
+                    p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|h| {
+                        for op in &review.ops {
+                            crate::chrome::button(h, NoteOpButton { op: op.clone() }, op, crate::chrome::Severity::Plain);
+                        }
+                    });
+                }
                 let ops: &[(&'static str, &str, &'static str)] = match (*status, *waiting) {
                     ("sent", _) => &[("note_claim", "Claim", "")],
                     ("claimed", true) => &[("note_answer", "Yes", "yes"), ("note_answer", "No", "no"), ("note_release", "Release", "")],
@@ -4366,6 +4439,7 @@ fn refresh_notes_list(
                         ("note_ask", "Ask", "Is this what you meant me to do?"),
                         ("note_resolve", "Done", "finished by hand"),
                     ],
+                    ("done", _) => &[("note_keep", "Keep", ""), ("note_undo_work", "Undo this note", "")],
                     _ => &[],
                 };
                 if !ops.is_empty() {

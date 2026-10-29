@@ -6,7 +6,7 @@
 
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 fn call(app: &mut bevy::prelude::App, method: &str) -> serde_json::Value {
     use bevy::remote::{RemoteMethodSystemId, RemoteMethods};

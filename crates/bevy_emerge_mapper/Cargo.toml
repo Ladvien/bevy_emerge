@@ -6,6 +6,8 @@ description = "A standalone world-building editor: author maps from an asset lib
 # Relicensed MIT OR Apache-2.0 on extraction from foundation_vs_slop (owner decision, Sanctuary decision 0087).
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Ladvien/bevy_emerge"
+# One integration-test binary, not one per file: `tests/all.rs` says why and how to add a file.
+autotests = false
 
 # **This is the application; `bevy_emerge_core` is the part with no engine in it.** The split is not
 # decoration — `crates/bevy_emerge_core/tests/engine_free.rs` fails the build if anything in the core
@@ -111,3 +113,7 @@ arboard = { version = "3", default-features = false }
 # guide, so it keeps the crate's default features. A fix the editor needs is made and pushed there, then
 # the rev here is bumped.
 bevy_debugger_bevy = { git = "https://github.com/Ladvien/bevy_debugger_mcp", rev = "f9dec25cea00e16a1de22502fd12f823d8baf88b", optional = true }
+
+[[test]]
+name = "editor"
+path = "tests/all.rs"

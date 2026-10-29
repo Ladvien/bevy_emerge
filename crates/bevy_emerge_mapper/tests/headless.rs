@@ -23,7 +23,7 @@
 use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 use fixtures::Fixture;
 
 /// **Type a tile's name into the prompt and commit it.**

@@ -13,7 +13,7 @@ use bevy_emerge_mapper::project::{OpenMap, Project};
 use serde_json::json;
 use bevy::ecs::change_detection::DetectChanges;
 
-mod fixtures;
+use crate::fixtures;
 
 fn empty_ctx() -> Ctx {
     Ctx {

@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::editor::{EditorState, plant_stale_redo_for_test, redo_for_test};
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 use fixtures::Fixture;
 

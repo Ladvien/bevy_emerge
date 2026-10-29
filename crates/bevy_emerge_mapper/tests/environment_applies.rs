@@ -6,7 +6,7 @@ use bevy_emerge_mapper::environment::{apply, ElementsSettings};
 use bevy_emerge_mapper::ops::{self, Applied, Ctx};
 use serde_json::json;
 
-mod fixtures;
+use crate::fixtures;
 
 fn project(tag: &str) -> (Ctx, std::path::PathBuf) {
     let root = fixtures::Fixture::new(tag).descriptor("site/wall", "alpha").build("m");
@@ -110,4 +110,26 @@ fn the_panels_weather_buttons_write_the_forced_weather_and_the_clock_buttons_wri
     dispatch(&mut ctx, EnvAction::ReleaseWeather);
     assert_eq!(read(&file).forced_weather, None);
     assert!(EnvAction::Scrub(6.0).family_params().is_none() && EnvAction::ReleaseClock.family_params().is_none());
+}
+
+#[test]
+fn the_panels_season_and_climate_buttons_are_one_undo_step_each() {
+    use bevy_emerge_mapper::environment::{ClimatePreset, EnvAction};
+    let (mut ctx, file) = project("season_climate");
+    let read = |file: &std::path::Path| ElementsSettings::from_ron(&std::fs::read_to_string(file).unwrap()).unwrap();
+    let dispatch = |ctx: &mut Ctx, a: EnvAction| {
+        let r = ops::dispatch(ctx, "family_set", &a.family_params().unwrap());
+        assert!(matches!(r, Ok(Applied::Done { .. })), "{a:?}: {r:?}");
+    };
+    for (month, _) in EnvAction::SEASONS {
+        dispatch(&mut ctx, EnvAction::Month(month));
+        assert_eq!(read(&file).clock.date.month, month);
+    }
+    for (preset, _) in ClimatePreset::ALL {
+        dispatch(&mut ctx, EnvAction::Climate(preset));
+        assert_eq!(ron::to_string(&read(&file).climate).unwrap(), ron::to_string(&preset.climate()).unwrap());
+    }
+    ops::undo(&mut ctx, None).unwrap();
+    let now = ron::to_string(&read(&file).climate).unwrap();
+    assert_eq!(now, ron::to_string(&ClimatePreset::Tropical.climate()).unwrap(), "one undo steps back one climate");
 }

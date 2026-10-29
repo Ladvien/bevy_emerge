@@ -15,7 +15,7 @@
 //! The core's half — the no-replace primitive itself — is in
 //! `bevy_emerge_core/tests/a_rename_never_replaces.rs`.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::{OpenMap, Project};

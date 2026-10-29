@@ -8,7 +8,7 @@
 use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 /// The most ids one page of `emerge/state` names. Matches the cap written into the state answer.
 const DESCRIPTOR_CAP: usize = 50;

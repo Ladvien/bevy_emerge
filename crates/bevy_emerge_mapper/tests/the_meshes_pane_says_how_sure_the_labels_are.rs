@@ -24,7 +24,7 @@ use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use serde_json::json;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **The editor, with the bridge open**, on a kit whose one piece was labelled by `gemma-x`.
 fn editor(name: &str) -> App {

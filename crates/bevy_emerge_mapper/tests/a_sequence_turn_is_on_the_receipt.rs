@@ -11,7 +11,7 @@ use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::sequencer::{Operation, SequenceParams, Sequencer};
 
-mod fixtures;
+use crate::fixtures;
 
 fn project(name: &str) -> std::path::PathBuf {
     fixtures::Fixture::new(name)

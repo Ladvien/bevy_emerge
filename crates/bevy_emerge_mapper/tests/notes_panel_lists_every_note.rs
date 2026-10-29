@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_emerge_core::notes::{self, Notes, Target};
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 #[test]
 fn the_panel_lists_every_note_newest_first() {

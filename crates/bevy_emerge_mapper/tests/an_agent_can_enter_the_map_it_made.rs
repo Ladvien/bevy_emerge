@@ -27,7 +27,7 @@ use bevy_emerge_mapper::project::Project;
 use bevy_emerge_mapper::screen::Screen;
 use bevy_emerge_mapper::tiles::Door;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **The menu, on a project that has a map to make.** The harness opens straight into a door, so the
 /// screen is put back to the menu itself — the same construction `tests/headless.rs` uses for the

@@ -15,7 +15,7 @@
 //! `tests/a_run_is_laid_in_the_piece_s_own_pitch.rs`); what is here is the editor's half — that the
 //! commit lays what the run says, that it is one act, and that the rows are ordinary rows.
 
-mod fixtures;
+use crate::fixtures;
 
 use fixtures::Fixture;
 

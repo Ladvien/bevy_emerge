@@ -21,7 +21,7 @@
 //! 1. A proposal spawns one ghosted entity per proposed piece — not merely an outline.
 //! 2. `Esc` takes them all away, so a discarded layout leaves no ghosts behind.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy::prelude::*;
 use bevy_emerge_mapper::editor::{Ghost, Proposal};

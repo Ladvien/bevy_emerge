@@ -22,7 +22,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::editor::EditorState;
 use bevy_emerge_mapper::harness;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A project with one map, one piece, and a map that has been saved.**
 fn project(name: &str) -> std::path::PathBuf {

@@ -3,7 +3,7 @@
 use bevy_emerge_mapper::ops::{self, Applied, Ctx};
 use serde_json::json;
 
-mod fixtures;
+use crate::fixtures;
 
 const TEXT: &str = "// tuning\n(mob: (speed: 1.50, name: \"orc\", hp: 7), fast: false)\n";
 
