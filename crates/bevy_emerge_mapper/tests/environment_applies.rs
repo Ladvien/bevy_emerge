@@ -93,3 +93,21 @@ fn scrubbing_the_clock_moves_the_preview_clock_and_writes_nothing() {
     app.update();
     assert_eq!(app.world().resource::<WorldClock>().hour, untouched, "released: the file's clock runs");
 }
+
+#[test]
+fn the_panels_weather_buttons_write_the_forced_weather_and_the_clock_buttons_write_nothing() {
+    use bevy_emerge_mapper::environment::EnvAction;
+    let (mut ctx, file) = project("buttons");
+    let read = |file: &std::path::Path| ElementsSettings::from_ron(&std::fs::read_to_string(file).unwrap()).unwrap();
+    let dispatch = |ctx: &mut Ctx, a: EnvAction| {
+        let r = ops::dispatch(ctx, "family_set", &a.family_params().unwrap());
+        assert!(matches!(r, Ok(Applied::Done { .. })), "{a:?}");
+    };
+    for preset in [WeatherPreset::Rain, WeatherPreset::Fog, WeatherPreset::Clear] {
+        dispatch(&mut ctx, EnvAction::Force(preset));
+        assert_eq!(read(&file).forced_weather, Some(preset));
+    }
+    dispatch(&mut ctx, EnvAction::ReleaseWeather);
+    assert_eq!(read(&file).forced_weather, None);
+    assert!(EnvAction::Scrub(6.0).family_params().is_none() && EnvAction::ReleaseClock.family_params().is_none());
+}

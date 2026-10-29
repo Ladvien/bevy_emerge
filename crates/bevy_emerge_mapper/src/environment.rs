@@ -147,3 +147,54 @@ pub fn scrub_clock(scrub: Res<ClockScrub>, clock: Option<ResMut<WorldClock>>) {
         clock.paused = true;
     }
 }
+
+/// **One button of the Environment panel** (#98). The clock buttons are camera-style state
+/// ([`ClockScrub`]); the weather buttons are `family_set` operations, one undo step each.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub enum EnvAction {
+    /// Hold the preview's clock at this hour of day.
+    Scrub(f64),
+    /// Let the settings file's clock run again.
+    ReleaseClock,
+    /// Force this weather preset (`forced_weather`).
+    Force(WeatherPreset),
+    /// Return the weather to the climate's own schedule.
+    ReleaseWeather,
+}
+
+impl EnvAction {
+    /// Hours the scrubber offers: dawn, noon, dusk and night.
+    pub const HOURS: [(f64, &'static str); 4] = [(6.0, "6:00"), (12.0, "12:00"), (18.5, "18:30"), (23.0, "23:00")];
+
+    /// The `family_set` params this action writes, or `None` for the camera-style clock buttons.
+    pub fn family_params(self) -> Option<serde_json::Value> {
+        let value = match self {
+            EnvAction::Force(p) => format!("Some({p:?})"),
+            EnvAction::ReleaseWeather => "None".to_owned(),
+            EnvAction::Scrub(_) | EnvAction::ReleaseClock => return None,
+        };
+        Some(serde_json::json!({"crate": CRATE, "field": "forced_weather", "value": value}))
+    }
+}
+
+/// The ENVIRONMENT section of the controls panel.
+pub fn spawn_section(s: &mut ChildSpawnerCommands) {
+    use crate::chrome::{GAP_TIGHT, Severity, button, section};
+    section(s, "ENVIRONMENT");
+    let row = |s: &mut ChildSpawnerCommands, items: &mut dyn FnMut(&mut ChildSpawnerCommands)| {
+        s.spawn(Node { column_gap: Val::Px(GAP_TIGHT), flex_wrap: FlexWrap::Wrap, row_gap: Val::Px(GAP_TIGHT), ..default() })
+            .with_children(|r| items(r));
+    };
+    row(s, &mut |r| {
+        for (hour, label) in EnvAction::HOURS {
+            button(r, EnvAction::Scrub(hour), label, Severity::Plain);
+        }
+        button(r, EnvAction::ReleaseClock, "Run", Severity::Plain);
+    });
+    row(s, &mut |r| {
+        for (preset, label) in [(WeatherPreset::Clear, "Clear"), (WeatherPreset::Fog, "Fog"), (WeatherPreset::Rain, "Rain")] {
+            button(r, EnvAction::Force(preset), label, Severity::Plain);
+        }
+        button(r, EnvAction::ReleaseWeather, "Release", Severity::Plain);
+    });
+}

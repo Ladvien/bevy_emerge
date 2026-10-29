@@ -2278,6 +2278,7 @@ impl Plugin for EditorPlugin {
             .add_observer(on_category_click)
             .add_observer(on_size_field_click)
             .add_observer(on_family_field_click)
+            .add_observer(on_environment_click)
             .add_observer(on_data_field_click)
             .add_observer(on_data_leaf_click)
             .add_observer(on_notes_click);
@@ -3057,6 +3058,15 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     FamilyReadout,
                 );
             });
+
+            // **Environment (#98):** clock scrubber and forced weather, for a project that uses `bevy_elements`.
+            #[cfg(feature = "bevy_elements")]
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(crate::environment::spawn_section);
 
             // **Data files (#86).** One line: `<file> <path> <value>`, e.g. `tuning/mob speed 2.5`.
             // Enter writes it through `data_set`.
@@ -3941,6 +3951,45 @@ fn on_family_field_click(
     state.status.note(
         "family setting: `<crate> <field> <value>`, Enter to write it, Esc to leave it alone".to_owned(),
     );
+}
+
+/// **Environment buttons** (#98): the clock buttons set [`crate::environment::ClockScrub`] (no file, no
+/// undo); the weather buttons dispatch `family_set`, so each is one undo step.
+fn on_environment_click(
+    activate: On<Activate>,
+    actions: Query<&crate::environment::EnvAction>,
+    project: Option<Res<Project>>,
+    scrub: Option<ResMut<crate::environment::ClockScrub>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let (Some(mut scrub), Some(mut state)) = (scrub, state) else {
+        return;
+    };
+    let Ok(action) = actions.get(activate.entity) else {
+        return;
+    };
+    use crate::environment::EnvAction;
+    match *action {
+        EnvAction::Scrub(hour) => scrub.set(hour),
+        EnvAction::ReleaseClock => scrub.release(),
+        other => {
+            let params = other.family_params().expect("weather actions write the file");
+            let mut ctx = crate::ops::Ctx {
+                project: project.as_deref().cloned(),
+                source: crate::ops::Source::Human,
+                session: crate::ops::session_id(),
+                ..crate::ops::Ctx::default()
+            };
+            match crate::ops::dispatch(&mut ctx, "family_set", &params) {
+                Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+                    state.status.note(outcome.summary.clone());
+                    state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+                }
+                Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+            }
+        }
+    }
 }
 
 fn family_edit_keys(
