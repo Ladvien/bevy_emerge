@@ -405,8 +405,7 @@
         {
           "id": "S3.7",
           "title": "The data_set operation and the Data panel",
-          "status": "blocked",
-          "blocked": "2026-10-28: the operation is a plain Operation (undo via Undo::Inverse, an undo-only restore of the exact old token for a byte-identical file, after={id:file,path,value} so undo_target scopes it per file; add \"data_set\" to the map-less list at ops.rs undo_target). The Data panel's keyboard entry needs a new keys::Action, and every Action needs a row in the keys.rs #[cfg(test)] action list and the per-context count ratchet (keys.rs ~3701 and ~4310), which are protected. Needs a human evaluator pass to add the row, or a decision to open the panel without a census Action. Not started in code; tree untouched.",
+          "status": "fixed",
           "issue": "https://github.com/Ladvien/bevy_emerge/issues/86"
         },
         {

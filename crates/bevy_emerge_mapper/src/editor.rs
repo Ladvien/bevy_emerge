@@ -1353,6 +1353,13 @@ struct NoteRow {
     id: String,
 }
 
+/// A lease button on a note row: which note, and which of `note_claim`, `note_renew`, `note_release`.
+#[derive(Component, Clone)]
+struct NoteLeaseButton {
+    id: String,
+    op: &'static str,
+}
+
 #[derive(Component, Clone, Copy)]
 struct NotesFilterButton;
 
@@ -1885,6 +1892,17 @@ fn send_notes(project: Option<&mut Project>, open: &mut OpenMap, state: &mut Edi
     dispatch_note(project, open, state, "note_send", serde_json::json!({}), "send the drafts");
 }
 
+/// **Hold, keep or give back a note through the registry** (#91): `op` is `note_claim`, `note_renew` or
+/// `note_release`. The person holds as `person`.
+fn lease_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, op: &str, id: &str) {
+    let params = if op == "note_release" {
+        serde_json::json!({"id": id})
+    } else {
+        serde_json::json!({"id": id, "agent": "person"})
+    };
+    dispatch_note(project, open, state, op, params, "change a note's lease");
+}
+
 /// **Take a note off the map through the registry.**
 fn remove_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, id: &str) {
     dispatch_note(project, open, state, "note_remove", serde_json::json!({"id": id}), "remove a note");
@@ -1928,6 +1946,8 @@ pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "bevy_elements")]
+        app.add_systems(Update, crate::environment::apply_environment.after(crate::family_host::reload_settings));
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()
@@ -4126,6 +4146,7 @@ fn on_notes_click(
     rows: Query<&NoteRow>,
     filters: Query<(), With<NotesFilterButton>>,
     sends: Query<(), With<NotesSendAll>>,
+    leases: Query<&NoteLeaseButton>,
     filter: Option<ResMut<NotesFilter>>,
     project: Option<ResMut<Project>>,
     open: Option<ResMut<OpenMap>>,
@@ -4146,6 +4167,9 @@ fn on_notes_click(
     } else if sends.get(e).is_ok() {
         let mut project = project;
         send_notes(project.as_deref_mut(), &mut open, &mut state);
+    } else if let Ok(lease) = leases.get(e) {
+        let mut project = project;
+        lease_note(project.as_deref_mut(), &mut open, &mut state, lease.op, &lease.id);
     } else if let Ok(row) = rows.get(e) {
         let (Some(project), Some(mut rig)) = (project, rig) else {
             return;
@@ -4203,7 +4227,10 @@ fn refresh_notes_list(
     let rows: Vec<(String, &'static str, String)> = all
         .listing(filter.0)
         .iter()
-        .map(|n| (n.id.clone(), n.status(), n.text.clone()))
+        .map(|n| match n.holder() {
+            Some(by) => (n.id.clone(), n.status(), format!("{} (held by {by})", n.text)),
+            None => (n.id.clone(), n.status(), n.text.clone()),
+        })
         .collect();
     let key = (filter.0, rows);
     if shown.as_ref() == Some(&key) {
@@ -4237,6 +4264,18 @@ fn refresh_notes_list(
                         crate::chrome::font(crate::chrome::text::BODY),
                     ));
                 });
+                let ops: &[(&'static str, &str)] = match *status {
+                    "sent" => &[("note_claim", "Claim")],
+                    "claimed" => &[("note_renew", "Renew"), ("note_release", "Release")],
+                    _ => &[],
+                };
+                if !ops.is_empty() {
+                    p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), ..default() }).with_children(|h| {
+                        for (op, label) in ops {
+                            crate::chrome::button(h, NoteLeaseButton { id: id.clone(), op }, label, crate::chrome::Severity::Plain);
+                        }
+                    });
+                }
             }
         });
     }

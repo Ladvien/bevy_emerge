@@ -358,6 +358,9 @@ pub struct StateParams {
     pub pinned_from: usize,
     /// The first library id to name, counted in library order. `0` is the start of the list.
     pub descriptors_from: usize,
+    /// A sent or claimed note's id, to get everything needed to work it (#91): its text, area and
+    /// margin, the pieces near it, the kit's palette, the camera, how to get a picture, earlier notes.
+    pub note: Option<String>,
 }
 
 /// **`emerge/state` — what the editor is holding right now.**
@@ -534,6 +537,13 @@ fn editor_state(
     });
     Ok(json!({
         "map": map,
+        // **The notes an agent can claim, and with `note` the bundle to work one** (#91).
+        "notes": open.as_ref().map(|o| crate::ops_notes::state_json(
+            o,
+            project.as_ref().map(|p| &p.library),
+            params.note.as_deref(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+        )),
         "project": project_summary,
         "editor": editor,
         "presentation": presentation,

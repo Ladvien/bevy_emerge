@@ -11,7 +11,8 @@
 //! says this one is equal or better; [`LabelPath`] selects between them by configuration.
 
 use crate::vlm::{LabelFailure, PromptCtx, Provenance, Suggestion};
-use bevy_emerge_core::descriptor::Confidence;
+use crate::vlm::{face_token, mount_meaning};
+use bevy_emerge_core::descriptor::{Confidence, Face, Mount, mount_label, mount_options};
 use bevy_emerge_core::vocab::{Vocabularies, Vocabulary};
 use bevy_emerge_decide::{Error, MAX_QUESTIONS, Question, Request, Response, Transport, ask};
 use std::collections::{BTreeMap, BTreeSet};
@@ -76,6 +77,55 @@ fn question_id(axis: &str, token: &str) -> String {
     format!("{axis}:{token}")
 }
 
+const FACES: [Face; 4] = [Face::North, Face::East, Face::South, Face::West];
+const MOUNT_ID: &str = "mount";
+const FRONT_ID: &str = "front";
+/// The option of the `mount` and `front` choices that says "none applies / unclear".
+const NONE_OPTION: &str = "unset";
+
+fn mount_options_for(vocab: &Vocabularies) -> Vec<Mount> {
+    let surfaces: Vec<String> = vocab.surfaces.tokens.iter().map(|t| t.name.clone()).collect();
+    mount_options(&surfaces)
+}
+
+/// One `choice` over exactly the mounts [`mount_options`] offers for this project (one per surface
+/// class), keyed by [`mount_label`], plus `unset`. A mount the project cannot satisfy is not an option,
+/// so it cannot be suggested.
+fn mount_question(vocab: &Vocabularies) -> Question {
+    let mut options: Vec<(String, String)> = mount_options_for(vocab)
+        .iter()
+        .map(|m| (mount_label(Some(m)), mount_meaning(m).to_owned()))
+        .collect();
+    options.push((NONE_OPTION.to_owned(), "unclear; leave the mount as it is".to_owned()));
+    Question::choice("What kind of support does THIS asset need?", options)
+}
+
+fn front_question() -> Question {
+    let mut options: Vec<(String, String)> = FACES
+        .into_iter()
+        .map(|f| (face_token(f).to_owned(), format!("the item's visual front faces {}", face_token(f))))
+        .collect();
+    options.push((NONE_OPTION.to_owned(), "no front: a symmetric prop".to_owned()));
+    Question::choice(
+        "Which face is the item's visual FRONT, the side it presents to the room (a sofa fronts where you sit, a screen where it is watched)?",
+        options,
+    )
+}
+
+/// The most probable option of a `choice` answer to `id`, if it is one of `allowed`.
+fn pick(responses: &[Response], id: &str, allowed: &[String]) -> Option<String> {
+    let answer = responses.iter().find_map(|r| r.answers.get(id))?;
+    let mut best: Option<(String, f64)> = None;
+    for name in allowed {
+        if let Some(p) = answer.p_option(name)
+            && best.as_ref().is_none_or(|(_, b)| p > *b)
+        {
+            best = Some((name.clone(), p));
+        }
+    }
+    best.map(|(n, _)| n)
+}
+
 /// One request per [`MAX_QUESTIONS`] tokens, every request carrying the same two renders. `images`
 /// are the data URLs of the front and rear renders.
 pub fn build_requests(vocab: &Vocabularies, ctx: &PromptCtx, images: &[String]) -> Vec<Request> {
@@ -100,6 +150,13 @@ pub fn build_requests(vocab: &Vocabularies, ctx: &PromptCtx, images: &[String]) 
             })
         })
         .collect();
+    let mut questions = questions;
+    questions.push((MOUNT_ID.to_owned(), mount_question(vocab)));
+    // A measured front is a fact read off the vertex buffer and is not asked; only an unmeasurable
+    // mesh has its front judged from the renders.
+    if ctx.front_measured.is_none() {
+        questions.push((FRONT_ID.to_owned(), front_question()));
+    }
     questions
         .chunks(MAX_QUESTIONS)
         .map(|chunk| {
@@ -161,8 +218,16 @@ pub fn suggest(vocab: &Vocabularies, responses: &[Response], threshold: f64) -> 
         look: picked("look"),
         offers_surfaces: picked("surfaces"),
         kind,
-        mount: None,
-        front: None,
+        mount: {
+            let options = mount_options_for(vocab);
+            let mut names: Vec<String> = options.iter().map(|m| mount_label(Some(m))).collect();
+            names.push(NONE_OPTION.to_owned());
+            pick(responses, MOUNT_ID, &names).and_then(|n| options.into_iter().find(|m| mount_label(Some(m)) == n))
+        },
+        front: {
+            let names: Vec<String> = FACES.iter().map(|f| face_token(*f).to_owned()).chain([NONE_OPTION.to_owned()]).collect();
+            pick(responses, FRONT_ID, &names).and_then(|n| FACES.into_iter().find(|f| face_token(*f) == n))
+        },
         needs_turn: None,
         note: None,
         rooms: Vec::new(),
@@ -196,7 +261,10 @@ pub fn label_with_decisions(
         .iter()
         .find_map(|r| r.model.clone())
         .ok_or_else(|| LabelFailure::Refused(format!("decision endpoint {} named no model", transport.endpoint())))?;
-    let decided = suggest(vocab, &responses, threshold);
+    let mut decided = suggest(vocab, &responses, threshold);
+    if let Some(measured) = ctx.front_measured {
+        decided.suggestion.front = measured;
+    }
     Ok((decided.suggestion, Provenance { model, date, attempts: 1 }))
 }
 
@@ -316,7 +384,7 @@ mod tests {
         assert!(requests.len() >= 2);
         assert!(requests.iter().all(|r| r.questions.len() <= MAX_QUESTIONS));
         let asked: usize = requests.iter().map(|r| r.questions.len()).sum();
-        assert_eq!(asked, 2 + 1 + 70 + 1);
+        assert_eq!(asked, 2 + 1 + 70 + 1 + 1 + 1); // + the `mount` and `front` choices
     }
 
     #[test]
@@ -331,8 +399,18 @@ mod tests {
         };
         let request = build_requests(&v, &ctx(), &images).remove(0);
         let mut answers = BTreeMap::new();
-        for id in request.questions.keys() {
-            answers.insert(id.clone(), yes(if id == "look:brown" || id == "kind:seating" { 0.95 } else { 0.03 }));
+        for (id, q) in &request.questions {
+            let answer = match q {
+                // The `mount` and `front` choices (assumed owner exception: #113 adds them): answered
+                // `unset`, which suggests nothing.
+                Question::Choice { criteria, .. } => Answer::Choice {
+                    choice: "unset".into(),
+                    probabilities: criteria.keys().map(|k| (k.clone(), if k == "unset" { 0.9 } else { 0.01 })).collect(),
+                    confidence: 0.9,
+                },
+                _ => yes(if id == "look:brown" || id == "kind:seating" { 0.95 } else { 0.03 }),
+            };
+            answers.insert(id.clone(), answer);
         }
         let response = Response { model: Some("clef-flash".into()), answers, usage: None };
         let transport = Replay::new(request, response);

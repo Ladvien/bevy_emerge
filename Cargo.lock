@@ -908,6 +908,7 @@ source = "git+https://github.com/Ladvien/bevy_elements?rev=ef87797468db6264f2478
 dependencies = [
  "bevy",
  "bytemuck",
+ "serde",
 ]
 
 [[package]]

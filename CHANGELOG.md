@@ -4,6 +4,9 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **113-mount-front** `8a90ab8` Decision-model labelling also proposes a piece's mount and front (#113 slice 2) *No clip: an API, labelling internals; proved by tests/decision_labels_mount_front.rs*
+- **notes-claims** `e866c66` An agent claims a sent note over MCP: note_claim, note_renew, note_release leases, and emerge_state's notes bundle (text, area plus margin, pieces, palette, camera, earlier notes) *No clip: visible, not yet recorded: no display on big (the Claim, Renew and Release buttons on a note row); proved by bevy_emerge_core/tests/note_leases.rs and bevy_emerge_mapper/tests/note_claims.rs*
+- **e98-environment-data** `c1a546b` A map's climate, date, clock and forced weather are saved in bevy_elements' own types and applied to the preview *No clip: an API and data layer, the Environment panel is the next slice; proved by environment_applies*
 - **d5-decision-labels** `8308239` Labelling can ask a decision model one yes/no question per vocabulary token (EMERGE_LABEL_PATH=decide), with the chat path kept until measured *No clip: an editor setting, no new surface; proved by decide_labels::tests*
 - **notes-panel** `cff4207` A Notes panel lists every note newest first, filters by status, sends all drafts, and a row frames its note *No clip: visible, not yet recorded: laptop pass did not record; proved by notes_listing and notes_panel_lists_every_note*
 - **115-run-ops** `9a88580` Runs are edited through operations: run_add, run_set (move an end, change pitch, corners, gaps) and run_remove, each undone by id; Shift-drag in run mode lays a run the map holds, dragging a run's end moves it, a removal click takes it off whole (#115 slice 3) *No clip: visible, not yet recorded: Shift-drag run tool not filmed this pass; proved by tests/runs_are_edited_through_operations.rs*
