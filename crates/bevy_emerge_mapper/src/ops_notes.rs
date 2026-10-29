@@ -338,3 +338,93 @@ impl Operation for NoteRemove {
         Ok(Self::apply(ctx, params, true)?.expect("a write returns its outcome"))
     }
 }
+
+// --------------------------------------------------------------- note_send
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SendParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Undo only: the notes as they stood before the send, put back whole, history included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<Vec<Note>>,
+}
+
+impl SendParams {
+    pub fn schema() -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"id": {"type": "string", "description": "The draft to send. Omit it to send every draft on the map."}}
+        })
+    }
+
+    pub fn parse(raw: &serde_json::Value) -> Result<SendParams, Refusal> {
+        serde_json::from_value(raw.clone()).map_err(|e| bad_params("a note send", "`id`, or nothing to send every draft", e))
+    }
+}
+
+/// **Send one draft, or every draft, so an agent may claim them.** One undo step returns them to drafts.
+pub struct NoteSend;
+
+impl NoteSend {
+    fn apply(ctx: &mut Ctx, params: &serde_json::Value, write: bool) -> Result<Option<Outcome>, Refusal> {
+        let p = SendParams::parse(params)?;
+        run(ctx, write, |notes, _| {
+            if let Some(before) = &p.restore {
+                for old in before {
+                    let at = notes
+                        .notes
+                        .iter()
+                        .position(|n| n.id == old.id)
+                        .ok_or_else(|| Refusal::new(format!("note {} is gone, so the send was not taken back.", old.id)))?;
+                    notes.notes[at] = old.clone();
+                }
+                return Ok(Change { summary: "took back a send".to_owned(), inverse: json!({}) });
+            }
+            let sent = match &p.id {
+                Some(id) => {
+                    let before = notes.get(id).ok_or_else(|| Refusal::new(format!("no note {id} on this map, so nothing was sent.")))?.clone();
+                    notes.send(id).map_err(Refusal::new)?;
+                    (vec![before], vec![id.clone()])
+                }
+                None => {
+                    let before: Vec<Note> = notes.notes.iter().filter(|n| n.is_draft()).cloned().collect();
+                    let ids = notes.send_all().map_err(Refusal::new)?;
+                    (before, ids)
+                }
+            };
+            Ok(Change {
+                summary: format!("sent {}", sent.1.join(", ")),
+                inverse: json!({"restore": sent.0}),
+            })
+        })
+    }
+}
+
+impl Operation for NoteSend {
+    fn name(&self) -> &'static str {
+        "note_send"
+    }
+    fn undo(&self) -> Undo {
+        Undo::Inverse
+    }
+    fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+        SendParams::parse(params).is_ok_and(|p| p.restore.is_some())
+    }
+    fn schema(&self) -> serde_json::Value {
+        SendParams::schema()
+    }
+    fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+        state_of_open(ctx)
+    }
+    fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let mut scratch = Ctx { open: ctx.open.clone(), ..Ctx::default() };
+        Self::apply(&mut scratch, params, false)?;
+        Ok(params.clone())
+    }
+    fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+        Ok(Self::apply(ctx, params, true)?.expect("a write returns its outcome"))
+    }
+}
