@@ -43,6 +43,10 @@ clean_merge_of_main() {
   tree=$(git merge-tree --write-tree "$p1" "$p2" 2>/dev/null) || return 1
   [ "$tree" = "$(git rev-parse "$target^{tree}")" ]
 }
+# Git opens the connection before this hook runs, and GitHub drops it while a 30-minute gate runs
+# ("Connection to github.com closed by remote host", bevy_emerge_loop, 2026-10-29): the gate passed,
+# the push did not. Pushing the same commit again needs no second gate.
+if gated "$target"; then echo "pre-push gate: ${target:0:9} already passed the gate in this clone; pushing it again" >&2; exit 0; fi
 start=$(date +%s)
 if clean_merge_of_main; then
   echo "pre-push gate: ${target:0:9} is a clean merge of main into a commit that passed the gate; clippy over every target only" >&2
