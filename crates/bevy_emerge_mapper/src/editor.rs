@@ -15240,7 +15240,7 @@ mod tests {
             maps_dir: std::path::PathBuf::from("assets/emerge/maps"),
             // A test project has no map open.
             open_map_name: None,
-            kits: Vec::new(),
+            kits: Vec::new().into(),
             // A test project declares no combinations; every map in it offers every bound kit.
             bashes: Vec::new(),
             // These descriptors carry no namespace, so the directory is what a tile is named after.
@@ -15250,25 +15250,25 @@ mod tests {
             // No policy, so the measurements and the layered library are the same set — which is
             // what these tests are about. `write_library`'s own tests are the ones that pull them
             // apart.
-            measured: Library {
+            measured: crate::project::Shared::from(Library {
                 version: LIBRARY_VERSION,
                 note: None,
                 descriptors: descriptors.clone(),
-            },
-            library: Library {
+            }),
+            library: crate::project::Shared::from(Library {
                 version: LIBRARY_VERSION,
                 note: None,
                 descriptors,
-            },
+            }),
             policy: bevy_emerge_core::policy::Policy::default(),
             lattice: bevy_emerge_core::kits::Lattice::default(),
-            masks: Vec::new(),
+            masks: Vec::new().into(),
             rules: bevy_emerge_core::rules::Rules {
                 version: bevy_emerge_core::rules::RULES_VERSION,
                 blocks: Vec::new(),
             },
             touched: Vec::new(),
-            triangles: Vec::new(),
+            triangles: Vec::new().into(),
         };
         let open = OpenMap::new(
             Map {
