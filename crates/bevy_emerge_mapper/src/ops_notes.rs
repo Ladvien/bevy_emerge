@@ -626,7 +626,8 @@ pub fn bundle(notes: &Notes, id: &str, map: &bevy_emerge_core::map::Map, library
         .iter()
         .filter(|n| n.id != id)
         .map(|n| json!({"id": n.id, "text": n.text, "status": n.status(), "result": match &n.state {
-            notes::State::Resolved { ops, summary, assumptions, captures } => {
+            notes::State::Resolved { ops, summary, assumptions, captures }
+            | notes::State::Kept { ops, summary, assumptions, captures } => {
                 json!({"ops": ops, "summary": summary, "assumptions": assumptions, "captures": captures})
             }
             _ => serde_json::Value::Null,
