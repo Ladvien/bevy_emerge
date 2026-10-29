@@ -2670,6 +2670,27 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
     if let Some(m) = line_map.as_deref()
         && Some(m) != here
     {
+        // **A map renamed since is not a map to open**: the change belongs to the map's old name
+        // (B-030), so the way back is the rename's undo, which puts the name back.
+        if let Some(rename) = lines.iter().rev().find(|l| {
+            l.op == "map_rename"
+                && in_effect.contains(chain_of[l.operation_id.as_str()])
+                && l.inverse
+                    .as_ref()
+                    .and_then(|i| i.get("name"))
+                    .and_then(|n| n.as_str())
+                    == Some(m)
+        }) {
+            return Err(Refusal::new(format!(
+                "`{}` changed map `{m}`, which `{}` has since renamed to `{}`. Undo `{}` first to \
+                 put the name back, then undo `{}`.",
+                line.operation_id,
+                rename.operation_id,
+                here.unwrap_or("none"),
+                rename.operation_id,
+                line.operation_id
+            )));
+        }
         return Err(Refusal::new(format!(
             "`{}` changed map `{m}`, and the open map is `{}`. Open `{m}` to take it back.",
             line.operation_id,
