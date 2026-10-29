@@ -160,20 +160,62 @@ pub enum EnvAction {
     Force(WeatherPreset),
     /// Return the weather to the climate's own schedule.
     ReleaseWeather,
+    /// Set the date's month (`clock.date.month`), the season.
+    Month(u8),
+    /// Replace the climate with one of the crate's own presets.
+    Climate(ClimatePreset),
+}
+
+/// The crate's climate constructors the panel offers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ClimatePreset {
+    Temperate,
+    Alpine,
+    Desert,
+    Tropical,
+    Tundra,
+}
+
+impl ClimatePreset {
+    pub const ALL: [(ClimatePreset, &'static str); 5] = [
+        (ClimatePreset::Temperate, "Temperate"),
+        (ClimatePreset::Alpine, "Alpine"),
+        (ClimatePreset::Desert, "Desert"),
+        (ClimatePreset::Tropical, "Tropical"),
+        (ClimatePreset::Tundra, "Tundra"),
+    ];
+
+    pub fn climate(self) -> Climate {
+        match self {
+            ClimatePreset::Temperate => Climate::temperate(),
+            ClimatePreset::Alpine => Climate::alpine(),
+            ClimatePreset::Desert => Climate::desert(),
+            ClimatePreset::Tropical => Climate::tropical(),
+            ClimatePreset::Tundra => Climate::tundra(),
+        }
+    }
 }
 
 impl EnvAction {
     /// Hours the scrubber offers: dawn, noon, dusk and night.
     pub const HOURS: [(f64, &'static str); 4] = [(6.0, "6:00"), (12.0, "12:00"), (18.5, "18:30"), (23.0, "23:00")];
 
+    /// Months the season row offers: the four solstice/equinox months.
+    pub const SEASONS: [(u8, &'static str); 4] = [(3, "Spring"), (6, "Summer"), (9, "Autumn"), (12, "Winter")];
+
     /// The `family_set` params this action writes, or `None` for the camera-style clock buttons.
     pub fn family_params(self) -> Option<serde_json::Value> {
-        let value = match self {
-            EnvAction::Force(p) => format!("Some({p:?})"),
-            EnvAction::ReleaseWeather => "None".to_owned(),
+        let (field, value) = match self {
+            EnvAction::Force(p) => ("forced_weather", format!("Some({p:?})")),
+            EnvAction::ReleaseWeather => ("forced_weather", "None".to_owned()),
+            EnvAction::Month(m) => ("clock.date.month", m.to_string()),
+            EnvAction::Climate(c) => (
+                "climate",
+                ron::ser::to_string(&c.climate()).expect("climate serialises"),
+            ),
             EnvAction::Scrub(_) | EnvAction::ReleaseClock => return None,
         };
-        Some(serde_json::json!({"crate": CRATE, "field": "forced_weather", "value": value}))
+        Some(serde_json::json!({"crate": CRATE, "field": field, "value": value}))
     }
 }
 
@@ -196,6 +238,16 @@ pub fn spawn_section(s: &mut ChildSpawnerCommands) {
             button(r, EnvAction::Force(preset), label, Severity::Plain);
         }
         button(r, EnvAction::ReleaseWeather, "Release", Severity::Plain);
+    });
+    row(s, &mut |r| {
+        for (month, label) in EnvAction::SEASONS {
+            button(r, EnvAction::Month(month), label, Severity::Plain);
+        }
+    });
+    row(s, &mut |r| {
+        for (preset, label) in ClimatePreset::ALL {
+            button(r, EnvAction::Climate(preset), label, Severity::Plain);
+        }
     });
 }
 
