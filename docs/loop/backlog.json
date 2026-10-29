@@ -207,8 +207,8 @@
       "kind": "enhancement",
       "area": "editor",
       "title": "Kit ops clone the whole Project per click, and a third Levenshtein copy exists (review gap 12)",
-      "status": "open",
-      "evidence": "editor.rs:3030-3036: each shelf click or arrow step clones Project and appends an oplog line; a chip click clones Project once and measured twice. Third Levenshtein copy at ops.rs:2278, next to brush_arm's (ops.rs ~1894) and core's private one. Fix: share brush_arm's ranking helper. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "status": "shipped",
+      "evidence": "editor.rs:3030-3036: each shelf click or arrow step clones Project and appends an oplog line; a chip click clones Project once and measured twice. Third Levenshtein copy at ops.rs:2278, next to brush_arm's (ops.rs ~1894) and core's private one. Fix: share brush_arm's ranking helper. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md | Done (w3, #117): Project's measured/library/masks/kits/triangles are Shared<T> (Arc, copy on write); a clone is refcount bumps. Proved by tests/project_clone_shares.rs.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
