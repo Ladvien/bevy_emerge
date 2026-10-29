@@ -4162,7 +4162,7 @@ fn refresh_data_list(
         return;
     }
     *since = 0.0;
-    let rows = project.map(|p| crate::ops_data::listing(&p.root)).unwrap_or_default();
+    let rows = project.map(|p| crate::ops_data::listing(&p.emerge_dir)).unwrap_or_default();
     if shown.as_ref() == Some(&rows) {
         return;
     }

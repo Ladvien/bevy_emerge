@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **#116** data_set, the Data panel and project.data_files read data.ron from the emerge directory, so a game under assets/emerge can change its tuning files *No clip: a path fix in three readers; proved by data_set_is_an_operation (7 tests)*
 - **98-preview** `a32f56d` The editor viewport previews a map's sky, fog and clouds with bevy_elements (#98) *No clip: visible, not yet recorded: needs the noon/dusk/rain street on a display*
 - **98-clock-scrub** `6e2fd82` Environment: the clock scrubber holds the preview at an hour of day with no file write and no undo step (#98, slice 2) *No clip: visible once the Environment panel lands, not yet recorded: no panel or preview yet; proved by tests/environment_applies.rs scrubbing_the_clock_moves_the_preview_clock_and_writes_nothing*
 - **113-mount-front** `8a90ab8` Decision-model labelling also proposes a piece's mount and front (#113 slice 2) *No clip: an API, labelling internals; proved by tests/decision_labels_mount_front.rs*
