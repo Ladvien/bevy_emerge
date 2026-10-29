@@ -241,6 +241,12 @@ pub struct StateParams {
     /// more than 50 pins, the answer's `pinned_next` names the value to pass for the next page.
     #[serde(default)]
     pub pinned_from: usize,
+    /// **A sent note's id, to read everything needed to work it** (the answer's `notes.bundle`): its
+    /// text, its area and margin, the pieces near it, the kit's palette, the camera the person had,
+    /// how to get a picture of the area, and the earlier notes and how they turned out. Claim the note
+    /// first with `note_claim`; `notes.sent` lists what can be claimed.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// **The parameters of `emerge_present`.** A result, handed back for review.
@@ -599,7 +605,10 @@ impl Emerge {
                        answered the latest write) or {ok, message, at_unix_ms}. frame is the editor's own \
                        clock: frame_ms (wall time between frames), busy_ms (work done inside one \
                        frame) and fps; a high frame_ms with a low busy_ms is the machine, not the \
-                       editor. Returns that summary \
+                       editor. The notes section lists the sent and claimed notes (id, \
+                       holder, lease_until); pass note=<id> for that note's bundle: text, area and \
+                       margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
+                       Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
                        that it landed.",
@@ -617,7 +626,7 @@ impl Emerge {
     ) -> Result<CallToolResult, ErrorData> {
         match self
             .editor
-            .call("emerge/state", json!({"pinned_from": p.pinned_from}))
+            .call("emerge/state", json!({"pinned_from": p.pinned_from, "note": p.note}))
             .await
         {
             Ok(v) => Ok(CallToolResult::structured(v)),

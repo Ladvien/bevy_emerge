@@ -447,7 +447,7 @@ pub fn mount_token(m: &Mount) -> &'static str {
 /// So each line says what the mount is FOR — whether the piece needs a host, and which — rather
 /// than where it happens to be resting in the render. The question the model has to answer is about
 /// the object's nature in a real room, not about the photograph.
-fn mount_meaning(m: &Mount) -> &'static str {
+pub(crate) fn mount_meaning(m: &Mount) -> &'static str {
     match m {
         Mount::OnFloor => {
             "stands on the ground by itself in a real room - furniture, crates, \

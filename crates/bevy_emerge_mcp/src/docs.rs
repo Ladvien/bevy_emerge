@@ -127,7 +127,10 @@ pub const TOOLS: &[ToolDoc] = &[
                        answered the latest write) or {ok, message, at_unix_ms}. frame is the editor's own \
                        clock: frame_ms (wall time between frames), busy_ms (work done inside one \
                        frame) and fps; a high frame_ms with a low busy_ms is the machine, not the \
-                       editor. Returns that summary \
+                       editor. The notes section lists the sent and claimed notes (id, \
+                       holder, lease_until); pass note=<id> for that note's bundle: text, area and \
+                       margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
+                       Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
                        that it landed.",
@@ -398,7 +401,8 @@ pub fn schemas() -> Value {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "pinned_from": {"type": "integer", "minimum": 0, "default": 0, "description": "Where the pinned list starts, in map order. 0 is the first pin."}
+                "pinned_from": {"type": "integer", "minimum": 0, "default": 0, "description": "Where the pinned list starts, in map order. 0 is the first pin."},
+                "note": {"type": "string", "description": "A sent note's id; the answer's notes.bundle is everything needed to work it."}
             }
         },
         "emerge_list_pieces": {
