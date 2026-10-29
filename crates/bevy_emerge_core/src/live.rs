@@ -13,7 +13,7 @@
 //! Moved from Sanctuary's `emerge_data::watch` (its `due` rule and its three tests unchanged) and
 //! generalised to any directory and any set of extensions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -176,23 +176,56 @@ impl MapDiff {
 }
 
 /// **The placements `new` added, removed and changed against `old`**, keyed by
-/// [`crate::map::Placed::id`].
+/// [`crate::map::Placed::id`]. A row a run lays (`<run id>/<n>`, see [`crate::run::post_id`]) is
+/// not named: its run is, once, as added, removed or changed. Run ids share the placement
+/// namespace (`Map::validate` refuses a collision), so the lists stay unambiguous.
 pub fn diff_maps(old: &Map, new: &Map) -> MapDiff {
+    let runs: BTreeSet<&str> = old.runs.iter().chain(&new.runs).map(|r| r.id.as_str()).collect();
+    fn run_of<'a>(runs: &BTreeSet<&'a str>, id: &str) -> Option<&'a str> {
+        let (run, n) = id.rsplit_once('/')?;
+        let run = runs.get(run).copied()?;
+        (!n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())).then_some(run)
+    }
     let before: BTreeMap<&str, _> = old.placements.iter().map(|p| (p.id.as_str(), p)).collect();
     let after: BTreeMap<&str, _> = new.placements.iter().map(|p| (p.id.as_str(), p)).collect();
     let mut diff = MapDiff::default();
+    // A run is changed when its definition differs or any of its rows does (a library edit moves
+    // posts without touching the run).
+    let mut moved: BTreeSet<&str> = BTreeSet::new();
     for (id, placed) in &after {
-        match before.get(id) {
-            None => diff.added.push((*id).to_owned()),
-            Some(was) if *was != *placed => diff.changed.push((*id).to_owned()),
-            Some(_) => {}
+        let differs = before.get(id).is_none_or(|was| *was != *placed);
+        match (run_of(&runs, id), differs) {
+            (Some(run), true) => {
+                moved.insert(run);
+            }
+            (None, true) if before.contains_key(id) => diff.changed.push((*id).to_owned()),
+            (None, true) => diff.added.push((*id).to_owned()),
+            _ => {}
         }
     }
     for id in before.keys() {
         if !after.contains_key(id) {
-            diff.removed.push((*id).to_owned());
+            match run_of(&runs, id) {
+                Some(run) => {
+                    moved.insert(run);
+                }
+                None => diff.removed.push((*id).to_owned()),
+            }
         }
     }
+    for id in &runs {
+        let was = old.runs.iter().find(|r| r.id == *id);
+        let now = new.runs.iter().find(|r| r.id == *id);
+        match (was, now) {
+            (None, Some(_)) => diff.added.push((*id).to_owned()),
+            (Some(_), None) => diff.removed.push((*id).to_owned()),
+            (Some(a), Some(b)) if a != b || moved.contains(id) => diff.changed.push((*id).to_owned()),
+            _ => {}
+        }
+    }
+    diff.added.sort();
+    diff.removed.sort();
+    diff.changed.sort();
     diff
 }
 
