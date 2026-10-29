@@ -139,6 +139,7 @@ mod placement_set_yaw;
 mod placement_undo_without_id;
 mod project_clone_shares;
 mod roads_and_fields_do_not_z_fight;
+mod rows_become_a_run_through_an_operation;
 mod runs_are_edited_through_operations;
 mod stamp_remove;
 mod the_arm_crosses_the_door;
