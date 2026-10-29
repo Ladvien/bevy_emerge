@@ -1540,6 +1540,9 @@ pub struct NoteDraft {
     /// The id of the standing note being edited, or `None` for a new note.
     pub editing: Option<String>,
     pub text: String,
+    /// Placement ids Shift-clicked as the note's subject. When any, the note is about these pieces
+    /// and `area` is only the cells they span.
+    pub pieces: Vec<String>,
 }
 
 /// **The Note tool's state**: the corner a drag started at, and the box once the button comes up.
@@ -1564,10 +1567,14 @@ fn drive_note(
     pointer: Res<crate::view::Pointer>,
     camera: Option<Single<(&Camera, &GlobalTransform), With<MainCamera>>>,
     open: Res<OpenMap>,
+    project: Option<Res<Project>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<EditorState>,
     mut note_box: ResMut<NoteBox>,
 ) {
-    if state.tool != Tool::Note || note_box.draft.is_some() {
+    // A box of Shift-clicked pieces stays open to take more pieces; any other box holds the keys.
+    let collecting = note_box.draft.as_ref().is_some_and(|d| d.editing.is_none() && !d.pieces.is_empty());
+    if state.tool != Tool::Note || (note_box.draft.is_some() && !collecting) {
         if note_box.from.is_some() {
             note_box.from = None;
         }
@@ -1586,6 +1593,45 @@ fn drive_note(
         return;
     };
     let at = open.map.to_map_space((hit.x, hit.z));
+    let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    if shift && mouse.just_pressed(MouseButton::Left) {
+        // Shift-click: a piece joins (or leaves) the note's subject; the box opens at the selection.
+        if let Some(project) = project.as_deref()
+            && let Some(i) = pick_at(project, &open, at)
+        {
+            let id = open.map.placements[i].id.clone();
+            let mut draft = note_box.draft.take().unwrap_or(NoteDraft {
+                area: [0; 4],
+                editing: None,
+                text: String::new(),
+                pieces: Vec::new(),
+            });
+            if let Some(k) = draft.pieces.iter().position(|p| *p == id) {
+                draft.pieces.remove(k);
+            } else {
+                draft.pieces.push(id);
+            }
+            if draft.pieces.is_empty() {
+                state.status.note("note: no pieces picked");
+            } else {
+                let mut area = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
+                for p in open.map.placements.iter().filter(|p| draft.pieces.contains(&p.id)) {
+                    let (x, z) = (note_cell(p.at.0), note_cell(p.at.1));
+                    area = [area[0].min(x), area[1].min(z), area[2].max(x), area[3].max(z)];
+                }
+                draft.area = area;
+                state.status.note(format!(
+                    "note on {} piece(s): Shift-click more, type it, Enter saves, Esc cancels",
+                    draft.pieces.len()
+                ));
+                note_box.draft = Some(draft);
+            }
+        }
+        return;
+    }
+    if collecting {
+        return;
+    }
     if mouse.just_pressed(MouseButton::Left) {
         note_box.from = Some(at);
     }
@@ -1613,13 +1659,14 @@ fn drive_note(
                 area: [cells.0, cells.1, cells.2, cells.3],
                 editing: Some(n.id.clone()),
                 text: n.text.clone(),
+                pieces: Vec::new(),
             });
             state.status.note(format!("note {}: edit, Enter saves, an emptied note is removed, Esc leaves it", n.id));
             return;
         }
     }
     let area = [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)];
-    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new() });
+    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new(), pieces: Vec::new() });
     state.status.note(format!(
         "note on {}x{} cells: type it, Enter saves, Shift+Enter is a new line, Esc cancels",
         area[2] - area[0] + 1,
@@ -1757,12 +1804,17 @@ fn add_note(
     draft: &NoteDraft,
     pose: Option<[f32; 5]>,
 ) {
+    let params = if draft.pieces.is_empty() {
+        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose})
+    } else {
+        serde_json::json!({"pieces": draft.pieces, "text": draft.text, "camera": pose})
+    };
     dispatch_note(
         project,
         open,
         state,
         "note_add",
-        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose}),
+        params,
         "leave a note",
     );
 }
