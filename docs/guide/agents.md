@@ -104,6 +104,8 @@ A snip that is confirmed but not yet written is pending. The editor clears pendi
 
 `emerge_snip` is a different tool. The agent gives it a `label` and a `rect` in window pixels, and it writes one crop of the editor's picture. The crop is not logged and not undoable.
 
+`emerge_decide` asks a decision model a typed question and returns a probability for every answer. Give it `check` (a named check: `floating`, `clipping`, `out_of_area`, `blank_frame` or `toast_visible`, from the editor's built-ins with the project's `assets/emerge/checks.ron` over them, read on every call) or `questions` (ad-hoc `noul`, `choice` and `score` questions), with `images` (project files, at most four), `view: true` for the editor's current picture, and `facts`. A check missing a picture or the facts is refused and names what is missing. A finding is advisory: it changes no map data and never blocks or undoes an operation. The endpoint is one per run, set by `EMERGE_DECIDE_ENDPOINT`, `EMERGE_DECIDE_MODEL` and `EMERGE_DECIDE_KEY`; local clef-flash is the default, and a Cloudflare endpoint sends pictures off the LAN.
+
 ![The person snips a box over a wall and writes a note; the agent reads the snip and turns the wall; the person's Cmd+Z takes the turn back.](../media/hero.gif)
 
 The state read has its own paging. `emerge_state` takes `pinned_from` to page the list of pins, and returns `pinned_next` when more follow. It also reports `undo_next`, `undo_depth`, `redo_next`, `redo_depth`, `leaving`, and `door_waiting`.

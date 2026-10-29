@@ -96,6 +96,16 @@ A rectangle of the editor's picture, cut out and returned as an image. rect is [
 | `destructiveHint` | false |
 | `idempotentHint` | false |
 
+### `emerge_decide`
+
+Ask a decision model a typed question about the editor's pictures and facts, and get a probability for every allowed answer, with nothing to parse. Two forms. check: a named check such as floating, clipping, outside_area, blank_frame or toast_visible (the editor's own, with the project's assets/emerge/checks.ron over them, read on every call); it answers a finding with the check's P(yes), its threshold and whether it was found, and takes the editor's current picture itself when it needs view. questions: ad-hoc typed questions by id, each noul (yes or no, P(yes)), choice (named options, each one's probability) or score (levels, a weighted score), with state in words, images (project files, at most four) and facts (JSON). A check that needs a picture or facts it was not given is refused and names what is missing; it never answers from less. Advisory: it changes no map data and a finding never blocks or undoes an operation. The endpoint is one per run, local by default; a Cloudflare endpoint sends pictures off the LAN and is opt-in.
+
+| annotation | value |
+|---|---|
+| `readOnlyHint` | true |
+| `destructiveHint` | false |
+| `idempotentHint` | false |
+
 ### `emerge_list_snips`
 
 The snips the person took in the editor, newest first: each one's name, when it was taken, the map and the active tool, the note the person typed, the rectangle in window and picture pixels, the camera view, the cursor's world position and the placements inside the rectangle. Each entry names its picture file, and the newest picture comes back as an image. It reads files the editor wrote, so it needs no editor running and changes nothing. Returns how many snips there are, how many are shown, the snips still being saved (pending: confirmed in the editor, picture not yet written, so not yet in the snips list) and each .json file in the snips folder that is not a snip record or has no picture file, with the reason.

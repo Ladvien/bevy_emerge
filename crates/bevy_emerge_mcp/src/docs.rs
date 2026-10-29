@@ -181,6 +181,25 @@ pub const TOOLS: &[ToolDoc] = &[
         idempotent: false,
     },
     ToolDoc {
+        name: "emerge_decide",
+        description: "Ask a decision model a typed question about the editor's pictures and facts, and get a \
+                      probability for every allowed answer, with nothing to parse. Two forms. check: a \
+                      named check such as floating, clipping, outside_area, blank_frame or toast_visible \
+                      (the editor's own, with the project's assets/emerge/checks.ron over them, read on every \
+                      call); it answers a finding with the check's P(yes), its threshold and whether it was \
+                      found, and takes the editor's current picture itself when it needs view. questions: \
+                      ad-hoc typed questions by id, each noul (yes or no, P(yes)), choice (named options, \
+                      each one's probability) or score (levels, a weighted score), with state in words, \
+                      images (project files, at most four) and facts (JSON). A check that needs a picture or \
+                      facts it was not given is refused and names what is missing; it never answers from \
+                      less. Advisory: it changes no map data and a finding never blocks or undoes an \
+                      operation. The endpoint is one per run, local by default; a Cloudflare endpoint sends \
+                      pictures off the LAN and is opt-in.",
+        read_only: true,
+        destructive: false,
+        idempotent: false,
+    },
+    ToolDoc {
         name: "emerge_list_snips",
         description: "The snips the person took in the editor, newest first: each one's name, when \
                       it was taken, the map and the active tool, the note the person typed, the \
@@ -435,6 +454,18 @@ pub fn schemas() -> Value {
             "properties": {
                 "label": {"type": "string", "description": "Where the crop is written, under the project's target/loop/captures: letters, digits, _ and - in parts, with / between the parts."},
                 "rect": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 4, "maxItems": 4, "description": "[x0, y0, x1, y1] in window pixels; x1 and y1 exclusive."}
+            }
+        },
+        "emerge_decide": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "check": {"type": "string", "description": "A named check, such as floating. Give this or questions."},
+                "questions": {"type": "object", "description": "Ad-hoc typed questions by id: {\"type\": \"noul\", \"instructions\": ...}, {\"type\": \"choice\", \"instructions\": ..., \"criteria\": {option: meaning}} or {\"type\": \"score\", \"instructions\": ..., \"criteria\": [levels, lowest first]}."},
+                "state": {"type": "string", "description": "What the ad-hoc questions are about, in words."},
+                "images": {"type": "array", "maxItems": 4, "items": {"type": "object", "additionalProperties": false, "required": ["name", "path"], "properties": {"name": {"type": "string"}, "path": {"type": "string"}}}, "description": "Pictures, files under the project, each with the name a check asks for."},
+                "view": {"type": "boolean", "default": false, "description": "Also take the editor's current picture, named view."},
+                "facts": {"description": "The JSON facts: the operations run, the pieces, the camera."}
             }
         },
         "emerge_list_snips": {
