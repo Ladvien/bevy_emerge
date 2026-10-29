@@ -1966,7 +1966,15 @@ pub struct EditorPlugin;
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "bevy_elements")]
-        app.add_systems(Update, crate::environment::apply_environment.after(crate::family_host::reload_settings));
+        app.init_resource::<crate::environment::ClockScrub>().add_systems(
+            Update,
+            (
+                crate::environment::apply_environment.after(crate::family_host::reload_settings),
+                crate::environment::scrub_clock.after(crate::environment::apply_environment),
+            ),
+        );
+        #[cfg(feature = "bevy_elements")]
+        app.add_observer(on_environment_click);
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()
@@ -3089,6 +3097,15 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 );
             });
 
+            // **Environment (#98):** clock scrubber and forced weather, for a project that uses `bevy_elements`.
+            #[cfg(feature = "bevy_elements")]
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(crate::environment::spawn_section);
+
             // **Data files (#86).** One line: `<file> <path> <value>`, e.g. `tuning/mob speed 2.5`.
             // Enter writes it through `data_set`.
             p.spawn(Node {
@@ -3974,6 +3991,46 @@ fn on_family_field_click(
     );
 }
 
+#[cfg(feature = "bevy_elements")]
+/// **Environment buttons** (#98): the clock buttons set [`crate::environment::ClockScrub`] (no file, no
+/// undo); the weather buttons dispatch `family_set`, so each is one undo step.
+fn on_environment_click(
+    activate: On<Activate>,
+    actions: Query<&crate::environment::EnvAction>,
+    project: Option<Res<Project>>,
+    scrub: Option<ResMut<crate::environment::ClockScrub>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let (Some(mut scrub), Some(mut state)) = (scrub, state) else {
+        return;
+    };
+    let Ok(action) = actions.get(activate.entity) else {
+        return;
+    };
+    use crate::environment::EnvAction;
+    match *action {
+        EnvAction::Scrub(hour) => scrub.set(hour),
+        EnvAction::ReleaseClock => scrub.release(),
+        other => {
+            let params = other.family_params().expect("weather actions write the file");
+            let mut ctx = crate::ops::Ctx {
+                project: project.as_deref().cloned(),
+                source: crate::ops::Source::Human,
+                session: crate::ops::session_id(),
+                ..crate::ops::Ctx::default()
+            };
+            match crate::ops::dispatch(&mut ctx, "family_set", &params) {
+                Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+                    state.status.note(outcome.summary.clone());
+                    state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+                }
+                Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+            }
+        }
+    }
+}
+
 fn family_edit_keys(
     mut events: MessageReader<KeyboardInput>,
     mut edit: ResMut<FamilyEdit>,
@@ -4124,7 +4181,7 @@ fn refresh_data_list(
         return;
     }
     *since = 0.0;
-    let rows = project.map(|p| crate::ops_data::listing(&p.root)).unwrap_or_default();
+    let rows = project.map(|p| crate::ops_data::listing(&p.emerge_dir)).unwrap_or_default();
     if shown.as_ref() == Some(&rows) {
         return;
     }
