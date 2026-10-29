@@ -940,6 +940,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_emerge_decide"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "bevy_emerge_mapper"
 version = "0.1.0"
 dependencies = [
@@ -967,6 +977,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bevy_emerge_core",
+ "bevy_emerge_decide",
  "bevy_emerge_snip",
  "rmcp",
  "schemars",

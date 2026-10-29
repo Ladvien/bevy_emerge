@@ -26,6 +26,8 @@ path = "src/main.rs"
 bevy_emerge_core = { path = "../bevy_emerge_core" }
 # The crop the editor and this server share, so a snip and an `emerge_snip` cut the same way.
 bevy_emerge_snip = { path = "../bevy_emerge_snip" }
+# Typed questions to a decision model, and the checks built on them. Authoring time only.
+bevy_emerge_decide = { path = "../bevy_emerge_decide" }
 # **The official Rust SDK for the Model Context Protocol.**
 #
 # **Pinned exactly, and the newest version in the local registry.** Its API differs from 1.x, so a

@@ -1,0 +1,42 @@
+{
+ "model": "clef-flash",
+ "answers": {
+  "has_ui": {
+   "type": "noul",
+   "noul": 0.9291138751388158
+  },
+  "dominant": {
+   "type": "choice",
+   "choice": "map_view",
+   "probabilities": {
+    "blank": 0.014707581871317566,
+    "map_view": 0.9771808547074415,
+    "text": 0.008111563421240808
+   },
+   "confidence": 0.9657712820611621
+  },
+  "clarity": {
+   "type": "score",
+   "score": 2.1405404734421807,
+   "legend": {
+    "0": "unreadable",
+    "1": "poor",
+    "2": "fair",
+    "3": "good",
+    "4": "excellent"
+   },
+   "probabilities": {
+    "0": 0.05332055468541883,
+    "1": 0.18585591701030854,
+    "2": 0.4162647053835911,
+    "3": 0.25608014601803614,
+    "4": 0.08847867690264542
+   },
+   "confidence": 0.3953878948296057
+  }
+ },
+ "usage": {
+  "input_tokens": 619,
+  "output_tokens": 0
+ }
+}

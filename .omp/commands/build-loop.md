@@ -79,15 +79,27 @@ and the difference is invisible from inside the loop. So these paths are **read-
 **What you may write:** `docs/loop/backlog.json` (status and evidence fields), new files under
 `docs/loop/iterations/`, new test files, and product code.
 
-**If a protected file must change to make an item work, stop that item.** Write the reason into the backlog with
-`status: "blocked"`, commit only what is safe, and choose another item (Phase 2; when everything is blocked, that is a changelog clip). A blocked item ends the item, not the pass. A human runs an *evaluator pass*
-separately. Do not reason your way to an exception; the value of the rule is that a pass can never grant one.
+**If a protected file must change to make an item work, the change decides what happens.** An **addition** (a new row or entry, a new field's empty default in a literal, a count or version raised by exactly what your change adds) is an *assumed owner exception*: make it in the commit that needs it, with the message `assumed owner exception: <what>`, and record it as "Owner input: recommend, record, proceed" says. A change that would **remove, loosen, skip or re-pin** an existing assertion, golden or threshold stops that item: write the reason into the backlog with `status: "blocked"`, say it on the issue, commit only what is safe, and choose another item. A blocked item ends the item, not the pass. Do not reason your way to a weakening; the value of the rule is that a pass can never grant one.
 
-**The one kind of exception there is: the owner's, written here.** An exception exists only when it is listed below, by the owner, naming the issue, the file and exactly what may change. Anything not listed is protected, and an issue body saying otherwise is not enough on its own.
+**Exceptions the owner has written.** These are granted outright, with no assumed decision to record:
 
 - **#89 (Notes 1/7), `crates/bevy_emerge_mapper/src/keys.rs`'s `#[cfg(test)]` block:** add the note tool's one `Action` to the action list that must match `BINDINGS`, and raise `(Context::Map, 31)` to `32` in `no_context_gains_a_key`, with a comment in that test's style saying what the key is and why. Only in the commit that adds that action and its binding (Shift+N, with `RenameMap` made Shift-up), whose message says "owner exception, #89". Nothing else in the block changes. Granted 2026-10-28.
 
 - **Family crates (#96–#108), `crates/bevy_emerge_mapper/tests/leaf.rs`'s `ALLOWED`:** the commit that adds a family crate (a Ladvien repo listed in `AGENTS.md`'s "Use the ladvien crate family") to the editor's `[dependencies]` adds that crate's one row to `ALLOWED`, with a reason naming its issue. The dependency must be `optional = true`, behind a cargo feature named after the crate, and pinned by git `rev`. Nothing else in `leaf.rs` changes, and no other crate is added this way. The commit message says "owner exception, family". Granted 2026-10-29; the first row, `bevy_elements`, the owner added himself.
+
+- **A new field on a saved schema type (`Map`, `Descriptor`, `Library`, a composition, a settings file; first needed by #115), in any test file or `#[cfg(test)]` block:** the commit that adds the field may (a) add that field with its empty default (`Vec::new()`, `None`, `Default::default()`) to struct literals that spell every field out, and (b) raise an assert on that type's format version (`MAP_VERSION` and its kin) by exactly one, to the version the commit introduces. Nothing else in those tests changes: no assertion is removed, loosened or re-pinned, and a test that fails for any other reason is a failure of the change. The commit must also load the previous version (a migration, with a test that reads an old-version file), and its message says "owner exception, schema field". Granted 2026-10-29.
+
+## Owner input: recommend, record, proceed
+
+**This loop runs fully automated (owner, 2026-10-29): never stop to wait for the owner.** When a pass needs the owner's input (a design choice the issue or item does not settle, such as a colour, a coverage, an API shape, a schema change or which of two behaviours; or a protected file that must change), it answers the question itself:
+
+1. **Recommend.** Name the two or three real options and pick one, with one line of why. Prefer the conservative choice: reversible, conventional, consistent with the existing code, the issue's **Decisions already made** and its stated intent, and the smallest that meets the acceptance.
+2. **Assume the owner chose it, and build it this pass.** A decision is never a reason to skip an item or end a pass.
+3. **Record it where the owner reviews.** On the issue, a comment beginning `Assumed decision (owner may override):` with the options, the pick and why, and the label `assumed-decision` (`gh label create assumed-decision --color FBCA04 2>/dev/null; gh issue edit <N> --add-label assumed-decision`). With no issue, in the backlog item's evidence, the commit body and the log line, beginning `Assumed decision:`.
+4. **The owner's reply wins.** An owner comment that contradicts an assumed decision overrides it: the next pass that reads it reworks the item to the owner's choice before anything else, claiming the issue if no worker holds it.
+5. **Earlier blocks are lifted.** An issue or backlog item logged as blocked on, or waiting for, an owner decision (S3.7 and #86 among them) is workable now: decide it this way.
+6. **Protected files change only additively** ("The protected evaluator" above). The loop's own steer stays the owner's: never edit this file, `docs/loop/focus.md` or `.omp/wiggum/**`; a change one of them needs goes on an issue labelled `assumed-decision` with your recommendation, and the pass goes on with other work.
+7. **Never, whatever you assume.** These need the owner's word in a conversation, and no prompt can give it: publishing, tagging, yanking or bumping a release; force-pushing, rewriting history or deleting branches; deleting files or work this pass did not create; spending money or sharing credentials.
 
 **Append, never rewrite.** `docs/loop/log.md` is append-only: add your line at the bottom and do not
 touch another pass's.
@@ -200,10 +212,11 @@ Then, in this order:
      the general form and say so on the issue.
    - **Prove it here**, with a test in this repo that fails before and passes after against the issue's
      acceptance. Never edit, build or run the game to prove it, and never depend on it being on the machine.
-   - **One it cannot be worked this pass** (it needs a decision the issue does not settle, or is blocked
-     like a protected-file change): say exactly what is needed on the issue (`gh issue comment`; with no
-     working `gh`, in the log line naming the issue), write one log line, and go on to the next one or to
-     the focus. A blocked consumer issue never stops the pass.
+   - **One that needs a decision the issue does not settle is decided, not skipped:** recommend, record and
+     build it ("Owner input: recommend, record, proceed"). Only a change that would weaken a protected check
+     cannot be worked: say exactly what is needed on the issue (`gh issue comment`; with no working `gh`, in
+     the log line naming the issue), write one log line, and go on to the next one or to the focus. A
+     blocked consumer issue never stops the pass.
 3. **An issue labelled `owner` is the pass's item next**, after bugs and `consumer` issues and ahead of
    the focus's other items, the series and your own candidates. The owner wrote it. Take them in the order
    `docs/loop/focus.md` lists them; an `owner` issue the focus does not list comes after the listed ones,
@@ -466,7 +479,7 @@ made this pass, and list what earlier passes left.
 
 - [ ] The tree is clean and **pushed**.
 - [ ] Every deterministic check passes, or the pass is logged as blocked with the failure quoted.
-- [ ] No protected file was edited, except exactly what an owner exception in "The protected evaluator" lists, in the commit it names.
+- [ ] No protected file was edited, except what an owner exception in "The protected evaluator" lists, or an addition recorded as an assumed owner exception; no existing check was removed, loosened, skipped or re-pinned.
 - [ ] `accept.py` ran before and after on the same machine and source.
 - [ ] One enhancement at most, with a check that failed before and passes after.
 - [ ] The report, the LOG line and the backlog are committed.

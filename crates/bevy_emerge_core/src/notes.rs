@@ -55,6 +55,41 @@ pub struct Note {
     /// Where the person drew it and what stood there; `None` for a note made from targets alone.
     #[serde(default)]
     pub site: Option<Site>,
+    /// What happened to this note, oldest first. Append-only: an edit keeps the text it replaced.
+    #[serde(default)]
+    pub history: Vec<Event>,
+}
+
+/// One thing that happened to a note.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Event {
+    /// Seconds since the Unix epoch.
+    pub at: u64,
+    /// Who did it: `person` for the editor's own user.
+    pub by: String,
+    pub what: What,
+}
+
+/// What happened.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum What {
+    Written,
+    /// The text was changed; `old` is the text it replaced.
+    Edited { old: String },
+    /// A draft was sent, so an agent may now claim it.
+    Sent,
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+impl Note {
+    /// Appends to the history, by the editor's own user.
+    fn log(&mut self, what: What) {
+        self.history.push(Event { at: now(), by: "person".to_owned(), what });
+    }
 }
 
 /// The place a note was written about, as it was when written.
@@ -208,7 +243,9 @@ impl Notes {
         self.notes.push(Note { id: id.clone(), targets, text: text.to_owned(),
             state: State::Open,
             site: None,
+            history: Vec::new(),
         });
+        self.get_mut(&id)?.log(What::Written);
         Ok(id)
     }
 
@@ -306,8 +343,33 @@ impl Notes {
         if !note.stands() {
             return Err(format!("notes: {id} is resolved; reopen it to edit"));
         }
-        note.text = text.to_owned();
+        let old = std::mem::replace(&mut note.text, text.to_owned());
+        note.log(What::Edited { old });
         Ok(())
+    }
+
+    /// Sends one draft: an agent may claim it from now on.
+    pub fn send(&mut self, id: &str) -> Result<(), String> {
+        let note = self.get_mut(id)?;
+        if !note.is_draft() {
+            return Err(format!("notes: {id} is not a draft, so it was not sent"));
+        }
+        note.state = State::Open;
+        note.log(What::Sent);
+        Ok(())
+    }
+
+    /// Sends every draft, in the order they were written, and returns their ids. No drafts is an
+    /// error, so a button that does nothing says so.
+    pub fn send_all(&mut self) -> Result<Vec<String>, String> {
+        let ids: Vec<String> = self.notes.iter().filter(|n| n.is_draft()).map(|n| n.id.clone()).collect();
+        if ids.is_empty() {
+            return Err("notes: there are no drafts to send".to_owned());
+        }
+        for id in &ids {
+            self.send(id)?;
+        }
+        Ok(ids)
     }
 
     /// Resolves an open note, naming the operations that did the work and what they changed.
