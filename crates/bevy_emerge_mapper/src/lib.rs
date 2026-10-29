@@ -58,6 +58,7 @@ pub mod compose_labels;
 pub mod confirm;
 pub mod devshot;
 pub mod editor;
+pub mod family_host;
 pub mod fill;
 pub mod filter;
 #[cfg(feature = "debugger")]
@@ -72,6 +73,7 @@ pub mod present;
 pub mod ops;
 #[cfg(feature = "debugger")]
 pub mod ops_brp;
+pub mod ops_family;
 pub mod ops_notes;
 pub mod project;
 pub mod screen;

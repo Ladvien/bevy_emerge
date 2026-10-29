@@ -902,6 +902,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_elements"
+version = "0.6.0"
+source = "git+https://github.com/Ladvien/bevy_elements?rev=ef87797468db6264f24785fe9d1ffaa9d4deb9f0#ef87797468db6264f24785fe9d1ffaa9d4deb9f0"
+dependencies = [
+ "bevy",
+ "bytemuck",
+]
+
+[[package]]
 name = "bevy_emerge"
 version = "0.1.0"
 dependencies = [
@@ -940,6 +949,7 @@ dependencies = [
  "bevy",
  "bevy_debugger_bevy",
  "bevy_devshot",
+ "bevy_elements",
  "bevy_emerge",
  "bevy_emerge_anim",
  "bevy_emerge_core",

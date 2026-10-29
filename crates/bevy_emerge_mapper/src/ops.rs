@@ -2295,6 +2295,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(door_open::DoorOpen),
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
+        Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_notes::NoteAdd),
         Box::new(crate::ops_notes::NoteEdit),
         Box::new(crate::ops_notes::NoteRemove),
@@ -2383,6 +2384,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // `rules_set` through `set_rule_seed`, so a person tuning a rule and an agent calling the
     // operation are one change with one undo.
     ("rules_set", "set_rule_seed("),
+    // **The family settings field (#96)** — Enter on `<crate> <field> <value>` dispatches
+    // `family_set` through `set_family_field`, the same write an agent's `apply` makes.
+    ("family_set", "set_family_field("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).
@@ -2666,6 +2670,27 @@ pub fn undo_target(ctx: &Ctx, target: Option<&str>) -> Result<UndoPlan, Refusal>
     if let Some(m) = line_map.as_deref()
         && Some(m) != here
     {
+        // **A map renamed since is not a map to open**: the change belongs to the map's old name
+        // (B-030), so the way back is the rename's undo, which puts the name back.
+        if let Some(rename) = lines.iter().rev().find(|l| {
+            l.op == "map_rename"
+                && in_effect.contains(chain_of[l.operation_id.as_str()])
+                && l.inverse
+                    .as_ref()
+                    .and_then(|i| i.get("name"))
+                    .and_then(|n| n.as_str())
+                    == Some(m)
+        }) {
+            return Err(Refusal::new(format!(
+                "`{}` changed map `{m}`, which `{}` has since renamed to `{}`. Undo `{}` first to \
+                 put the name back, then undo `{}`.",
+                line.operation_id,
+                rename.operation_id,
+                here.unwrap_or("none"),
+                rename.operation_id,
+                line.operation_id
+            )));
+        }
         return Err(Refusal::new(format!(
             "`{}` changed map `{m}`, and the open map is `{}`. Open `{m}` to take it back.",
             line.operation_id,
