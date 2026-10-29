@@ -441,3 +441,132 @@ impl Operation for RunRemove {
         Ok(Self::go(ctx, params, true)?.expect("a write returns its outcome"))
     }
 }
+
+// ------------------------------------------------------- placements_to_run
+
+/// **The map's runs and its rows**: a conversion changes both, so its undo checks both.
+fn state_with_rows(ctx: &Ctx) -> Option<serde_json::Value> {
+    let open = ctx.open.as_ref()?;
+    Some(json!({
+        "map": open.map.name,
+        "runs": serde_json::to_value(&open.map.runs).ok()?,
+        "placements": serde_json::to_value(&open.map.placements).ok()?,
+    }))
+}
+
+/// **Rows a conversion took, put back where they stood**, for its undo: the run to remove and each
+/// row with its index in `placements`, ascending.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Restore {
+    pub run: String,
+    pub rows: Vec<(usize, bevy_emerge_core::map::Placed)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToRunParams {
+    /// The id the new run is given.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// The placement ids to replace, in path order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<String>,
+    /// Undo only: take the run off and put its rows back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<Restore>,
+}
+
+impl ToRunParams {
+    pub fn schema() -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "rows"],
+            "properties": {
+                "id": {"type": "string", "description": "The id the new run is given."},
+                "rows": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                    "description": "Placement ids in path order: the rows the run replaces. Refused, naming the first row that does not fit, unless the run lays exactly them."}
+            }
+        })
+    }
+
+    pub fn parse(raw: &serde_json::Value) -> Result<ToRunParams, Refusal> {
+        serde_json::from_value(raw.clone()).map_err(|e| bad_params("a conversion", "`id` and `rows`", e))
+    }
+}
+
+/// **Replace rows by the run that lays exactly them** (#115). One way: no operation turns a run back
+/// into rows except this one's undo, so the file never grows a second way to say the same line.
+pub struct PlacementsToRun;
+
+impl PlacementsToRun {
+    fn go(ctx: &mut Ctx, params: &serde_json::Value, write: bool) -> Result<Option<Outcome>, Refusal> {
+        let p = ToRunParams::parse(params)?;
+        let Some(library) = ctx.project.as_ref().map(|pr| pr.library.clone()) else {
+            return Err(Refusal::new("no project is open."));
+        };
+        let outcome = apply(ctx, write, |map| {
+            if let Some(r) = &p.restore {
+                position(map, &r.run, "restored")?;
+                map.runs.retain(|x| x.id != r.run);
+                for (at, row) in &r.rows {
+                    map.placements.insert((*at).min(map.placements.len()), row.clone());
+                }
+                let rows: Vec<String> = r.rows.iter().map(|(_, row)| row.id.clone()).collect();
+                return Ok(Change {
+                    summary: format!("put back the rows of run {}", r.run),
+                    inverse: json!({"id": r.run, "rows": rows}),
+                });
+            }
+            if p.id.is_empty() || p.rows.is_empty() {
+                return Err(Refusal::new("a conversion needs an `id` and the `rows` to replace. Nothing was changed."));
+            }
+            if map.runs.iter().any(|r| r.id == p.id) {
+                return Err(Refusal::new(format!("run `{}` is already on the map. Nothing was changed.", p.id)));
+            }
+            let mut taken: Vec<(usize, bevy_emerge_core::map::Placed)> = p
+                .rows
+                .iter()
+                .filter_map(|id| map.placements.iter().position(|r| &r.id == id).map(|i| (i, map.placements[i].clone())))
+                .collect();
+            taken.sort_by_key(|(i, _)| *i);
+            map.placements_to_run(&p.id, &p.rows, &library).map_err(Refusal::new)?;
+            Ok(Change {
+                summary: format!("replaced {} row(s) by run {}", taken.len(), p.id),
+                inverse: json!({"restore": Restore { run: p.id.clone(), rows: taken }}),
+            })
+        })?;
+        Ok(outcome.map(|mut o| {
+            o.affected = p.rows.len().max(1);
+            o.after = state_with_rows(ctx);
+            o
+        }))
+    }
+}
+
+impl Operation for PlacementsToRun {
+    fn name(&self) -> &'static str {
+        "placements_to_run"
+    }
+    fn undo(&self) -> Undo {
+        Undo::Inverse
+    }
+    fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+        ToRunParams::parse(params).is_ok_and(|p| p.restore.is_some())
+    }
+    fn schema(&self) -> serde_json::Value {
+        ToRunParams::schema()
+    }
+    fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+        state_with_rows(ctx)
+    }
+    fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let mut scratch = Ctx { project: ctx.project.clone(), open: ctx.open.clone(), ..Ctx::default() };
+        Self::go(&mut scratch, params, false)?;
+        Ok(params.clone())
+    }
+    fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+        Ok(Self::go(ctx, params, true)?.expect("a write returns its outcome"))
+    }
+}
