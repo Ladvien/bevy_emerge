@@ -738,6 +738,45 @@ impl Map {
         Ok(out)
     }
 
+    /// **Replace rows by the run that lays exactly them** (#115, one way).
+    ///
+    /// `rows` are placement ids in path order; the run is added as `run_id` and the rows leave
+    /// `placements`. Refuses, naming the first row that does not fit (see
+    /// [`crate::run::rows_to_run`]), a taken id, and rows other things point at (a piece resting on
+    /// one, a location listing one), because the run names its rows `<id>/<n>` and those pointers
+    /// would dangle. The map is unchanged on a refusal.
+    pub fn placements_to_run(
+        &mut self,
+        run_id: &str,
+        rows: &[String],
+        library: &crate::library::Library,
+    ) -> Result<(), String> {
+        let mut picked: Vec<Placed> = Vec::with_capacity(rows.len());
+        for id in rows {
+            let row = self
+                .placements
+                .iter()
+                .find(|p| &p.id == id)
+                .ok_or_else(|| format!("map: there is no placement `{id}` to convert"))?;
+            picked.push(row.clone());
+        }
+        for id in rows {
+            if self.placements.iter().any(|p| p.on.as_deref() == Some(id) && !rows.contains(&p.id)) {
+                return Err(format!("map: something rests on `{id}`, so it cannot become part of a run"));
+            }
+            if self.locations.iter().any(|l| l.props.contains(id)) {
+                return Err(format!("map: a location lists `{id}`, so it cannot become part of a run"));
+            }
+        }
+        let (run, owned, owned_because) = crate::run::rows_to_run(&picked, library)?;
+        let mut next = self.clone();
+        next.placements.retain(|p| !rows.contains(&p.id));
+        next.runs.push(crate::run::RunPlaced { id: run_id.to_owned(), run, owned, owned_because });
+        next.validate()?;
+        *self = next;
+        Ok(())
+    }
+
     /// **The stamp a row belongs to**, and the member within it — `None` for a hand-placed row.
     ///
     /// A consumer reading an expanded map has a mixture of rows: the ones the author placed and
