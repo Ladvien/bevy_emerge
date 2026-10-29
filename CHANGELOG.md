@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-28
 
+- **96-hot-reload** `0c63869` A family crate's settings file edited on disk is reloaded in the editor within a second; an invalid edit keeps the last good settings (#96) *No clip: an API and a status line; proved by core tests/family_watch.rs and mapper tests/family_settings_reload.rs*
 - **B-030** `b823a2f` Undoing a change made before a map rename now says which rename to undo first, not 'Open <old name>' *No clip: an error message; proved by tests/an_undo_across_a_rename_names_the_rename.rs*
 - **96-family-set** `8929fe4` family_set: change one field of a family crate's settings from a FAMILY SETTINGS field or an agent's apply, undoable (#96) *No clip: visible, not yet recorded: loop pass ran past budget compiling; proved by crates/bevy_emerge_mapper/tests/family_set_is_an_operation.rs*
 - **f0-family-feature** `dc7cbbe` bevy_elements is an optional cargo feature pinned by git rev; a family.ron crate the build lacks is a status problem (#96) *No clip: an API and a cargo feature; proved by crates/bevy_emerge_mapper/tests/family_host.rs*
