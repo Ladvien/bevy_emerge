@@ -55,7 +55,7 @@ fn library_of(root: &std::path::Path) -> (bevy_emerge_core::map::Map, bevy_emerg
     let world = app.world();
     (
         world.resource::<OpenMap>().map.clone(),
-        world.resource::<Project>().library.clone(),
+        (*world.resource::<Project>().library).clone(),
     )
 }
 

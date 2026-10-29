@@ -4137,7 +4137,7 @@ pub mod label_set {
         let id = match req {
             Request::Set { id, .. } | Request::Restore { id, .. } => id,
         };
-        let mut measured = project.measured.clone();
+        let mut measured = (*project.measured).clone();
         let index = measured
             .descriptors
             .iter()
