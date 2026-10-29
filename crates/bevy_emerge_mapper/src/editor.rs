@@ -1890,8 +1890,18 @@ fn edit_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut Edit
 }
 
 /// **Send every draft through the registry**, as `note_send` does for an agent.
-fn send_notes(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState) {
-    dispatch_note(project, open, state, "note_send", serde_json::json!({}), "send the drafts");
+///
+/// **Then start the project's notes agent** (#94), once per Send, when `agent.ron` names one. A launch
+/// that fails is a problem on the status line; the notes stay sent either way.
+pub fn send_notes(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState) {
+    let root = project.as_deref().map(|p| p.root.clone());
+    let sent = dispatch_note(project, open, state, "note_send", serde_json::json!({}), "send the drafts");
+    let Some(root) = root.filter(|_| sent) else { return };
+    match bevy_emerge_core::note_agent::AgentSettings::load(&root).and_then(|s| s.launch(&root)) {
+        Ok(Some(pid)) => state.status.note(format!("started the notes agent (pid {pid})")),
+        Ok(None) => {}
+        Err(e) => state.status.problem(e),
+    }
 }
 
 /// **Hold, keep or give back a note through the registry** (#91): `op` is `note_claim`, `note_renew` or
@@ -1930,7 +1940,7 @@ fn dispatch_note(
     name: &str,
     params: serde_json::Value,
     phrase: &str,
-) {
+) -> bool {
     let mut ctx = crate::ops::Ctx {
         project: project.as_ref().map(|p| (**p).clone()),
         open: Some(std::mem::replace(
@@ -1950,8 +1960,12 @@ fn dispatch_note(
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary);
             state.record(Undo::Logged { line: operation_id, phrase: phrase.to_owned(), agent: false });
+            true
         }
-        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(format!("cannot {phrase}: {}", e.0)),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(format!("cannot {phrase}: {}", e.0));
+            false
+        }
     }
 }
 

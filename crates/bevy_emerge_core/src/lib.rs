@@ -50,6 +50,7 @@ pub mod library;
 pub mod live;
 pub mod map;
 pub mod naming;
+pub mod note_agent;
 pub mod notes;
 pub mod placement;
 pub mod plot;
