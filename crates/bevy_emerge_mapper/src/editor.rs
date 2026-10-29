@@ -1344,6 +1344,28 @@ struct DataLeafRow {
     path: String,
 }
 
+/// **The Notes panel's list** (#90): a header of two buttons, then one row per note.
+#[derive(Component, Clone, Copy)]
+struct NotesList;
+
+#[derive(Component, Clone)]
+struct NoteRow {
+    id: String,
+}
+
+#[derive(Component, Clone, Copy)]
+struct NotesFilterButton;
+
+#[derive(Component, Clone, Copy)]
+struct NotesSendAll;
+
+/// What the Notes list last drew: the filter and `(id, status, text)` per row.
+type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String)>);
+
+/// The status the Notes list is filtered to; `None` shows every note.
+#[derive(Resource, Default)]
+struct NotesFilter(Option<&'static str>);
+
 /// The data field's buffer while it is being typed into; its own resource for [`FamilyEdit`]'s reason.
 #[derive(Resource, Default)]
 pub struct DataEdit {
@@ -1910,6 +1932,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()
             .init_resource::<NoteBox>()
+            .init_resource::<NotesFilter>()
             .init_resource::<crate::family_host::FamilySettings>()
             .add_systems(Update, (crate::family_host::report_problems, crate::family_host::reload_settings))
             // Registered in the same commit as `drive_move` and `keys` read it — a missing `ResMut`
@@ -2207,7 +2230,7 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family, refresh_data, refresh_data_list),
+                    (refresh_size, refresh_family, refresh_data, refresh_data_list, refresh_notes_list),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -2248,7 +2271,8 @@ impl Plugin for EditorPlugin {
             .add_observer(on_size_field_click)
             .add_observer(on_family_field_click)
             .add_observer(on_data_field_click)
-            .add_observer(on_data_leaf_click);
+            .add_observer(on_data_leaf_click)
+            .add_observer(on_notes_click);
     }
 }
 
@@ -3045,6 +3069,24 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 );
                 s.spawn((
                     DataList,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                ));
+            });
+
+            // **Notes (#90).** Every note of the open map, newest first; a row flies to it.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "NOTES");
+                s.spawn((
+                    NotesList,
                     Node {
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(crate::chrome::GAP_TIGHT),
@@ -4074,6 +4116,131 @@ fn refresh_data_list(
         });
     }
     *shown = Some(rows);
+}
+
+/// **The Notes panel's actions** (#90): a row flies the camera to its note, the filter button
+/// cycles the status shown, Send all drafts runs `note_send`. Global observer: see [`on_size_field_click`].
+#[allow(clippy::too_many_arguments)]
+fn on_notes_click(
+    activate: On<Activate>,
+    rows: Query<&NoteRow>,
+    filters: Query<(), With<NotesFilterButton>>,
+    sends: Query<(), With<NotesSendAll>>,
+    filter: Option<ResMut<NotesFilter>>,
+    project: Option<ResMut<Project>>,
+    open: Option<ResMut<OpenMap>>,
+    state: Option<ResMut<EditorState>>,
+    rig: Option<ResMut<crate::view::Rig>>,
+    cameras: Query<&Camera, With<MainCamera>>,
+) {
+    let (Some(mut filter), Some(mut open), Some(mut state)) = (filter, open, state) else {
+        return;
+    };
+    let e = activate.entity;
+    if filters.get(e).is_ok() {
+        let all = bevy_emerge_core::notes::STATUSES;
+        filter.0 = match filter.0 {
+            None => Some(all[0]),
+            Some(s) => all.iter().position(|a| *a == s).and_then(|i| all.get(i + 1)).copied(),
+        };
+    } else if sends.get(e).is_ok() {
+        let mut project = project;
+        send_notes(project.as_deref_mut(), &mut open, &mut state);
+    } else if let Ok(row) = rows.get(e) {
+        let (Some(project), Some(mut rig)) = (project, rig) else {
+            return;
+        };
+        let notes = bevy_emerge_core::notes::Notes::load(&bevy_emerge_core::notes::path_for_map(&open.map_path));
+        let Some(note) = notes.ok().and_then(|n| n.get(&row.id).cloned()) else {
+            state.status.problem(format!("note {} is no longer on the map", row.id));
+            return;
+        };
+        let target = match note.frame_rect() {
+            Some(r) => FrameTarget::Rect(r),
+            None => FrameTarget::Placements(
+                note.targets
+                    .iter()
+                    .filter_map(|t| match t {
+                        bevy_emerge_core::notes::Target::Placement(p) => Some(p.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+            ),
+        };
+        let Some(aspect) = cameras.single().ok().and_then(aspect_of) else {
+            state.status.problem("the Map camera has no viewport yet, so there is nothing to frame against".to_owned());
+            return;
+        };
+        match resolve_frame(&target, &project, &open, None) {
+            Ok(frame) => {
+                apply_frame(&mut rig, &frame, aspect, &open);
+                state.status.note(format!("framed note {} ({})", note.id, note.status()));
+            }
+            Err(why) => state.status.problem(why),
+        }
+    }
+}
+
+/// Keep [`NotesList`] equal to the open map's notes under the current filter: newest first, every
+/// status, resolved notes included. Read twice a second; rebuilt only when what it says changed.
+fn refresh_notes_list(
+    mut commands: Commands,
+    time: Res<Time>,
+    open: Option<Res<OpenMap>>,
+    filter: Res<NotesFilter>,
+    lists: Query<Entity, With<NotesList>>,
+    mut shown: Local<Option<NotesShown>>,
+    mut since: Local<f32>,
+) {
+    *since += time.delta_secs();
+    if shown.is_some() && *since < 0.5 && !filter.is_changed() {
+        return;
+    }
+    *since = 0.0;
+    let all = open
+        .and_then(|o| bevy_emerge_core::notes::Notes::load(&bevy_emerge_core::notes::path_for_map(&o.map_path)).ok())
+        .unwrap_or_default();
+    let rows: Vec<(String, &'static str, String)> = all
+        .listing(filter.0)
+        .iter()
+        .map(|n| (n.id.clone(), n.status(), n.text.clone()))
+        .collect();
+    let key = (filter.0, rows);
+    if shown.as_ref() == Some(&key) {
+        return;
+    }
+    let (_, rows) = &key;
+    for list in &lists {
+        commands.entity(list).despawn_related::<Children>();
+        commands.entity(list).with_children(|p| {
+            p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), ..default() }).with_children(|h| {
+                crate::chrome::button(
+                    h,
+                    NotesFilterButton,
+                    &format!("Show: {}", filter.0.unwrap_or("all")),
+                    crate::chrome::Severity::Plain,
+                );
+                crate::chrome::button(h, NotesSendAll, "Send all drafts", crate::chrome::Severity::Primary);
+            });
+            if rows.is_empty() {
+                p.spawn((
+                    Text::new("no notes"),
+                    TextColor(DIM),
+                    crate::chrome::font(crate::chrome::text::LABEL),
+                ));
+            }
+            for (id, status, text) in rows {
+                crate::chrome::list_row(p, false, NoteRow { id: id.clone() }).with_children(|row| {
+                    row.spawn((
+                        Text::new(format!("{id} [{status}] {text}")),
+                        TextColor(TEXT),
+                        crate::chrome::font(crate::chrome::text::BODY),
+                    ));
+                });
+            }
+        });
+    }
+    *shown = Some(key);
 }
 
 fn data_edit_keys(
