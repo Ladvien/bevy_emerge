@@ -5,6 +5,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-29
 
 - **notes-panel** `cff4207` A Notes panel lists every note newest first, filters by status, sends all drafts, and a row frames its note *No clip: visible, not yet recorded: laptop pass did not record; proved by notes_listing and notes_panel_lists_every_note*
+- **115-run-ops** `9a88580` Runs are edited through operations: run_add, run_set (move an end, change pitch, corners, gaps) and run_remove, each undone by id; Shift-drag in run mode lays a run the map holds, dragging a run's end moves it, a removal click takes it off whole (#115 slice 3) *No clip: visible, not yet recorded: Shift-drag run tool not filmed this pass; proved by tests/runs_are_edited_through_operations.rs*
+- **E-066** `cce6e36` Undo takes away a map that map_create made, and redo puts its file back *No clip: an undo behaviour with no new screen; proved by a_made_map_can_be_taken_away_by_undo*
 - **86-data-panel** `pending` The Data panel lists every registered data file's leaves; clicking one opens the field with its file and path typed (#86) *No clip: visible, not yet recorded: panel not captured on a display this pass*
 - **data-set** `a046add` data_set: an agent or a person sets one leaf of a game's tuning file, logged and undoable *No clip: visible, not yet recorded: no display session this pass; the operation is proved by data_set_is_an_operation*
 - **115-rows-to-run** `c20aa71` Rows that are one line convert to a run: Map::placements_to_run (#115 slice 2) *No clip: an API; proved by maps_hold_runs::rows_a_run_laid_convert_back_to_the_run and a_row_off_the_pitch_does_not_convert*

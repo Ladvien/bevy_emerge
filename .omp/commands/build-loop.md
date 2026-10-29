@@ -59,7 +59,7 @@ wrong. So:
 5. **Stop on repeated failure.** If two attempts at the same step fail, stop, log your hypothesis and the evidence, and end the pass.
 6. **Human work is sacrosanct.** Never modify or delete real user content, and never let an agent operation change human-authored or locked regions unless that operation explicitly targets them.
 7. **Content is data, and data hot-reloads.** Anything a developer or agent authors or tunes is data. It changes in the running editor through MCP/BRP or by editing a file, takes effect in about a second, and needs no recompile or restart.
-8. **Publishing is irreversible.** Never publish, tag, yank, or change crate ownership from this loop. E-006 is open and publication is the human's decision.
+8. **Publish from the loop, never from CI.** Releases go out locally with `cargo publish` from a green local gate (Phase 5, "Release"). Never wait for, watch or re-run a GitHub workflow to release. Never yank or change crate ownership; fix a bad release forward.
 9. **The evaluator is not yours to edit.** See the next section. This is the rule the research is most emphatic about and the one a Wiggum loop most needs.
 
 ## The protected evaluator
@@ -70,6 +70,7 @@ and the difference is invisible from inside the loop. So these paths are **read-
 | Protected | Why |
 |---|---|
 | `tools/loop/accept.py`, `perf.py`, `common.py`, `backlog.py`, `test_accept.py` | the scoreboard and the harness that produces it |
+| `tools/loop/hooks/**`, a clone's `core.hooksPath` | the push gate: a pass that could edit or unset it could push a red main |
 | `crates/*/tests/**`, `crates/*/src/**/#[cfg(test)]` blocks | the assertions |
 | `docs/loop/log.md`'s earlier lines, `docs/loop/iterations/**` | the record a pass is judged against |
 | `.omp/commands/build-loop.md` | this file |
@@ -99,7 +100,7 @@ and the difference is invisible from inside the loop. So these paths are **read-
 4. **The owner's reply wins.** An owner comment that contradicts an assumed decision overrides it: the next pass that reads it reworks the item to the owner's choice before anything else, claiming the issue if no worker holds it.
 5. **Earlier blocks are lifted.** An issue or backlog item logged as blocked on, or waiting for, an owner decision (S3.7 and #86 among them) is workable now: decide it this way.
 6. **Protected files change only additively** ("The protected evaluator" above). The loop's own steer stays the owner's: never edit this file, `docs/loop/focus.md` or `.omp/wiggum/**`; a change one of them needs goes on an issue labelled `assumed-decision` with your recommendation, and the pass goes on with other work.
-7. **Never, whatever you assume.** These need the owner's word in a conversation, and no prompt can give it: publishing, tagging, yanking or bumping a release; force-pushing, rewriting history or deleting branches; deleting files or work this pass did not create; spending money or sharing credentials.
+7. **Never, whatever you assume.** These need the owner's word in a conversation, and no prompt can give it: yanking a release or changing crate ownership; force-pushing, rewriting history or deleting branches; deleting files or work this pass did not create; pushing with --no-verify or changing core.hooksPath; spending money or sharing credentials.
 
 **Append, never rewrite.** `docs/loop/log.md` is append-only: add your line at the bottom and do not
 touch another pass's.
@@ -239,8 +240,7 @@ Then, in this order:
    and do not close one whose fix this pass did not verify. For a `consumer` issue the close is the
    signal the game's loop waits for: close it only through a verified fix, never as not planned
    without the owner's word.
-6. **Re-check a release issue, do not act on it.** An issue asking to publish or bump a version is
-   the owner's call, never a loop's (see the release rule above). Record it as seen and skip it.
+6. **A release issue is `bevy_emerge_loop`'s.** An issue asking to publish or bump a version is done by its next release (Phase 5, "Release"), which closes it with the crates.io URLs. Other workers skip it.
 
 **When the API fallback answers `403` or `429`** (rate limit — 60 requests/hour per IP unauthenticated,
 shared by everything on this network), do not treat it as "no issues": write one line saying the list
@@ -262,7 +262,7 @@ Several passes run at once (owner, 2026-10-29), each in its **own clone on its o
 4. **Release when you stop.** Remove your label when the issue closes (`Fixes #N`), and when you leave it blocked (with the comment saying what it needs).
 5. **Work that is not an issue belongs to `bevy_emerge_loop` alone:** Phase 1's backlog bugs, the series, the focus's backlog items (items 4–6) and Phase 2's own candidates. A second worker on the same backlog item is the collision this rule prevents. Any other worker with no issue it can claim records one `not yet recorded` changelog clip (Phase 2's "Everything blocked" recipe); with none left, it ends the pass with one log line, and the driver's backoff waits.
 6. **A red check on `main` is everyone's bug, and one worker's item.** The first to see it opens a `bug` issue naming the failing test and the commit that turned it red (unless one is open) and claims it. The others treat that failure as pre-existing (Phase 1's triage) and go on.
-7. **GitHub Actions is not your gate.** CI runs once a day (`.github/workflows/ci.yml`). Never wait for, poll or re-run a workflow: the local gate (Phase 4) is the gate, and a green local gate is what lets you push. At the start of a pass, read the last daily run once: `gh run list --workflow ci.yml --limit 1 --json conclusion,headSha,url`. A `failure` is a bug: open a `bug` issue naming that run unless one is open, and the ranking takes it first.
+7. **GitHub Actions is not your gate.** CI runs once a day (`.github/workflows/ci.yml`). Never wait for, poll or re-run a workflow: the local gate (Phase 4) is the gate, and a green local gate is what lets you push. At the start of a pass, read the last daily run once: `gh run list --workflow ci.yml --limit 1 --json conclusion,headSha,url`. A `failure` is a bug: open a `bug` issue naming that run unless one is open, and the ranking takes it first. The push runs the local gate too: each worker clone sets `core.hooksPath=tools/loop/hooks`, whose `pre-push` runs clippy and `cargo test --workspace` on the commit you push to `main` (only `backlog.py check` and `changelog.py check` when the push changes nothing but docs and media) and refuses the push when one fails. Give `git push` a timeout of at least 1800 s. A refused push is a red gate: fix it, or log the item as blocked and ship only what passes. Never push with `--no-verify` and never change `core.hooksPath`. Measured 2026-10-29: w3's passes 4–8 each reported "I did not run `cargo test --workspace`" and pushed `bevy_emerge_decide` tests that failed 165 of 200 runs, so `main` was red.
 8. **Merge, never force.** On a refused push, `git pull --no-rebase origin main`; a conflict with another worker's change keeps both changes, and the full local gate runs again before the push.
 9. **Every visible feature ships with its clip and its docs** (Phase 5): a changelog line with a demo clip, and its section in the README or `docs/guide/`. A worker on big records under its unit's Xvfb display first. If no clip there passes the look, it writes `--no-clip "visible, not yet recorded: no display on big"`, and **`bevy_emerge_w2` (a Mac) records the oldest such line before claiming new work** in its next pass. A feature without a clip after a day is a bug in the docs.
 
@@ -281,9 +281,9 @@ The owner's crates (`bevy_elements`, `bevy_flora`, `bevy_lights`, `bevy_society`
      - write the failing test first, make the fix, and run that crate's own test suite;
      - commit there with `Fixes #M` and push to its `main`, merging `origin/main` if refused, never forcing;
      - say on the issue what changed and which test proves it.
-   - **Never publish or bump that crate's version.** A crate-side change is one item: the pin bump below happens in the next pass, or in the same pass if time remains.
+   - **Leave that crate's version and release to its own loop**; the pin below is a git revision, so nothing here waits on a publish. A crate-side change is one item: the pin bump below happens in the next pass, or in the same pass if time remains.
 5. **Take it.** When the issue is `CLOSED` as completed, find a commit on the crate's `main` that contains the fix (`git ls-remote https://github.com/Ladvien/<crate> refs/heads/main`). Move this editor's pin to it (`rev = "<sha>"` in the workspace `Cargo.toml`), run the full gate, and only then continue the editor item. A pin bump that breaks the gate is a bug in this pass, not in the crate: say so on the issue and leave the pin where it was.
-6. **Pins are git revisions, never paths.** A path dependency builds against another loop's clone mid-edit; a crates.io version needs a publish, which is the owner's.
+6. **Pins are git revisions, never paths.** A path dependency builds against another loop's clone mid-edit; a crates.io version waits on that crate's own release.
 
 ## Phase 2: Choose the enhancement
 
@@ -367,7 +367,13 @@ stop and re-scope rather than run long.
   change gets `--no-clip "visible, not yet recorded: no display on <host>"` and a pass on a display records it.
   A pass that has time left may record one older `not yet recorded` line and replace its reason with the clip.
 - Update `backlog.json`; `python3 tools/loop/backlog.py archive`, then `check`.
-- **Do not release.** E-006 stays open; write "no release: E-006 open".
+- **Release** (owner, 2026-10-29: loops publish, and never wait on CI to do it). **Only `bevy_emerge_loop` releases**; other workers never bump a version, tag or publish. At the end of its pass, after its own push and with the gate green on that pushed commit, it releases every publishable crate whose files changed since its last release: `git diff --quiet <crate>-v<version> HEAD -- crates/<crate> Cargo.toml` fails, or the crate has never been published.
+  1. Version: `cargo semver-checks check-release -p <crate>` for a crate already on crates.io (`cargo install cargo-semver-checks --locked` if missing). Pre-1.0: a breaking change bumps MINOR and resets PATCH, anything else bumps PATCH; never 1.0.0. Update dependents' version requirements and `Cargo.lock`. Commit `release: <crate> v<version>[, …]`.
+  2. `cargo publish -p <crate> --dry-run`, then `cargo publish -p <crate>`, in dependency order, locally, with the credentials `cargo login` stored; never print them.
+  3. `git tag -a <crate>-v<version> -m "<crate> v<version>"` per crate, then push the commit and tags (merge, never force).
+  4. `cargo info <crate>@<version>` resolves. Put the crates.io URLs in the report's Release section.
+
+  **Do not add version headings to `CHANGELOG.md`**: `tools/changelog` owns its format. A first publish of this workspace's own crate names is allowed. **E-006 is the owner's yes** (2026-10-29): it is `bevy_emerge_loop`'s first non-issue item. Decide what it leaves open (which crates ship, versions on path dependencies, the git-pinned family dependencies) under "Owner input: recommend, record, proceed". A failed publish is logged with its error and retried next pass.
 
 ### README, demos and docs stay true
 
@@ -437,7 +443,7 @@ Reviewer ran / could not run and why; the five questions and what each found.
 Every change to test code and its justification, or "none".
 
 ## Release
-No release: E-006 open.
+The crates and versions published, with their crates.io URLs, or one line saying why there was none (not `bevy_emerge_loop`; nothing packaged changed; E-006 not finished).
 
 ## Next focus
 One line.
@@ -483,6 +489,6 @@ made this pass, and list what earlier passes left.
 - [ ] `accept.py` ran before and after on the same machine and source.
 - [ ] One enhancement at most, with a check that failed before and passes after.
 - [ ] The report, the LOG line and the backlog are committed.
-- [ ] Nothing was published, tagged or yanked.
+- [ ] Only bevy_emerge_loop released, locally, from a green gate; nothing was yanked.
 - [ ] You stopped inside the budget.
 - [ ] Worktrees and build directories you made are removed, and the leftovers earlier passes left are listed in the log, not deleted (see "Clean up when you are done").
