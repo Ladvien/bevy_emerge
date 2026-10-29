@@ -17,7 +17,7 @@
 //!
 //! **And it is the same question the review asked, asked of the thing that answers it.**
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};

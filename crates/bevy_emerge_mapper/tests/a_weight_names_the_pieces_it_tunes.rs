@@ -45,7 +45,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::Project;
 
-mod fixtures;
+use crate::fixtures;
 
 /// A rules file whose one weight prefix names the fixture's only piece, `alpha`.
 const RULES: &str = "(\n\

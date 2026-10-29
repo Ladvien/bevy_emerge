@@ -11,7 +11,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::ops;
 use bevy_emerge_mapper::project::{OpenMap, Project};
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor(name: &str) -> App {
     let root = fixtures::Fixture::new(name)

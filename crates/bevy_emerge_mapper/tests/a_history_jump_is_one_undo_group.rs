@@ -14,7 +14,7 @@ use bevy_emerge_mapper::editor::{
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::project::OpenMap;
 
-mod fixtures;
+use crate::fixtures;
 
 use fixtures::Fixture;
 

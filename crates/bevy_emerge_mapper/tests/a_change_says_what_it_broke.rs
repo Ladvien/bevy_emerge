@@ -23,7 +23,7 @@ use bevy::prelude::*;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::sequencer::{Operation, SequenceParams, Sequencer};
 
-mod fixtures;
+use crate::fixtures;
 
 /// **The editor with the bridge open**, on whichever map the fixture wrote.
 ///

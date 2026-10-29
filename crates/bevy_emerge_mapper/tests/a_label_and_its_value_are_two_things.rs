@@ -36,8 +36,6 @@
 //! one. That is what "the label and its value are two things" means, and it is what the capture
 //! measured.
 
-mod fixtures;
-
 use bevy::prelude::*;
 
 /// **A label that is wider than its column still leaves a gap before its value.**

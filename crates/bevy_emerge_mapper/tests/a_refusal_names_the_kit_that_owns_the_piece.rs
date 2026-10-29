@@ -12,7 +12,7 @@ use bevy::remote::{RemoteMethodSystemId, RemoteMethods};
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::tiles::Mode;
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor_at(name: &str, mode: Mode) -> bevy::prelude::App {
     let root = fixtures::Fixture::new(name)

@@ -31,7 +31,7 @@ use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::sequencer::{CanRender, SequenceParams, Sequencer};
 use bevy_emerge_mapper::surface::Surface;
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A project with one map and one piece.**
 fn project(name: &str) -> std::path::PathBuf {

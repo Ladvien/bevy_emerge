@@ -20,7 +20,7 @@ use bevy_emerge_mapper::editor::Placement;
 use bevy_emerge_mapper::harness;
 use bevy_emerge_mapper::sequencer::{Operation, SequenceParams, Sequencer};
 
-mod fixtures;
+use crate::fixtures;
 
 /// **A project with one map, one piece, and a map that has been saved.**
 fn project(name: &str) -> std::path::PathBuf {

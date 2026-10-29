@@ -13,7 +13,7 @@ use bevy_emerge_mapper::sequencer::{Operation, SequenceParams, Sequencer};
 use bevy_emerge_mapper::tiles::{Door, ImportState, Mode};
 use serde_json::{Value, json};
 
-mod fixtures;
+use crate::fixtures;
 
 fn editor_at(name: &str) -> App {
     let root = fixtures::Fixture::new(name)

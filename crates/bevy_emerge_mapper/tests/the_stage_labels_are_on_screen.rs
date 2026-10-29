@@ -14,7 +14,7 @@
 //! "visible" claim is made of. A screenshot cannot: the labels are small, the stage is off to one
 //! side, and the defect is measured in pixels of a region an author glances past.
 
-mod fixtures;
+use crate::fixtures;
 
 use bevy::prelude::*;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
