@@ -1936,6 +1936,8 @@ impl Plugin for EditorPlugin {
                 crate::environment::scrub_clock.after(crate::environment::apply_environment),
             ),
         );
+        #[cfg(feature = "bevy_elements")]
+        app.add_observer(on_environment_click);
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()
@@ -2278,7 +2280,6 @@ impl Plugin for EditorPlugin {
             .add_observer(on_category_click)
             .add_observer(on_size_field_click)
             .add_observer(on_family_field_click)
-            .add_observer(on_environment_click)
             .add_observer(on_data_field_click)
             .add_observer(on_data_leaf_click)
             .add_observer(on_notes_click);
@@ -3953,6 +3954,7 @@ fn on_family_field_click(
     );
 }
 
+#[cfg(feature = "bevy_elements")]
 /// **Environment buttons** (#98): the clock buttons set [`crate::environment::ClockScrub`] (no file, no
 /// undo); the weather buttons dispatch `family_set`, so each is one undo step.
 fn on_environment_click(
