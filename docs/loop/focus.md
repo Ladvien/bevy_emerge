@@ -15,4 +15,6 @@ The owner's crates become the heart of the editor first; then notes for agents, 
 
 **Family loops running** (the two-way street, step 4: a crate listed here is left to its own loop; any other is fixed at the source by this loop): none (2026-10-28; the owner stopped the lights, society and elements loops that day). The owner edits this line when a family loop is started or stopped.
 
+**Workers running** (`build-loop.md`, "Parallel workers"; 2026-10-29): `bevy_emerge_loop` (big_mac; also owns non-issue work), `bevy_emerge_w2` (big_mac; records big's unrecorded clips), `bevy_emerge_w3` (big; the GPU, so #109 and the decision chain), `bevy_emerge_w4` (laptop). A `worker:<name>` label naming none of these is a stale claim. Each worker takes the first unclaimed ready issue in this file's order; the order is unchanged by there being several of them. The owner's session edits this line when a worker starts or stops; the setup is in `docs/loop/RUNNING-A-LOOP.md`, "What the loops are, today".
+
 The owner wants the code to evolve every pass (2026-10-28). Earlier log lines that say "same blockers, nothing shipped" describe the blocked items only; they are not a reason for this pass to stop, because item 6 is never all blocked at once. A pass ends with nothing shipped only after it has tried an item from this list and logged why it failed.
