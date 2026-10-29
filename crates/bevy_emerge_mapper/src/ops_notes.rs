@@ -800,7 +800,7 @@ pub struct Redo {
 
 /// The placement ids and cells one logged operation touched, read from what it recorded. Cells come
 /// from rows the operation names, else from where the piece stands on `map` now.
-fn footprint(e: &crate::ops::Entry, map: &bevy_emerge_core::map::Map) -> notes::Footprint {
+pub(crate) fn footprint(e: &crate::ops::Entry, map: &bevy_emerge_core::map::Map) -> notes::Footprint {
     let cell = |at: (f32, f32)| ((at.0 / bevy_emerge_core::grid::TILE).floor() as i32, (at.1 / bevy_emerge_core::grid::TILE).floor() as i32);
     let mut ids: Vec<String> = Vec::new();
     let mut cells: Vec<(i32, i32)> = Vec::new();
