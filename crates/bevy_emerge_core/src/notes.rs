@@ -41,8 +41,20 @@ pub enum State {
     /// Written by a person and not yet sent: no agent sees it, the sign stands on the map.
     Draft,
     Open,
+    /// An agent holds a lease on it (#91). The lease runs to `until` (seconds since the Unix epoch) and
+    /// is renewed while the agent works; one not renewed in time expires and the note is `Open` again.
+    Claimed { by: String, until: u64 },
     /// Worked. `ops` names the operations the agent ran; `summary` is one line of what changed.
-    Resolved { ops: Vec<String>, summary: String },
+    Resolved {
+        ops: Vec<String>,
+        summary: String,
+        /// What the agent assumed where the note did not say (#92). Empty for a note resolved by hand.
+        #[serde(default)]
+        assumptions: Vec<String>,
+        /// Capture paths of the area before the work and after it (#92); empty for a note resolved by hand.
+        #[serde(default)]
+        captures: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -79,6 +91,20 @@ pub enum What {
     Edited { old: String },
     /// A draft was sent, so an agent may now claim it.
     Sent,
+    /// An agent took the lease, to `until`.
+    Claimed { until: u64 },
+    /// The holder renewed the lease, to `until`.
+    Renewed { until: u64 },
+    /// The holder, or the person, gave the note back.
+    Released,
+    /// The lease ran out unrenewed, so the note went back to the queue.
+    Expired,
+    /// The holder asked the person something before going on (#92).
+    Asked { question: String },
+    /// The person answered the latest question.
+    Answered { answer: String },
+    /// The holder resolved the note.
+    Resolved,
 }
 
 fn now() -> u64 {
@@ -88,7 +114,11 @@ fn now() -> u64 {
 impl Note {
     /// Appends to the history, by the editor's own user.
     fn log(&mut self, what: What) {
-        self.history.push(Event { at: now(), by: "person".to_owned(), what });
+        self.log_at(now(), "person", what);
+    }
+
+    fn log_at(&mut self, at: u64, by: &str, what: What) {
+        self.history.push(Event { at, by: by.to_owned(), what });
     }
 }
 
@@ -114,6 +144,32 @@ pub const STATUSES: [&str; 3] = ["draft", "sent", "done"];
 
 pub const DEFAULT_MARGIN: i32 = 1;
 
+/// More pieces than this in one note's work must be asked about first (#92).
+pub const LARGE_CHANGE: usize = 10;
+
+/// What an agent's change would do, for [`Notes::fence`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Change {
+    /// Inclusive cell rectangle the change touches; `None` for one that touches no ground.
+    pub cells: Option<(i32, i32, i32, i32)>,
+    /// Pieces it adds, removes or moves.
+    pub pieces: usize,
+    /// Ids of pieces it removes that a person placed (the operation log's author says so).
+    pub person_placed: Vec<String>,
+    /// What the note asks for that the kit cannot supply, when the agent found something.
+    pub needs_unmapped: Option<String>,
+}
+
+/// What the holder records when it resolves a note.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Resolution {
+    pub summary: String,
+    pub assumptions: Vec<String>,
+    pub ops: Vec<String>,
+    /// `[before, after]` capture paths.
+    pub captures: Vec<String>,
+}
+
 impl Site {
     /// The cell rectangle an agent may work: the area grown by the margin.
     pub fn reach(&self) -> (i32, i32, i32, i32) {
@@ -127,6 +183,78 @@ impl Note {
         self.state == State::Open
     }
 
+    /// The agent holding the lease, if any.
+    pub fn holder(&self) -> Option<&str> {
+        match &self.state {
+            State::Claimed { by, .. } => Some(by),
+            _ => None,
+        }
+    }
+
+    /// When this note was sent, for send order: the time of its last `Sent` event.
+    fn sent_at(&self) -> u64 {
+        self.history.iter().rev().find(|e| e.what == What::Sent).map_or(0, |e| e.at)
+    }
+
+    /// The map-space rectangle `[x0, z0, x1, z1]` in metres an agent may work: the drawn area grown
+    /// by its margin, else the cells named, grown by the default margin. `None` for a note on
+    /// placements only, which claims no ground.
+    pub fn reach_rect(&self) -> Option<[f32; 4]> {
+        let t = crate::grid::TILE;
+        if let Some(s) = &self.site {
+            let (a, b, c, d) = s.reach();
+            return Some([a as f32 * t, b as f32 * t, (c + 1) as f32 * t, (d + 1) as f32 * t]);
+        }
+        let m = DEFAULT_MARGIN as f32 * t;
+        self.frame_rect().map(|r| [r[0] - m, r[1] - m, r[2] + m, r[3] + m])
+    }
+
+    fn require_holder(&self, id: &str, by: &str, did: &str) -> Result<(), String> {
+        match self.holder() {
+            Some(h) if h == by => Ok(()),
+            Some(h) => Err(format!("notes: {id} is claimed by {h}, not {by}, so it was not {did}")),
+            None => Err(format!("notes: {id} is not claimed by {by}, so it was not {did}")),
+        }
+    }
+
+    /// The question the person has not answered yet, if one stands.
+    pub fn pending_question(&self) -> Option<&str> {
+        self.history
+            .iter()
+            .rev()
+            .find_map(|e| match &e.what {
+                What::Asked { question } => Some(Some(question.as_str())),
+                What::Answered { .. } => Some(None),
+                _ => None,
+            })
+            .flatten()
+    }
+
+    /// Whether the person has answered a question since the agent last claimed the note.
+    fn answered_since_claim(&self) -> bool {
+        let claim = self.history.iter().rposition(|e| matches!(e.what, What::Claimed { .. })).unwrap_or(0);
+        self.history[claim..].iter().any(|e| matches!(e.what, What::Answered { .. }))
+    }
+
+    /// The inclusive cell rectangle the person marked: where it was drawn, else the cells named.
+    pub fn area_cells(&self) -> Option<(i32, i32, i32, i32)> {
+        if let Some(s) = &self.site {
+            return Some(s.cells);
+        }
+        self.targets.iter().filter_map(|t| if let Target::Cell(x, z) = t { Some((*x, *z)) } else { None }).fold(
+            None,
+            |r: Option<(i32, i32, i32, i32)>, (x, z)| {
+                Some(r.map_or((x, z, x, z), |r| (r.0.min(x), r.1.min(z), r.2.max(x), r.3.max(z))))
+            },
+        )
+    }
+
+    /// [`Note::area_cells`] grown by the margin: the ground an agent may work.
+    pub fn reach_cells(&self) -> Option<(i32, i32, i32, i32)> {
+        let m = self.site.as_ref().map_or(DEFAULT_MARGIN, |s| s.margin);
+        self.area_cells().map(|(a, b, c, d)| (a - m, b - m, c + m, d + m))
+    }
+
     pub fn is_draft(&self) -> bool {
         self.state == State::Draft
     }
@@ -137,6 +265,7 @@ impl Note {
         match self.state {
             State::Draft => "draft",
             State::Open => "sent",
+            State::Claimed { .. } => "claimed",
             State::Resolved { .. } => "done",
         }
     }
@@ -170,11 +299,22 @@ impl Note {
 pub struct Notes {
     pub version: u32,
     pub notes: Vec<Note>,
+    /// How long an agent's lease on a note lasts before it must renew, in seconds. A project setting:
+    /// edit the file and the next claim uses it.
+    #[serde(default = "default_lease")]
+    pub lease_secs: u64,
+}
+
+/// Five minutes.
+pub const DEFAULT_LEASE_SECS: u64 = 300;
+
+fn default_lease() -> u64 {
+    DEFAULT_LEASE_SECS
 }
 
 impl Default for Notes {
     fn default() -> Self {
-        Notes { version: NOTES_VERSION, notes: Vec::new() }
+        Notes { version: NOTES_VERSION, notes: Vec::new(), lease_secs: DEFAULT_LEASE_SECS }
     }
 }
 
@@ -408,14 +548,214 @@ impl Notes {
         Ok(ids)
     }
 
+    /// Returns every note whose lease ran out by `now` to the queue, and says which.
+    pub fn expire(&mut self, now: u64) -> Vec<String> {
+        let mut gone = Vec::new();
+        for n in &mut self.notes {
+            if let State::Claimed { until, .. } = n.state
+                && until <= now
+            {
+                n.state = State::Open;
+                n.log_at(until, "lease", What::Expired);
+                gone.push(n.id.clone());
+            }
+        }
+        gone
+    }
+
+    /// An agent takes the lease on a sent note, for [`Notes::lease_secs`]; returns when it ends.
+    /// Refused for a note that is not sent, one another agent holds (naming it), one whose reach
+    /// overlaps a claimed note (until that resolves), and one whose reach overlaps a note sent
+    /// earlier and still waiting (overlapping notes are worked in send order). Leases that ran out
+    /// by `now` are given back first, so the clock is the caller's.
+    pub fn claim(&mut self, id: &str, by: &str, now: u64) -> Result<u64, String> {
+        if by.trim().is_empty() {
+            return Err("notes: a claim names the agent making it".to_owned());
+        }
+        self.expire(now);
+        let note = self.get(id).ok_or_else(|| format!("notes: no note {id}"))?;
+        match &note.state {
+            State::Claimed { by: holder, until } => {
+                return Err(format!("notes: {id} is claimed by {holder} until {until}, so it was not claimed"));
+            }
+            State::Draft => return Err(format!("notes: {id} is a draft, not sent, so it was not claimed")),
+            State::Resolved { .. } => return Err(format!("notes: {id} is already resolved, so it was not claimed")),
+            State::Open => {}
+        }
+        if let Some(mine) = note.reach_rect() {
+            let key = (note.sent_at(), self.notes.iter().position(|n| n.id == id));
+            for (i, other) in self.notes.iter().enumerate() {
+                if other.id == id || !other.reach_rect().is_some_and(|r| rects_overlap(mine, r)) {
+                    continue;
+                }
+                match &other.state {
+                    State::Claimed { by: holder, .. } => {
+                        return Err(format!(
+                            "notes: {id} overlaps {}, which {holder} is working, so it waits until that resolves",
+                            other.id
+                        ));
+                    }
+                    State::Open if (other.sent_at(), Some(i)) < key => {
+                        return Err(format!(
+                            "notes: {id} overlaps {}, which was sent first, so {} is worked first",
+                            other.id, other.id
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let until = now + self.lease_secs;
+        let note = self.get_mut(id)?;
+        note.state = State::Claimed { by: by.to_owned(), until };
+        note.log_at(now, by, What::Claimed { until });
+        Ok(until)
+    }
+
+    /// The holder keeps working: the lease runs another [`Notes::lease_secs`] from `now`. A lease
+    /// that already ran out is gone and cannot be renewed; claim again.
+    pub fn renew(&mut self, id: &str, by: &str, now: u64) -> Result<u64, String> {
+        self.expire(now);
+        let lease = self.lease_secs;
+        let note = self.get_mut(id)?;
+        match &note.state {
+            State::Claimed { by: holder, .. } if holder == by => {}
+            State::Claimed { by: holder, .. } => {
+                return Err(format!("notes: {id} is claimed by {holder}, not {by}, so it was not renewed"));
+            }
+            _ => return Err(format!("notes: {id} is not claimed by {by} (its lease may have expired), so it was not renewed")),
+        }
+        let until = now + lease;
+        note.state = State::Claimed { by: by.to_owned(), until };
+        note.log_at(now, by, What::Renewed { until });
+        Ok(until)
+    }
+
+    /// Gives a claimed note back to the queue. `by` is the agent releasing it, who must hold it;
+    /// `None` is the person, who may release any claim.
+    pub fn release(&mut self, id: &str, by: Option<&str>, now: u64) -> Result<(), String> {
+        self.expire(now);
+        let note = self.get_mut(id)?;
+        let State::Claimed { by: holder, .. } = &note.state else {
+            return Err(format!("notes: {id} is not claimed, so there is nothing to release"));
+        };
+        if by.is_some_and(|b| b != holder) {
+            return Err(format!("notes: {id} is claimed by {holder}, so only {holder} or the person may release it"));
+        }
+        note.state = State::Open;
+        note.log_at(now, by.unwrap_or("person"), What::Released);
+        Ok(())
+    }
+
     /// Resolves an open note, naming the operations that did the work and what they changed.
     pub fn resolve(&mut self, id: &str, ops: Vec<String>, summary: &str) -> Result<(), String> {
         let note = self.get_mut(id)?;
-        if !note.is_open() {
+        if !note.is_open() && note.holder().is_none() {
             return Err(format!("notes: {id} is already resolved"));
         }
-        note.state = State::Resolved { ops, summary: summary.to_owned() };
+        note.state = State::Resolved { ops, summary: summary.to_owned(), assumptions: Vec::new(), captures: Vec::new() };
         Ok(())
+    }
+
+    /// The holder asks the person a question and waits. Only the holder may ask, and one question
+    /// stands at a time: it must be answered first.
+    pub fn ask(&mut self, id: &str, by: &str, question: &str, now: u64) -> Result<(), String> {
+        self.expire(now);
+        if question.trim().is_empty() {
+            return Err("notes: a question needs text".to_owned());
+        }
+        let note = self.get_mut(id)?;
+        note.require_holder(id, by, "asked")?;
+        if note.pending_question().is_some() {
+            return Err(format!("notes: {id} already has a question waiting for the person's answer"));
+        }
+        note.log_at(now, by, What::Asked { question: question.to_owned() });
+        Ok(())
+    }
+
+    /// The person answers the question that stands on a note.
+    pub fn answer(&mut self, id: &str, answer: &str, now: u64) -> Result<(), String> {
+        if answer.trim().is_empty() {
+            return Err("notes: an answer needs text".to_owned());
+        }
+        let note = self.get_mut(id)?;
+        if note.pending_question().is_none() {
+            return Err(format!("notes: {id} has no question waiting, so there is nothing to answer"));
+        }
+        note.log_at(now, "person", What::Answered { answer: answer.to_owned() });
+        Ok(())
+    }
+
+    /// The holder finishes the note with the record the person reviews (#92): a one-line summary,
+    /// the assumptions it made, the operation ids it ran, and the pictures of the area before and
+    /// after. Refused with no summary, with fewer or more than two captures, or while a question
+    /// is unanswered. The note becomes `done`, awaiting review.
+    pub fn resolve_record(&mut self, id: &str, by: &str, record: Resolution, now: u64) -> Result<(), String> {
+        self.expire(now);
+        if record.summary.trim().is_empty() {
+            return Err("notes: a resolve needs a one-line summary".to_owned());
+        }
+        if record.captures.len() != 2 || record.captures.iter().any(|c| c.trim().is_empty()) {
+            return Err("notes: a resolve names two captures, the area before the work and after it".to_owned());
+        }
+        let note = self.get_mut(id)?;
+        note.require_holder(id, by, "resolved")?;
+        if note.pending_question().is_some() {
+            return Err(format!("notes: {id} has a question the person has not answered, so it was not resolved"));
+        }
+        note.state = State::Resolved {
+            ops: record.ops,
+            summary: record.summary,
+            assumptions: record.assumptions,
+            captures: record.captures,
+        };
+        note.log_at(now, by, What::Resolved);
+        Ok(())
+    }
+
+    /// Whether `change`, made by `by`, may go ahead under note `id`, and why not if it may not
+    /// (#92). **The editor enforces this; it does not trust the agent.**
+    ///
+    /// - The agent must hold the note.
+    /// - Ground outside the area plus its margin is refused, whatever was asked.
+    /// - A change that must be asked about is refused until the person has answered a question the
+    ///   holder asked since it claimed the note: more than [`LARGE_CHANGE`] pieces, any ground in
+    ///   the margin, a piece a person placed removed (`person_placed`), or a piece the kit
+    ///   cannot supply (`needs_unmapped`).
+    pub fn fence(&self, id: &str, by: &str, change: &Change) -> Result<(), String> {
+        let note = self.get(id).ok_or_else(|| format!("notes: no note {id}"))?;
+        note.require_holder(id, by, "changed")?;
+        let reach = note.reach_cells();
+        if let (Some((x0, z0, x1, z1)), Some((rx0, rz0, rx1, rz1))) = (change.cells, reach)
+            && (x0 < rx0 || z0 < rz0 || x1 > rx1 || z1 > rz1)
+        {
+            return Err(format!(
+                "notes: the change reaches cells ({x0},{z0})..({x1},{z1}), outside note {id}'s area plus its margin ({rx0},{rz0})..({rx1},{rz1}); nothing was changed"
+            ));
+        }
+        let mut why = Vec::new();
+        if change.pieces > LARGE_CHANGE {
+            why.push(format!("it changes {} pieces, more than {LARGE_CHANGE}", change.pieces));
+        }
+        if let (Some((x0, z0, x1, z1)), Some((ax0, az0, ax1, az1))) = (change.cells, note.area_cells())
+            && (x0 < ax0 || z0 < az0 || x1 > ax1 || z1 > az1)
+        {
+            why.push("it touches the margin around the area".to_owned());
+        }
+        if !change.person_placed.is_empty() {
+            why.push(format!("it removes {}, placed by a person", change.person_placed.join(", ")));
+        }
+        if let Some(what) = &change.needs_unmapped {
+            why.push(format!("the kit has nothing for \"{what}\""));
+        }
+        if why.is_empty() || note.answered_since_claim() {
+            return Ok(());
+        }
+        let waiting = if note.pending_question().is_some() { " (a question is waiting for the person)" } else { "" };
+        Err(format!(
+            "notes: {id}: {}, so ask the person first with note_ask and go on once they answer{waiting}; nothing was changed",
+            why.join("; ")
+        ))
     }
 
     /// Puts a resolved note back to open (the undo of a resolve).
@@ -444,4 +784,9 @@ impl Notes {
         }
         out
     }
+}
+
+/// Whether two map-space rectangles `[x0, z0, x1, z1]` share ground; touching edges do not.
+fn rects_overlap(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
 }

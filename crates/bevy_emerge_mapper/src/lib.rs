@@ -56,9 +56,12 @@ pub mod compass;
 pub mod compose;
 pub mod compose_labels;
 pub mod confirm;
+pub mod decide_labels;
 pub mod devshot;
 pub mod editor;
 pub mod family_host;
+#[cfg(feature = "bevy_elements")]
+pub mod environment;
 pub mod fill;
 pub mod filter;
 #[cfg(feature = "debugger")]

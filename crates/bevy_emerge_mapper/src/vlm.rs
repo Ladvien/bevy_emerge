@@ -83,7 +83,7 @@ impl std::fmt::Debug for VlmConfig {
 /// The `.env` file at the project root, parsed — `KEY=VALUE` lines, `#` comments, an optional
 /// `export ` prefix and single/double quotes tolerated. Hand-rolled: twenty lines of parsing is
 /// not worth a dependency, and this is a dev tool's config, not a spec implementation.
-fn dotenv(root: &std::path::Path) -> std::collections::BTreeMap<String, String> {
+pub(crate) fn dotenv(root: &std::path::Path) -> std::collections::BTreeMap<String, String> {
     let mut out = std::collections::BTreeMap::new();
     let Ok(text) = std::fs::read_to_string(root.join(".env")) else {
         return out;
@@ -447,7 +447,7 @@ pub fn mount_token(m: &Mount) -> &'static str {
 /// So each line says what the mount is FOR — whether the piece needs a host, and which — rather
 /// than where it happens to be resting in the render. The question the model has to answer is about
 /// the object's nature in a real room, not about the photograph.
-fn mount_meaning(m: &Mount) -> &'static str {
+pub(crate) fn mount_meaning(m: &Mount) -> &'static str {
     match m {
         Mount::OnFloor => {
             "stands on the ground by itself in a real room - furniture, crates, \
