@@ -4433,6 +4433,7 @@ fn refresh_notes_list(
                 if !loaded.is_empty() {
                     p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), ..default() }).with_children(|h| {
                         for handle in loaded {
+                            // CHROME-OK: a fixed 4:3 review thumbnail, not spacing
                             h.spawn((Node { width: Val::Px(160.0), height: Val::Px(120.0), ..default() }, ImageNode::new(handle)));
                         }
                     });
