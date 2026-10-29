@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **98-preview** `a32f56d` The editor viewport previews a map's sky, fog and clouds with bevy_elements (#98) *No clip: visible, not yet recorded: needs the noon/dusk/rain street on a display*
 - **98-clock-scrub** `6e2fd82` Environment: the clock scrubber holds the preview at an hour of day with no file write and no undo step (#98, slice 2) *No clip: visible once the Environment panel lands, not yet recorded: no panel or preview yet; proved by tests/environment_applies.rs scrubbing_the_clock_moves_the_preview_clock_and_writes_nothing*
 - **e98-environment-data** `c1a546b` A map's climate, date, clock and forced weather are saved in bevy_elements' own types and applied to the preview *No clip: an API and data layer, the Environment panel is the next slice; proved by environment_applies*
 - **d5-decision-labels** `8308239` Labelling can ask a decision model one yes/no question per vocabulary token (EMERGE_LABEL_PATH=decide), with the chat path kept until measured *No clip: an editor setting, no new surface; proved by decide_labels::tests*
