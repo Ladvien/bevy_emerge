@@ -61,6 +61,11 @@ pub struct ApplyParams {
     /// description in front of it**, and an agent that reads it knows what it is asking for.
     #[serde(default = "yes")]
     pub dry_run: bool,
+    /// **Who is asking, when the caller holds a note (#92).** The name the note was claimed under.
+    /// An operation that would change anything outside that note's area plus its margin, or that
+    /// needs a question answered first, is refused and changes nothing. Omitted: no fence.
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 /// **The parameters of `emerge/operation_undo`.**
@@ -496,7 +501,7 @@ fn editor_state(
             .compositions,
             "kits": p.kits.len(),
             // **The registered game data files and their leaves** (#86), what `data_set` addresses.
-            "data_files": data_files_json(&p.root),
+            "data_files": data_files_json(&p.emerge_dir),
         })
     });
     // **What the editor is holding and what it last said.**
@@ -907,6 +912,25 @@ fn operation_apply(
             if let Some(state) = state.as_mut() {
                 state.problem_agent_refusal(&p.operation, &why);
             }
+            return Ok(json!({
+                "operation": p.operation,
+                "outcome": "refused",
+                "refusal": why,
+            }));
+        }
+    }
+    // **The fence of a held note (#92)**, found before anything is written, for a preview and an
+    // apply alike: a preview never says "would change" for a change the apply would refuse.
+    if let Some(agent) = p.agent.as_deref() {
+        let read = Ctx {
+            root: None,
+            project: project.as_deref().cloned(),
+            open: open.as_deref().cloned(),
+            source: Source::Agent,
+            session: crate::ops::session_id(),
+            proposal: proposal.as_deref().and_then(|r| r.0.clone()),
+        };
+        if let Some(why) = crate::ops_notes::fence_refusal(&read, agent, &p.operation, &p.parameters) {
             return Ok(json!({
                 "operation": p.operation,
                 "outcome": "refused",
@@ -1904,9 +1928,9 @@ pub(crate) fn join_history(
 
 /// **`data.ron`'s files, with each one's leaf count**, read from disk so a hand edit shows at once.
 /// Empty with no registry; a malformed one reads as `{"error": ..}`.
-fn data_files_json(root: &std::path::Path) -> Value {
+fn data_files_json(emerge_dir: &std::path::Path) -> Value {
     use bevy_emerge_core::data_files::{DataFiles, leaves};
-    match DataFiles::load(root) {
+    match DataFiles::load(emerge_dir) {
         Ok(None) => json!([]),
         Err(e) => json!({"error": e}),
         Ok(Some(d)) => d

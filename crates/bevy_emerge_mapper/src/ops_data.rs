@@ -1,6 +1,6 @@
 //! **A game's tuning files, as one registered operation** (#86): `data_set`.
 //!
-//! The files are the ones `<project>/data.ron` registers (`bevy_emerge_core::data_files`). The
+//! The files are the ones `<emerge_dir>/data.ron` registers (`bevy_emerge_core::data_files`). The
 //! operation sets one scalar leaf and writes at once: data files have no dirty state. Its inverse is
 //! this operation with the old value and the old token's exact text (`restore`, which only an undo may
 //! send), so one undo leaves the file byte-identical even where `1.50` was rewritten as `1.5`.
@@ -47,11 +47,12 @@ impl Params {
 }
 
 fn registry(ctx: &Ctx) -> Result<DataFiles, Refusal> {
-    let Some(root) = ctx.root_or_project() else {
+    let Some(project) = ctx.project.as_ref() else {
         return Err(Refusal::new("no project is open, so there are no data files to change."));
     };
-    DataFiles::load(&root).map_err(Refusal::new)?.ok_or_else(|| {
-        Refusal::new(format!("{} has no data.ron, so no data file is registered. Nothing was changed.", root.display()))
+    let dir = &project.emerge_dir;
+    DataFiles::load(dir).map_err(Refusal::new)?.ok_or_else(|| {
+        Refusal::new(format!("{} has no data.ron, so no data file is registered. Nothing was changed.", dir.display()))
     })
 }
 
@@ -146,8 +147,8 @@ pub struct LeafRow {
 
 /// **Every leaf of every registered file**, in registry then file order. No `data.ron` is an empty
 /// list; a file that cannot be read or parsed contributes no rows (`data_set` names why on use).
-pub fn listing(root: &std::path::Path) -> Vec<LeafRow> {
-    let Ok(Some(reg)) = DataFiles::load(root) else {
+pub fn listing(emerge_dir: &std::path::Path) -> Vec<LeafRow> {
+    let Ok(Some(reg)) = DataFiles::load(emerge_dir) else {
         return Vec::new();
     };
     let mut rows = Vec::new();

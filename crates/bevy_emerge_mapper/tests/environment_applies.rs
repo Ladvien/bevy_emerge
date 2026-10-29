@@ -66,3 +66,48 @@ fn forcing_rain_holds_until_it_is_released_back_to_the_climate() {
     apply(&read(&file), &mut clock, &mut loc, &mut climate, &mut director, &mut applied);
     assert!(!director.is_forced(), "None releases the weather to the climate's schedule");
 }
+
+#[test]
+fn scrubbing_the_clock_moves_the_preview_clock_and_writes_nothing() {
+    use bevy::prelude::*;
+    use bevy_emerge_mapper::environment::{scrub_clock, ClockScrub};
+    let (mut ctx, file) = project("scrub");
+    let before = std::fs::read_to_string(&file).unwrap();
+    let mut app = App::new();
+    app.init_resource::<ClockScrub>().insert_resource(WorldClock::default()).add_systems(Update, scrub_clock);
+    app.update();
+    let untouched = app.world().resource::<WorldClock>().hour;
+
+    app.world_mut().resource_mut::<ClockScrub>().set(18.5);
+    app.update();
+    assert_eq!(app.world().resource::<WorldClock>().hour, 18.5);
+    app.world_mut().resource_mut::<ClockScrub>().set(-1.0);
+    app.update();
+    assert_eq!(app.world().resource::<WorldClock>().hour, 23.0, "wraps into the day");
+
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before, "scrubbing writes no file");
+    assert!(bevy_emerge_mapper::ops::undo(&mut ctx, None).is_err(), "scrubbing is not an undo step");
+
+    app.world_mut().resource_mut::<ClockScrub>().release();
+    app.world_mut().resource_mut::<WorldClock>().hour = untouched;
+    app.update();
+    assert_eq!(app.world().resource::<WorldClock>().hour, untouched, "released: the file's clock runs");
+}
+
+#[test]
+fn the_panels_weather_buttons_write_the_forced_weather_and_the_clock_buttons_write_nothing() {
+    use bevy_emerge_mapper::environment::EnvAction;
+    let (mut ctx, file) = project("buttons");
+    let read = |file: &std::path::Path| ElementsSettings::from_ron(&std::fs::read_to_string(file).unwrap()).unwrap();
+    let dispatch = |ctx: &mut Ctx, a: EnvAction| {
+        let r = ops::dispatch(ctx, "family_set", &a.family_params().unwrap());
+        assert!(matches!(r, Ok(Applied::Done { .. })), "{a:?}");
+    };
+    for preset in [WeatherPreset::Rain, WeatherPreset::Fog, WeatherPreset::Clear] {
+        dispatch(&mut ctx, EnvAction::Force(preset));
+        assert_eq!(read(&file).forced_weather, Some(preset));
+    }
+    dispatch(&mut ctx, EnvAction::ReleaseWeather);
+    assert_eq!(read(&file).forced_weather, None);
+    assert!(EnvAction::Scrub(6.0).family_params().is_none() && EnvAction::ReleaseClock.family_params().is_none());
+}
