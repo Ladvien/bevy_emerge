@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **n93-review** `pending` Review a done note: Keep it, or Undo this note reverts all its pieces as one step (#93 slice 2) *No clip: visible, not yet recorded: bmb has no clip run this pass*
 - **93-s1** `6228546` Notes review rules: keep a done note, or undo its work unless a later change depends on it (#93 slice 1) *No clip: an engine-free API; proved by crates/bevy_emerge_core/tests/note_review.rs*
 - **92b** `f295a70` Notes: an agent asks a question on a note, the person answers, and the agent resolves it with summary, assumptions, operations and two captures *No clip: visible, not yet recorded: no display on big*
 - **notes-fence-core** `f97e646` Notes: the engine-free fence (area plus margin, ask-first thresholds), questions and answers, and the resolve record *No clip: core API, not yet wired to operations; proved by crates/bevy_emerge_core/tests/note_fence.rs*
