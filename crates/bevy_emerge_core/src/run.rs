@@ -400,6 +400,156 @@ pub fn lay(run: &Run, library: &Library) -> Result<Vec<Post>, String> {
     Ok(posts)
 }
 
+/// How far a row may sit from the post the run would put there, in metres: the issue's "pitch within
+/// 1 mm". A row nudged further off is a hand-placed row and does not convert.
+pub const CONVERT_TOLERANCE: f32 = 1e-3;
+
+/// **The run that lays exactly these rows** (one way: rows to run, #115).
+///
+/// `rows` are in path order. They must be the same descriptor and carry nothing but an id, a
+/// position, a yaw and their ownership, because a run lays nothing else. A new segment starts where
+/// the yaw changes or the direction turns; its first row becomes the [`Corner`] and the stretch
+/// before it is measured to it. Posts the rows skip over become [`Gap`]s. The pitch is the piece's
+/// own when the rows are at it.
+///
+/// **A refusal names the first row that does not fit**, and nothing is guessed: the inferred run is
+/// laid with [`lay`] and every row must stand within [`CONVERT_TOLERANCE`] of the post it matches,
+/// facing the same way, so a converted map expands to the rows it replaced.
+pub fn rows_to_run(
+    rows: &[crate::map::Placed],
+    library: &Library,
+) -> Result<(Run, bool, Option<String>), String> {
+    let first = rows.first().ok_or("run: no rows to convert")?;
+    let bad = |row: &crate::map::Placed, why: &str| {
+        Err(format!("run: row `{}` does not fit a run: {why}", row.id))
+    };
+    for row in rows {
+        let plain = crate::map::Placed {
+            id: row.id.clone(),
+            descriptor: row.descriptor.clone(),
+            at: row.at,
+            yaw: row.yaw,
+            owned: row.owned,
+            owned_because: row.owned_because.clone(),
+            ..Default::default()
+        };
+        if row != &plain {
+            return bad(row, "it carries more than a position and a yaw (lift, tip, mount, patch, note...), which a run does not lay");
+        }
+        if row.descriptor != first.descriptor {
+            return bad(row, &format!("it is `{}` and the first row is `{}`", row.descriptor, first.descriptor));
+        }
+        if row.owned != first.owned || row.owned_because != first.owned_because {
+            return bad(row, "its ownership differs from the first row's");
+        }
+        if !row.at.0.is_finite() || !row.at.1.is_finite() || !row.yaw.is_finite() {
+            return bad(row, "its position or yaw is not a number");
+        }
+    }
+    let descriptor = library
+        .get(&first.descriptor)
+        .ok_or_else(|| format!("run: descriptor `{}` is not in this library", first.descriptor))?;
+    let (w, depth) = crate::descriptor::placed_footprint(descriptor).ok_or_else(|| {
+        format!("run: `{}` has no measured footprint, so there is no pitch", first.descriptor)
+    })?;
+    let default_pitch = w.max(depth);
+
+    // Segments: runs of rows going one way at one yaw, as index ranges.
+    let dir = |a: (f32, f32), b: (f32, f32)| {
+        let (dx, dz) = (b.0 - a.0, b.1 - a.1);
+        let l = (dx * dx + dz * dz).sqrt();
+        (l > CONVERT_TOLERANCE).then(|| (dx / l, dz / l))
+    };
+    let mut starts: Vec<usize> = vec![0];
+    let mut seg_dir: Option<(f32, f32)> = None;
+    for i in 1..rows.len() {
+        let same_yaw = (rows[i].yaw - rows[i - 1].yaw).abs() < 1e-3;
+        let step = dir(rows[i - 1].at, rows[i].at);
+        let continues = same_yaw
+            && match (step, seg_dir) {
+                (None, _) => false,
+                (Some(_), None) => true,
+                (Some(s), Some(d)) => (s.0 * d.0 + s.1 * d.1) > 1.0 - 1e-3,
+            };
+        if continues {
+            seg_dir = seg_dir.or(step);
+        } else {
+            starts.push(i);
+            seg_dir = None;
+        }
+    }
+    // The pitch: the piece's own if any step in a segment is at it, else the shortest step.
+    let mut steps: Vec<f32> = Vec::new();
+    for (k, &s) in starts.iter().enumerate() {
+        let end = starts.get(k + 1).copied().unwrap_or(rows.len());
+        for i in s + 1..end {
+            let (a, b) = (rows[i - 1].at, rows[i].at);
+            steps.push(((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt());
+        }
+    }
+    let pitch = if steps.is_empty() || steps.iter().any(|d| (d - default_pitch).abs() < CONVERT_TOLERANCE) {
+        None
+    } else {
+        steps.iter().copied().reduce(f32::min)
+    };
+    // The end: past the last row along its segment, by half a pitch, so floor() lands on it.
+    let last_start = *starts.last().unwrap_or(&0);
+    let tail = &rows[last_start..];
+    let last = tail[tail.len() - 1].at;
+    let to = match (tail.len() > 1).then(|| dir(tail[0].at, last)).flatten() {
+        Some(d) => {
+            let half = pitch.unwrap_or(default_pitch) * 0.5;
+            (last.0 + d.0 * half, last.1 + d.1 * half)
+        }
+        None if starts.len() == 1 && rows.len() == 1 => {
+            return bad(&rows[0], "one row is not a run");
+        }
+        None => return bad(&tail[0], "the last stretch is a single post, so its direction is unknown"),
+    };
+    let corners: Vec<Corner> = starts
+        .iter()
+        .skip(1)
+        .map(|&i| Corner { at: rows[i].at, yaw: rows[i].yaw })
+        .collect();
+    let mut run = Run {
+        descriptor: first.descriptor.clone(),
+        pitch,
+        from: first.at,
+        to,
+        corners,
+        gaps: Vec::new(),
+    };
+    let posts = lay(&run, library)?;
+
+    // Match rows to posts in order; the posts skipped are the gaps.
+    let mut cursor = 0usize;
+    let mut skipped: Vec<usize> = Vec::new();
+    for row in rows {
+        let found = (cursor..posts.len()).find(|&j| {
+            (posts[j].at.0 - row.at.0).abs() <= CONVERT_TOLERANCE
+                && (posts[j].at.1 - row.at.1).abs() <= CONVERT_TOLERANCE
+                && (posts[j].yaw - row.yaw).abs() < 1e-3
+        });
+        let Some(j) = found else {
+            return bad(row, "it is not on the pitch the other rows keep, or faces another way");
+        };
+        skipped.extend(cursor..j);
+        cursor = j + 1;
+    }
+    skipped.extend(cursor..posts.len());
+    let mut i = 0;
+    while i < skipped.len() {
+        let at_post = skipped[i];
+        let mut count = 1;
+        while i + count < skipped.len() && skipped[i + count] == at_post + count {
+            count += 1;
+        }
+        run.gaps.push(Gap { count, at_post });
+        i += count;
+    }
+    Ok((run, first.owned, first.owned_because.clone()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

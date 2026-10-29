@@ -123,3 +123,48 @@ fn an_older_map_loads_and_a_newer_one_is_refused() {
     let err = Map::parse(&newer).expect_err("a newer map");
     assert!(err.contains("newer tool"), "{err}");
 }
+
+fn same_rows(a: &[Placed], b: &[Placed]) {
+    assert_eq!(a.len(), b.len());
+    for (x, y) in a.iter().zip(b) {
+        assert_eq!(x.descriptor, y.descriptor);
+        assert!((x.at.0 - y.at.0).abs() < 1e-4 && (x.at.1 - y.at.1).abs() < 1e-4, "{x:?} {y:?}");
+        assert_eq!(x.yaw, y.yaw);
+    }
+}
+
+/// Criterion 3: rows `run::lay` produced (a corner, a gap) convert to a run that expands to them.
+#[test]
+fn rows_a_run_laid_convert_back_to_the_run() {
+    let mut r = run(8.0);
+    r.corners = vec![bevy_emerge_core::run::Corner { at: (8.256, 0.0), yaw: 90.0 }];
+    r.to = (8.256, 7.0);
+    r.gaps = vec![bevy_emerge_core::run::Gap { count: 1, at_post: 2 }];
+    let lib = library();
+    let original = map_with(vec![placed("ring", r)]).expanded(&[], &lib).unwrap();
+    let ids: Vec<String> = original.placements.iter().map(|p| p.id.clone()).collect();
+
+    let mut flat = Map { runs: Vec::new(), ..original.clone() };
+    flat.placements = original.placements.clone();
+    flat.placements.push(Placed { id: "well".into(), descriptor: "kit/fence".into(), ..Placed::default() });
+    flat.placements_to_run("fence", &ids, &lib).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(flat.runs.len(), 1);
+    assert_eq!(flat.placements.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["well"]);
+    let back = flat.expanded(&[], &lib).unwrap();
+    let rows: Vec<Placed> = back.placements.into_iter().filter(|p| p.id != "well").collect();
+    same_rows(&rows, &original.placements);
+}
+
+/// Criterion 3: a row 5 mm off the pitch refuses, names that row, and leaves the map alone.
+#[test]
+fn a_row_off_the_pitch_does_not_convert() {
+    let lib = library();
+    let laid = map_with(vec![placed("ring", run(19.0))]).expanded(&[], &lib).unwrap();
+    let mut flat = Map { runs: Vec::new(), ..laid.clone() };
+    flat.placements[4].at.0 += 0.005;
+    let before = flat.clone();
+    let ids: Vec<String> = flat.placements.iter().map(|p| p.id.clone()).collect();
+    let err = flat.placements_to_run("fence", &ids, &lib).expect_err("a nudged row");
+    assert!(err.contains("`ring/4`"), "{err}");
+    assert_eq!(flat, before);
+}
