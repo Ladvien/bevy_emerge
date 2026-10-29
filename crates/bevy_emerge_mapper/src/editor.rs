@@ -1819,7 +1819,8 @@ impl Plugin for EditorPlugin {
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()
             .init_resource::<NoteBox>()
-            .add_systems(Update, crate::family_host::report_problems)
+            .init_resource::<crate::family_host::FamilySettings>()
+            .add_systems(Update, (crate::family_host::report_problems, crate::family_host::reload_settings))
             // Registered in the same commit as `drive_move` and `keys` read it — a missing `ResMut`
             // panics its system in Bevy 0.19 rather than skipping it (`CLAUDE.md`).
             .init_resource::<MoveDrag>()
