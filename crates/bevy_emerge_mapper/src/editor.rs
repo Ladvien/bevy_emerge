@@ -1358,6 +1358,8 @@ struct NoteRow {
 struct NoteLeaseButton {
     id: String,
     op: &'static str,
+    /// What `note_ask`, `note_answer` and `note_resolve` carry as their text.
+    text: &'static str,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -1367,7 +1369,7 @@ struct NotesFilterButton;
 struct NotesSendAll;
 
 /// What the Notes list last drew: the filter and `(id, status, text)` per row.
-type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String)>);
+type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool)>);
 
 /// The status the Notes list is filtered to; `None` shows every note.
 #[derive(Resource, Default)]
@@ -1901,6 +1903,17 @@ fn lease_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut Edi
         serde_json::json!({"id": id, "agent": "person"})
     };
     dispatch_note(project, open, state, op, params, "change a note's lease");
+}
+
+/// **Ask, answer or finish a note through the registry** (#92): `op` is `note_ask`, `note_answer` or
+/// `note_resolve`. The person holds as `person`; `text` is the question, the answer or the summary.
+fn talk_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, op: &str, id: &str, text: &str) {
+    let params = match op {
+        "note_ask" => serde_json::json!({"id": id, "agent": "person", "question": text}),
+        "note_answer" => serde_json::json!({"id": id, "answer": text}),
+        _ => serde_json::json!({"id": id, "agent": "person", "summary": text}),
+    };
+    dispatch_note(project, open, state, op, params, "talk on a note");
 }
 
 /// **Take a note off the map through the registry.**
@@ -4169,7 +4182,11 @@ fn on_notes_click(
         send_notes(project.as_deref_mut(), &mut open, &mut state);
     } else if let Ok(lease) = leases.get(e) {
         let mut project = project;
-        lease_note(project.as_deref_mut(), &mut open, &mut state, lease.op, &lease.id);
+        if matches!(lease.op, "note_ask" | "note_answer" | "note_resolve") {
+            talk_note(project.as_deref_mut(), &mut open, &mut state, lease.op, &lease.id, lease.text);
+        } else {
+            lease_note(project.as_deref_mut(), &mut open, &mut state, lease.op, &lease.id);
+        }
     } else if let Ok(row) = rows.get(e) {
         let (Some(project), Some(mut rig)) = (project, rig) else {
             return;
@@ -4224,12 +4241,17 @@ fn refresh_notes_list(
     let all = open
         .and_then(|o| bevy_emerge_core::notes::Notes::load(&bevy_emerge_core::notes::path_for_map(&o.map_path)).ok())
         .unwrap_or_default();
-    let rows: Vec<(String, &'static str, String)> = all
+    let rows: Vec<(String, &'static str, String, bool)> = all
         .listing(filter.0)
         .iter()
-        .map(|n| match n.holder() {
-            Some(by) => (n.id.clone(), n.status(), format!("{} (held by {by})", n.text)),
-            None => (n.id.clone(), n.status(), n.text.clone()),
+        .map(|n| {
+            let waiting = n.pending_question();
+            let text = match (n.holder(), waiting) {
+                (Some(by), Some(q)) => format!("{} (held by {by}; waiting for you: {q})", n.text),
+                (Some(by), None) => format!("{} (held by {by})", n.text),
+                (None, _) => n.text.clone(),
+            };
+            (n.id.clone(), n.status(), text, waiting.is_some())
         })
         .collect();
     let key = (filter.0, rows);
@@ -4256,7 +4278,7 @@ fn refresh_notes_list(
                     crate::chrome::font(crate::chrome::text::LABEL),
                 ));
             }
-            for (id, status, text) in rows {
+            for (id, status, text, waiting) in rows {
                 crate::chrome::list_row(p, false, NoteRow { id: id.clone() }).with_children(|row| {
                     row.spawn((
                         Text::new(format!("{id} [{status}] {text}")),
@@ -4264,15 +4286,21 @@ fn refresh_notes_list(
                         crate::chrome::font(crate::chrome::text::BODY),
                     ));
                 });
-                let ops: &[(&'static str, &str)] = match *status {
-                    "sent" => &[("note_claim", "Claim")],
-                    "claimed" => &[("note_renew", "Renew"), ("note_release", "Release")],
+                let ops: &[(&'static str, &str, &'static str)] = match (*status, *waiting) {
+                    ("sent", _) => &[("note_claim", "Claim", "")],
+                    ("claimed", true) => &[("note_answer", "Yes", "yes"), ("note_answer", "No", "no"), ("note_release", "Release", "")],
+                    ("claimed", false) => &[
+                        ("note_renew", "Renew", ""),
+                        ("note_release", "Release", ""),
+                        ("note_ask", "Ask", "Is this what you meant me to do?"),
+                        ("note_resolve", "Done", "finished by hand"),
+                    ],
                     _ => &[],
                 };
                 if !ops.is_empty() {
                     p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), ..default() }).with_children(|h| {
-                        for (op, label) in ops {
-                            crate::chrome::button(h, NoteLeaseButton { id: id.clone(), op }, label, crate::chrome::Severity::Plain);
+                        for (op, label, text) in ops {
+                            crate::chrome::button(h, NoteLeaseButton { id: id.clone(), op, text }, label, crate::chrome::Severity::Plain);
                         }
                     });
                 }
