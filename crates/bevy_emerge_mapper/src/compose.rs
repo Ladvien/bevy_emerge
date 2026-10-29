@@ -1678,6 +1678,7 @@ fn restage_group(
             bash: None,
             placements: Vec::new(),
             stamps: Vec::new(),
+            runs: Vec::new(),
             locations: Vec::new(),
             note: None,
             // A stage for standing a group up, never a map that generates, so no wish is in play.
