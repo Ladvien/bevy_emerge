@@ -1946,6 +1946,8 @@ pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "bevy_elements")]
+        app.add_systems(Update, crate::environment::apply_environment.after(crate::family_host::reload_settings));
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()

@@ -372,8 +372,9 @@ things up.
 | `bevy_emerge_w3` (the GPU: #109) | big | `~/bevy_emerge_w3` | `wiggum@emerge-w3.service`, `MemoryMax=10G`, no swap | `~/target/emerge-w3` | 6 | Xvfb `:96` | 150 GB |
 | `bevy_emerge_w4` | laptop | `~/bevy_emerge_w4` | `com.ladvien.wiggum-emerge-w4` | `~/target/emerge-w4`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only` | 4 | native Metal | 20 GB, above Sanctuary's 15 so this worker stops first |
 | Sanctuary `emerge-loop` | laptop | `~/sanctuary` (shared checkout) | `wiggum.sh start` | `~/.cargo-target-shared/global` | — | native | 15 GB |
-| lights, society (stopped 2026-10-28) | big | `~/bevy_lights_loop`, `~/bevy_society_loop` | `wiggum@lights`, `wiggum@society` | | | `:97`, `:98` | |
-| elements (stopped 2026-10-28) | big_mac | `~/bevy_elements` | `com.ladvien.wiggum-elements` | | | native Metal | |
+| lights, society | big | `~/bevy_lights_loop`, `~/bevy_society_loop` | `wiggum@lights`, `wiggum@society` (society: `RAYON_NUM_THREADS=1` drop-in), `MemoryMax=7G`, no swap | | 2, 3 | Xvfb `:97`, `:98` | |
+| fairy | big | `~/bevy_fairy_loop` | `wiggum@fairy`, `MemoryMax=8G`, no swap; driver is a copy at `~/.local/share/wiggum/wiggum.sh` (bevy_fairy has none in its tree) | `~/target/fairy-loop` | 3 | Xvfb `:95` | |
+| elements | big_mac | `~/bevy_elements` | `com.ladvien.wiggum-elements` | | 6 | native Metal | |
 
 Every running loop uses Claude Sonnet 5.5. Measured 2026-10-29, the machines not used: **bmb** (M4 Pro, 14 cores, 48 GB) has 16 GB of free disk against a 57 GB debug target, no `gh`, and is another user's account; **one, two, three, four** are Raspberry Pi 4/5 boards (4 cores, 3–15 GB, no `omp`); **big** takes one worker because its swap was 27 of 31 GB used under hs-distill and the model servers. Adding a worker: a fresh clone named `bevy_emerge_w<N>`, its own target dir, `git -C <clone> config core.hooksPath tools/loop/hooks` (the push gate), a supervisor copied from a row above, a display no other loop uses, and the row here. Before its first pass, build in its own target dir with step 5's `cargo build -p bevy_emerge_mapper -p bevy_emerge_mcp` and `cargo test --workspace --no-run`: on 2026-10-29 a cold build took w4's whole first two-hour pass and w2's first two passes.
 

@@ -19,7 +19,7 @@ The owner's crates become the heart of the editor first; then notes for agents, 
 
 **The decision model is live** (owner's session, 2026-10-29, until about 15:15 CDT; a systemd user unit `clef-flash-8093` on big, under the GPU lease). On big and on big_mac it answers at `http://127.0.0.1:8093/v1/systemone`: big's firewall blocks 8093 from the LAN, so big_mac reaches it through an ssh tunnel. The laptop has no tunnel. A pass that needs it after it stops says so in the log and moves on.
 
-**Family loops running** (the two-way street, step 4: a crate listed here is left to its own loop; any other is fixed at the source by this loop): none (2026-10-28; the owner stopped the lights, society and elements loops that day). The owner edits this line when a family loop is started or stopped.
+**Family loops running** (the two-way street, step 4: a crate listed here is left to its own loop; any other is fixed at the source by this loop): `bevy_lights`, `bevy_society` and `bevy_fairy` (big), `bevy_elements` (big_mac), restarted 2026-10-29 11:24–11:27 by the owner's session. The owner edits this line when a family loop is started or stopped.
 
 **Workers running** (`build-loop.md`, "Parallel workers"; 2026-10-29): `bevy_emerge_loop` (big_mac; also owns non-issue work), `bevy_emerge_w2` (big_mac; records big's unrecorded clips), `bevy_emerge_w3` (big; the GPU, so #109 and the decision chain), `bevy_emerge_w4` (laptop). A `worker:<name>` label naming none of these is a stale claim. Each worker takes the first unclaimed ready issue in this file's order; the order is unchanged by there being several of them. The owner's session edits this line when a worker starts or stops; the setup is in `docs/loop/RUNNING-A-LOOP.md`, "What the loops are, today".
 

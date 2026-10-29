@@ -52,7 +52,7 @@ debugger = ["bevy/bevy_remote", "dep:bevy_debugger_bevy"]
 bevy_elements = ["dep:bevy_elements"]
 
 [dependencies]
-bevy_elements = { git = "https://github.com/Ladvien/bevy_elements", rev = "ef87797468db6264f24785fe9d1ffaa9d4deb9f0", optional = true }
+bevy_elements = { git = "https://github.com/Ladvien/bevy_elements", rev = "ef87797468db6264f24785fe9d1ffaa9d4deb9f0", features = ["serde"], optional = true }
 bevy_emerge_core = { path = "../bevy_emerge_core" }
 # The runtime half. The editor spawns pieces through `bevy_emerge::spawn_descriptor` rather than its
 # own copy, so a map cannot look one way here and another in the game — the failure `bake.rs` and
