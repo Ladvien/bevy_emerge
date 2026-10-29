@@ -2381,6 +2381,9 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_notes::NoteClaim),
         Box::new(crate::ops_notes::NoteRenew),
         Box::new(crate::ops_notes::NoteRelease),
+        Box::new(crate::ops_notes::NoteAsk),
+        Box::new(crate::ops_notes::NoteAnswer),
+        Box::new(crate::ops_notes::NoteResolve),
     ]
 }
 
@@ -2496,6 +2499,11 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("note_claim", "lease_note("),
     ("note_renew", "lease_note("),
     ("note_release", "lease_note("),
+    // **Ask, answer and finish (#92)** — a note the person holds shows Ask and Done buttons, and a
+    // note with a question standing shows Yes and No; all three dispatch through `talk_note`.
+    ("note_ask", "talk_note("),
+    ("note_answer", "talk_note("),
+    ("note_resolve", "talk_note("),
 ];
 
 /// **Apply an operation, and record what happened.**
