@@ -1,0 +1,96 @@
+{
+ "name": "environment_preview",
+ "fps": 10,
+ "scale": 2,
+ "width": 960,
+ "crop": [
+  0,
+  0,
+  1280,
+  703
+ ],
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "placements": [
+      "abbey",
+      "well"
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 1.5
+  },
+  {
+   "seconds": 2.5,
+   "operation": {
+    "name": "family_set",
+    "parameters": {
+     "crate": "bevy_elements",
+     "field": "clock.hour",
+     "value": "19.5"
+    }
+   }
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "family_set",
+    "parameters": {
+     "crate": "bevy_elements",
+     "field": "forced_weather",
+     "value": "Some(Rain)"
+    }
+   }
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "family_set",
+    "parameters": {
+     "crate": "bevy_elements",
+     "field": "clock.date.month",
+     "value": "12"
+    }
+   }
+  },
+  {
+   "seconds": 2.5,
+   "operation": {
+    "name": "family_set",
+    "parameters": {
+     "crate": "bevy_elements",
+     "field": "forced_weather",
+     "value": "None"
+    }
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.2,
+   "caption": "noon, June (the defaults)"
+  },
+  {
+   "at": 1.6,
+   "caption": "agent: clock.hour = 19.5"
+  },
+  {
+   "at": 4.2,
+   "caption": "agent: forced weather = Rain"
+  },
+  {
+   "at": 7.2,
+   "caption": "agent: month = December"
+  },
+  {
+   "at": 10.2,
+   "caption": "agent: weather released to the climate"
+  }
+ ]
+}

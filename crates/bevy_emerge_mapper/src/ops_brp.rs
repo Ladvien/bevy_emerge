@@ -501,7 +501,7 @@ fn editor_state(
             .compositions,
             "kits": p.kits.len(),
             // **The registered game data files and their leaves** (#86), what `data_set` addresses.
-            "data_files": data_files_json(&p.root),
+            "data_files": data_files_json(&p.emerge_dir),
         })
     });
     // **What the editor is holding and what it last said.**
@@ -1928,9 +1928,9 @@ pub(crate) fn join_history(
 
 /// **`data.ron`'s files, with each one's leaf count**, read from disk so a hand edit shows at once.
 /// Empty with no registry; a malformed one reads as `{"error": ..}`.
-fn data_files_json(root: &std::path::Path) -> Value {
+fn data_files_json(emerge_dir: &std::path::Path) -> Value {
     use bevy_emerge_core::data_files::{DataFiles, leaves};
-    match DataFiles::load(root) {
+    match DataFiles::load(emerge_dir) {
         Ok(None) => json!([]),
         Err(e) => json!({"error": e}),
         Ok(Some(d)) => d
