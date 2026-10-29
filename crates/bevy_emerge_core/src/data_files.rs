@@ -285,3 +285,38 @@ pub fn set_leaf(
         .map_err(|e| format!("`{path}`: the edited file would not parse: {e}"))?;
     Ok(out)
 }
+
+/// The scalar at `path` as JSON, from its token text: what [`set_leaf`] would accept back. `None` for
+/// a token that is not editable (`None`, an enum variant).
+pub fn leaf_json(token: &str) -> Option<serde_json::Value> {
+    match Kind::of(token) {
+        Kind::Bool => Some(serde_json::Value::Bool(token == "true")),
+        Kind::Str => ron::from_str::<String>(token).ok().map(serde_json::Value::String),
+        Kind::Int => ron::from_str::<i64>(token).ok().map(Into::into),
+        Kind::Float => token
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map(serde_json::Value::Number),
+        Kind::None | Kind::Variant => None,
+    }
+}
+
+/// Put the exact token text `token` back at `path`, byte for byte: the undo of [`set_leaf`], which
+/// may have rewritten `1.50` as `1.5`. Refused unless the leaf exists, and unless `token` is of the kind the leaf holds now
+/// and the result parses.
+pub fn restore_leaf(text: &str, path: &str, token: &str) -> Result<String, String> {
+    let all = scan_ron_leaves(text)?;
+    let Some(leaf) = all.iter().find(|l| l.path == path) else {
+        return Err(format!("`{path}` is not a leaf of this file"));
+    };
+    if Kind::of(token) != Kind::of(&leaf.text) {
+        return Err(format!("`{token}` is not a value `{path}` can hold"));
+    }
+    let mut out = String::with_capacity(text.len() + token.len());
+    out.push_str(&text[..leaf.span.start]);
+    out.push_str(token);
+    out.push_str(&text[leaf.span.end..]);
+    ron::from_str::<ron::Value>(&out).map_err(|e| format!("`{path}`: the restored file would not parse: {e}"))?;
+    Ok(out)
+}

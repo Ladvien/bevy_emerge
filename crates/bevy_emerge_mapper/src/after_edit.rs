@@ -268,12 +268,12 @@ impl ShotWait {
     }
 }
 
-/// Pictures coming back from the screenshot observer: a ticket and the data URL, or `None` when the
+/// Pictures coming back from the screenshot observer: a ticket and the pictures, or `None` when the
 /// capture could not become a PNG.
 #[derive(Resource)]
 struct Shots {
-    tx: Mutex<Sender<(u64, Option<String>)>>,
-    rx: Mutex<Receiver<(u64, Option<String>)>>,
+    tx: Mutex<Sender<(u64, Option<Pictures>)>>,
+    rx: Mutex<Receiver<(u64, Option<Pictures>)>>,
 }
 
 impl Default for Shots {
@@ -288,34 +288,140 @@ pub fn wants_view(checks: &Checks) -> bool {
     checks.checks.iter().any(|c| c.after_edit && c.images.iter().any(|i| i == "view"))
 }
 
+/// Does any after-edit check ask for a picture the editor takes (`view`, or a `closeup` cut from it)?
+pub fn wants_picture(checks: &Checks) -> bool {
+    wants_view(checks) || checks.checks.iter().any(|c| c.after_edit && c.images.iter().any(|i| matches!(i.as_str(), "closeup" | "before" | "after")))
+}
+
+/// **The editor's last picture of the scene**, kept so the next run has a `before`. A run's `view` is
+/// the scene after its edit; it is the next run's `before`. The first run has none, so a check that
+/// needs `before` is reported as skipped rather than answered from less.
+#[derive(Resource, Default, Debug)]
+pub struct PictureMemory {
+    last: Option<String>,
+}
+
+impl PictureMemory {
+    /// Remember `view` (the picture after this run's edits) and return the one it replaces.
+    pub fn swap(&mut self, view: Option<String>) -> Option<String> {
+        match view {
+            Some(v) => self.last.replace(v),
+            None => self.last.clone(),
+        }
+    }
+}
+
 /// The picture as the data URL a model request takes.
 fn png_data_url(image: &Image) -> Option<String> {
+    rgba_data_url(&image.clone().try_into_dynamic().ok()?.to_rgba8())
+}
+
+fn rgba_data_url(rgba: &image::RgbaImage) -> Option<String> {
     use base64::Engine as _;
-    let rgba = image.clone().try_into_dynamic().ok()?.to_rgba8();
     let mut png = std::io::Cursor::new(Vec::new());
     rgba.write_to(&mut png, image::ImageFormat::Png).ok()?;
     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png.into_inner())))
 }
 
-/// Ask the checks about `edits` on a thread, with `view` as the picture of the editor when there is one.
-fn spawn_checks(edits: Vec<AgentEdit>, checks: Checks, view: Option<String>, tx: Sender<Vec<EditReport>>) {
+/// The close-up's side, as a fraction of the picture's shorter side: wide enough to show what a piece
+/// stands on and touches, narrow enough that it fills the frame.
+pub const CLOSEUP_FRACTION: f32 = 0.4;
+
+/// **Where the close-up of a point is in a picture**, as `[x, y, width, height]` in pixels. `centre` is
+/// the point as a fraction of the picture (0..1 each way). The square is [`CLOSEUP_FRACTION`] of the
+/// shorter side and is slid inside the picture rather than shrunk, so a piece at the edge still gets a
+/// full-size frame. A point off the picture is clamped to its nearest edge.
+pub fn closeup_rect(centre: (f32, f32), size: (u32, u32)) -> [u32; 4] {
+    let side = ((size.0.min(size.1) as f32 * CLOSEUP_FRACTION).round() as u32).clamp(1, size.0.min(size.1).max(1));
+    let place = |c: f32, len: u32| {
+        let mid = (c.clamp(0.0, 1.0) * len as f32).round() as i64;
+        (mid - (side / 2) as i64).clamp(0, (len - side) as i64) as u32
+    };
+    [place(centre.0, size.0), place(centre.1, size.1), side, side]
+}
+
+/// **Where an agent's `at` is in map space**, from a placement's parameters.
+pub fn edit_at(params: &serde_json::Value) -> Option<(f32, f32)> {
+    let at = params.get("at")?.as_array()?;
+    Some((at.first()?.as_f64()? as f32, at.get(1)?.as_f64()? as f32))
+}
+
+/// The crop of `image` named by `rect`, as a data URL.
+pub fn crop_data_url(image: &image::DynamicImage, rect: [u32; 4]) -> Option<String> {
+    rgba_data_url(&image.crop_imm(rect[0], rect[1], rect[2], rect[3]).to_rgba8())
+}
+
+/// What the editor's one screenshot becomes: the whole picture and a close-up for each operation
+/// that has a place in it.
+#[derive(Debug, Default)]
+struct Pictures {
+    view: Option<String>,
+    before: Option<String>,
+    closeups: BTreeMap<u64, String>,
+}
+
+/// Where each owed operation is on screen (fractions of the viewport), by log sequence. An operation
+/// with no place, or whose piece is not drawn, has no entry and so no close-up.
+fn frames_of(
+    edits: &[AgentEdit],
+    origin: (f32, f32, f32),
+    camera: &Camera,
+    cam_tf: &GlobalTransform,
+    placed: &Query<&GlobalTransform, With<crate::editor::Placement>>,
+) -> BTreeMap<u64, (f32, f32)> {
+    let Some(vp) = camera.logical_viewport_size().filter(|s| s.x > 0.0 && s.y > 0.0) else {
+        return BTreeMap::new();
+    };
+    edits
+        .iter()
+        .filter_map(|e| {
+            let at = edit_at(&e.params)?;
+            let (wx, wz) = (origin.0 + at.0, origin.2 + at.1);
+            // The piece the operation put down is the drawn one standing where it said.
+            let piece = placed
+                .iter()
+                .map(|t| (t, (t.translation().x - wx).powi(2) + (t.translation().z - wz).powi(2)))
+                .filter(|(_, d)| *d < 0.25)
+                .min_by(|a, b| a.1.total_cmp(&b.1))?
+                .0;
+            let p = camera.world_to_viewport(cam_tf, piece.translation()).ok()?;
+            Some((e.seq, (p.x / vp.x, p.y / vp.y)))
+        })
+        .collect()
+}
+
+/// Ask the checks about `edits` on a thread, with the editor's picture and each operation's close-up.
+fn spawn_checks(edits: Vec<AgentEdit>, checks: Checks, pictures: Pictures, tx: Sender<Vec<EditReport>>) {
     std::thread::spawn(move || {
         let http = Http::new(Config::from_env());
-        let done = run_due(&edits, &checks, &http, &|_| {
-            view.iter().map(|v| ("view".to_string(), v.clone())).collect()
+        let done = run_due(&edits, &checks, &http, &|e| {
+            let mut out: BTreeMap<String, String> = pictures.view.iter().map(|v| ("view".to_string(), v.clone())).collect();
+            if let Some(v) = &pictures.view {
+                out.insert("after".into(), v.clone());
+            }
+            if let Some(b) = &pictures.before {
+                out.insert("before".into(), b.clone());
+            }
+            if let Some(c) = pictures.closeups.get(&e.seq) {
+                out.insert("closeup".into(), c.clone());
+            }
+            out
         });
         let _ = tx.send(done);
     });
 }
 
 /// **Drain the queue onto a thread that asks the checks**: a model call never runs on the frame. When a
-/// check needs the editor's picture, it is taken first (the frame after the operation landed) and the
-/// thread starts when it arrives.
+/// check needs a picture, it is taken first (the frame after the operation landed) and the thread
+/// starts when it arrives.
 #[allow(clippy::too_many_arguments)]
 fn start_checks(
     mut commands: Commands,
     window: Query<(), With<bevy::window::PrimaryWindow>>,
     project: Option<Res<crate::project::Project>>,
+    open: Option<Res<crate::project::OpenMap>>,
+    camera: Option<Single<(&Camera, &GlobalTransform), With<crate::view::MainCamera>>>,
+    placed: Query<&GlobalTransform, With<crate::editor::Placement>>,
     mut queue: ResMut<AfterEditQueue>,
     reports: Res<Reports>,
     shots: Res<Shots>,
@@ -341,17 +447,30 @@ fn start_checks(
     let Ok(tx) = reports.tx.lock().map(|t| t.clone()) else {
         return;
     };
-    if !wants_view(&checks) {
-        spawn_checks(edits, checks, None, tx);
+    if !wants_picture(&checks) {
+        spawn_checks(edits, checks, Pictures::default(), tx);
         return;
     }
     let Ok(shot_tx) = shots.tx.lock().map(|t| t.clone()) else {
         return;
     };
+    let frames = match (&open, &camera) {
+        (Some(open), Some(cam)) => frames_of(&edits, open.map.origin, cam.0, cam.1, &placed),
+        _ => BTreeMap::new(),
+    };
     let ticket = wait.hold(edits);
     commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(
         move |shot: On<bevy::render::view::screenshot::ScreenshotCaptured>| {
-            let _ = shot_tx.send((ticket, png_data_url(&shot.image)));
+            let mut pictures = Pictures { view: png_data_url(&shot.image), ..Default::default() };
+            if let Ok(img) = shot.image.clone().try_into_dynamic() {
+                let size = (img.width(), img.height());
+                for (seq, centre) in &frames {
+                    if let Some(url) = crop_data_url(&img, closeup_rect(*centre, size)) {
+                        pictures.closeups.insert(*seq, url);
+                    }
+                }
+            }
+            let _ = shot_tx.send((ticket, Some(pictures)));
         },
     );
 }
@@ -362,23 +481,26 @@ fn launch_shot_checks(
     reports: Res<Reports>,
     shots: Res<Shots>,
     mut wait: ResMut<ShotWait>,
+    mut memory: ResMut<PictureMemory>,
 ) {
-    let mut ready: Vec<(Vec<AgentEdit>, Option<String>)> = wait.tick().into_iter().map(|e| (e, None)).collect();
+    let mut ready: Vec<(Vec<AgentEdit>, Pictures)> = wait.tick().into_iter().map(|e| (e, Pictures::default())).collect();
     if let Ok(rx) = shots.rx.lock() {
-        while let Ok((ticket, url)) = rx.try_recv() {
+        while let Ok((ticket, pictures)) = rx.try_recv() {
             if let Some(edits) = wait.deliver(ticket) {
-                ready.push((edits, url));
+                let mut pictures = pictures.unwrap_or_default();
+                pictures.before = memory.swap(pictures.view.clone());
+                ready.push((edits, pictures));
             }
         }
     }
     let Some(project) = project else {
         return;
     };
-    for (edits, view) in ready {
+    for (edits, pictures) in ready {
         let (Ok(checks), Ok(tx)) = (Checks::for_project(&project.root), reports.tx.lock().map(|t| t.clone())) else {
             continue;
         };
-        spawn_checks(edits, checks, view, tx);
+        spawn_checks(edits, checks, pictures, tx);
     }
 }
 
@@ -405,6 +527,7 @@ impl Plugin for AfterEditPlugin {
             .init_resource::<Reports>()
             .init_resource::<Shots>()
             .init_resource::<ShotWait>()
+            .init_resource::<PictureMemory>()
             .add_systems(
                 Update,
                 (queue_after_edit, start_checks, launch_shot_checks, collect_reports).chain(),

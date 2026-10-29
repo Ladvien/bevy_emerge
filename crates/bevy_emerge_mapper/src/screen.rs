@@ -384,6 +384,7 @@ door_state![
     crate::snip::SnipEdit,
     crate::editor::SizeEdit,
     crate::editor::FamilyEdit,
+    crate::editor::DataEdit,
     crate::editor::Folded,
     crate::editor::StampPicture,
     crate::editor::TargetLock,
@@ -572,6 +573,7 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::after_edit::Reports", Ownership::Session),
     ("bevy_emerge_mapper::after_edit::Shots", Ownership::Session),
     ("bevy_emerge_mapper::after_edit::ShotWait", Ownership::Session),
+    ("bevy_emerge_mapper::after_edit::PictureMemory", Ownership::Session),
     // ── The door's own working state ────────────────────────────────────────────────────────────
     // The undo stack is the one this list was written for: `docs/2026-08-17-one-application.md` §1
     // names it as the value that survives into the next kit today.
@@ -596,6 +598,7 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::editor::Rung", Ownership::Door),
     ("bevy_emerge_mapper::editor::SizeEdit", Ownership::Door),
     ("bevy_emerge_mapper::editor::FamilyEdit", Ownership::Door),
+    ("bevy_emerge_mapper::editor::DataEdit", Ownership::Door),
     // The game's newest verdict on a reload, read from `.live/game.ron`: true for as long as the app runs.
     ("bevy_emerge_mapper::live::LiveGame", Ownership::Session),
     ("bevy_emerge_mapper::family_host::FamilySettings", Ownership::Session),

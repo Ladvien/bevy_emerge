@@ -1322,6 +1322,34 @@ pub struct FamilyEdit {
     active: Option<String>,
 }
 
+/// **The data field** (#86): one line, `<file> <path> <value>`, whose Enter dispatches `data_set`
+/// through [`set_data_leaf`].
+#[derive(Component, Clone, Copy)]
+struct DataField;
+
+/// The text of the data field, refreshed as it is typed into.
+#[derive(Component, Clone, Copy)]
+struct DataReadout;
+
+/// **The Data panel's list** (#86): one row per leaf of every registered file. Rebuilt by
+/// [`refresh_data_list`] when the leaves change on disk or by an edit.
+#[derive(Component, Clone, Copy)]
+struct DataList;
+
+/// A row of [`DataList`]. Enter-equivalent: activating it opens the data field with `<file> <path> `
+/// already typed, so the person types only the value.
+#[derive(Component, Clone)]
+struct DataLeafRow {
+    file: String,
+    path: String,
+}
+
+/// The data field's buffer while it is being typed into; its own resource for [`FamilyEdit`]'s reason.
+#[derive(Resource, Default)]
+pub struct DataEdit {
+    active: Option<String>,
+}
+
 /// The node the palette is rebuilt into, so collapsing a category can redraw it.
 #[derive(Component)]
 struct PaletteList;
@@ -1917,6 +1945,7 @@ impl Plugin for EditorPlugin {
             // it, idempotently — happens to be absent from the app.
             .init_resource::<SizeEdit>()
             .init_resource::<FamilyEdit>()
+            .init_resource::<DataEdit>()
             .init_resource::<Folded>()
             .init_resource::<EdgeFaults>()
             // Shared by both tabs' lists, so it is registered once here rather than by whichever
@@ -2068,7 +2097,7 @@ impl Plugin for EditorPlugin {
                         // goes down, rather than one where it is invisible and still eating keys.
                         leaving_a_tab_puts_the_name_prompt_down.in_set(keys::Phase::Sense),
                     ),
-                    (size_edit_keys, family_edit_keys).in_set(keys::Phase::Text),
+                    (size_edit_keys, family_edit_keys, data_edit_keys).in_set(keys::Phase::Text),
                     // No `not_typing`, no `in_map_mode`: `keys::just_pressed` now refuses on both
                     // counts, and a run condition repeating it would be a second census. Dropping
                     // `in_map_mode` also makes `Cmd+S` and `Cmd+Z` work from every tab, which is what
@@ -2178,7 +2207,7 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family),
+                    (refresh_size, refresh_family, refresh_data, refresh_data_list),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -2217,7 +2246,9 @@ impl Plugin for EditorPlugin {
             .add_observer(on_row_click)
             .add_observer(on_category_click)
             .add_observer(on_size_field_click)
-            .add_observer(on_family_field_click);
+            .add_observer(on_family_field_click)
+            .add_observer(on_data_field_click)
+            .add_observer(on_data_leaf_click);
     }
 }
 
@@ -2993,6 +3024,33 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     ("crate field value".to_owned(), TEXT),
                     FamilyReadout,
                 );
+            });
+
+            // **Data files (#86).** One line: `<file> <path> <value>`, e.g. `tuning/mob speed 2.5`.
+            // Enter writes it through `data_set`.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "DATA");
+                crate::chrome::text_field(
+                    s,
+                    Val::Percent(100.0),
+                    DataField,
+                    crate::chrome::text::BODY,
+                    ("file path value".to_owned(), TEXT),
+                    DataReadout,
+                );
+                s.spawn((
+                    DataList,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                ));
             });
 
             // **The composition picker** — the Map door's own way to arm a composition.
@@ -3912,6 +3970,191 @@ fn refresh_family(
         let (want, want_colour) = crate::chrome::field_text(
             edit.active.as_deref(),
             ("crate field value".to_owned(), TEXT),
+        );
+        if text.0 != want {
+            text.0 = want;
+        }
+        if colour.0 != want_colour {
+            colour.0 = want_colour;
+        }
+    }
+    for (hovered, mut bg) in &mut fields {
+        let want = if edit.active.is_some() {
+            FOCUS_BG
+        } else if hovered.0 {
+            ROW_HOVER
+        } else {
+            ROW_BG
+        };
+        if bg.0 != want {
+            bg.0 = want;
+        }
+    }
+}
+
+fn on_data_field_click(
+    activate: On<Activate>,
+    fields: Query<&DataField>,
+    edit: Option<ResMut<DataEdit>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let (Some(mut edit), Some(mut state)) = (edit, state) else {
+        return;
+    };
+    if fields.get(activate.entity).is_err() {
+        return;
+    }
+    edit.active = Some(String::new());
+    state.status.note(
+        "data setting: `<file> <path> <value>`, Enter to write it, Esc to leave it alone".to_owned(),
+    );
+}
+
+fn on_data_leaf_click(
+    activate: On<Activate>,
+    rows: Query<&DataLeafRow>,
+    edit: Option<ResMut<DataEdit>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let (Some(mut edit), Some(mut state)) = (edit, state) else {
+        return;
+    };
+    let Ok(row) = rows.get(activate.entity) else {
+        return;
+    };
+    edit.active = Some(format!("{} {} ", row.file, row.path));
+    state.status.note("Enter writes the value, Esc leaves it alone".to_owned());
+}
+
+/// Keep [`DataList`] equal to the registered files' leaves. The files are read twice a second, not
+/// every frame, and the rows are respawned only when what they say changed.
+fn refresh_data_list(
+    mut commands: Commands,
+    time: Res<Time>,
+    project: Option<Res<Project>>,
+    lists: Query<Entity, With<DataList>>,
+    mut shown: Local<Option<Vec<crate::ops_data::LeafRow>>>,
+    mut since: Local<f32>,
+) {
+    *since += time.delta_secs();
+    if shown.is_some() && *since < 0.5 {
+        return;
+    }
+    *since = 0.0;
+    let rows = project.map(|p| crate::ops_data::listing(&p.root)).unwrap_or_default();
+    if shown.as_ref() == Some(&rows) {
+        return;
+    }
+    for list in &lists {
+        commands.entity(list).despawn_related::<Children>();
+        commands.entity(list).with_children(|p| {
+            if rows.is_empty() {
+                p.spawn((
+                    Text::new("no data files registered (data.ron)"),
+                    TextColor(DIM),
+                    crate::chrome::font(crate::chrome::text::LABEL),
+                ));
+            }
+            for r in &rows {
+                crate::chrome::list_row(
+                    p,
+                    false,
+                    DataLeafRow { file: r.file.clone(), path: r.path.clone() },
+                )
+                .with_children(|row| {
+                    row.spawn((
+                        Text::new(format!("{} {} = {}", r.file, r.path, r.value)),
+                        TextColor(TEXT),
+                        crate::chrome::font(crate::chrome::text::BODY),
+                    ));
+                });
+            }
+        });
+    }
+    *shown = Some(rows);
+}
+
+fn data_edit_keys(
+    mut events: MessageReader<KeyboardInput>,
+    mut edit: ResMut<DataEdit>,
+    project: Option<ResMut<Project>>,
+    mut state: ResMut<EditorState>,
+) {
+    if edit.active.is_none() {
+        return;
+    }
+    for event in events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        match &event.logical_key {
+            Key::Enter => {
+                let raw = edit.active.take().unwrap_or_default();
+                set_data_leaf(project.as_deref(), &mut state, &raw);
+                return;
+            }
+            Key::Escape => {
+                edit.active = None;
+                state.status.note("data setting unchanged".to_owned());
+                return;
+            }
+            Key::Backspace => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.pop();
+                }
+            }
+            Key::Space => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.push(' ');
+                }
+            }
+            Key::Character(c) => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.push_str(c);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// **Commit the typed line through the registry** as `data_set`: the first word is the registered file,
+/// the second the leaf path, and the rest one JSON scalar (`2.5`, `true`, `"name"`).
+fn set_data_leaf(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+    let mut words = raw.trim().splitn(3, ' ');
+    let (Some(krate), Some(field), Some(value)) = (words.next(), words.next(), words.next()) else {
+        state.status.problem(format!("`{}` is not `<file> <path> <value>`, so nothing was written", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let value = serde_json::from_str::<serde_json::Value>(value)
+        .unwrap_or_else(|_| serde_json::Value::String(value.to_owned()));
+    let params = serde_json::json!({"file": krate, "path": field, "value": value});
+    match crate::ops::dispatch(&mut ctx, "data_set", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+fn refresh_data(
+    edit: Res<DataEdit>,
+    mut readouts: Query<(&mut Text, &mut TextColor), With<DataReadout>>,
+    mut fields: Query<(&Hovered, &mut BackgroundColor), With<DataField>>,
+) {
+    for (mut text, mut colour) in &mut readouts {
+        let (want, want_colour) = crate::chrome::field_text(
+            edit.active.as_deref(),
+            ("file path value".to_owned(), TEXT),
         );
         if text.0 != want {
             text.0 = want;
@@ -5031,6 +5274,8 @@ pub struct Fields<'w> {
     pub size: Res<'w, SizeEdit>,
     /// **The family settings field (#96).**
     pub family: Res<'w, FamilyEdit>,
+    /// **The data field (#86).**
+    pub data: Res<'w, DataEdit>,
     pub import: Res<'w, crate::tiles::ImportState>,
     pub cell: Res<'w, crate::tiles::CellEdit>,
     pub note: Res<'w, crate::tiles::NoteEdit>,
@@ -5083,6 +5328,7 @@ impl Fields<'_> {
             || self.state.grouping.is_some()
             || self.size.active.is_some()
             || self.family.active.is_some()
+            || self.data.active.is_some()
             || self.import.renaming.is_some()
             || self.cell.typing()
             || self.note.typing()

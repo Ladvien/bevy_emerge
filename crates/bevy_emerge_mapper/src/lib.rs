@@ -73,6 +73,7 @@ pub mod present;
 pub mod ops;
 #[cfg(feature = "debugger")]
 pub mod ops_brp;
+pub mod ops_data;
 pub mod ops_family;
 pub mod ops_notes;
 pub mod ops_runs;
