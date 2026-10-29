@@ -2377,6 +2377,9 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_notes::NoteEdit),
         Box::new(crate::ops_notes::NoteRemove),
         Box::new(crate::ops_notes::NoteSend),
+        Box::new(crate::ops_notes::NoteClaim),
+        Box::new(crate::ops_notes::NoteRenew),
+        Box::new(crate::ops_notes::NoteRelease),
     ]
 }
 
@@ -2483,6 +2486,12 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **Enter on the Note tool with no box open** sends every draft through `send_notes`, which
     // dispatches `note_send` (#90).
     ("note_send", "send_notes("),
+    // **The lease buttons on a note row (#91)** — Claim on a sent note, Renew and Release on a claimed
+    // one — dispatch through `lease_note`, as the person's side of an agent's lease: a person at the
+    // keyboard can hold a note, keep it, or take it back from an agent that stopped answering.
+    ("note_claim", "lease_note("),
+    ("note_renew", "lease_note("),
+    ("note_release", "lease_note("),
 ];
 
 /// **Apply an operation, and record what happened.**
