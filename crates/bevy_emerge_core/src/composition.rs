@@ -1559,6 +1559,7 @@ pub fn interface(
         bash: None,
         placements: Vec::new(),
         stamps: Vec::new(),
+        runs: Vec::new(),
         locations: Vec::new(),
         note: None,
         // A scratch map that exists to answer mounts, never to generate, so no wish is in play.
