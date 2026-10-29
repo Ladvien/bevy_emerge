@@ -267,8 +267,8 @@
       "kind": "enhancement",
       "area": "editor",
       "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
-      "status": "open",
-      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it.",
+      "status": "fixed",
+      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it. FIXED: map_create's inverse is its own only_as_undo form {remove}, whose inverse is {restore:{name,text}} (file bytes kept in the log); creation lines are project-scoped in undo_target, so they undo by name from any open map; refused while that map is open. Proof: tests/a_made_map_can_be_taken_away_by_undo.rs.",
       "last_failure": "",
       "first_seen": "2026-10-24"
     },
