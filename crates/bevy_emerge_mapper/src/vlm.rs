@@ -83,7 +83,7 @@ impl std::fmt::Debug for VlmConfig {
 /// The `.env` file at the project root, parsed — `KEY=VALUE` lines, `#` comments, an optional
 /// `export ` prefix and single/double quotes tolerated. Hand-rolled: twenty lines of parsing is
 /// not worth a dependency, and this is a dev tool's config, not a spec implementation.
-fn dotenv(root: &std::path::Path) -> std::collections::BTreeMap<String, String> {
+pub(crate) fn dotenv(root: &std::path::Path) -> std::collections::BTreeMap<String, String> {
     let mut out = std::collections::BTreeMap::new();
     let Ok(text) = std::fs::read_to_string(root.join(".env")) else {
         return out;
