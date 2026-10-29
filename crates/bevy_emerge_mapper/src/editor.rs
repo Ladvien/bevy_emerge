@@ -2116,7 +2116,7 @@ impl Plugin for EditorPlugin {
                     // drawn while an author is on Tiles or Compose looking at the group that made
                     // them — a world that empties out when you change tabs would read as the stamp
                     // having failed.
-                    redraw_stamps,
+                    (redraw_stamps, redraw_runs),
                     // Nested: the tuple is at Bevy 0.19's cap of 20. `redraw_edited` is the Map
                     // side of a Tiles-tab write, so it rides with the other per-frame repaints.
                     // Nested: the tuple is at Bevy 0.19's cap of 20. `cycle_grid` is a census
@@ -5764,6 +5764,9 @@ pub struct PlaceDrag {
 pub struct RunDrag {
     /// Where the button went down, or `None` while only hovering.
     from: Option<(f32, f32)>,
+    /// **An end of a standing run the press landed on**: its id, and `true` when it is the `to` end.
+    /// A release moves that end through `run_set`; the drag draws no new run.
+    grab: Option<(String, bool)>,
 }
 
 /// The three map resources a placement writes: the project, the open map, and the editor's state.
@@ -6089,6 +6092,7 @@ fn drive_run(
     let at = open.map.to_map_space((hit.x, hit.z));
     if mouse.just_pressed(MouseButton::Left) {
         drag.from = Some(at);
+        drag.grab = run_end_near(&open.map, at);
     }
 
     // **The line, while it is being dragged.** A gizmo, not a quad: the run is a *line* and a
@@ -6098,7 +6102,7 @@ fn drive_run(
     // lay, not the landing. The author has to see the fence before they let go.
     if let Some(from) = drag.from {
         let dragging = (from.0 - at.0).abs() > CLICK_EPS || (from.1 - at.1).abs() > CLICK_EPS;
-        ghost_drag.line = dragging.then_some((from, at));
+        ghost_drag.line = dragging.then_some((from, at)).filter(|_| drag.grab.is_none());
         if dragging {
             gizmos.line(
                 Vec3::new(
@@ -6125,6 +6129,14 @@ fn drive_run(
     // **The ghost goes with the drag** — the posts are about to be real, and a ghost of them would
     // be a second copy.
     ghost_drag.line = None;
+    // **A drag that began on a standing run's end moves that end**, and a click there changes nothing:
+    // the run's rows follow because they are derived from it.
+    if let Some((id, is_to)) = drag.grab.take() {
+        if (from.0 - at.0).abs() > CLICK_EPS || (from.1 - at.1).abs() > CLICK_EPS {
+            set_run(Some(&mut project), &mut open, &mut state, &id, is_to, at);
+        }
+        return;
+    }
     // **A click places one; a drag runs.** The same threshold the removal tool uses, so a hand that
     // moved a hair while clicking is still a click in both.
     //
@@ -6145,6 +6157,12 @@ fn drive_run(
             at,
             free,
         );
+        return;
+    }
+    // **Shift lays the line as a run** (#115): one `RunPlaced` the map holds, whose rows follow when an
+    // end moves. Without it the line lays ordinary rows, as it always has.
+    if keys::shift_held(&keyboard) {
+        add_run(Some(&mut project), &mut open, &mut state, &d, from, at);
         return;
     }
     run_between(
@@ -6218,6 +6236,92 @@ fn run_between(
     // is one act to take back.
     state.record(record_added(posts.len(), Vec::new()));
     state.status.note(format!("ran {} piece(s) along the line", posts.len()));
+}
+
+/// **Lay the dragged line as a run the map holds** (`run_add`): a row for the whole line, not for
+/// each post. The posts are derived by `Map::expanded` and drawn by `redraw_runs`.
+fn add_run(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    brush: &bevy_emerge_core::descriptor::Descriptor,
+    from: (f32, f32),
+    to: (f32, f32),
+) {
+    // **One row in the map, not the posts it lays** (#115): the run is stored as the run, its rows are
+    // derived by `Map::expanded`, and `redraw_runs` draws them. A refusal (a piece with no
+    // footprint, a line shorter than a post) is the answer, the same call `flood_from_cursor` makes:
+    // a fence with a hole in it is worse than no fence.
+    state.next_id += 1;
+    let id = format!("{}_run@{}", short_id(&brush.id), state.next_id);
+    let run = bevy_emerge_core::run::Run {
+        descriptor: brush.id.clone(),
+        pitch: None,
+        from,
+        to,
+        corners: Vec::new(),
+        gaps: Vec::new(),
+    };
+    dispatch_note(
+        project,
+        open,
+        state,
+        "run_add",
+        serde_json::json!({"id": id, "run": run}),
+        "run a piece along a line",
+    );
+}
+
+/// **Move one end of a standing run through the registry** (`run_set`); its rows follow.
+fn set_run(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+    is_to: bool,
+    at: (f32, f32),
+) {
+    let params = if is_to {
+        serde_json::json!({"id": id, "to": at})
+    } else {
+        serde_json::json!({"id": id, "from": at})
+    };
+    dispatch_note(project, open, state, "run_set", params, "move the end of a run");
+}
+
+/// **Take a run off the map whole through the registry** (`run_remove`), with every row it lays.
+fn remove_run(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState, id: &str) {
+    dispatch_note(project, open, state, "run_remove", serde_json::json!({"id": id}), "remove a run");
+}
+
+/// How near a press must be to an end of a standing run to take it (metres, map space).
+const RUN_GRAB: f32 = 0.5;
+
+/// **The end of a standing run within reach of `at`**: its id, and `true` for the `to` end.
+fn run_end_near(map: &bevy_emerge_core::map::Map, at: (f32, f32)) -> Option<(String, bool)> {
+    let near = |p: (f32, f32)| (p.0 - at.0).hypot(p.1 - at.1) <= RUN_GRAB;
+    map.runs.iter().find_map(|r| {
+        if near(r.run.from) {
+            Some((r.id.clone(), false))
+        } else if near(r.run.to) {
+            Some((r.id.clone(), true))
+        } else {
+            None
+        }
+    })
+}
+
+/// **The run whose post covers `probe`**, for the removal tool's click. Laid on the click, never per
+/// frame; a run that does not lay has no posts to point at.
+fn pick_run(project: &Project, map: &bevy_emerge_core::map::Map, probe: (f32, f32)) -> Option<String> {
+    map.runs.iter().find_map(|r| {
+        let d = project.library.descriptors.iter().find(|d| d.id == r.run.descriptor)?;
+        let posts = bevy_emerge_core::run::lay(&r.run, &project.library).ok()?;
+        posts
+            .iter()
+            .any(|p| bevy_emerge_core::stack::covers(d, p.at, p.yaw, probe))
+            .then(|| r.id.clone())
+    })
 }
 
 /// **The clone tool** — [`drive_removal`]'s shape with the opposite payload: the box takes a COPY
@@ -6846,7 +6950,7 @@ fn drive_removal(
     placed: Query<(Entity, &Placement)>,
     mut marker: Query<(&mut Transform, &mut Visibility), With<RemovalTile>>,
     mut drag: ResMut<RemovalDrag>,
-    project: ResMut<Project>,
+    mut project: ResMut<Project>,
     mut open: ResMut<OpenMap>,
     mut state: ResMut<EditorState>,
     picture: Res<StampPicture>,
@@ -6959,7 +7063,12 @@ fn drive_removal(
             // reaching *through* the stamp, which is the thing `composition.rs`'s encapsulation rule
             // forbids and which the missing `Placement` used to prevent by making it unreachable.
             Some(Subject::Stamp(id)) => delete_stamp(&id, &project, &mut open, &mut state),
-            None => state.status.note("nothing here to remove"),
+            None => match pick_run(&project, &open.map, at) {
+                // **The run, whole**: a click on one post is reaching through the run, which is the
+                // rule a stamp follows, so the run and every row it lays go together.
+                Some(id) => remove_run(Some(&mut project), &mut open, &mut state, &id),
+                None => state.status.note("nothing here to remove"),
+            },
         }
         return;
     }
@@ -7113,7 +7222,8 @@ pub fn next_id_after(map: &bevy_emerge_core::map::Map) -> u32 {
     let suffix = |id: &str| id.rsplit_once('@').and_then(|(_, n)| n.parse::<u32>().ok());
     let placements = map.placements.iter().filter_map(|p| suffix(&p.id));
     let stamps = map.stamps.iter().filter_map(|st| suffix(&st.id));
-    placements.chain(stamps).max().unwrap_or(0)
+    let runs = map.runs.iter().filter_map(|r| suffix(&r.id));
+    placements.chain(stamps).chain(runs).max().unwrap_or(0)
 }
 
 fn spawn_existing(
@@ -7824,6 +7934,76 @@ fn redraw_stamps(
     info!(
         "bevy_emerge_mapper: redrew {drawn} stamped row(s) from {stamps} stamp(s)"
     );
+}
+
+/// **A run's picture**: one parent per run, its posts as children, rebuilt whole whenever the map or
+/// the project changes (`redraw_stamps`' contract, and for the same reason: the picture is a pure
+/// function of the list). Carries no [`Placement`], so the placement tools cannot reach a post.
+#[derive(Component)]
+pub struct RunInstance {
+    pub id: String,
+}
+
+fn redraw_runs(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    project: Res<Project>,
+    open: Res<OpenMap>,
+    mut state: ResMut<EditorState>,
+    drawn: Query<Entity, With<RunInstance>>,
+) {
+    if !(project.is_changed() || open.is_changed()) {
+        return;
+    }
+    for e in &drawn {
+        commands.entity(e).despawn();
+    }
+    if open.map.runs.is_empty() {
+        return;
+    }
+    // **The map as the game loads it**, so the posts stand where `Map::expanded` puts them, and the
+    // heights are resolved against everything else on the map.
+    let expanded = match open.map.expanded(&[], &project.library) {
+        Ok(m) => m,
+        Err(e) => {
+            state.status.problem(format!("runs do not lay: {e}"));
+            error!("bevy_emerge_mapper: {e}");
+            return;
+        }
+    };
+    let ys = match bevy_emerge_core::stack::resolve_y(&expanded, &project.library) {
+        Ok(ys) => ys,
+        Err(e) => {
+            state.status.problem(format!("run rows have no height: {e}"));
+            error!("bevy_emerge_mapper: {e}");
+            return;
+        }
+    };
+    let first = open.map.placements.len();
+    let mut parents: std::collections::HashMap<&str, Entity> = std::collections::HashMap::new();
+    for (k, p) in expanded.placements.iter().enumerate().skip(first) {
+        let (Some(d), Some(&y)) = (descriptor_of(&project.library, p), ys.get(k)) else {
+            continue;
+        };
+        let Some((run_id, _)) = p.id.rsplit_once('/') else {
+            continue;
+        };
+        if let Some(e) = spawn_piece(
+            &mut commands,
+            &assets,
+            Pose { d: &d, yaw: p.yaw, tip: p.tip },
+            p.at,
+            open.map.origin,
+            y,
+        ) {
+            let parent = *parents.entry(run_id).or_insert_with(|| {
+                commands
+                    .spawn((RunInstance { id: run_id.to_owned() }, Transform::IDENTITY, Visibility::default()))
+                    .id()
+            });
+            commands.entity(e).insert(ChildOf(parent));
+        }
+    }
 }
 
 /// A drawn row belonging to a stamp. It names the stamp it is drawn for and the row it expands, so
