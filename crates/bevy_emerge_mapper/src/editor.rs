@@ -1331,6 +1331,19 @@ struct DataField;
 #[derive(Component, Clone, Copy)]
 struct DataReadout;
 
+/// **The Data panel's list** (#86): one row per leaf of every registered file. Rebuilt by
+/// [`refresh_data_list`] when the leaves change on disk or by an edit.
+#[derive(Component, Clone, Copy)]
+struct DataList;
+
+/// A row of [`DataList`]. Enter-equivalent: activating it opens the data field with `<file> <path> `
+/// already typed, so the person types only the value.
+#[derive(Component, Clone)]
+struct DataLeafRow {
+    file: String,
+    path: String,
+}
+
 /// The data field's buffer while it is being typed into; its own resource for [`FamilyEdit`]'s reason.
 #[derive(Resource, Default)]
 pub struct DataEdit {
@@ -2194,7 +2207,7 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family, refresh_data),
+                    (refresh_size, refresh_family, refresh_data, refresh_data_list),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -2234,7 +2247,8 @@ impl Plugin for EditorPlugin {
             .add_observer(on_category_click)
             .add_observer(on_size_field_click)
             .add_observer(on_family_field_click)
-            .add_observer(on_data_field_click);
+            .add_observer(on_data_field_click)
+            .add_observer(on_data_leaf_click);
     }
 }
 
@@ -3029,6 +3043,14 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     ("file path value".to_owned(), TEXT),
                     DataReadout,
                 );
+                s.spawn((
+                    DataList,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                ));
             });
 
             // **The composition picker** — the Map door's own way to arm a composition.
@@ -3987,6 +4009,71 @@ fn on_data_field_click(
     state.status.note(
         "data setting: `<file> <path> <value>`, Enter to write it, Esc to leave it alone".to_owned(),
     );
+}
+
+fn on_data_leaf_click(
+    activate: On<Activate>,
+    rows: Query<&DataLeafRow>,
+    edit: Option<ResMut<DataEdit>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let (Some(mut edit), Some(mut state)) = (edit, state) else {
+        return;
+    };
+    let Ok(row) = rows.get(activate.entity) else {
+        return;
+    };
+    edit.active = Some(format!("{} {} ", row.file, row.path));
+    state.status.note("Enter writes the value, Esc leaves it alone".to_owned());
+}
+
+/// Keep [`DataList`] equal to the registered files' leaves. The files are read twice a second, not
+/// every frame, and the rows are respawned only when what they say changed.
+fn refresh_data_list(
+    mut commands: Commands,
+    time: Res<Time>,
+    project: Option<Res<Project>>,
+    lists: Query<Entity, With<DataList>>,
+    mut shown: Local<Option<Vec<crate::ops_data::LeafRow>>>,
+    mut since: Local<f32>,
+) {
+    *since += time.delta_secs();
+    if shown.is_some() && *since < 0.5 {
+        return;
+    }
+    *since = 0.0;
+    let rows = project.map(|p| crate::ops_data::listing(&p.root)).unwrap_or_default();
+    if shown.as_ref() == Some(&rows) {
+        return;
+    }
+    for list in &lists {
+        commands.entity(list).despawn_related::<Children>();
+        commands.entity(list).with_children(|p| {
+            if rows.is_empty() {
+                p.spawn((
+                    Text::new("no data files registered (data.ron)"),
+                    TextColor(DIM),
+                    crate::chrome::font(crate::chrome::text::LABEL),
+                ));
+            }
+            for r in &rows {
+                crate::chrome::list_row(
+                    p,
+                    false,
+                    DataLeafRow { file: r.file.clone(), path: r.path.clone() },
+                )
+                .with_children(|row| {
+                    row.spawn((
+                        Text::new(format!("{} {} = {}", r.file, r.path, r.value)),
+                        TextColor(TEXT),
+                        crate::chrome::font(crate::chrome::text::BODY),
+                    ));
+                });
+            }
+        });
+    }
+    *shown = Some(rows);
 }
 
 fn data_edit_keys(
