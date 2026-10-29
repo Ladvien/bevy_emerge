@@ -62,6 +62,15 @@ fn main() -> AppExit {
     // — the alternative is forty constants that drift apart the first time one is missed.
     .insert_resource(UiScale(bevy_emerge_mapper::chrome::EDITOR_UI_SCALE));
 
+    // **The preview uses the game's own sky** (#98): `bevy_elements`' plugins, always added, dress
+    // the editor camera only in a project that has an environment file (`environment::dress_camera`).
+    #[cfg(feature = "bevy_elements")]
+    {
+        use bevy::prelude::*;
+        app.add_plugins(bevy_elements::ElementsPlugins)
+            .add_systems(Update, bevy_emerge_mapper::environment::dress_camera);
+    }
+
     // The state both halves are gated by, and the two transitions that load and unload a door.
     app.add_plugins(screen::ScreenPlugin);
 
