@@ -6450,6 +6450,7 @@ fn drive_run(
     mut ghost_drag: ResMut<RunGhostDrag>,
     mut gizmos: Gizmos,
     placed: Query<(Entity, &Placement)>,
+    mut due: ResMut<crate::watch::Due>,
 ) {
     if state.tool != Tool::Run {
         // Read, never write, unless something happened — `rebuild_palette` watches `EditorState`
@@ -6572,6 +6573,13 @@ fn drive_run(
         );
         return;
     }
+    // **The platform modifier turns the rows along the line into a run** (#115), one way.
+    if keys::mod_held(&keyboard) {
+        if rows_to_run_along(Some(&mut project), &mut open, &mut state, &d, from, at) {
+            due.map_replaced = true;
+        }
+        return;
+    }
     // **Shift lays the line as a run** (#115): one `RunPlaced` the map holds, whose rows follow when an
     // end moves. Without it the line lays ordinary rows, as it always has.
     if keys::shift_held(&keyboard) {
@@ -6683,6 +6691,46 @@ fn add_run(
         serde_json::json!({"id": id, "run": run}),
         "run a piece along a line",
     );
+}
+
+/// **Replace the standing rows of `brush` along the dragged line by the run that lays them**
+/// (`placements_to_run`). Rows within `RUN_GRAB` of the line, in path order. `true` when the map
+/// changed, so the caller redraws the pieces; a refusal names the first row that does not fit.
+fn rows_to_run_along(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    brush: &bevy_emerge_core::descriptor::Descriptor,
+    from: (f32, f32),
+    to: (f32, f32),
+) -> bool {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let len2 = dx * dx + dy * dy;
+    if len2 <= 0.0 {
+        return false;
+    }
+    let mut hits: Vec<(f32, String)> = open
+        .map
+        .placements
+        .iter()
+        .filter(|p| p.descriptor == brush.id)
+        .filter_map(|p| {
+            let t = (((p.at.0 - from.0) * dx + (p.at.1 - from.1) * dy) / len2).clamp(0.0, 1.0);
+            let off = (p.at.0 - (from.0 + t * dx)).hypot(p.at.1 - (from.1 + t * dy));
+            (off <= RUN_GRAB).then(|| (t, p.id.clone()))
+        })
+        .collect();
+    if hits.is_empty() {
+        state.status.problem(format!("no `{}` rows along that line to turn into a run", brush.id));
+        return false;
+    }
+    hits.sort_by(|a, b| a.0.total_cmp(&b.0));
+    state.next_id += 1;
+    let id = format!("{}_run@{}", short_id(&brush.id), state.next_id);
+    let rows: Vec<String> = hits.into_iter().map(|(_, id)| id).collect();
+    let before = open.map.runs.len();
+    dispatch_note(project, open, state, "placements_to_run", serde_json::json!({"id": id, "rows": rows}), "turn rows into a run");
+    open.map.runs.len() != before
 }
 
 /// **Move one end of a standing run through the registry** (`run_set`); its rows follow.
