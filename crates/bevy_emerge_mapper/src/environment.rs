@@ -205,16 +205,27 @@ pub fn spawn_section(s: &mut ChildSpawnerCommands) {
 /// switches the preview without a restart.
 pub fn dress_camera(
     settings: Res<FamilySettings>,
-    camera: Query<(Entity, Has<bevy_elements::ElementsCamera>), With<crate::view::MainCamera>>,
+    mut camera: Query<(Entity, &mut Camera, Has<bevy_elements::ElementsCamera>), With<crate::view::MainCamera>>,
     mut commands: Commands,
 ) {
     let wanted = settings.text.contains_key(CRATE);
-    for (entity, has) in &camera {
+    for (entity, mut cam, has) in &mut camera {
         match (wanted, has) {
             (true, false) => {
+                // `ElementsCamera` requires `Hdr`, which gives the camera a main texture of its own
+                // that the final pass copies onto the surface. The default copy ignores what the
+                // ground pass already drew there (`blend_state: None`), so a transparent main
+                // texture copied that way blacked the whole viewport (#118). Blend it over instead.
+                cam.clear_color = bevy::camera::ClearColorConfig::Custom(Color::NONE);
+                cam.output_mode = bevy::camera::CameraOutputMode::Write {
+                    blend_state: Some(bevy::render::render_resource::BlendState::ALPHA_BLENDING),
+                    clear_color: bevy::camera::ClearColorConfig::None,
+                };
                 commands.entity(entity).insert(bevy_elements::ElementsCamera::default());
             }
             (false, true) => {
+                cam.clear_color = bevy::camera::ClearColorConfig::None;
+                cam.output_mode = bevy::camera::CameraOutputMode::default();
                 commands.entity(entity).remove::<bevy_elements::ElementsCamera>();
             }
             _ => {}
