@@ -920,9 +920,13 @@ type Block = (Vec<(String, u8)>, (f32, f32));
 /// the turned footprint every cell shares.
 ///
 /// Each pair is tried on a two-piece map through [`faults`] itself, as [`dead_ends`] does, and
-/// remembered. Backtracking, cell by cell: a cell's candidates are the options of the first cell's
-/// footprint that meet the cell to its west across their east seam and the cell to its north across
-/// their south seam.
+/// remembered. Backtracking, cell by cell in row order, over each cell's candidates in option order:
+/// a candidate must meet the cell to its west across their east seam and the cell to its north
+/// across their south seam. Two prunings keep a kit of many pieces from trying every arrangement of
+/// the first cells before finding that the middle has no piece: each cell's candidates are first cut
+/// to those with a partner in every neighbouring cell's candidates (arc consistency, repeated until
+/// nothing changes), and a placed piece must leave its east neighbour a candidate. Both drop only
+/// options that can stand in no block, so the first block found is the same as without them.
 fn block(library: &Library, divisions: u32, rows: usize, cols: usize) -> Option<Block> {
     use std::collections::HashMap;
 
@@ -965,25 +969,68 @@ fn block(library: &Library, divisions: u32, rows: usize, cols: usize) -> Option<
         })
     };
 
-    // Fill `cells` from its length to `rows * cols`, trying `fits` in order; true once full.
+    // Cut each cell's candidates to those with a partner in every neighbour's, until nothing changes.
+    // False when a cell is left with none.
+    fn consistent(
+        cand: &mut [Vec<usize>],
+        cols: usize,
+        meets: &mut dyn FnMut(usize, usize, Dir) -> bool,
+    ) -> bool {
+        loop {
+            let mut changed = false;
+            for i in 0..cand.len() {
+                let east = (i + 1 < cand.len() && !(i + 1).is_multiple_of(cols)).then_some((i + 1, E));
+                let south = (i + cols < cand.len()).then_some((i + cols, S));
+                for (j, dir) in east.into_iter().chain(south) {
+                    let (near, far) = (cand[i].clone(), cand[j].clone());
+                    let before = (near.len(), far.len());
+                    cand[i].retain(|&x| far.iter().any(|&y| meets(x, y, dir)));
+                    cand[j].retain(|&y| near.iter().any(|&x| meets(x, y, dir)));
+                    changed |= before != (cand[i].len(), cand[j].len());
+                }
+            }
+            if cand.iter().any(Vec::is_empty) {
+                return false;
+            }
+            if !changed {
+                return true;
+            }
+        }
+    }
+
+    // Does `o` at cell `i` meet what is already placed west and north of it?
+    fn fits(
+        cells: &[usize],
+        i: usize,
+        o: usize,
+        cols: usize,
+        meets: &mut dyn FnMut(usize, usize, Dir) -> bool,
+    ) -> bool {
+        (i.is_multiple_of(cols) || meets(cells[i - 1], o, E))
+            && (i < cols || meets(cells[i - cols], o, S))
+    }
+
+    // Fill `cells` from its length to one per cell of `cand`; true once full.
     fn fill(
         cells: &mut Vec<usize>,
-        fits: &[usize],
+        cand: &[Vec<usize>],
         cols: usize,
-        total: usize,
         meets: &mut dyn FnMut(usize, usize, Dir) -> bool,
     ) -> bool {
         let i = cells.len();
-        if i == total {
+        if i == cand.len() {
             return true;
         }
-        for &o in fits {
-            let west = i.is_multiple_of(cols) || meets(cells[i - 1], o, E);
-            if !(west && (i < cols || meets(cells[i - cols], o, S))) {
+        for &o in &cand[i] {
+            if !fits(cells, i, o, cols, meets) {
                 continue;
             }
             cells.push(o);
-            if fill(cells, fits, cols, total, meets) {
+            let next = i + 1;
+            let east_open = next == cand.len()
+                || next.is_multiple_of(cols)
+                || cand[next].iter().any(|&y| fits(cells, next, y, cols, meets));
+            if east_open && fill(cells, cand, cols, meets) {
                 return true;
             }
             cells.pop();
@@ -991,11 +1038,30 @@ fn block(library: &Library, divisions: u32, rows: usize, cols: usize) -> Option<
         false
     }
 
+    // Each footprint's pruned candidates, per cell (`None`: some cell has none), worked out once on
+    // first use.
+    type Candidates = Option<Vec<Vec<usize>>>;
+    let mut pruned: Vec<((f32, f32), Candidates)> = Vec::new();
     for first in 0..opts.len() {
         let fp = opts[first].2;
-        let fits: Vec<usize> = (0..opts.len()).filter(|&o| same(opts[o].2, fp)).collect();
+        let k = match pruned.iter().position(|(f, _)| same(*f, fp)) {
+            Some(k) => k,
+            None => {
+                let fits: Vec<usize> = (0..opts.len()).filter(|&o| same(opts[o].2, fp)).collect();
+                let mut cand = vec![fits; rows * cols];
+                let ok = consistent(&mut cand, cols, &mut meets);
+                pruned.push((fp, ok.then_some(cand)));
+                pruned.len() - 1
+            }
+        };
+        let Some(cand) = &pruned[k].1 else {
+            continue;
+        };
+        if !cand[0].contains(&first) {
+            continue;
+        }
         let mut cells = vec![first];
-        if fill(&mut cells, &fits, cols, rows * cols, &mut meets) {
+        if fill(&mut cells, cand, cols, &mut meets) {
             let picked = cells
                 .iter()
                 .map(|&o| (opts[o].0.to_owned(), opts[o].1))

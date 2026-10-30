@@ -91,6 +91,21 @@ fn a_middle_piece_opens_the_kit_into_a_room_that_passes_the_map_check() {
 }
 
 #[test]
+fn a_kit_of_many_corridor_pieces_answers_without_trying_every_arrangement() {
+    // Six look-alikes each of the straight, the corner and the wall: 72 options, and no piece for
+    // the middle. A search that tries every arrangement of the first cells before finding the
+    // middle empty passed 30 million seam checks at four look-alikes (#162 review, a model of
+    // 273b5b0's search); pruning each cell's candidates first answers at once.
+    let mut pieces = Vec::new();
+    for c in 0..6 {
+        pieces.push(piece(&format!("straight_{c}"), &['E', 'W']));
+        pieces.push(piece(&format!("corner_{c}"), &['E', 'S']));
+        pieces.push(piece(&format!("wall_{c}"), &['E', 'S', 'W']));
+    }
+    assert_eq!(room(&kit(pieces), 1), None);
+}
+
+#[test]
 fn a_middle_whose_one_socket_is_off_centre_cannot_make_a_room() {
     // The north socket moves to the north-west corner cell (so the west face shows it too); turned
     // half way it sits on the south-east one, so two of these never meet across a seam, and nothing
