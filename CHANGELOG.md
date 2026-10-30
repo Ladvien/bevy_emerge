@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **relations-aligned-with** `8777873` Relations: AlignedWith keeps a piece on another's heading (a row of pews), and relations solve turns it there in place *No clip: visible, not yet recorded: no display on big (RELATIONS row reads 'pew_2 aligned with pew_1'); proved by bevy_emerge_core/tests/a_piece_kept_aligned_with_another.rs*
 - **152-clockscrub-door** `a17d0ea` With bevy_elements on, the Environment panel's held hour is released when the door changes, and the feature's tests are green *No clip: a resource classification; proved by every_resource_says_what_a_door_does_to_it with --features bevy_elements*
 - **relations-hard** `15698c2` A relation can be hard: relations solve never breaks it to mend soft ones, and names the relations it left unmet *No clip: visible, not yet recorded: no display on big (inspector row marks a broken hard relation); proved by a_hard_relation_outranks_soft_ones*
 - **relations-reachable-from** `abf6439` Relations: ReachableFrom, a walk from one piece to another round whatever stands between, and solve opens a sealed one *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_reachable_from_another.rs*
