@@ -2006,6 +2006,7 @@ impl Plugin for EditorPlugin {
         );
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
+        app.add_observer(on_play_click);
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
             .init_resource::<RemovalDrag>()
@@ -3130,6 +3131,14 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 );
             });
 
+            // **Play (#97):** start the project's game on the open map at the camera, and stop it.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(crate::ops_play::spawn_section);
+
             // **Environment (#98):** clock scrubber and forced weather, for a project that uses `bevy_elements`.
             #[cfg(feature = "bevy_elements")]
             p.spawn(Node {
@@ -4080,6 +4089,58 @@ fn on_environment_click(
                 Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
             }
         }
+    }
+}
+
+/// **Play and Stop** (#97): dispatch `play` at the editor camera's position, or `play_stop`.
+fn on_play_click(
+    activate: On<Activate>,
+    buttons: Query<&crate::ops_play::PlayButton>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    camera: Query<&Transform, With<MainCamera>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let Some(mut state) = state else {
+        return;
+    };
+    let Ok(button) = buttons.get(activate.entity) else {
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.as_deref().cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let result = match button {
+        crate::ops_play::PlayButton::Play => {
+            let params = serde_json::json!({
+                "map": open.as_deref().map(|o| o.map.name.clone()),
+                "camera": camera.iter().next().map(|t| t.translation.to_array()),
+            });
+            play_game(&mut ctx, params)
+        }
+        crate::ops_play::PlayButton::Stop => stop_game(&mut ctx),
+    };
+    match result {
+        Ok(summary) => state.status.note(summary),
+        Err(e) => state.status.problem(e),
+    }
+}
+
+fn play_game(ctx: &mut crate::ops::Ctx, params: serde_json::Value) -> Result<String, String> {
+    match crate::ops::dispatch(ctx, "play", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => Ok(outcome.summary),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => Err(e.0),
+    }
+}
+
+fn stop_game(ctx: &mut crate::ops::Ctx) -> Result<String, String> {
+    match crate::ops::dispatch(ctx, "play_stop", &serde_json::json!({})) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => Ok(outcome.summary),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => Err(e.0),
     }
 }
 
@@ -7728,7 +7789,7 @@ pub(crate) fn spawn_piece(
 /// when the real problem is the shelf it names.
 fn heights(project: &Project,
     open: &OpenMap) -> Result<Vec<f32>, String> {
-    bevy_emerge_core::stack::resolve_y(&open.map, &project.library)
+    crate::ops_terrain::heights_on_ground(project, open)
 }
 
 /// Draw the placements from `first` onward — what a fill or a generate just added.
@@ -13002,7 +13063,7 @@ fn under_cursor_target(
     //
     // A map whose heights do not resolve has a bigger problem than a pick, and answering `None` is
     // the honest thing: the verbs above say "nothing here" rather than acting on a guess.
-    let ys = bevy_emerge_core::stack::resolve_y(&open.map, &project.library).ok()?;
+    let ys = crate::ops_terrain::heights_on_ground(project, open).ok()?;
     let (origin, dir) = crate::view::cursor_ray(pointer.0, cam, cam_tf)?;
     ray_pick(project, open, &ys, origin, dir)
 }

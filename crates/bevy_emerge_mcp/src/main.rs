@@ -354,13 +354,13 @@ impl Emerge {
     /// **Grab a picture of the editor, as base64 PNG.**
     ///
     /// **Two calls, because the screenshot is asynchronous.** The editor answers
-    /// `bevy_debugger/screenshot` with an id, and the picture is ready a frame or two later, when
-    /// `bevy_debugger/capture` answers with the bytes. **So this asks, waits, and asks again** —
+    /// `bevy_fairy/screenshot` with an id, and the picture is ready a frame or two later, when
+    /// `bevy_fairy/capture` answers with the bytes. **So this asks, waits, and asks again** —
     /// and the wait is bounded, because a capture that never lands must not hang an agent.
     async fn grab(&self) -> Result<String, String> {
         let asked = self
             .editor
-            .call("bevy_debugger/screenshot", json!({"source": "offscreen"}))
+            .call("bevy_fairy/screenshot", json!({"source": "offscreen"}))
             .await?;
         let id = asked
             .get("id")
@@ -370,7 +370,7 @@ impl Emerge {
         loop {
             let answer = self
                 .editor
-                .call("bevy_debugger/capture", json!({"id": id}))
+                .call("bevy_fairy/capture", json!({"id": id}))
                 .await?;
             match answer.get("status").and_then(|s| s.as_str()) {
                 Some("done") => {

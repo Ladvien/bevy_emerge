@@ -28,8 +28,8 @@ press keys and take framed captures of the map with no window raised and no OS s
 mirror renders the map only — Bevy draws a UI tree to one camera — so `bevy_devshot`'s whole-frame
 sentinel capture (`touch screenshot.request`) remains the way to see a panel.
 
-The same feature lets an agent **guide you** rather than the other way round. `bevy_debugger/guide`
-posts a walkthrough, the editor shows one step at a time over the map, and `bevy_debugger/guide+watch`
+The same feature lets an agent **guide you** rather than the other way round. `bevy_fairy/guide`
+posts a walkthrough, the editor shows one step at a time over the map, and `bevy_fairy/guide+watch`
 waits on a named condition — *the tile has two pieces*, *the tile is saved* — advancing itself and
 recording how many attempts each step took. `src/guided.rs` holds the editor's ten conditions;
 `guides/` holds the scripts. A step with no checkpoint (*"does this look right?"*) waits for you to

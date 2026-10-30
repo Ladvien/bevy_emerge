@@ -158,3 +158,13 @@ Use `bevy_emerge_rng::seeded(seed)` for any randomness in your game. It returns 
 | `bevy_emerge_solver` | A Boolean satisfiability back-end that answers the same way every run, on every machine: no clock, no threads, no entropy, and a give-up budget counted in conflicts rather than seconds. |
 
 `bevy_emerge_core` has no engine dependency. A test in that crate fails the build if one is added.
+
+## Playing the map in your game
+
+The editor never links your game. A project says how to run it in `play.ron` beside `family.ron`:
+
+```ron
+(version: 1, command: ["cargo", "run", "--", "{map}"], cwd: Some("../game"), port: 15702)
+```
+
+`{map}`, `{root}` and `{camera}` (`x,y,z`) in an argument are replaced by the open map, the project root and the editor camera's position; the game also gets them as `EMERGE_PLAY_MAP`, `EMERGE_PLAY_ROOT` and `EMERGE_PLAY_CAMERA`. **Play** in the PLAY section of the controls panel (or the `play` operation, with `wait_s` to wait until the game's `bevy_fairy/status` says `ready: true`) starts it; **Stop** (`play_stop`) ends the process the editor started, by pid. A second Play while one runs is refused. Neither is an edit, so neither has an undo. An agent then reads the running game through `bevy_fairy`'s own MCP.

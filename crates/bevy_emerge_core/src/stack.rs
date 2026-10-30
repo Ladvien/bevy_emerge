@@ -35,6 +35,7 @@
 
 use std::borrow::Cow;
 
+use crate::heightfield::Heightfield;
 use crate::descriptor::{placed_footprint, placed_height, Descriptor, Mount, DecalHost};
 use crate::library::Library;
 use crate::map::{Map, Placed};
@@ -235,10 +236,19 @@ pub fn host_under<'a>(
 /// hosts, so the walk below terminates; it re-checks anyway, because a caller that skipped validation
 /// deserves an error rather than a hang.
 pub fn resolve_y(map: &Map, library: &Library) -> Result<Vec<f32>, String> {
+    resolve_y_on(map, library, None)
+}
+
+/// [`resolve_y`] over sculpted ground: a piece that stands on the floor (no host under it) rests at
+/// the map's floor **plus the terrain's height under its footprint** ([`Heightfield::rest_height`]: the
+/// highest ground under any corner or the centre, so no corner sinks into a slope). Guests ride their
+/// hosts, so they follow too. `None` is flat ground, exactly [`resolve_y`]. Walls, ceilings, openings
+/// and decals keep the map's own datum: they belong to the building, not the ground.
+pub fn resolve_y_on(map: &Map, library: &Library, ground: Option<&Heightfield>) -> Result<Vec<f32>, String> {
     let mut out = vec![f32::NAN; map.placements.len()];
     let mut done = vec![false; map.placements.len()];
     for i in 0..map.placements.len() {
-        resolve_one(map, library, i, &mut out, &mut done, &mut Vec::new())?;
+        resolve_one(map, library, ground, i, &mut out, &mut done, &mut Vec::new())?;
     }
     Ok(out)
 }
@@ -248,6 +258,7 @@ pub fn resolve_y(map: &Map, library: &Library) -> Result<Vec<f32>, String> {
 fn resolve_one(
     map: &Map,
     library: &Library,
+    ground: Option<&Heightfield>,
     i: usize,
     out: &mut [f32],
     done: &mut [bool],
@@ -335,7 +346,7 @@ fn resolve_one(
                 HostNeed::Surface(_) => surface_of(host_d, d, &host.id, &p.id)?,
             };
             path.push(i);
-            let host_y = resolve_one(map, library, hi, out, done, path)?;
+            let host_y = resolve_one(map, library, ground, hi, out, done, path)?;
             path.pop();
             Some(host_y + lift)
         }
@@ -345,9 +356,32 @@ fn resolve_one(
     // The authored lift rides on top of whatever the layer decided — and because it lands in
     // `out`, a guest resolving through its host inherits the host's lift for free: raise the
     // table and the lamp comes with it.
-    out[i] = datum(map, d, host_top, &p.id)? + p.lift;
+    let mut y = datum(map, d, host_top, &p.id)? + p.lift;
+    let on_ground = matches!(&d.mount, None | Some(Mount::OnFloor) | Some(Mount::Tiled) | Some(Mount::OnSurfaceOrFloor { .. }));
+    if let (Some(g), None, true) = (ground, host_top, on_ground) {
+        y += rest_on(g, d, p.at, p.yaw);
+    }
+    out[i] = y;
     done[i] = true;
     Ok(out[i])
+}
+
+/// The terrain height a floor-standing piece rests at: the highest ground under its rotated footprint's
+/// corners or centre. A piece with no measured footprint rests at its centre.
+fn rest_on(g: &Heightfield, d: &Descriptor, at: (f32, f32), yaw: f32) -> f32 {
+    let Some((w, depth)) = placed_footprint(d) else {
+        return g.height_at(at.0, at.1);
+    };
+    // The inverse of the rotation `covers` applies to a probe.
+    let (s, c) = (-yaw).to_radians().sin_cos();
+    let corners: Vec<(f32, f32)> = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+        .iter()
+        .map(|&(sx, sz)| {
+            let (lx, lz) = (sx * w * 0.5, sz * depth * 0.5);
+            (at.0 + c * lx - s * lz, at.1 + s * lx + c * lz)
+        })
+        .collect();
+    g.rest_height(&corners)
 }
 
 /// Why a host cannot carry this fixture, naming what it does offer.
