@@ -7741,7 +7741,7 @@ pub(crate) fn spawn_piece(
 /// when the real problem is the shelf it names.
 fn heights(project: &Project,
     open: &OpenMap) -> Result<Vec<f32>, String> {
-    bevy_emerge_core::stack::resolve_y(&open.map, &project.library)
+    crate::ops_terrain::heights_on_ground(project, open)
 }
 
 /// Draw the placements from `first` onward — what a fill or a generate just added.
@@ -13015,7 +13015,7 @@ fn under_cursor_target(
     //
     // A map whose heights do not resolve has a bigger problem than a pick, and answering `None` is
     // the honest thing: the verbs above say "nothing here" rather than acting on a guess.
-    let ys = bevy_emerge_core::stack::resolve_y(&open.map, &project.library).ok()?;
+    let ys = crate::ops_terrain::heights_on_ground(project, open).ok()?;
     let (origin, dir) = crate::view::cursor_ray(pointer.0, cam, cam_tf)?;
     ray_pick(project, open, &ys, origin, dir)
 }
