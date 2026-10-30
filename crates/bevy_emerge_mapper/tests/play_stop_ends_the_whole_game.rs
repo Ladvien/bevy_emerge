@@ -1,10 +1,10 @@
 //! **`play_stop` ends the game, not only the process `play` started** (#97).
 //!
-//! A game is usually started through a launcher: `play.ron`'s own example is `cargo run -- {map}`,
-//! and on macOS `python3` itself starts `Python.app` as a child. Killing the launcher's pid left the
-//! game running with no parent, answering on its port: measured 2026-10-29 on bmb, four orphaned
-//! `game.py` processes from `play_starts_and_stops_the_game`, one per test run, each holding its
-//! port and the test runner's output pipe open.
+//! A game is usually started through a launcher: `play.ron`'s own example is `cargo run -- {map}`.
+//! Killing only the launcher's pid left the game running with no parent, still answering on its
+//! port. This test's launcher is `sh -c "… & wait"`. (Correction, 2026-10-30: the orphaned
+//! `game.py` processes found on bmb were not this. `play_starts_and_stops_the_game` panicked
+//! before `play_stop`, because Homebrew's Python 3.15 fixture server never answered; see #121.)
 
 use bevy_emerge_mapper::ops::{self, Applied, Ctx};
 use bevy_emerge_mapper::ops_play::fairy_ready;
@@ -39,7 +39,7 @@ fn stop_ends_a_game_started_through_a_launcher() {
     // A launcher that starts the game as its child and waits on it, as `cargo run` does.
     std::fs::write(
         root.join("play.ron"),
-        format!(r#"(version: 1, command: ["sh", "-c", "python3 game.py {port} & wait"], port: {port})"#),
+        format!(r#"(version: 1, command: ["sh", "-c", "{} game.py {port} & wait"], port: {port})"#, fixtures_python()),
     )
     .unwrap();
     let mut c = Ctx { root: Some(root), session: "test".to_owned(), ..Ctx::default() };
@@ -60,4 +60,10 @@ fn stop_ends_a_game_started_through_a_launcher() {
         !fairy_ready(port),
         "the game still answers on port {port} after play_stop: the launcher died and its child, the game, did not"
     );
+}
+
+/// The interpreter the fixture game runs on: the system's `/usr/bin/python3` where there is one.
+/// Homebrew's Python 3.15.2 on bmb never answered the fixture's POST (#121).
+fn fixtures_python() -> &'static str {
+    if std::path::Path::new("/usr/bin/python3").exists() { "/usr/bin/python3" } else { "python3" }
 }
