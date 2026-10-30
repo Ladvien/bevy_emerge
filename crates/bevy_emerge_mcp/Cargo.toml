@@ -9,6 +9,8 @@ readme = "README.md"
 keywords = ["mcp", "gamedev", "level-design", "bevy"]
 categories = ["game-development", "development-tools"]
 rust-version = "1.88"
+# Not published (E-006, #128) while `bevy_emerge_decide` is `publish = false`; it runs from this repo.
+publish = false
 
 [lib]
 # **A library as well as a binary**, so the tests can read the tool declarations rather than

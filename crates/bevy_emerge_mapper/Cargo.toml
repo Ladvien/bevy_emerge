@@ -8,6 +8,9 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/Ladvien/bevy_emerge"
 # One integration-test binary, not one per file: `tests/all.rs` says why and how to add a file.
 autotests = false
+# Not published (E-006, #128): the family crates are git-pinned optional dependencies, and crates.io
+# refuses a git dependency even behind a feature. The editor runs from this repo on a game's project.
+publish = false
 
 # **This is the application; `bevy_emerge_core` is the part with no engine in it.** The split is not
 # decoration — `crates/bevy_emerge_core/tests/engine_free.rs` fails the build if anything in the core
