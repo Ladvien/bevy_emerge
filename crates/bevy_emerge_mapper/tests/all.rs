@@ -186,6 +186,7 @@ mod placement_set_yaw;
 mod placement_undo_without_id;
 mod project_clone_shares;
 mod references;
+mod relations_read_a_turned_piece_in_degrees;
 mod relations_solve_mends_the_open_map;
 mod repetition_vary_turns_the_open_maps_repeats;
 mod roads_and_fields_do_not_z_fight;
