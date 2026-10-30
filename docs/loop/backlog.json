@@ -12,7 +12,7 @@
         "evidence": "The registry has one operation (map_set_settings) and 128 actions are on the unmigrated allowlist. The brief asks for one workflow first, with the allowlist shrinking."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/tests/operations_have_two_front_ends.rs::the_allowlist_of_unmigrated_actions_only_shrinks | 2026-10-30 #129 slice 1 (a97b657): ComposeArm and ArmComposition dispatch composition_arm; UNMIGRATED_MAX 113 -> 111; proved by tests/composition_arm_is_an_operation.rs.",
+      "evidence": "crates/bevy_emerge_mapper/tests/operations_have_two_front_ends.rs::the_allowlist_of_unmigrated_actions_only_shrinks | 2026-10-30 #129 slice 1 (a97b657): ComposeArm and ArmComposition dispatch composition_arm; UNMIGRATED_MAX 113 -> 111; proved by tests/composition_arm_is_an_operation.rs. | slice 2 (7828e55): composition_rename, 111 -> 110. | slice 3 (placement_set_tip: Y and U) is written but not compiled or tested: branch loop/129-slice3-rebased-153 on origin (31f8ef8 + 1876e02, rebased onto ba5e597 with no conflict, UNMIGRATED 110 -> 108 counted); next: cargo test -p bevy_emerge_mapper --test editor placement_set_tip_is_an_operation:: operations_have_two_front_ends::, then the gate, on a host with memory.",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
