@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **161-behind** `93d1c20` Relations: Behind keeps a piece behind another (a chest behind the counter), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_behind_another.rs*
+- **160-ring** `eb75d90` A kit says whether it can loop a hallway back: adjacency::ring builds the smallest closed loop of four pieces, or says there is none *No clip: a core API; proved by a_kit_says_whether_it_can_loop_a_hallway_back*
 - **159-between** `7523243` A relation keeps a piece between two others (a table between two chairs), and relations solve sets it there *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_kept_between_two_others.rs*
 - **session-per-turn** `c6628e3` session::score measures an agent per turn: asking on a clear request or acting on a vague one, and a later turn breaking an earlier turn's relation *No clip: an engine-free API; proved by bevy_emerge_core/tests/a_session_scores_each_turn.rs*
 - **relations-aligned-with** `8777873` Relations: AlignedWith keeps a piece on another's heading (a row of pews), and relations solve turns it there in place *No clip: visible, not yet recorded: no display on big (RELATIONS row reads 'pew_2 aligned with pew_1'); proved by bevy_emerge_core/tests/a_piece_kept_aligned_with_another.rs*
