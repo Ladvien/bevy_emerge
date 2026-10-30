@@ -2388,6 +2388,7 @@ impl Plugin for EditorPlugin {
                     (
                         draw_bounds,
                         draw_map_grid,
+                        crate::terrain_view::sync_terrain_view,
                         fit_bounds_floor
                             .run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
                     ),
