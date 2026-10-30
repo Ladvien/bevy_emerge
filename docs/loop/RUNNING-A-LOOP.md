@@ -383,10 +383,11 @@ Every running loop uses Claude Sonnet 5.5. **bmb** joined on 2026-10-29 (owner: 
 
 bmb also needs `brew install git-lfs` and `git lfs install` (found 2026-10-29 starting w7: without it a clone's checkout fails at the first LFS file, and `changelog.py check` refuses on a machine with no `git-lfs`).
 
-**Every loop on big has two template drop-ins** in `~/.config/systemd/user/wiggum@.service.d/` (2026-10-29). Both were added because big has 31 GB of RAM for HomeStill and five or more loops:
+**Every loop on big has three template drop-ins** in `~/.config/systemd/user/wiggum@.service.d/` (2026-10-29). The first two were added because big has 31 GB of RAM for HomeStill and five or more loops:
 
 - `oom.conf`, `OOMPolicy=continue`: with the default (`stop`), one OOM-killed linker ended the whole pass (w5's passes 5 and 6).
 - `debug.conf`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only`: a Linux link reads every crate's DWARF, and under memory pressure fairy's test link re-read 148 GB from disk over 56 minutes. Changing it rebuilds every dependency once per target dir.
+- `incremental.conf`, `CARGO_INCREMENTAL=1`, and the same variable in every Mac loop's plist: the workspace profile turns incremental off to save disk, so each edit recompiled all of `bevy_emerge_mapper`. Under load on big_mac that compile took over 20 minutes. Every host now has 50 GB or more free, so the disk this costs is affordable. The env variable overrides the profile for this machine's loops only.
 
 ## Verify a loop is real, not just active
 
