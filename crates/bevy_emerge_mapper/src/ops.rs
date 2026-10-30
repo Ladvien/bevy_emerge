@@ -834,7 +834,17 @@ pub mod layout_propose {
         /// what makes a proposal something an agent can talk about, and what a test can assert.
         #[serde(default)]
         pub seed: Option<u64>,
+        /// **How many distinct layouts to offer** (#153, "show me three"), 1 to [`MAX_OPTIONS`].
+        /// Absent offers none: the answer is the one layout `seed` lays, as before.
+        #[serde(default)]
+        pub options: Option<u32>,
     }
+
+    /// The most options one call offers. A person compares a handful, not a page.
+    pub const MAX_OPTIONS: u32 = 8;
+
+    /// How many seeds per asked option are tried before the answer says it found fewer.
+    const SEEDS_PER_OPTION: u64 = 4;
 
     impl Params {
         pub fn schema() -> serde_json::Value {
@@ -849,9 +859,15 @@ pub mod layout_propose {
                         "enum": ["learned", "declared", "composed"]
                     },
                     "seed": {
-                        "description": "The solver's seed. Omit it and the editor picks a fresh one per call; the same seed on the same map lays the same layout.",
+                        "description": "The solver's seed. Omit it and the editor picks a fresh one per call; the same seed on the same map lays the same layout. With `options`, the first seed tried.",
                         "type": "integer",
                         "minimum": 0
+                    },
+                    "options": {
+                        "description": "Offer this many distinct layouts (show me three), each with the seed that lays it: seeds are tried from `seed` upward and a layout identical to one already offered is skipped. The first option is the one that stands; propose another by its seed.",
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_OPTIONS
                     }
                 }
             })
@@ -861,10 +877,118 @@ pub mod layout_propose {
             serde_json::from_value(raw.clone()).map_err(|e| {
                 Refusal::new(format!(
                     "these are not the parameters for proposing a layout: {e}. The fields are \
-                     `source` (learned, declared or composed) and `seed`, and `source` is required."
+                     `source` (learned, declared or composed), `seed` and `options`, and `source` is \
+                     required."
                 ))
             })
+            .and_then(|p: Params| match p.options {
+                Some(n) if n == 0 || n > MAX_OPTIONS => Err(Refusal::new(format!(
+                    "`options` is {n}, and a proposal offers 1 to {MAX_OPTIONS} layouts."
+                ))),
+                _ => Ok(p),
+            })
         }
+    }
+
+    /// **One layout as a set of looks**: every piece and stamp by what it is, where (to the
+    /// millimetre) and how it is turned (to the degree), ids left out because they number rows,
+    /// not looks. Sorted, so two layouts are the same exactly when their keys are equal.
+    fn looks(p: &crate::editor::Proposed) -> Vec<(bool, String, i64, i64, i64)> {
+        let key = |stamp: bool, what: &str, at: (f32, f32), yaw: f32| {
+            (
+                stamp,
+                what.to_owned(),
+                (at.0 * 1000.0).round() as i64,
+                (at.1 * 1000.0).round() as i64,
+                (yaw.to_degrees().rem_euclid(360.0).round() as i64) % 360,
+            )
+        };
+        let mut out: Vec<_> = p
+            .placements
+            .iter()
+            .map(|q| key(false, &q.descriptor, q.at, q.yaw))
+            .chain(p.stamps.iter().map(|s| key(true, &s.of, s.at, s.yaw)))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// How many looks of `a` (sorted) are not in `b` (sorted), counting repeats.
+    fn not_in<T: Ord>(a: &[T], b: &[T]) -> usize {
+        let (mut i, mut j, mut n) = (0, 0, 0);
+        while i < a.len() {
+            if j < b.len() && b[j] < a[i] {
+                j += 1;
+            } else if j < b.len() && b[j] == a[i] {
+                i += 1;
+                j += 1;
+            } else {
+                n += 1;
+                i += 1;
+            }
+        }
+        n
+    }
+
+    /// **Up to `n` distinct layouts, seeds from `first` upward** (#153). A layout identical to one
+    /// already kept is skipped and counted; after `n * SEEDS_PER_OPTION` seeds the answer says how
+    /// many it found rather than padding. Each option names its seed, what it lays, its variety,
+    /// and `differs`: how many of its pieces the nearest other option does not have.
+    fn offer(
+        project: &crate::project::Project,
+        open: &crate::project::OpenMap,
+        source: crate::editor::LayoutSource,
+        first: u64,
+        n: u32,
+    ) -> Result<serde_json::Value, Refusal> {
+        type Key = Vec<(bool, String, i64, i64, i64)>;
+        let mut kept: Vec<(u64, crate::editor::Proposed, Key)> = Vec::new();
+        let (mut duplicates, mut tried) = (0usize, 0u64);
+        while kept.len() < n as usize && tried < u64::from(n) * SEEDS_PER_OPTION {
+            let seed = first.wrapping_add(tried);
+            tried += 1;
+            let laid =
+                crate::editor::propose(project, open, source, seed).map_err(Refusal::new)?;
+            let key = looks(&laid.proposed);
+            if kept.iter().any(|(_, _, k)| *k == key) {
+                duplicates += 1;
+                continue;
+            }
+            kept.push((seed, laid.proposed, key));
+        }
+        let options: Vec<serde_json::Value> = kept
+            .iter()
+            .enumerate()
+            .map(|(i, (seed, p, key))| {
+                let differs = kept
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .map(|(_, (_, _, other))| not_in(key, other))
+                    .min();
+                json!({
+                    "seed": seed,
+                    "laid": p.placements.len() + p.stamps.len(),
+                    "placements": p.placements.len(),
+                    "stamps": p.stamps.len(),
+                    "variety": p.variety.as_ref().map(|m| json!({
+                        "enclosure": m.enclosure,
+                        "regions": m.regions,
+                        "opening_density": m.opening_density,
+                        "cells": p.cells,
+                    })),
+                    // `null` for a lone option: there is nothing to differ from.
+                    "differs": differs,
+                })
+            })
+            .collect();
+        Ok(json!({
+            "options": options,
+            "asked": n,
+            "found": kept.len(),
+            "duplicates": duplicates,
+            "tried": tried,
+        }))
     }
 
     pub struct LayoutPropose;
@@ -901,7 +1025,7 @@ pub mod layout_propose {
             };
             let laid = crate::editor::propose(project, open, p.source, p.seed.unwrap_or(1))
                 .map_err(Refusal::new)?;
-            Ok(json!({
+            let mut answer = json!({
                 "map": open.map.name,
                 "source": p.source,
                 "seed": p.seed,
@@ -922,7 +1046,19 @@ pub mod layout_propose {
                     "opening_density": m.opening_density,
                     "cells": laid.proposed.cells,
                 })),
-            }))
+            });
+            // **The options, beside the layout that stands** (#153). The first option is the
+            // layout above, laid by the same seed, so asking for options changes nothing about
+            // which one stands.
+            if let Some(n) = p.options
+                && let (Some(obj), serde_json::Value::Object(offered)) = (
+                    answer.as_object_mut(),
+                    offer(project, open, p.source, p.seed.unwrap_or(1), n)?,
+                )
+            {
+                obj.extend(offered);
+            }
+            Ok(answer)
         }
 
         fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {

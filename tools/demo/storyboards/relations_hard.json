@@ -1,0 +1,58 @@
+{
+ "name": "relations_hard",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      -7,
+      -6,
+      7,
+      5
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 3
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "relations_solve",
+    "parameters": {}
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    200,
+    650
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "bookcase near lamp (hard), bookcase near table (soft)"
+  },
+  {
+   "at": 1.5,
+   "caption": "the broken hard relation is named first, marked (hard)"
+  },
+  {
+   "at": 3.2,
+   "caption": "agent: relations_solve"
+  },
+  {
+   "at": 4.5,
+   "caption": "the hard one is kept; the soft one is named as still unmet"
+  }
+ ]
+}

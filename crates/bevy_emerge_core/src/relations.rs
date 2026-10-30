@@ -68,10 +68,13 @@ impl Relations {
             ));
         }
         for (i, rel) in r.relations.iter().enumerate() {
-            // Faces has no distance; 0.0 stands in for "nothing to check".
+            // Faces and AlignedWith have no distance; 0.0 stands in for "nothing to check".
             let metres: [f32; 2] = match &rel.kind {
-                Kind::Faces(_) => [0.0, 0.0],
-                Kind::Near { within, .. } | Kind::InFrontOf { within, .. } => [*within, 0.0],
+                Kind::Faces(_) | Kind::AlignedWith(_) => [0.0, 0.0],
+                Kind::Near { within, .. }
+                | Kind::InFrontOf { within, .. }
+                | Kind::Behind { within, .. }
+                | Kind::Between { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
                 Kind::VisibleFrom { clearance, .. } | Kind::ReachableFrom { clearance, .. } => [*clearance, 0.0],
@@ -110,6 +113,15 @@ pub struct Relation {
     /// The placement id this relation is about.
     pub of: String,
     pub kind: Kind,
+    /// **Must hold** (#151): [`solve`] never breaks a hard relation to mend soft ones, and mends a
+    /// hard one even when that breaks soft ones. Soft by default, and a soft relation is written
+    /// without the field, so a file from before it reads and writes unchanged.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hard: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 /// What a relation asks of [`Relation::of`].
@@ -125,6 +137,10 @@ pub enum Kind {
     /// Stands in front of a placement: ahead of its forward, inside a 45° half-cone, and no more than
     /// `within` metres along it. Measures the distance along the other's forward.
     InFrontOf { of: String, within: f32 },
+    /// Stands behind a placement: against its forward, inside a 45° half-cone, and no more than
+    /// `within` metres back along it (a chest behind the counter, a guard behind the throne).
+    /// Measures the distance along the other's backward; a piece in front measures negative.
+    Behind { of: String, within: f32 },
     /// No other placement's centre stands in the `width` × `depth` corridor in front of this one (a
     /// door's swing, a counter's working side). Measures how far in the nearest intruder stands, or
     /// `depth` when clear.
@@ -147,6 +163,16 @@ pub enum Kind {
     /// unmet, `by` names the piece whose removal opens a walk and `measured` is that walk's length
     /// (0 when none of the [`OPENER_TRIES`] pieces nearest the straight line does).
     ReachableFrom { from: String, clearance: f32 },
+    /// On this placement's heading, within [`FACING_TOLERANCE_DEG`] (a row of pews facing the
+    /// altar, stalls along a street). Measures the angle between the two headings, degrees, the
+    /// short way round; facing the opposite way is 180° off.
+    AlignedWith(String),
+    /// Between two placements: this one's centre projects strictly inside the segment joining
+    /// `a`'s and `b`'s centres and stands no more than `within` metres off it (a table between two
+    /// chairs, a guard between the gate and the hall). Two ends on one spot have nothing between
+    /// them. Measures the distance to the segment, so past either end it is the distance to that
+    /// end.
+    Between { a: String, b: String, within: f32 },
 }
 
 /// What [`check`] found for one relation.
@@ -241,6 +267,14 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
             }
             Err(m) => m,
         },
+        Kind::Behind { of, within } => match other(of) {
+            Ok(b) => {
+                let (ahead, side) = local(b, a.at);
+                let back = -ahead;
+                verdict(back > 0.0 && back <= *within && side.abs() <= back, back)
+            }
+            Err(m) => m,
+        },
         Kind::ClearInFront { depth, width } => {
             let intruder = placements
                 .iter()
@@ -293,7 +327,36 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
             }
             Err(m) => m,
         },
+        Kind::AlignedWith(to) => match other(to) {
+            Ok(b) => {
+                let off = (a.yaw - b.yaw).rem_euclid(std::f32::consts::TAU);
+                let off = off.min(std::f32::consts::TAU - off).to_degrees();
+                verdict(off <= FACING_TOLERANCE_DEG, off)
+            }
+            Err(m) => m,
+        },
+        Kind::Between { a: from, b: to, within } => match (other(from), other(to)) {
+            (Ok(p), Ok(q)) => {
+                let (t, d) = onto_segment(p.at, q.at, a.at);
+                verdict(t > 0.0 && t < 1.0 && d <= *within, d)
+            }
+            (Err(m), _) | (_, Err(m)) => m,
+        },
     }
+}
+
+/// `p` against the segment `from`–`to`: the projection's fraction along it (unclamped; 0 when the
+/// two ends are one spot), and the distance from `p` to the segment's nearest point.
+fn onto_segment(from: (f32, f32), to: (f32, f32), p: (f32, f32)) -> (f32, f32) {
+    let (dx, dz) = (to.0 - from.0, to.1 - from.1);
+    let len2 = dx * dx + dz * dz;
+    let t = if len2 > 1e-8 {
+        ((p.0 - from.0) * dx + (p.1 - from.1) * dz) / len2
+    } else {
+        0.0
+    };
+    let c = t.clamp(0.0, 1.0);
+    (t, distance(p, (from.0 + dx * c, from.1 + dz * c)))
 }
 
 /// The point of the polyline through `path`'s placements nearest `p`, or the first waypoint the map
@@ -594,6 +657,9 @@ pub struct Solved {
     /// [`Outcome::Unmet`] relations before and after. Missing ones are neither and never moved for.
     pub unmet_before: usize,
     pub unmet_after: usize,
+    /// The relations still [`Outcome::Unmet`] after the solve, by index into
+    /// [`Relations::relations`], in order: what the solver could not satisfy.
+    pub unsatisfied: Vec<usize>,
 }
 
 /// How many passes over the relations [`solve`] makes before it gives up on the rest.
@@ -602,28 +668,36 @@ const SOLVE_ROUNDS: usize = 8;
 /// **Nudge the pieces of every broken relation until it holds**, greedily and never for the worse.
 ///
 /// For each [`Outcome::Unmet`] relation the solver proposes one move: [`Kind::Faces`] turns the
-/// piece to its target, [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
-/// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
+/// piece to its target, [`Kind::AlignedWith`] turns it to the other's heading without moving it,
+/// [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
+/// [`Kind::InFrontOf`] sets it on the other's forward, [`Kind::Behind`] on the other's backward,
+/// and [`Kind::ClearInFront`] moves the intruder
 /// sideways out of the corridor (the door stays where it was hung), [`Kind::VisibleFrom`] moves
 /// the nearest blocker sideways off the sight line (both ends stay), [`Kind::Along`] slides the
-/// piece toward the nearest point of its path, on its own side, and [`Kind::ReachableFrom`] slides
+/// piece toward the nearest point of its path, on its own side, [`Kind::Between`] sets it on the
+/// segment between its two ends (inside them, on its own side), and [`Kind::ReachableFrom`] slides
 /// the piece whose removal opens a walk just far enough that one opens (both ends stay). A move
-/// is kept only when it lowers the map's unmet count, so a relation is never mended by breaking
-/// another, and contradictory ones end with as many met as one move each allows.
+/// is kept only when it lowers the map's (hard unmet, soft unmet) pair, compared hard first
+/// ([`Relation::hard`]): so a hard relation is never broken to mend soft ones, a hard one is
+/// mended even at the cost of soft ones, no relation is mended by breaking another of its own
+/// weight, and contradictory ones end with as many met as one move each allows.
 ///
 /// The moved piece is the relation's subject, or for a corridor the intruder; a piece resting on
 /// another ([`Placed::on`]) is not pulled off it — an intruder on a host moves its host — and
 /// whatever rests on a moved piece goes with it, turned about it.
 pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
+    // (hard unmet, soft unmet): tuples compare hard first.
     let unmet = |ps: &[Placed]| {
         check(ps, relations)
             .iter()
-            .filter(|o| matches!(o, Outcome::Unmet { .. }))
-            .count()
+            .zip(&relations.relations)
+            .filter(|(o, _)| matches!(o, Outcome::Unmet { .. }))
+            .fold((0, 0), |(hard, soft), (_, r)| if r.hard { (hard + 1, soft) } else { (hard, soft + 1) })
     };
+    let total = |(hard, soft): (usize, usize)| hard + soft;
     let mut current = placements.to_vec();
-    let unmet_before = unmet(&current);
-    let mut count = unmet_before;
+    let unmet_before = total(unmet(&current));
+    let mut count = unmet(&current);
     let mut moved: Vec<String> = Vec::new();
     for _ in 0..SOLVE_ROUNDS {
         let mut progressed = false;
@@ -652,15 +726,22 @@ pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
                 }
             }
         }
-        if !progressed || count == 0 {
+        if !progressed || count == (0, 0) {
             break;
         }
     }
+    let unsatisfied = check(&current, relations)
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| matches!(o, Outcome::Unmet { .. }))
+        .map(|(i, _)| i)
+        .collect();
     Solved {
         placements: current,
         moved,
         unmet_before,
-        unmet_after: count,
+        unmet_after: total(count),
+        unsatisfied,
     }
 }
 
@@ -692,6 +773,10 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             let (dx, dz) = (b.at.0 - a.at.0, b.at.1 - a.at.1);
             free(a).then(|| (a.id.clone(), a.at, dx.atan2(dz)))
         }
+        Kind::AlignedWith(to) => {
+            let b = other(to)?;
+            free(a).then(|| (a.id.clone(), a.at, b.yaw))
+        }
         Kind::Near { to, within } => {
             let b = other(to)?;
             let (ux, uz) = unit(b.at, a.at, forward(b));
@@ -710,6 +795,12 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             let (fx, fz) = forward(b);
             let d = distance(a.at, b.at).clamp(within * 0.1, within * 0.9);
             free(a).then(|| (a.id.clone(), (b.at.0 + fx * d, b.at.1 + fz * d), a.yaw))
+        }
+        Kind::Behind { of, within } => {
+            let b = other(of)?;
+            let (fx, fz) = forward(b);
+            let d = distance(a.at, b.at).clamp(within * 0.1, within * 0.9);
+            free(a).then(|| (a.id.clone(), (b.at.0 - fx * d, b.at.1 - fz * d), a.yaw))
         }
         Kind::ClearInFront { width, .. } => {
             // The intruder, or the piece it rests on: moving the host carries it out.
@@ -731,6 +822,24 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             // Keep its side and stand just inside; a piece on the path's centre line stays there.
             let keep = if d > 1e-4 { (within * 0.9).min(d) / d } else { 0.0 };
             let to = (q.0 + (a.at.0 - q.0) * keep, q.1 + (a.at.1 - q.1) * keep);
+            free(a).then(|| (a.id.clone(), to, a.yaw))
+        }
+        Kind::Between { a: from, b: to, within } => {
+            let (p, q) = (other(from)?.at, other(to)?.at);
+            let len = distance(p, q);
+            if len <= 1e-4 {
+                return None;
+            }
+            let (t, _) = onto_segment(p, q, a.at);
+            let t = t.clamp(0.1, 0.9);
+            let (ux, uz) = ((q.0 - p.0) / len, (q.1 - p.1) / len);
+            // Keep its side of the line, just inside `within`: (uz, -ux) is the segment's normal.
+            let side = (a.at.0 - p.0) * uz - (a.at.1 - p.1) * ux;
+            let side = side.signum() * side.abs().min(within * 0.9);
+            let to = (
+                p.0 + ux * len * t + uz * side,
+                p.1 + uz * len * t - ux * side,
+            );
             free(a).then(|| (a.id.clone(), to, a.yaw))
         }
         Kind::ReachableFrom { from, clearance } => {

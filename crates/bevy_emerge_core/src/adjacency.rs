@@ -834,6 +834,119 @@ pub fn dead_ends(library: &Library, divisions: u32) -> Vec<DeadEnd> {
     out
 }
 
+/// **The smallest closed loop a kit can build** — the other half of the kit stress test.
+///
+/// [`dead_ends`] answers "can every opening be capped". Shipped modular kits are also proved by
+/// looping a hallway back on itself, and a kit whose every face has a partner can still fail that:
+/// straights only, or corners whose sockets disagree once turned. This answers it the way an author
+/// would, by building: four pieces of one turned footprint around a point (north-west, north-east,
+/// south-west, south-east), each at a quarter turn, where **every one of the four inner seams is
+/// declared** (the near side presents at least one token) **and [`faults`] finds nothing** on it. A
+/// declared inner seam on two adjacent sides of every piece is what makes it a turn, so a ring of
+/// straights is not a ring.
+///
+/// Each pair is tried on a two-piece map through [`faults`] itself, as [`dead_ends`] does, and the
+/// returned [`Ring::map`] is the four-piece map, so a caller can check it the same way. `None` means
+/// the kit cannot close a loop. Deterministic: pieces in id order, turns ascending, north-west first.
+/// Pieces without a lattice, a footprint, a height or divisions are skipped, as [`faults`] skips them.
+pub fn ring(library: &Library, divisions: u32) -> Option<Ring> {
+    use crate::map::Placed;
+    use std::collections::HashMap;
+
+    // (descriptor id, quarter turns, turned footprint) for every usable piece at every turn.
+    let mut opts: Vec<(&str, u8, (f32, f32))> = Vec::new();
+    let mut ids: Vec<&crate::descriptor::Descriptor> = library
+        .descriptors
+        .iter()
+        .filter(|d| d.subgrid.is_some())
+        .filter(|d| crate::descriptor::divisions(d, divisions).is_ok())
+        .filter(|d| crate::descriptor::placed_height(d).is_some_and(|h| h > 0.0))
+        .collect();
+    ids.sort_by(|l, r| l.id.cmp(&r.id));
+    for d in ids {
+        let Some((w, dp)) = crate::descriptor::placed_footprint(d) else {
+            continue;
+        };
+        for q in 0..4u8 {
+            opts.push((d.id.as_str(), q, if q % 2 == 1 { (dp, w) } else { (w, dp) }));
+        }
+    }
+    let same = |l: (f32, f32), r: (f32, f32)| (l.0 - r.0).abs() < 1e-4 && (l.1 - r.1).abs() < 1e-4;
+    let placed = |id: &str, piece: &str, q: u8, at: (f32, f32)| Placed {
+        id: id.to_owned(),
+        descriptor: piece.to_owned(),
+        at,
+        yaw: f32::from(q) * 90.0,
+        ..Placed::default()
+    };
+
+    // Does option `b`, set against option `a`'s `dir` face (E or S), meet it on a declared seam?
+    let mut memo: HashMap<(usize, usize, Dir), bool> = HashMap::new();
+    let mut meets = |a: usize, b: usize, dir: Dir| -> bool {
+        *memo.entry((a, b, dir)).or_insert_with(|| {
+            let ((ap, aq, (w, d)), (bp, bq, _)) = (opts[a], opts[b]);
+            let at = if dir == E { (w, 0.0) } else { (0.0, d) };
+            let map = Map {
+                placements: vec![placed("a", ap, aq, (0.0, 0.0)), placed("b", bp, bq, at)],
+                ..Map::default()
+            };
+            trial_seam(&map, library, divisions, dir)
+                .is_some_and(|(near, _)| near.iter().any(Option::is_some))
+                && faults(&map, library, divisions).is_empty()
+        })
+    };
+
+    for nw in 0..opts.len() {
+        let fp = opts[nw].2;
+        let fits: Vec<usize> = (0..opts.len()).filter(|&o| same(opts[o].2, fp)).collect();
+        for &ne in &fits {
+            if !meets(nw, ne, E) {
+                continue;
+            }
+            for &sw in &fits {
+                if !meets(nw, sw, S) {
+                    continue;
+                }
+                for &se in &fits {
+                    if !(meets(ne, se, S) && meets(sw, se, E)) {
+                        continue;
+                    }
+                    let (w, d) = fp;
+                    let corners = [
+                        (nw, "nw", (0.0, 0.0)),
+                        (ne, "ne", (w, 0.0)),
+                        (sw, "sw", (0.0, d)),
+                        (se, "se", (w, d)),
+                    ];
+                    let map = Map {
+                        placements: corners
+                            .iter()
+                            .map(|&(o, id, at)| placed(id, opts[o].0, opts[o].1, at))
+                            .collect(),
+                        ..Map::default()
+                    };
+                    return Some(Ring {
+                        pieces: corners.map(|(o, _, _)| (opts[o].0.to_owned(), opts[o].1)),
+                        map,
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
+/// A closed loop of four pieces, as [`ring`] found it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ring {
+    /// `(descriptor id, quarter turns)` for the north-west, north-east, south-west and south-east
+    /// piece, in that order.
+    pub pieces: [(String, u8); 4],
+    /// The four pieces placed edge to edge around the origin's south-east corner, placement ids
+    /// `nw`, `ne`, `sw`, `se`: the map [`faults`] passes.
+    pub map: Map,
+}
+
 /// Both sides of a seam, owned.
 type OwnedSeam = (Vec<Option<String>>, Vec<Option<String>>);
 
