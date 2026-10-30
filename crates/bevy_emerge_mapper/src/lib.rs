@@ -56,6 +56,8 @@ pub mod compass;
 pub mod compose;
 pub mod compose_labels;
 pub mod confirm;
+#[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+pub mod crowd_preview;
 pub mod decide_labels;
 pub mod devshot;
 pub mod editor;
@@ -76,9 +78,12 @@ pub mod present;
 pub mod ops;
 #[cfg(feature = "debugger")]
 pub mod ops_brp;
+#[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+pub mod ops_crowd;
 pub mod ops_data;
 pub mod ops_family;
 pub mod ops_terrain;
+pub mod ops_play;
 pub mod ops_notes;
 pub mod ops_runs;
 pub mod project;

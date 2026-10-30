@@ -2371,6 +2371,11 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_terrain::TerrainStroke),
+        #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+        Box::new(crate::ops_crowd::CrowdPreview),
+        Box::new(crate::ops_terrain::TerrainImport),
+        Box::new(crate::ops_play::Play),
+        Box::new(crate::ops_play::PlayStop),
         Box::new(crate::ops_runs::RunAdd),
         Box::new(crate::ops_runs::RunSet),
         Box::new(crate::ops_runs::RunRemove),
@@ -2474,12 +2479,21 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The family settings field (#96)** — Enter on `<crate> <field> <value>` dispatches
     // `family_set` through `set_family_field`, the same write an agent's `apply` makes.
     ("family_set", "set_family_field("),
+    // **The Play / Stop buttons (#97)** — dispatch `play` and `play_stop` through `play_game` and
+    // `stop_game`, the same start and stop an agent's `apply` makes.
+    ("play", "play_game("),
+    ("play_stop", "stop_game("),
     // **The Data field (#86)** — Enter on `<file> <path> <value>` dispatches `data_set` through
     // `set_data_leaf`, the same write an agent's `apply` makes.
     ("data_set", "set_data_leaf("),
     // **The Terrain field (#99)** — Enter on `<brush> <x> <z> <radius_m> <strength>` dispatches
     // `terrain_stroke` through `sculpt_terrain`, the same write an agent's `apply` makes.
     ("terrain_stroke", "sculpt_terrain("),
+    // **The Crowd field (#107)** — Enter on `<from_x> <from_z> <to_x> <to_z> <walkers>` dispatches
+    // `crowd_preview` through `run_crowd_preview`, the same measurement an agent's `apply` makes.
+    #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+    ("crowd_preview", "run_crowd_preview("),
+    ("terrain_import", "import_terrain("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).
@@ -3079,31 +3093,10 @@ fn append(ctx: &Ctx, entry: &mut Entry) -> Result<(), String> {
     Ok(())
 }
 
-/// Edit distance between two ids. Core's `vocab::edit_distance` is private, and the ops that
-/// suggest ids need only a short list, so they share this one.
-fn levenshtein(a: &str, b: &str) -> usize {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.chars().enumerate() {
-        let mut prev = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let old = row[j + 1];
-            row[j + 1] = if ca == *cb {
-                prev
-            } else {
-                1 + prev.min(row[j]).min(old)
-            };
-            prev = old;
-        }
-    }
-    row[b.len()]
-}
-
 /// The three ids closest to `bad`, nearest first.
 fn nearest_ids(ids: &[&str], bad: &str) -> Vec<String> {
     let mut scored: Vec<(usize, &str)> =
-        ids.iter().map(|id| (levenshtein(id, bad), *id)).collect();
+        ids.iter().map(|id| (bevy_emerge_core::vocab::edit_distance(id, bad), *id)).collect();
     scored.sort();
     scored
         .into_iter()

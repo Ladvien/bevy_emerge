@@ -4,7 +4,7 @@ Dev-only. These scripts make the GIFs in `docs/media/`. They are not part of any
 
 ## What is here
 
-- `record.py` runs a storyboard against a running editor. It sends the person's keys, clicks and drags over `bevy_debugger/input`, sends agent operations through the MCP server, and captures frames with the editor's own `emerge_capture_sequence`. It writes `<project>/target/loop/demo/<name>/events.json`.
+- `record.py` runs a storyboard against a running editor. It sends the person's keys, clicks and drags over `bevy_fairy/input`, sends agent operations through the MCP server, and captures frames with the editor's own `emerge_capture_sequence`. It writes `<project>/target/loop/demo/<name>/events.json`.
 - `render.py` turns that timeline into a GIF, with captions, keycaps and a cursor. It can also write a contact sheet and full-size stills.
 - `storyboards/*.json` are the five demos: `hero`, `place_and_undo`, `agent_removes_then_undo`, `frame_the_map` and `move_the_camera`.
 
