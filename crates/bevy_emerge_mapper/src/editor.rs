@@ -2128,6 +2128,8 @@ impl Plugin for EditorPlugin {
         );
         #[cfg(all(feature = "bevy_flora", feature = "bevy_elements"))]
         app.add_systems(Update, crate::forest_season::follow_date.after(crate::environment::scrub_clock));
+        #[cfg(feature = "bevy_flora")]
+        app.add_plugins(crate::forest_view::ForestViewPlugin);
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
         #[cfg(feature = "bevy_gooey")]
