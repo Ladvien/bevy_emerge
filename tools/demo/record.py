@@ -10,7 +10,7 @@ Frames come from the editor's own emerge_capture_sequence (no screen capture). A
 `chunks`: one capture per chunk, each at the storyboard's fps. An agent operation can only be applied
 at the start of a sequence (frame 0 is the state before it), so every operation starts a new chunk.
 Chunk k is due at the sum of the seconds of the chunks before it. The person's input is injected over
-bevy_debugger/input on its own schedule, so input and frames share one clock (t0).
+bevy_fairy/input on its own schedule, so input and frames share one clock (t0).
 
 Output: <project>/target/loop/demo/<name>/events.json, the timeline render.py reads. Frame PNGs stay in
 the editor's capture folder, named in events.json.
@@ -110,13 +110,13 @@ def brp(port, method, params):
 
 
 class Injector:
-    """Person input over bevy_debugger/input, the editor's sanctioned injection path."""
+    """Person input over bevy_fairy/input, the editor's sanctioned injection path."""
 
     def __init__(self, port):
         self.port = port
 
     def send(self, **params):
-        return brp(self.port, "bevy_debugger/input", params)
+        return brp(self.port, "bevy_fairy/input", params)
 
     def cursor(self, x, y):
         self.send(kind="Cursor", x=float(x), y=float(y))
