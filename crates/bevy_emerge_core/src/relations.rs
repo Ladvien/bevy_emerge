@@ -74,7 +74,7 @@ impl Relations {
                 Kind::Near { within, .. } | Kind::InFrontOf { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
-                Kind::VisibleFrom { clearance, .. } => [*clearance, 0.0],
+                Kind::VisibleFrom { clearance, .. } | Kind::ReachableFrom { clearance, .. } => [*clearance, 0.0],
                 Kind::Along { path, within } => {
                     if path.len() < 2 {
                         return Err(format!(
@@ -110,6 +110,15 @@ pub struct Relation {
     /// The placement id this relation is about.
     pub of: String,
     pub kind: Kind,
+    /// **Must hold** (#151): [`solve`] never breaks a hard relation to mend soft ones, and mends a
+    /// hard one even when that breaks soft ones. Soft by default, and a soft relation is written
+    /// without the field, so a file from before it reads and writes unchanged.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hard: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 /// What a relation asks of [`Relation::of`].
@@ -138,6 +147,15 @@ pub enum Kind {
     /// centres, in order (a lamp along the road from the gate past the well to the hall). Two or more
     /// waypoints. Measures the distance to the nearest point of the path.
     Along { path: Vec<String>, within: f32 },
+    /// Reachable from a placement: a walker who keeps `clearance` metres from every other
+    /// placement's centre can walk from that one's centre to this one's, around whatever stands
+    /// between (a chest behind a ring of crates, a door a row of barrels walls off). Each end's
+    /// whole stack (what it rests on, and what rests on that) is part of that end. Measures the
+    /// walk's length on a grid of `clearance / 2` cells, 8-connected (coarser on a map too large
+    /// for that, where a near miss counts as in the way, so coarse never reads as open); when
+    /// unmet, `by` names the piece whose removal opens a walk and `measured` is that walk's length
+    /// (0 when none of the [`OPENER_TRIES`] pieces nearest the straight line does).
+    ReachableFrom { from: String, clearance: f32 },
 }
 
 /// What [`check`] found for one relation.
@@ -262,6 +280,19 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
                     None => Outcome::Met { measured: *clearance },
                 }
             }
+            Err(m) => m,
+        },
+        Kind::ReachableFrom { from, clearance } => match other(from) {
+            Ok(b) => match walk(placements, b, a, *clearance, None) {
+                Some(length) => Outcome::Met { measured: length },
+                None => match opener(placements, b, a, *clearance) {
+                    Some((p, length)) => Outcome::Unmet {
+                        measured: length,
+                        by: Some(p.id.clone()),
+                    },
+                    None => Outcome::Unmet { measured: 0.0, by: None },
+                },
+            },
             Err(m) => m,
         },
         Kind::Along { path, within } => match nearest_on_path(placements, path, a.at) {
@@ -391,6 +422,174 @@ fn clear_sight(placements: &[Placed], a: &Placed, b: &Placed, clearance: f32) ->
         .collect()
 }
 
+/// The most cells [`walk`] lays over a map; a larger map walks on coarser cells.
+const WALK_CELLS: f32 = 160_000.0;
+
+/// The length of the shortest walk from `from`'s centre to `to`'s keeping `clearance` from every
+/// other placement's centre, or `None` when there is none. Each end's whole stack is that end;
+/// `skip` leaves that piece, and what rests on it, out of the way. The walk is on a grid over
+/// every placement, padded by twice the clearance so the way round the outside counts, and cut to
+/// a window round the ends; 8-connected, never cutting a blocked corner.
+fn walk(placements: &[Placed], from: &Placed, to: &Placed, clearance: f32, skip: Option<&str>) -> Option<f32> {
+    if clearance <= 0.0 {
+        return Some(distance(from.at, to.at));
+    }
+    let ends = [&bottom(placements, from).id, &bottom(placements, to).id];
+    let obstacles: Vec<(f32, f32)> = placements
+        .iter()
+        .filter(|p| !ends.contains(&&bottom(placements, p).id))
+        .filter(|p| skip.is_none_or(|s| p.id != s && !rests_on(placements, p, s)))
+        .map(|p| p.at)
+        .collect();
+    let pad = 2.0 * clearance;
+    let (mut lo, mut hi) = ((f32::INFINITY, f32::INFINITY), (f32::NEG_INFINITY, f32::NEG_INFINITY));
+    for p in placements {
+        lo = (lo.0.min(p.at.0), lo.1.min(p.at.1));
+        hi = (hi.0.max(p.at.0), hi.1.max(p.at.1));
+    }
+    // The map padded, cut to a window round the two ends as wide again as the walk is long: a
+    // detour past the window reads as none, never the other way, and a far piece does not
+    // coarsen a near walk.
+    let reach_out = distance(from.at, to.at).max(2.0 * pad);
+    let lo = (
+        (lo.0 - pad).max(from.at.0.min(to.at.0) - reach_out),
+        (lo.1 - pad).max(from.at.1.min(to.at.1) - reach_out),
+    );
+    let hi = (
+        (hi.0 + pad).min(from.at.0.max(to.at.0) + reach_out),
+        (hi.1 + pad).min(from.at.1.max(to.at.1) + reach_out),
+    );
+    let area = (hi.0 - lo.0) * (hi.1 - lo.1);
+    let cell = (clearance / 2.0).max((area / WALK_CELLS).sqrt());
+    // On a coarse grid an obstacle can stand between cell centres and block none; widen it by
+    // half a cell's diagonal there, so a coarse walk errs toward blocked.
+    let coarse = cell > clearance / 2.0;
+    let radius = if coarse {
+        clearance + cell * std::f32::consts::FRAC_1_SQRT_2
+    } else {
+        clearance
+    };
+    let (nx, nz) = (((hi.0 - lo.0) / cell).ceil() as usize + 1, ((hi.1 - lo.1) / cell).ceil() as usize + 1);
+    let index = |p: (f32, f32)| {
+        let i = (((p.0 - lo.0) / cell).round() as usize).min(nx - 1);
+        let k = (((p.1 - lo.1) / cell).round() as usize).min(nz - 1);
+        k * nx + i
+    };
+    let mut blocked = vec![false; nx * nz];
+    let reach = (radius / cell).ceil() as isize;
+    for o in &obstacles {
+        let centre = index(*o);
+        let (ci, ck) = ((centre % nx) as isize, (centre / nx) as isize);
+        for k in (ck - reach).max(0)..=(ck + reach).min(nz as isize - 1) {
+            for i in (ci - reach).max(0)..=(ci + reach).min(nx as isize - 1) {
+                let c = (lo.0 + i as f32 * cell, lo.1 + k as f32 * cell);
+                if distance(c, *o) < radius {
+                    blocked[k as usize * nx + i as usize] = true;
+                }
+            }
+        }
+    }
+    let (start, goal) = (index(from.at), index(to.at));
+    // A fine cell holding an end's centre is the end's; a coarse one may hold a blocker too.
+    if !coarse {
+        blocked[start] = false;
+        blocked[goal] = false;
+    }
+    // Dijkstra on whole steps: 1000 straight, 1414 diagonal.
+    let mut best = vec![u32::MAX; nx * nz];
+    let mut queue = std::collections::BinaryHeap::new();
+    best[start] = 0;
+    queue.push(std::cmp::Reverse((0u32, start)));
+    while let Some(std::cmp::Reverse((cost, c))) = queue.pop() {
+        if c == goal {
+            return Some(cost as f32 / 1000.0 * cell);
+        }
+        if cost > best[c] {
+            continue;
+        }
+        let (i, k) = ((c % nx) as isize, (c / nx) as isize);
+        let free = |i: isize, k: isize| {
+            i >= 0 && k >= 0 && i < nx as isize && k < nz as isize && !blocked[k as usize * nx + i as usize]
+        };
+        for (di, dk) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+            let (ni, nk) = (i + di, k + dk);
+            if !free(ni, nk) || (di != 0 && dk != 0 && !(free(i + di, k) && free(i, k + dk))) {
+                continue;
+            }
+            let step = if di != 0 && dk != 0 { 1414 } else { 1000 };
+            let n = nk as usize * nx + ni as usize;
+            if cost + step < best[n] {
+                best[n] = cost + step;
+                queue.push(std::cmp::Reverse((cost + step, n)));
+            }
+        }
+    }
+    None
+}
+
+/// How many of the pieces nearest the straight line [`opener`] tries taking away.
+pub const OPENER_TRIES: usize = 16;
+
+/// The bottom host whose removal (with its riders) opens a walk from `from` to `to`, nearest the
+/// straight line between them first, and that walk's length.
+fn opener<'a>(placements: &'a [Placed], from: &Placed, to: &Placed, clearance: f32) -> Option<(&'a Placed, f32)> {
+    let gap = |p: (f32, f32)| match line(from, to) {
+        Some((start, u, length)) => {
+            let (along, side) = on_line(start, u, p);
+            if along < 0.0 {
+                distance(p, from.at)
+            } else if along > length {
+                distance(p, to.at)
+            } else {
+                side.abs()
+            }
+        }
+        None => distance(p, from.at),
+    };
+    let ends = [&bottom(placements, from).id, &bottom(placements, to).id];
+    let mut hosts: Vec<&Placed> = Vec::new();
+    for p in placements {
+        let host = bottom(placements, p);
+        if !ends.contains(&&host.id) && !hosts.iter().any(|h| h.id == host.id) {
+            hosts.push(host);
+        }
+    }
+    hosts.sort_by(|x, y| gap(x.at).total_cmp(&gap(y.at)));
+    hosts
+        .into_iter()
+        .take(OPENER_TRIES)
+        .find_map(|h| walk(placements, from, to, clearance, Some(&h.id)).map(|length| (h, length)))
+}
+
+/// The move that opens a walk to `a` from `b`: the piece `by` names, at its bottom host, slid in
+/// one of eight directions by one, two or three times the walker's width, the shortest slide
+/// that lets the walk through. Riders keep their place on the host.
+fn open_walk(placements: &[Placed], a: &Placed, b: &Placed, clearance: f32, by: &str) -> Option<Move> {
+    let host = bottom(placements, find(placements, by).ok()?);
+    let step = 2.0 * clearance * 1.1 + 0.05;
+    let diagonal = std::f32::consts::FRAC_1_SQRT_2;
+    let directions = [
+        (1.0, 0.0),
+        (-1.0, 0.0),
+        (0.0, 1.0),
+        (0.0, -1.0),
+        (diagonal, diagonal),
+        (diagonal, -diagonal),
+        (-diagonal, diagonal),
+        (-diagonal, -diagonal),
+    ];
+    (1..=3).find_map(|k| {
+        directions.iter().find_map(|(dx, dz)| {
+            let to = (host.at.0 + dx * step * k as f32, host.at.1 + dz * step * k as f32);
+            let mut trial = placements.to_vec();
+            let depth = trial.len();
+            move_piece(&mut trial, &host.id, to, host.yaw, depth);
+            let (ta, tb) = (find(&trial, &a.id).ok()?, find(&trial, &b.id).ok()?);
+            walk(&trial, tb, ta, clearance, None).map(|_| (host.id.clone(), to, host.yaw))
+        })
+    })
+}
+
 /// One proposed move: the placement, where it goes, and its yaw there.
 type Move = (String, (f32, f32), f32);
 
@@ -404,6 +603,9 @@ pub struct Solved {
     /// [`Outcome::Unmet`] relations before and after. Missing ones are neither and never moved for.
     pub unmet_before: usize,
     pub unmet_after: usize,
+    /// The relations still [`Outcome::Unmet`] after the solve, by index into
+    /// [`Relations::relations`], in order: what the solver could not satisfy.
+    pub unsatisfied: Vec<usize>,
 }
 
 /// How many passes over the relations [`solve`] makes before it gives up on the rest.
@@ -415,24 +617,30 @@ const SOLVE_ROUNDS: usize = 8;
 /// piece to its target, [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
 /// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
 /// sideways out of the corridor (the door stays where it was hung), [`Kind::VisibleFrom`] moves
-/// the nearest blocker sideways off the sight line (both ends stay), and [`Kind::Along`] slides the
-/// piece toward the nearest point of its path, on its own side. A move is kept only when it
-/// lowers the map's unmet count, so a relation is never mended by breaking another, and
-/// contradictory ones end with as many met as one move each allows.
+/// the nearest blocker sideways off the sight line (both ends stay), [`Kind::Along`] slides the
+/// piece toward the nearest point of its path, on its own side, and [`Kind::ReachableFrom`] slides
+/// the piece whose removal opens a walk just far enough that one opens (both ends stay). A move
+/// is kept only when it lowers the map's (hard unmet, soft unmet) pair, compared hard first
+/// ([`Relation::hard`]): so a hard relation is never broken to mend soft ones, a hard one is
+/// mended even at the cost of soft ones, no relation is mended by breaking another of its own
+/// weight, and contradictory ones end with as many met as one move each allows.
 ///
 /// The moved piece is the relation's subject, or for a corridor the intruder; a piece resting on
 /// another ([`Placed::on`]) is not pulled off it — an intruder on a host moves its host — and
 /// whatever rests on a moved piece goes with it, turned about it.
 pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
+    // (hard unmet, soft unmet): tuples compare hard first.
     let unmet = |ps: &[Placed]| {
         check(ps, relations)
             .iter()
-            .filter(|o| matches!(o, Outcome::Unmet { .. }))
-            .count()
+            .zip(&relations.relations)
+            .filter(|(o, _)| matches!(o, Outcome::Unmet { .. }))
+            .fold((0, 0), |(hard, soft), (_, r)| if r.hard { (hard + 1, soft) } else { (hard, soft + 1) })
     };
+    let total = |(hard, soft): (usize, usize)| hard + soft;
     let mut current = placements.to_vec();
-    let unmet_before = unmet(&current);
-    let mut count = unmet_before;
+    let unmet_before = total(unmet(&current));
+    let mut count = unmet(&current);
     let mut moved: Vec<String> = Vec::new();
     for _ in 0..SOLVE_ROUNDS {
         let mut progressed = false;
@@ -461,15 +669,22 @@ pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
                 }
             }
         }
-        if !progressed || count == 0 {
+        if !progressed || count == (0, 0) {
             break;
         }
     }
+    let unsatisfied = check(&current, relations)
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| matches!(o, Outcome::Unmet { .. }))
+        .map(|(i, _)| i)
+        .collect();
     Solved {
         placements: current,
         moved,
         unmet_before,
-        unmet_after: count,
+        unmet_after: total(count),
+        unsatisfied,
     }
 }
 
@@ -541,6 +756,10 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             let keep = if d > 1e-4 { (within * 0.9).min(d) / d } else { 0.0 };
             let to = (q.0 + (a.at.0 - q.0) * keep, q.1 + (a.at.1 - q.1) * keep);
             free(a).then(|| (a.id.clone(), to, a.yaw))
+        }
+        Kind::ReachableFrom { from, clearance } => {
+            let b = other(from)?;
+            open_walk(placements, a, b, *clearance, by?)
         }
         Kind::VisibleFrom { .. } => None,
     })();

@@ -55,6 +55,7 @@ bevy_carnage = ["dep:bevy_carnage"]
 bevy_elements = ["dep:bevy_elements"]
 bevy_light_grid = ["dep:bevy_light_grid", "bevy_lights"]
 bevy_flora = ["dep:bevy_flora"]
+bevy_gooey = ["dep:bevy_gooey"]
 # Not a family crate: the engine-free mesher a carved volume (#101) is sampled through. Off by default.
 isomesh = ["dep:isomesh"]
 # Snow on a carved volume (#101): `bevy_elements`' `SnowyField` over the volume. Needs the one isomesh
@@ -78,6 +79,7 @@ bevy_speech_bubbles = { git = "https://github.com/Ladvien/bevy_speech_bubbles", 
 bevy_stigmergy = { git = "https://github.com/Ladvien/bevy_stigmergy", rev = "6ecee6a3c2ff0bf7f18dab10f376c49b49914c44", optional = true }
 bevy_emerge_core = { path = "../bevy_emerge_core" }
 bevy_flora = { git = "https://github.com/Ladvien/bevy_flora", rev = "25e956b3f88ba32a1b6d75957360c6840da6afd9", features = ["ron"], optional = true }
+bevy_gooey = { git = "https://github.com/Ladvien/bevy_gooey", rev = "23e851a8d4921cb0375a59400f5ec60f68fe8ea5", features = ["serde"], optional = true }
 # The runtime half. The editor spawns pieces through `bevy_emerge::spawn_descriptor` rather than its
 # own copy, so a map cannot look one way here and another in the game — the failure `bake.rs` and
 # `site_editor::source_map` demonstrated by independently growing the same RON writer.

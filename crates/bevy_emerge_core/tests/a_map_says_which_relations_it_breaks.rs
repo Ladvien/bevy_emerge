@@ -24,6 +24,7 @@ fn rel(of: &str, kind: Kind) -> Relation {
     Relation {
         of: of.to_owned(),
         kind,
+        hard: false,
     }
 }
 
