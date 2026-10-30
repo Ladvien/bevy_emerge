@@ -66,14 +66,14 @@ const ALLOWED: &[(&str, &str)] = &[
          what lets an agent press a key in this editor without taking the machine's keyboard",
     ),
     (
-        "bevy_carnage",
-        "the owner's destruction and gore crate, hosted by the family layer (#108) — OPTIONAL, reached only by `--features bevy_carnage` and pinned by git rev, so an ordinary build pays nothing",
-    ),
-    (
         "bevy_elements",
         "the owner's sky, climate, weather, terrain and water crate, hosted by the family layer (#96) — \
          OPTIONAL, reached only by `--features bevy_elements` and pinned by git rev, so an ordinary \
          build and a game that lists no family crate pay nothing",
+    ),
+    (
+        "bevy_carnage",
+        "the owner's fracture, wound and blood crate, hosted by the family layer (#108, #96) — OPTIONAL, reached only by `--features bevy_carnage` (without its render features) and pinned by git rev, so an ordinary build and a game that lists no family crate pay nothing",
     ),
     (
         "bevy_lights",
@@ -84,6 +84,10 @@ const ALLOWED: &[(&str, &str)] = &[
     (
         "bevy_orca",
         "the owner's reciprocal-avoidance crowd solver, hosted by the family layer (#107) — OPTIONAL, reached only by `--features bevy_orca` and pinned by git rev, so an ordinary build pays nothing",
+    ),
+    (
+        "bevy_speech_bubbles",
+        "the owner's speech balloon, conversation graph and dialog box crate, hosted by the family layer (#106, #96) — OPTIONAL, reached only by `--features bevy_speech_bubbles` and pinned by git rev, so an ordinary build pays nothing",
     ),
     (
         "bevy_stigmergy",

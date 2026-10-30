@@ -2374,6 +2374,10 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_compose::CompositionDefine),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
         Box::new(crate::ops_crowd::CrowdPreview),
+        #[cfg(feature = "bevy_carnage")]
+        Box::new(crate::ops_destructible::DestructibleSet),
+        #[cfg(feature = "bevy_carnage")]
+        Box::new(crate::ops_destructible::DestructibleHit),
         Box::new(crate::ops_terrain::TerrainImport),
         Box::new(crate::ops_water::WaterPlace),
         Box::new(crate::ops_play::Play),
@@ -2502,6 +2506,12 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
     ("crowd_preview", "run_crowd_preview("),
     ("terrain_import", "import_terrain("),
+    // **The destructible line (#108)** — `destructible <piece> on|off` and `hit <piece> <x> <y> <z> <radius_m>` in the
+    // terrain field dispatch `destructible_set` and `destructible_hit` through `mark_destructible` and `hit_destructible`.
+    #[cfg(feature = "bevy_carnage")]
+    ("destructible_set", "mark_destructible("),
+    #[cfg(feature = "bevy_carnage")]
+    ("destructible_hit", "hit_destructible("),
     // **The water line (#100)** — `water <spring|sink|lake> ...` in the terrain field dispatches `water_place` through `place_water`.
     ("water_place", "place_water("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
