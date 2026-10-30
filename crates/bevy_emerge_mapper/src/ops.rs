@@ -2367,6 +2367,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
+        Box::new(composition_arm::CompositionArm),
         Box::new(door_open::DoorOpen),
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
@@ -2480,6 +2481,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The palette click**, which arms a piece through `on_row_click`, which calls `arm_piece`
     // and dispatches `brush_arm`.
     ("brush_arm", "arm_piece("),
+    // **The composition arm (E-002)**: the picker's `Enter`, a picker row's click and the COMPOSE
+    // tab's `Enter` all reach `arm_composition`, which dispatches `composition_arm`.
+    ("composition_arm", "arm_composition("),
     // **The three generate keys and the commit door** (S-001). `G`, `Shift+G` and `Cmd+G` all
     // dispatch `layout_propose` through `propose_layout`; `Enter` dispatches `layout_accept`
     // through `accept_layout`; `Esc` dispatches `layout_discard` through `discard_layout`.
@@ -4628,6 +4632,116 @@ pub mod brush_arm {
             let summary = match plan["armed"].as_str() {
                 Some(id) => format!("armed {id}"),
                 None => "put the brush down".to_owned(),
+            };
+            Ok(Outcome {
+                summary,
+                affected: 0,
+                saved: false,
+                inverse: None,
+                after: Some(plan),
+            })
+        }
+    }
+}
+
+/// **Arm a composition for the Map, or put it down (E-002).**
+///
+/// The picker's `Enter`, a click on a picker row and the COMPOSE tab's `Enter` all dispatch this,
+/// through `editor::arm_composition`, and an agent calls the same name. Like [`brush_arm`] it changes
+/// no document: the answer names what is armed and each front end applies it with
+/// `editor::apply_composition_armed`.
+pub mod composition_arm {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The composition's id. `null` puts the armed composition down.
+        #[serde(default, deserialize_with = "present")]
+        pub composition: Option<Option<String>>,
+    }
+
+    /// **Present, possibly null**, for [`brush_arm`]'s reason: an absent key is a refusal, not a
+    /// request to disarm.
+    fn present<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <Option<String> as serde::Deserialize>::deserialize(d).map(Some)
+    }
+
+    pub struct CompositionArm;
+
+    impl Operation for CompositionArm {
+        fn name(&self) -> &'static str {
+            "composition_arm"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::None
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["composition"],
+                "properties": {
+                    "composition": {
+                        "type": ["string", "null"],
+                        "description": "The id of the composition to arm, so the next click on the Map stamps it. null puts it down."
+                    }
+                }
+            })
+        }
+
+        /// **A composition the project holds, or a refusal naming the ones it does.**
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p: Params = serde_json::from_value(params.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "this is not a composition to arm: {e}. The one field is `composition`."
+                ))
+            })?;
+            let id = match p.composition {
+                None => {
+                    return Err(Refusal::new(
+                        "this is not a composition to arm: `composition` is missing. Name one, or \
+                         give null to put it down.",
+                    ));
+                }
+                Some(None) => return Ok(json!({"armed": null})),
+                Some(Some(id)) => id,
+            };
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no composition to arm.",
+                ));
+            };
+            let comps = &project.compositions.compositions;
+            if !comps.iter().any(|c| c.id == id) {
+                let known: Vec<&str> = comps.iter().map(|c| c.id.as_str()).collect();
+                return Err(Refusal::new(if known.is_empty() {
+                    format!("`{id}` is not a composition, and the project has none, so nothing was armed.")
+                } else {
+                    format!(
+                        "`{id}` is not a composition, so nothing was armed. The project has: {}.",
+                        known.join(", ")
+                    )
+                }));
+            }
+            Ok(json!({"armed": id}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let plan = self.plan(ctx, params)?;
+            let summary = match plan["armed"].as_str() {
+                Some(id) => format!("armed the composition {id}"),
+                None => "put the composition down".to_owned(),
             };
             Ok(Outcome {
                 summary,

@@ -869,6 +869,8 @@ fn operation_apply(
     // and `EditorState`'s absence is a fact about the editor, not a name for the menu.
     screen: Option<Res<State<crate::screen::Screen>>>,
     mut screen_next: Option<ResMut<NextState<crate::screen::Screen>>>,
+    // **An agent's armed composition is the Map's (E-002)**, as a picker row's click arms it.
+    mut composition_armed: Option<ResMut<crate::compose::Armed>>,
 ) -> Result<Value, String> {
     let Some(op) = ops::find(&p.operation) else {
         return Err(format!(
@@ -1094,6 +1096,12 @@ fn operation_apply(
         && p.operation == "brush_arm"
     {
         crate::editor::apply_armed(state, project, outcome.after.as_ref());
+    }
+    if let (Ok(ops::Applied::Done { outcome, .. }), Some(armed)) =
+        (&applied, composition_armed.as_deref_mut())
+        && p.operation == "composition_arm"
+    {
+        crate::editor::apply_composition_armed(armed, outcome.after.as_ref());
     }
     // **An agent's door is crossed by the editor in the next frame (`door_open`)**, the same crossing
     // the keys make. It is stored here and carried out by `editor::apply_pending_door`, because the
