@@ -39,6 +39,7 @@ use crate::heightfield::Heightfield;
 use crate::descriptor::{placed_footprint, placed_height, Descriptor, Mount, DecalHost};
 use crate::library::Library;
 use crate::map::{Map, Placed};
+use crate::volume::Volume;
 
 /// **The descriptor a placement actually has**: the library's descriptor for `p.descriptor`, layered
 /// with `p.patch` when the placement carries one.
@@ -245,10 +246,19 @@ pub fn resolve_y(map: &Map, library: &Library) -> Result<Vec<f32>, String> {
 /// hosts, so they follow too. `None` is flat ground, exactly [`resolve_y`]. Walls, ceilings, openings
 /// and decals keep the map's own datum: they belong to the building, not the ground.
 pub fn resolve_y_on(map: &Map, library: &Library, ground: Option<&Heightfield>) -> Result<Vec<f32>, String> {
+    resolve_y_in(map, library, ground, None)
+}
+
+/// [`resolve_y_on`] with the map's carved [`Volume`] (#101). A floor-standing piece whose authored
+/// height (the map's floor plus its `lift`) lies in open air under the terrain surface, inside a
+/// carved cave, falls to the cave's floor ([`Volume::floor_below`]); its `lift` is where the drop
+/// starts and is not added again. A start inside rock, or no cave under it, keeps the terrain rest.
+/// Needs `ground`: without terrain there is no surface for a cave to lie under.
+pub fn resolve_y_in(map: &Map, library: &Library, ground: Option<&Heightfield>, volume: Option<&Volume>) -> Result<Vec<f32>, String> {
     let mut out = vec![f32::NAN; map.placements.len()];
     let mut done = vec![false; map.placements.len()];
     for i in 0..map.placements.len() {
-        resolve_one(map, library, ground, i, &mut out, &mut done, &mut Vec::new())?;
+        resolve_one(map, library, (ground, volume), i, &mut out, &mut done, &mut Vec::new())?;
     }
     Ok(out)
 }
@@ -258,7 +268,7 @@ pub fn resolve_y_on(map: &Map, library: &Library, ground: Option<&Heightfield>) 
 fn resolve_one(
     map: &Map,
     library: &Library,
-    ground: Option<&Heightfield>,
+    (ground, volume): (Option<&Heightfield>, Option<&Volume>),
     i: usize,
     out: &mut [f32],
     done: &mut [bool],
@@ -346,7 +356,7 @@ fn resolve_one(
                 HostNeed::Surface(_) => surface_of(host_d, d, &host.id, &p.id)?,
             };
             path.push(i);
-            let host_y = resolve_one(map, library, ground, hi, out, done, path)?;
+            let host_y = resolve_one(map, library, (ground, volume), hi, out, done, path)?;
             path.pop();
             Some(host_y + lift)
         }
@@ -356,10 +366,18 @@ fn resolve_one(
     // The authored lift rides on top of whatever the layer decided — and because it lands in
     // `out`, a guest resolving through its host inherits the host's lift for free: raise the
     // table and the lamp comes with it.
-    let mut y = datum(map, d, host_top, &p.id)? + p.lift;
+    let base_y = datum(map, d, host_top, &p.id)?;
+    let mut y = base_y + p.lift;
     let on_ground = matches!(&d.mount, None | Some(Mount::OnFloor) | Some(Mount::Tiled) | Some(Mount::OnSurfaceOrFloor { .. }));
     if let (Some(g), None, true) = (ground, host_top, on_ground) {
-        y += rest_on(g, d, p.at, p.yaw);
+        let surface = base_y + g.height_at(p.at.0, p.at.1);
+        let cave = volume
+            .filter(|_| y < surface)
+            .and_then(|v| v.floor_below(p.at.0, p.at.1, y, surface - y, &|q| q[1] - (base_y + g.height_at(q[0], q[2]))));
+        match cave {
+            Some(floor) => y = floor,
+            None => y += rest_on(g, d, p.at, p.yaw),
+        }
     }
     out[i] = y;
     done[i] = true;

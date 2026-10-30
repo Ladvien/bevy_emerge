@@ -88,10 +88,12 @@ pub fn ground_of(project: &crate::project::Project, open: &crate::project::OpenM
     ron::from_str(&text).ok()
 }
 
-/// **Where every piece of the open map stands, on its terrain**: [`bevy_emerge_core::stack::resolve_y_on`]
-/// over [`ground_of`], so sculpting lifts what stands on the ground.
+/// **Where every piece of the open map stands, on its terrain and in its caves**: [`bevy_emerge_core::stack::resolve_y_in`]
+/// over [`ground_of`] and the map's saved volume, so sculpting lifts what stands on the ground and a piece
+/// authored inside a carved cave stands on its floor.
 pub fn heights_on_ground(project: &crate::project::Project, open: &crate::project::OpenMap) -> Result<Vec<f32>, String> {
-    bevy_emerge_core::stack::resolve_y_on(&open.map, &project.library, ground_of(project, open).as_ref())
+    let volume = crate::ops_volume::volume_of(project, open);
+    bevy_emerge_core::stack::resolve_y_in(&open.map, &project.library, ground_of(project, open).as_ref(), volume.as_ref())
 }
 
 /// **Sculpt a map's heightfield with one stroke.**
@@ -305,6 +307,150 @@ impl Operation for TerrainImport {
     fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
         let o = Self::apply(ctx, params, false)?;
         Ok(json!({"map": ImportParams::parse(params)?.map, "cells": o.affected}))
+    }
+    fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+        Self::apply(ctx, params, true)
+    }
+}
+
+/// A procedural terrain preset, by name, from `bevy_elements` (#99).
+#[cfg(feature = "bevy_elements")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PresetParams {
+    pub map: String,
+    /// `hills`, `mountains`, `dunes` or `plains`: `bevy_elements::ProceduralTerrain`'s own presets.
+    #[serde(default)]
+    pub preset: Option<String>,
+    #[serde(default)]
+    pub seed: Option<u64>,
+    /// World `(x, z)` of the field's first cell. Default `(0, 0)`.
+    #[serde(default)]
+    pub origin: Option<(f32, f32)>,
+    /// Metres between cells.
+    #[serde(default)]
+    pub cell_m: Option<f32>,
+    /// Cells along x and z.
+    #[serde(default)]
+    pub size: Option<(usize, usize)>,
+    /// An undo's put-back. Not a thing a caller sends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub put_back: Option<PutBack>,
+}
+
+#[cfg(feature = "bevy_elements")]
+impl PresetParams {
+    pub fn schema() -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["map"],
+            "properties": {
+                "map": {"type": "string", "description": "The map whose terrain is replaced by the preset's surface."},
+                "preset": {"type": "string", "description": "hills, mountains, dunes or plains (bevy_elements' ProceduralTerrain presets)."},
+                "seed": {"type": "integer", "description": "The preset's noise seed. Default 0."},
+                "origin": {"type": "array", "description": "World [x, z] of the first cell. Default [0, 0]."},
+                "cell_m": {"type": "number", "description": "Metres between cells."},
+                "size": {"type": "array", "description": "[cells along x, cells along z], at least 2 each."},
+                "put_back": {"type": "object", "description": "An undo's put-back. Only an undo sends this."}
+            }
+        })
+    }
+
+    pub fn parse(raw: &serde_json::Value) -> Result<PresetParams, Refusal> {
+        let p: PresetParams = serde_json::from_value(raw.clone()).map_err(|e| {
+            Refusal::new(format!("this is not a terrain preset: {e}. The fields are `map`, `preset`, `seed`, `origin`, `cell_m` and `size`."))
+        })?;
+        if p.put_back.is_none() && (p.preset.is_none() || p.cell_m.is_none() || p.size.is_none()) {
+            return Err(Refusal::new("a terrain preset needs `preset`, `cell_m` and `size`. Nothing was changed."));
+        }
+        Ok(p)
+    }
+}
+
+/// **Replace a map's heightfield with a `bevy_elements` procedural preset**, evaluated on the CPU
+/// by `ProceduralTerrain::sample_surface`: the surface the game's own plugin draws, kept as the
+/// map's saved terrain. One undo puts the previous file back.
+#[cfg(feature = "bevy_elements")]
+pub struct TerrainPreset;
+
+#[cfg(feature = "bevy_elements")]
+impl TerrainPreset {
+    fn apply(ctx: &Ctx, params: &serde_json::Value, write: bool) -> Result<Outcome, Refusal> {
+        use bevy_elements::ProceduralTerrain;
+        let p = PresetParams::parse(params)?;
+        let path = path_of(ctx, &p.map)?;
+        let before = std::fs::read_to_string(&path).ok();
+        let inverse = json!({"map": p.map, "put_back": {"text": before}});
+        let (text, affected) = if let Some(back) = &p.put_back {
+            (back.text.clone(), 0)
+        } else {
+            let seed = p.seed.unwrap_or(0);
+            let preset = match p.preset.as_deref().expect("parse needs a preset") {
+                "hills" => ProceduralTerrain::hills(seed),
+                "mountains" => ProceduralTerrain::mountains(seed),
+                "dunes" => ProceduralTerrain::dunes(seed),
+                "plains" => ProceduralTerrain::plains(seed),
+                other => return Err(Refusal::new(format!("`{other}` is not a preset. They are hills, mountains, dunes and plains."))),
+            };
+            let (w, d) = p.size.expect("parse needs a size");
+            let cell_m = p.cell_m.expect("parse needs cell_m");
+            if w < 2 || d < 2 || !(cell_m.is_finite() && cell_m > 0.0) {
+                return Err(Refusal::new("a terrain needs at least 2x2 cells of positive size."));
+            }
+            let heights = preset.sample_surface(bevy::math::UVec2::new(w as u32, d as u32), cell_m);
+            if heights.len() != w * d {
+                return Err(Refusal::new("the preset produced no surface."));
+            }
+            let mut field = Heightfield::flat(p.origin.unwrap_or((0.0, 0.0)), cell_m, w, d, 0.0);
+            field.heights = heights;
+            (Some(to_text(&field)?), w * d)
+        };
+        if write {
+            match &text {
+                Some(t) => {
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir).map_err(|e| Refusal::new(format!("{} cannot be made: {e}", dir.display())))?;
+                    }
+                    std::fs::write(&path, t)
+                        .map_err(|e| Refusal::new(format!("{} refused the change, so nothing was written: {e}", path.display())))?;
+                }
+                None => {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+        Ok(Outcome {
+            summary: format!("terrain {}: {affected} cells from a preset", p.map),
+            affected,
+            saved: write,
+            inverse: Some(inverse),
+            after: Some(json!({"map": p.map, "text": text})),
+        })
+    }
+}
+
+#[cfg(feature = "bevy_elements")]
+impl Operation for TerrainPreset {
+    fn name(&self) -> &'static str {
+        "terrain_preset"
+    }
+    fn undo(&self) -> Undo {
+        Undo::Inverse
+    }
+    fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+        PresetParams::parse(params).map(|p| p.put_back.is_some()).unwrap_or(false)
+    }
+    fn schema(&self) -> serde_json::Value {
+        PresetParams::schema()
+    }
+    fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+        let map = after.get("map")?.as_str()?;
+        Some(json!({"map": map, "text": read(ctx, map)}))
+    }
+    fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let o = Self::apply(ctx, params, false)?;
+        Ok(json!({"map": PresetParams::parse(params)?.map, "cells": o.affected}))
     }
     fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
         Self::apply(ctx, params, true)
