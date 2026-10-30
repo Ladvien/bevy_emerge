@@ -61,6 +61,7 @@ The owner's Bevy crates are meant to be the heart of this editor (issues #96–#
 | Illuminance field for creature AI | `bevy_light_grid` |
 | People with needs, ties, factions, Rhai scripts | `bevy_society` |
 | Speech balloons, conversation graphs, dialog box | `bevy_speech_bubbles` |
+| Menus, HUD meters, dialogs, tooltips, a UI skin, keyboard and gamepad navigation | `bevy_gooey` |
 | Stigmergic fields, crowd avoidance | `bevy_stigmergy`, `bevy_orca` |
 | Fracture, wounds, blood | `bevy_carnage` |
 | An agent driving a running game over BRP | `bevy_fairy` (successor of `bevy_debugger_mcp`) |
