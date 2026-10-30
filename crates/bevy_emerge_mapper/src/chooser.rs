@@ -6730,7 +6730,7 @@ mod render_tests {
 fn room_for_the_card(
     guide: Res<bevy_debugger_bevy::Guide>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    mut placement: ResMut<bevy_debugger_bevy::GuidePlacement>,
+    mut placement: ResMut<bevy_debugger_bevy::plugin::GuidePlacement>,
     mut extra: ResMut<ExtraRoom>,
 ) {
     // **The card hangs just under the screen, and the screen is now the window.**
@@ -6774,7 +6774,7 @@ impl Plugin for ChooserGuidePlugin {
             .init_resource::<bevy_debugger_bevy::Guide>()
             // Below the title line, so the card does not sit on top of the panels it is talking
             // about — the same correction the editor's placement records.
-            .insert_resource(bevy_debugger_bevy::GuidePlacement {
+            .insert_resource(bevy_debugger_bevy::plugin::GuidePlacement {
                 // Overwritten by `room_for_the_card` on the first frame, which is where the height
                 // is actually known; a card is never up before then.
                 top: 0.0,

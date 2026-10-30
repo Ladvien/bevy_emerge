@@ -71,6 +71,12 @@ const ALLOWED: &[(&str, &str)] = &[
          OPTIONAL, reached only by `--features bevy_elements` and pinned by git rev, so an ordinary \
          build and a game that lists no family crate pay nothing",
     ),
+    (
+        "bevy_lights",
+        "the owner's fires, torches and budgeted light pool crate, hosted by the family layer (#103) — \
+         OPTIONAL, reached only by `--features bevy_lights` and pinned by git rev, so an ordinary \
+         build and a game that lists no family crate pay nothing",
+    ),
 ];
 
 fn declared_dependencies(manifest: &str) -> BTreeSet<String> {

@@ -79,6 +79,7 @@ pub mod ops_brp;
 pub mod ops_data;
 pub mod ops_family;
 pub mod ops_terrain;
+pub mod ops_play;
 pub mod ops_notes;
 pub mod ops_runs;
 pub mod project;

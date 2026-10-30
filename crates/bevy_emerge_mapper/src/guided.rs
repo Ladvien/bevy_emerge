@@ -61,7 +61,7 @@ impl Plugin for GuidePlugin {
             // devshot came back with ANIM reading through the card. `insert_resource` rather than
             // `init_resource`, so this wins whichever order the two plugins are added in --
             // `DebuggerPlugin` only inits it, and init is insert-if-absent.
-            .insert_resource(bevy_debugger_bevy::GuidePlacement {
+            .insert_resource(bevy_debugger_bevy::plugin::GuidePlacement {
                 top: 58.0,
                 ..default()
             });
