@@ -299,6 +299,15 @@ the others in the backlog.
 
 **Everything blocked is not a reason to stop: record a clip, then build.** When the focus, the series and your candidates are all blocked or waiting on the owner, take one `not yet recorded` line in `CHANGELOG.md`, newest first: record its clip on this build (Phase 5's recipe; scratch copy of the project, never the consumer's own files), look at the still and a contact sheet, confirm it shows what the line says, and replace the reason with the clip. A clip that does not show what the line says is not shipped; log which line and why, and leave it. **A pass never ends idle** (owner, 2026-10-29): with no such line left, or none this machine can record, research a feature of your own through the lenses below, home-still first (`distill_search`; for a paper the corpus lacks, `paper_search`, `paper_download`, `scribe_convert`, then `distill_index`), then shipped editors (Mixar, Unity, Unreal, Godot, LDtk, Tiled). Claim it as an issue ("Parallel workers", item 5) and build its first slice with a failing-first test. "Nothing workable" is never a log line; a pass that ships nothing names the concrete blocker.
 
+**These are not blockers** (owner, 2026-10-30, after w3, w4 and w5 idled passes in a row on each of them):
+
+- **"More than one pass", "a new family crate", "a first heavy build".** Slice it. Slice 1 adds the crate as an optional feature, pinned by `rev`, and starts the build. The build is the pass's work, not a reason to skip the pass. #98, #100, #103, #106, #107 and #108 each started this way.
+- **"Recording clips is `bevy_emerge_w2`'s job".** w2 records first, but any worker on a Mac (laptop, big_mac, bmb) records a `not yet recorded` line when it has no issue. On 2026-10-30 at 01:05, 47 lines were waiting.
+- **"Labelled `decide`" or "needs `clef-flash`"**, when the issue has steps that need no model: build those steps.
+- **"Needs a real game" (#95):** the consumer game is Sanctuary, at `/Users/ladvien/sanctuary` on the laptop. Work on a scratch copy of it, never on the checkout itself.
+
+A log line that repeats an earlier pass's reasons for shipping nothing is itself a failed pass.
+
 **Lenses**, and the research says which are already answered:
 
 - **Describe → set up → inspect → present.** Where does manual work or unverified output get in the way?

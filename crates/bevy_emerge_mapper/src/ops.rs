@@ -2380,6 +2380,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         #[cfg(feature = "bevy_carnage")]
         Box::new(crate::ops_destructible::DestructibleHit),
         Box::new(crate::ops_terrain::TerrainImport),
+        Box::new(crate::ops_forest::ForestScatter),
         Box::new(crate::ops_water::WaterPlace),
         Box::new(crate::ops_water::WaterRun),
         Box::new(crate::ops_play::Play),
@@ -2511,6 +2512,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
     ("crowd_preview", "run_crowd_preview("),
     ("terrain_import", "import_terrain("),
+    // **The Terrain field's `forest` line (#102)** — `forest <x> <z> <radius_m> <spacing_m> <seed> <species>`
+    // dispatches `forest_scatter` through `scatter_forest`, the same write an agent's `apply` makes.
+    ("forest_scatter", "scatter_forest("),
     // **The destructible line (#108)** — `destructible <piece> on|off` and `hit <piece> <x> <y> <z> <radius_m>` in the
     // terrain field dispatch `destructible_set` and `destructible_hit` through `mark_destructible` and `hit_destructible`.
     #[cfg(feature = "bevy_carnage")]
