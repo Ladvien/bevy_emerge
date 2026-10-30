@@ -168,7 +168,7 @@ fn three_options_differ_pairwise_and_each_seed_rebuilds_its_block() {
         seeds.windows(2).all(|w| w[0] < w[1]),
         "options come in the order their seeds were tried: {seeds:?}"
     );
-    assert_eq!(seeds[0], rules.seed, "the first seed's layout is always the first option");
+    assert_eq!(seeds[0], rules.seed, "seed 7's layout passes, so it is the first option");
     assert!(
         got.tried == 3 + got.too_close + got.failed,
         "every seed tried is kept, too close or failed: {got:?}"
@@ -210,6 +210,11 @@ fn a_fully_pinned_block_offers_one_option_and_says_the_rest_were_too_close() {
     let got = ask(&a, &pins, 3, 1);
     assert_eq!(got.options.len(), 1, "one layout is possible: {got:?}");
     assert_eq!(got.options[0].nearest, None, "a lone option has no nearest other");
+    assert_eq!(
+        solve_block(&a, &rules, &pins, got.options[0].seed).unwrap_or_else(|e| panic!("{e}")),
+        got.options[0].block,
+        "the option's seed rebuilds it under the same pins"
+    );
     assert_eq!(got.failed, 0, "every seed collapses to the pinned layout");
     assert_eq!(
         got.tried,
@@ -233,6 +238,10 @@ fn zero_options_spend_nothing_and_min_differ_one_keeps_any_new_layout() {
 
     let any = ask(&a, &[], 3, 1);
     assert_eq!(any.options.len(), 3, "{any:?}");
+    assert_eq!(
+        any.too_close, 0,
+        "free layouts differ in tens of cells, so min_differ 1 turns none away: {any:?}"
+    );
     for (i, x) in any.options.iter().enumerate() {
         for y in &any.options[i + 1..] {
             assert_ne!(x.block.grid, y.block.grid, "no two options are the same layout");

@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **166-options** `684e580` A block offers several distinct layouts on request: rules::options keeps up to N that each differ from the others in at least a given number of cells, each chosen by the seed that rebuilds it *No clip: a core API; proved by bevy_emerge_core/tests/a_block_offers_distinct_options.rs*
 - **162-room** `273b5b0` A kit says whether it can open a hallway out into a room: adjacency::room builds the smallest room with a middle, nine pieces with every inner seam declared, or says there is none *No clip: a core API; proved by a_kit_says_whether_it_can_open_into_a_room*
 - **161-behind** `93d1c20` Relations: Behind keeps a piece behind another (a chest behind the counter), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_behind_another.rs*
 - **160-ring** `eb75d90` A kit says whether it can loop a hallway back: adjacency::ring builds the smallest closed loop of four pieces, or says there is none *No clip: a core API; proved by a_kit_says_whether_it_can_loop_a_hallway_back*
