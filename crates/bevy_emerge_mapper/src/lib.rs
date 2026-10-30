@@ -80,6 +80,7 @@ pub mod ops;
 pub mod ops_brp;
 pub mod ops_compose;
 pub mod ops_stamp;
+pub mod ops_plan;
 #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
 pub mod ops_crowd;
 #[cfg(feature = "bevy_carnage")]

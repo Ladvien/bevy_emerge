@@ -55,6 +55,7 @@ pub mod naming;
 pub mod note_agent;
 pub mod notes;
 pub mod placement;
+pub mod plan;
 pub mod plot;
 pub mod policy;
 pub mod project_data;

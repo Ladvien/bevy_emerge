@@ -2363,6 +2363,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
         Box::new(crate::ops_stamp::StampAdd),
+        Box::new(crate::ops_plan::PlanSet),
         Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
@@ -2378,6 +2379,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_dialogue::DialoguePreview),
         Box::new(crate::ops_terrain::TerrainStroke),
         Box::new(crate::ops_compose::CompositionDefine),
+        Box::new(crate::ops_compose::CompositionSetEnvelope),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
         Box::new(crate::ops_crowd::CrowdPreview),
         #[cfg(feature = "bevy_carnage")]
@@ -2399,6 +2401,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_runs::RunAdd),
         Box::new(crate::ops_runs::RunSet),
         Box::new(crate::ops_runs::RunRemove),
+        Box::new(crate::ops_runs::PlacementsToRun),
         Box::new(crate::ops_notes::NoteAdd),
         Box::new(crate::ops_notes::NoteEdit),
         Box::new(crate::ops_notes::NoteRemove),
@@ -2449,6 +2452,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // (E-072). The held set carries no placement ids, which is why the key does not dispatch the
     // operation itself.
     ("composition_define", "keep_as_group("),
+    // **The Compose list's second click**: a click on the already-selected group toggles its
+    // envelope between anchored and bounded through `set_envelope`, which dispatches
+    // `composition_set_envelope` (E-072 slice 3).
+    ("composition_set_envelope", "set_envelope("),
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
     ("placement_set_pin", "set_pin("),
@@ -2564,6 +2571,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("run_add", "add_run("),
     ("run_set", "set_run("),
     ("run_remove", "remove_run("),
+    // **Convert rows to a run (#115)** — a platform-modifier drag in run mode over standing rows
+    // dispatches `placements_to_run` through `rows_to_run_along`.
+    ("placements_to_run", "rows_to_run_along("),
     ("note_edit", "edit_note("),
     ("note_remove", "remove_note("),
     // **Enter on the Note tool with no box open** sends every draft through `send_notes`, which
@@ -2584,6 +2594,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // through `talk_note`, Undo this note dispatches `note_undo_work` through `undo_note_work`.
     ("note_keep", "talk_note("),
     ("note_undo_work", "undo_note_work("),
+    // **The Terrain field's `plan clear` line (E-069)** dispatches `plan_set` with no items through
+    // `clear_plan`, so a person can empty an agent's plan the way an agent replaces it. The checklist
+    // panel that shows it is owed (it needs a display to verify).
+    ("plan_set", "clear_plan("),
 ];
 
 /// **Apply an operation, and record what happened.**
