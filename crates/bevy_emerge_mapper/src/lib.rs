@@ -106,6 +106,9 @@ pub mod ops_volume;
 #[cfg(feature = "isomesh")]
 pub mod volume_mesh;
 pub mod ops_forest;
+#[cfg(all(feature = "bevy_flora", feature = "bevy_elements"))]
+pub mod forest_season;
+pub mod ops_tree;
 pub mod ops_water;
 pub mod terrain_view;
 pub mod ops_play;

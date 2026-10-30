@@ -2126,6 +2126,8 @@ impl Plugin for EditorPlugin {
                 crate::environment::scrub_clock.after(crate::environment::apply_environment),
             ),
         );
+        #[cfg(all(feature = "bevy_flora", feature = "bevy_elements"))]
+        app.add_systems(Update, crate::forest_season::follow_date.after(crate::environment::scrub_clock));
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
         // **The light map (#103):** shown by its button, re-baked when the map changes, drawn over the floor.
@@ -4613,6 +4615,8 @@ fn terrain_edit_keys(
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("forest ") {
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("tree ") {
+                    edit_tree(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim() == "plan clear" {
                     clear_plan(project.as_deref(), open.as_deref(), &mut state);
                 } else if raw.trim() == "relations solve" {
@@ -4839,8 +4843,41 @@ fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edi
     }
 }
 
-/// **Import a 16-bit height map through the registry** as `terrain_import`, from the terrain line
-/// `import <file> <cell_m> <low_m> <high_m>`; the field's first cell is the origin.
+/// **Edit a tree file through the registry** as `tree_edit`: `tree <name> [<preset>] [<field.path>=<value> ...]`,
+/// one write, so one undo step. A value is JSON where it parses (`trunk.radius=0.6`), a string otherwise.
+fn edit_tree(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let mut words = raw.split_whitespace().skip(1);
+    let Some(name) = words.next() else {
+        state.status.problem("`tree` needs `tree <name> [<preset>] [<field.path>=<value> ...]`, so nothing was written");
+        return;
+    };
+    let mut params = serde_json::json!({"name": name});
+    let mut set = serde_json::Map::new();
+    for w in words {
+        match w.split_once('=') {
+            Some((path, v)) => {
+                set.insert(path.to_owned(), serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_owned())));
+            }
+            None => params["preset"] = serde_json::Value::String(w.to_owned()),
+        }
+    }
+    params["set"] = serde_json::Value::Object(set);
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: open.cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "tree_edit", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
 /// **Plant the typed line through the registry** as `forest_scatter`: `forest <x> <z> <radius_m>
 /// <spacing_m> <seed> <species>`, one point, so one undo step.
 fn scatter_forest(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
@@ -4875,6 +4912,8 @@ fn scatter_forest(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
     }
 }
 
+/// **Import a 16-bit height map through the registry** as `terrain_import`, from the terrain line
+/// `import <file> <cell_m> <low_m> <high_m>`; the field's first cell is the origin.
 fn import_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
     let words: Vec<&str> = raw.split_whitespace().collect();
     let nums: Option<Vec<f32>> = words.get(2..).filter(|w| w.len() == 3).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
@@ -7188,6 +7227,7 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::ReachableFrom { from, .. } => format!("{of} reachable from {from}"),
                 Kind::AlignedWith(to) => format!("{of} aligned with {to}"),
                 Kind::Between { a, b, .. } => format!("{of} between {a} and {b}"),
+                Kind::MirrorOf { of: other, about, .. } => format!("{of} mirror of {other} about {about}"),
             };
             let what = if r.hard { format!("{what} (hard)") } else { what };
             match outcome {
