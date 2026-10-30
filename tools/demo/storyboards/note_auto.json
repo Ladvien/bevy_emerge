@@ -1,0 +1,128 @@
+{
+ "name": "note_auto",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [],
+ "chunks": [
+  {
+   "seconds": 8
+  },
+  {
+   "seconds": 9
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    640,
+    300
+   ]
+  },
+  {
+   "at": 0.1,
+   "caption": "Shift+N arms the note tool; drag an area"
+  },
+  {
+   "at": 0.6,
+   "key": "KeyN",
+   "mods": [
+    "ShiftLeft"
+   ]
+  },
+  {
+   "at": 1.2,
+   "drag": [
+    610,
+    380,
+    700,
+    440
+   ],
+   "secs": 1.0
+  },
+  {
+   "at": 2.6,
+   "caption": "a plain note: the agent will ask about open choices"
+  },
+  {
+   "at": 2.7,
+   "type": "a reading lamp by the armchair"
+  },
+  {
+   "at": 4.6,
+   "key": "Enter"
+  },
+  {
+   "at": 5.2,
+   "caption": "Enter saves it: a row in NOTES"
+  },
+  {
+   "at": 5.3,
+   "wheel": {
+    "y": -4,
+    "n": 3,
+    "at": [
+     220,
+     450
+    ]
+   }
+  },
+  {
+   "at": 8.0,
+   "wheel": {
+    "y": 4,
+    "n": 3,
+    "at": [
+     220,
+     450
+    ]
+   }
+  },
+  {
+   "at": 8.4,
+   "caption": "a second note, over the table"
+  },
+  {
+   "at": 8.5,
+   "drag": [
+    670,
+    430,
+    760,
+    490
+   ],
+   "secs": 1.0
+  },
+  {
+   "at": 9.9,
+   "type": "make this a dining corner"
+  },
+  {
+   "at": 11.0,
+   "caption": "Tab marks it auto: the agent decides open choices itself"
+  },
+  {
+   "at": 11.1,
+   "key": "Tab"
+  },
+  {
+   "at": 13.0,
+   "key": "Enter"
+  },
+  {
+   "at": 13.5,
+   "caption": "only the auto note's row carries the 'auto' chip"
+  },
+  {
+   "at": 13.6,
+   "wheel": {
+    "y": -4,
+    "n": 3,
+    "at": [
+     220,
+     450
+    ]
+   }
+  }
+ ]
+}
