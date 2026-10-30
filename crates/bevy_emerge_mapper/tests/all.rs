@@ -194,6 +194,7 @@ mod the_meshes_pane_says_how_sure_the_labels_are;
 mod the_next_undo_is_named;
 mod the_refusal_is_on_screen;
 mod the_run_receipt_names_the_triggers_that_fired;
+mod the_scripts_panel_lists_the_maps_triggers;
 mod the_stage_labels_are_on_screen;
 mod the_stage_labels_do_not_collide;
 mod the_stage_labels_live_in_one_space;

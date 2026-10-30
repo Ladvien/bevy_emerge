@@ -2417,7 +2417,7 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family, refresh_data, refresh_terrain, refresh_crowd, refresh_data_list, refresh_notes_list),
+                    (refresh_size, refresh_family, refresh_data, refresh_terrain, refresh_crowd, refresh_data_list, refresh_notes_list, refresh_scripts_list),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -2462,6 +2462,7 @@ impl Plugin for EditorPlugin {
             .add_observer(on_terrain_field_click)
             .add_observer(on_crowd_field_click)
             .add_observer(on_data_leaf_click)
+            .add_observer(on_script_row_click)
             .add_observer(on_notes_click);
     }
 }
@@ -3315,6 +3316,24 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 );
                 s.spawn((
                     DataList,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                ));
+            });
+
+            // **Scripts (#105).** Every trigger of the open map; a row opens the terrain line to edit it.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "SCRIPTS");
+                s.spawn((
+                    ScriptsList,
                     Node {
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(crate::chrome::GAP_TIGHT),
@@ -5224,6 +5243,90 @@ fn on_data_leaf_click(
     };
     edit.active = Some(format!("{} {} ", row.file, row.path));
     state.status.note("Enter writes the value, Esc leaves it alone".to_owned());
+}
+
+/// A row of [`ScriptsList`]: one trigger of the open map, carrying the terrain line that rewrites it.
+#[derive(Component, Clone)]
+struct ScriptRow {
+    line: String,
+}
+
+/// **The Scripts panel's list** (#105): one row per trigger in `scripts/<map>.ron`.
+#[derive(Component, Clone, Copy)]
+struct ScriptsList;
+
+/// A row opens the terrain line with that trigger already typed, so a person edits it and presses Enter
+/// (`trigger_set`, refused with the Rhai line when it does not compile). Global observer: see [`on_size_field_click`].
+fn on_script_row_click(
+    activate: On<Activate>,
+    rows: Query<&ScriptRow>,
+    edit: Option<ResMut<TerrainEdit>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    let (Some(mut edit), Some(mut state)) = (edit, state) else {
+        return;
+    };
+    let Ok(row) = rows.get(activate.entity) else {
+        return;
+    };
+    edit.active = Some(row.line.clone());
+    state.status.note("Enter writes the trigger (`trigger <id> remove` deletes it), Esc leaves it alone".to_owned());
+}
+
+/// Keep [`ScriptsList`] equal to the open map's saved triggers: read twice a second, rows respawned only when they change.
+fn refresh_scripts_list(
+    mut commands: Commands,
+    time: Res<Time>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    lists: Query<Entity, With<ScriptsList>>,
+    mut shown: Local<Option<Vec<crate::ops_scripts::Trigger>>>,
+    mut since: Local<f32>,
+) {
+    *since += time.delta_secs();
+    if shown.is_some() && *since < 0.5 {
+        return;
+    }
+    *since = 0.0;
+    let rows = match (project, open) {
+        (Some(p), Some(o)) => crate::ops_scripts::scripts_of(&p, &o.map.name).triggers,
+        _ => Vec::new(),
+    };
+    if shown.as_ref() == Some(&rows) {
+        return;
+    }
+    for list in &lists {
+        commands.entity(list).despawn_related::<Children>();
+        commands.entity(list).with_children(|p| {
+            if rows.is_empty() {
+                p.spawn((
+                    Text::new("no triggers on this map"),
+                    TextColor(DIM),
+                    crate::chrome::font(crate::chrome::text::LABEL),
+                ));
+            }
+            for t in &rows {
+                crate::chrome::list_row(p, false, ScriptRow { line: crate::ops_scripts::trigger_line(t) })
+                    .with_children(|row| {
+                        let who = if !t.bind.people.is_empty() {
+                            format!(" · {}", t.bind.people.join(", "))
+                        } else if let Some(f) = &t.bind.faction {
+                            format!(" · {f}")
+                        } else if t.bind.area.is_some() {
+                            " · area".to_owned()
+                        } else {
+                            String::new()
+                        };
+                        row.spawn((
+                            Text::new(format!("{} · {}{}", t.id, t.on, who)),
+                            TextColor(TEXT),
+                            crate::chrome::font(crate::chrome::text::BODY),
+                        ));
+                    });
+            }
+        });
+    }
+    *shown = Some(rows);
 }
 
 /// Keep [`DataList`] equal to the registered files' leaves. The files are read twice a second, not

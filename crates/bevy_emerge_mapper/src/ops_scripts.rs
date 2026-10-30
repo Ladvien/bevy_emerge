@@ -124,6 +124,22 @@ pub fn scripts_of(project: &crate::project::Project, map: &str) -> Scripts {
         .unwrap_or_default()
 }
 
+/// **A trigger as the terrain line writes it**: `trigger <id> | <on> | <if> | <then> [| people=..] [| faction=..] [| area=..]`,
+/// the form `set_trigger` parses, so a Scripts row can open the line to edit the trigger it shows.
+pub fn trigger_line(t: &Trigger) -> String {
+    let mut line = format!("trigger {} | {} | {} | {}", t.id, t.on, t.condition.as_deref().unwrap_or(""), t.then);
+    if !t.bind.people.is_empty() {
+        line.push_str(&format!(" | people={}", t.bind.people.join(",")));
+    }
+    if let Some(f) = &t.bind.faction {
+        line.push_str(&format!(" | faction={f}"));
+    }
+    if let Some([a, b, c, d]) = t.bind.area {
+        line.push_str(&format!(" | area={a},{b},{c},{d}"));
+    }
+    line
+}
+
 /// **The Rhai condition a trigger compiles with**: its own `if` and its binding, joined with `&&`.
 /// `None` when nothing restricts it.
 pub fn effective_condition(t: &Trigger, people: &People) -> Option<String> {
