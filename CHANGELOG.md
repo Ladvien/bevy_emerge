@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **forest-season** `c0a2402` Trees follow the map's date: the preview's FloraSeason turns blossom, green, autumn, snow with the month, shifted for the south (#102) *No clip: visible, not yet recorded: no display, the editor does not draw flora yet; proved by forest_season tests*
 - **102-tree-editor** tree_edit: start a tree from a bevy_flora preset and tune any field by path, written as a project .tree.ron the crate's loader reads, one undo per edit; terrain-field line `tree <name> [preset] [field=value]` (#102) *No clip: visible, not yet recorded: no display work this pass; proved by tests/tree_editor.rs*
 - **forest-place** `72be365` Place one tree by hand with an age and a seed (forest_scatter's place); the same seed grows the same tree *No clip: an API; proved by tests/forest_place.rs*
 - **E-047** `238331d` emerge_list_pieces says its confidence describes the record, not a check; one confidence parser *No clip: an API wording and a refactor; proved by a_confidence_word_parses_back*
