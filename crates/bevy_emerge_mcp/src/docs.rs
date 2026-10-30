@@ -57,7 +57,9 @@ pub const TOOLS: &[ToolDoc] = &[
                       JSON schema and how it is undone. Call this before emerge_apply_operation so the \
                       parameters are the ones the operation actually takes. Returns the list; it does not \
                       change anything. The undo column names the strategy an operation declares; \
-                      emerge_undo_operation performs it.",
+                      emerge_undo_operation performs it. Pass query (words such as \"carve\" or \"note\") \
+                      to get only the operations whose name or parameters match, best first, and total, \
+                      the number of operations there are.",
         read_only: true,
         destructive: false,
         idempotent: true,
@@ -405,7 +407,13 @@ pub fn schemas() -> Value {
                 "operation_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
-        "emerge_list_operations": {"type": "object", "additionalProperties": false},
+        "emerge_list_operations": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "query": {"type": "string", "description": "Words to search for, such as carve or note. With them, only the operations whose name or parameters match, best first, and total. Without them, every operation."},
+            },
+        },
         "emerge_preview_operation": {
             "type": "object",
             "additionalProperties": false,
