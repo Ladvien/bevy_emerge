@@ -75,6 +75,16 @@ impl Relations {
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
                 Kind::VisibleFrom { clearance, .. } => [*clearance, 0.0],
+                Kind::Along { path, within } => {
+                    if path.len() < 2 {
+                        return Err(format!(
+                            "relations: relation {i} (of {:?}) has a path of {} waypoint(s); a path needs two or more",
+                            rel.of,
+                            path.len()
+                        ));
+                    }
+                    [*within, 0.0]
+                }
             };
             if let Some(bad) = metres.iter().find(|m| !(m.is_finite() && **m >= 0.0)) {
                 return Err(format!(
@@ -124,6 +134,10 @@ pub enum Kind {
     /// on either end ([`Placed::on`], at any depth) is part of that end and never blocks. Measures
     /// how far off the line the nearest blocker stands, or `clearance` when clear.
     VisibleFrom { from: String, clearance: f32 },
+    /// Stands beside a path: within `within` metres of the polyline through these placements'
+    /// centres, in order (a lamp along the road from the gate past the well to the hall). Two or more
+    /// waypoints. Measures the distance to the nearest point of the path.
+    Along { path: Vec<String>, within: f32 },
 }
 
 /// What [`check`] found for one relation.
@@ -250,7 +264,38 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
             }
             Err(m) => m,
         },
+        Kind::Along { path, within } => match nearest_on_path(placements, path, a.at) {
+            Ok(q) => {
+                let d = distance(a.at, q);
+                verdict(d <= *within, d)
+            }
+            Err(m) => m,
+        },
     }
+}
+
+/// The point of the polyline through `path`'s placements nearest `p`, or the first waypoint the map
+/// lacks.
+fn nearest_on_path(placements: &[Placed], path: &[String], p: (f32, f32)) -> Result<(f32, f32), Outcome> {
+    let points = path
+        .iter()
+        .map(|id| find(placements, id).map(|w| w.at))
+        .collect::<Result<Vec<_>, _>>()?;
+    let closest = |(s, e): ((f32, f32), (f32, f32))| {
+        let (dx, dz) = (e.0 - s.0, e.1 - s.1);
+        let len2 = dx * dx + dz * dz;
+        let t = if len2 > 1e-8 {
+            (((p.0 - s.0) * dx + (p.1 - s.1) * dz) / len2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        (s.0 + dx * t, s.1 + dz * t)
+    };
+    Ok(points
+        .windows(2)
+        .map(|w| closest((w[0], w[1])))
+        .min_by(|x, y| distance(p, *x).total_cmp(&distance(p, *y)))
+        .unwrap_or(points[0]))
 }
 
 /// Whether `p` rests on `end`, directly or through a chain of hosts. A chain is never longer than
@@ -369,8 +414,9 @@ const SOLVE_ROUNDS: usize = 8;
 /// For each [`Outcome::Unmet`] relation the solver proposes one move: [`Kind::Faces`] turns the
 /// piece to its target, [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
 /// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
-/// sideways out of the corridor (the door stays where it was hung), and [`Kind::VisibleFrom`] moves
-/// the nearest blocker sideways off the sight line (both ends stay). A move is kept only when it
+/// sideways out of the corridor (the door stays where it was hung), [`Kind::VisibleFrom`] moves
+/// the nearest blocker sideways off the sight line (both ends stay), and [`Kind::Along`] slides the
+/// piece toward the nearest point of its path, on its own side. A move is kept only when it
 /// lowers the map's unmet count, so a relation is never mended by breaking another, and
 /// contradictory ones end with as many met as one move each allows.
 ///
@@ -487,6 +533,14 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
                 a.at.1 + fz * ahead - fx * side,
             );
             Some((intruder.id.clone(), to, intruder.yaw))
+        }
+        Kind::Along { path, within } => {
+            let q = nearest_on_path(placements, path, a.at).ok()?;
+            let d = distance(a.at, q);
+            // Keep its side and stand just inside; a piece on the path's centre line stays there.
+            let keep = if d > 1e-4 { (within * 0.9).min(d) / d } else { 0.0 };
+            let to = (q.0 + (a.at.0 - q.0) * keep, q.1 + (a.at.1 - q.1) * keep);
+            free(a).then(|| (a.id.clone(), to, a.yaw))
         }
         Kind::VisibleFrom { .. } => None,
     })();

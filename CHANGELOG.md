@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **gooey-skin** `fe2d94f` A project's family/bevy_gooey.ron is the running UI skin: a partial file restyles bevy_gooey widgets live, and a bad file or a WCAG failure is a status-line problem (#147) *No clip: visible, not yet recorded: no display on big; proved by family_gooey_skin*
+- **relations-along** `e8b7fe0` A relation keeps a piece beside a path through other pieces: Along names how far off it stands, and relations solve brings it back *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_kept_beside_a_path.rs*
 - **dead-end-closest** `d29b77c` A kit's dead end names the piece nearest to closing it and the cells it gets wrong *No clip: visible, not yet recorded: no display on big*
 - **relations-visible-from** `96d335e` A relation keeps a sight line clear: VisibleFrom names the piece in the way, and relations solve moves it off *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_sight_line_no_piece_may_stand_in.rs*
 - **E-142-2** `6665972` The Meshes pane and emerge_state name every kit face no piece can meet (dead ends) *No clip: visible, not yet recorded: no display on big*
