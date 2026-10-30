@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **E-089-s1** `3abf44f` Kit standards: a project's standards.ron says which pieces break its module, door opening or storey height (#138 slice 1) *No clip: an engine-free core API; proved by crates/bevy_emerge_core/tests/a_kit_says_which_pieces_break_its_standards.rs*
 - **E-087-inspector** `50e9fa6` The Map inspector's REPEATS row names the repeat a player will notice first, and how many other looks repeat *No clip: visible, not yet recorded: no display on big*
 - **E-088** `9747292` Layout relations: a map says which intended relations (faces, near, apart, in front of, clear in front) its placements break, and by what *No clip: a core API, not yet drawn in the editor; proved by crates/bevy_emerge_core/tests/a_map_says_which_relations_it_breaks.rs*
 - **E-087b** `0b4323b` emerge_state names the repeats a player will notice: repeated clutter first, structure after *No clip: an MCP state field; proved by tests/emerge_state_names_visible_repeats.rs*
