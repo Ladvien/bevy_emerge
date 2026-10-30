@@ -9,7 +9,8 @@
 //! A [`Rule`] covers the pieces whose `kind` holds its token, or every piece when it names none, and
 //! bounds one [`Dim`]: width and depth are [`crate::descriptor::placed_footprint`] (before yaw),
 //! height is [`crate::descriptor::placed_height`] (after the project's `stretch_y`). A covered piece
-//! whose dimension was never measured is [`Why::Unmeasured`], never silently met.
+//! whose dimension was never measured, or measured as NaN or infinite, is [`Why::Unmeasured`],
+//! never silently met.
 //!
 //! Engine-free: reads descriptors, nothing else. A breach is reported, not refused; refusing a
 //! piece at import is a separate choice for the caller.
@@ -119,8 +120,14 @@ impl Rule {
                 return Err(format!("{what} {v} is not a finite length of zero or more"));
             }
         }
-        if self.multiple_of.is_some_and(|m| m <= 0.0) {
-            return Err("multiple_of must be above zero".into());
+        if self
+            .multiple_of
+            .is_some_and(|m| m <= 2.0 * MULTIPLE_TOLERANCE)
+        {
+            return Err(format!(
+                "multiple_of must be above {} m, or every length is within tolerance of it",
+                2.0 * MULTIPLE_TOLERANCE
+            ));
         }
         if let (Some(lo), Some(hi)) = (self.min, self.max)
             && lo > hi
@@ -185,7 +192,7 @@ pub fn check(library: &Library, standards: &Standards) -> Vec<Breach> {
                 found,
                 why,
             };
-            let Some(v) = measure(d, r.dim) else {
+            let Some(v) = measure(d, r.dim).filter(|v| v.is_finite()) else {
                 out.push(breach(None, Why::Unmeasured));
                 continue;
             };

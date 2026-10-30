@@ -144,6 +144,21 @@ fn a_rule_with_no_kind_covers_every_piece() {
 }
 
 #[test]
+fn a_dimension_measured_as_nan_is_unmeasured_not_met() {
+    let mut lib = kit();
+    lib.descriptors.push(piece(
+        "wall_nan",
+        &["wall"],
+        Some((f32::NAN, 0.2)),
+        Some(2.4),
+    ));
+    let all = check(&lib, &standards());
+    let nan = breaches_of(&all, "wall_nan");
+    assert_eq!(nan.len(), 1, "{nan:?}");
+    assert_eq!(nan[0].why, Why::Unmeasured);
+}
+
+#[test]
 fn a_multiple_within_a_centimetre_is_on_the_module() {
     let mut lib = kit();
     // Exported meshes are rarely exact: 4.004 m is a 2 m module piece.
@@ -168,6 +183,8 @@ fn the_file_round_trips_and_refuses_what_could_never_hold() {
     assert!(bad(r#"(name: "x", dim: Width)"#).is_err());
     // A module of zero or less has no multiples.
     assert!(bad(r#"(name: "x", dim: Width, multiple_of: Some(0.0))"#).is_err());
+    // A module within twice the tolerance has every length on it, so it would check nothing.
+    assert!(bad(r#"(name: "x", dim: Width, multiple_of: Some(0.01))"#).is_err());
     // A negative or non-finite bound is a typo, not a standard.
     assert!(bad(r#"(name: "x", dim: Height, min: Some(-1.0))"#).is_err());
     assert!(bad(r#"(name: "x", dim: Height, max: Some(inf))"#).is_err());
