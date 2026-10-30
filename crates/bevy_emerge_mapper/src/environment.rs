@@ -12,7 +12,9 @@
 use std::time::Duration;
 
 use bevy::prelude::*;
-use bevy_elements::{Climate, GeoLocation, WeatherDirector, WeatherPreset, WorldClock};
+use bevy_elements::{
+    Climate, DustSettings, GeoLocation, RockSettings, SnowSettings, WeatherDirector, WeatherPreset, WetnessSettings, WorldClock,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::family_host::FamilySettings;
@@ -33,6 +35,18 @@ pub struct ElementsSettings {
     /// `Some(Rain)` forces rain; `None` (the default) lets the climate's scheduler choose.
     #[serde(default)]
     pub forced_weather: Option<WeatherPreset>,
+    /// How snow settles, melts and drifts (#100). The crate's own type; a file without it takes the crate's defaults.
+    #[serde(default)]
+    pub snow: SnowSettings,
+    /// How the ground wets, dries and puddles.
+    #[serde(default)]
+    pub wetness: WetnessSettings,
+    /// How many rocks lie on the ground (`talus_cover`, `meadow_cover`, `range_scale` 0 for none).
+    #[serde(default)]
+    pub rocks: RockSettings,
+    /// Blown sand and dust.
+    #[serde(default)]
+    pub dust: DustSettings,
 }
 
 impl ElementsSettings {
@@ -47,6 +61,10 @@ impl ElementsSettings {
             location: GeoLocation::default(),
             climate: Climate::default(),
             forced_weather: None,
+            snow: SnowSettings::default(),
+            wetness: WetnessSettings::default(),
+            rocks: RockSettings::default(),
+            dust: DustSettings::default(),
         }
     }
 
@@ -78,6 +96,21 @@ pub fn apply(
     }
 }
 
+/// Puts the ground-cover settings into the preview's resources, only where the plugin made one and the value differs.
+pub fn apply_cover(settings: &ElementsSettings, preview: &mut Preview) {
+    fn put<T: bevy::prelude::Resource<Mutability = bevy::ecs::component::Mutable> + Clone + PartialEq>(slot: &mut Option<ResMut<T>>, want: &T) {
+        if let Some(r) = slot.as_mut()
+            && **r != *want
+        {
+            **r = want.clone();
+        }
+    }
+    put(&mut preview.snow, &settings.snow);
+    put(&mut preview.wetness, &settings.wetness);
+    put(&mut preview.rocks, &settings.rocks);
+    put(&mut preview.dust, &settings.dust);
+}
+
 /// The preview's resources the settings file drives; absent until `bevy_elements`' plugins are added.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct Preview<'w> {
@@ -85,6 +118,10 @@ pub struct Preview<'w> {
     location: Option<ResMut<'w, GeoLocation>>,
     climate: Option<ResMut<'w, Climate>>,
     director: Option<ResMut<'w, WeatherDirector>>,
+    snow: Option<ResMut<'w, SnowSettings>>,
+    wetness: Option<ResMut<'w, WetnessSettings>>,
+    rocks: Option<ResMut<'w, RockSettings>>,
+    dust: Option<ResMut<'w, DustSettings>>,
 }
 
 /// Reads a reloaded `family/bevy_elements.ron` into the preview's resources. A file that does not
@@ -116,6 +153,7 @@ pub fn apply_environment(
     {
         apply(&parsed, clock, location, climate, director, &mut applied_force);
     }
+    apply_cover(&parsed, &mut preview);
 }
 
 /// **The clock scrubber** (#98): camera-style state, not an operation. `Some(hour)` holds the

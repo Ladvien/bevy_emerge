@@ -2370,12 +2370,19 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(label_set::LabelSet),
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
+        Box::new(crate::ops_family::PlacementSetFamily),
         Box::new(crate::ops_terrain::TerrainStroke),
+        Box::new(crate::ops_compose::CompositionDefine),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
         Box::new(crate::ops_crowd::CrowdPreview),
+        #[cfg(feature = "bevy_carnage")]
+        Box::new(crate::ops_destructible::DestructibleSet),
+        #[cfg(feature = "bevy_carnage")]
+        Box::new(crate::ops_destructible::DestructibleHit),
         Box::new(crate::ops_terrain::TerrainImport),
         Box::new(crate::ops_forest::ForestScatter),
         Box::new(crate::ops_water::WaterPlace),
+        Box::new(crate::ops_water::WaterRun),
         Box::new(crate::ops_play::Play),
         Box::new(crate::ops_play::PlayStop),
         Box::new(crate::ops_runs::RunAdd),
@@ -2425,6 +2432,12 @@ pub const CHOOSER_ENTRY_POINTS: &[(&str, &str)] = &[
 /// of source the editor, screen, chooser or tiles module must contain for that entry point to be
 /// there. Read by the parity test (E-086).
 pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
+    // **The keep-as-group key** (Shift+B's box, then the group key) and `composition_define` are two
+    // fronts of one function, `keep_as_group`: the key hands it the set in hand, the operation hands
+    // it the placements an agent named, so the refusals, the replace rule and the write are shared
+    // (E-072). The held set carries no placement ids, which is why the key does not dispatch the
+    // operation itself.
+    ("composition_define", "keep_as_group("),
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
     ("placement_set_pin", "set_pin("),
@@ -2481,6 +2494,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The family settings field (#96)** — Enter on `<crate> <field> <value>` dispatches
     // `family_set` through `set_family_field`, the same write an agent's `apply` makes.
     ("family_set", "set_family_field("),
+    // **A piece's family settings (#103)** — the same field with `@<id> <crate> <value>` dispatches
+    // `placement_set_family` through `set_piece_family`.
+    ("placement_set_family", "set_piece_family("),
     // **The Play / Stop buttons (#97)** — dispatch `play` and `play_stop` through `play_game` and
     // `stop_game`, the same start and stop an agent's `apply` makes.
     ("play", "play_game("),
@@ -2499,8 +2515,16 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Terrain field's `forest` line (#102)** — `forest <x> <z> <radius_m> <spacing_m> <seed> <species>`
     // dispatches `forest_scatter` through `scatter_forest`, the same write an agent's `apply` makes.
     ("forest_scatter", "scatter_forest("),
+    // **The destructible line (#108)** — `destructible <piece> on|off` and `hit <piece> <x> <y> <z> <radius_m>` in the
+    // terrain field dispatch `destructible_set` and `destructible_hit` through `mark_destructible` and `hit_destructible`.
+    #[cfg(feature = "bevy_carnage")]
+    ("destructible_set", "mark_destructible("),
+    #[cfg(feature = "bevy_carnage")]
+    ("destructible_hit", "hit_destructible("),
     // **The water line (#100)** — `water <spring|sink|lake> ...` in the terrain field dispatches `water_place` through `place_water`.
     ("water_place", "place_water("),
+    // `water run` in the same field dispatches `water_run` through `run_water`.
+    ("water_run", "run_water("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).

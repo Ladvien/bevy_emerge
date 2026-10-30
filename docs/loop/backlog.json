@@ -316,7 +316,7 @@
         "evidence": "The emergence chain is mesh -> piece -> composition -> generated layout. The first and the last are agent-reachable (piece_import, layout_propose); the middle is not: composition_create, composition_set_envelope and stamp_add exist only as editor functions (editor::composition_from_set, Project::commit_composition)."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::composition_from_set",
+      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::composition_from_set. Slice 1 shipped: composition_define (ops_compose.rs, from placement ids, replace flag, undo restores compositions.ron); test tests/an_agent_can_define_a_composition.rs. Still open: an envelope edit and stamp_add as operations.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },

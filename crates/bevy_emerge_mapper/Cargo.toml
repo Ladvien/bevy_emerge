@@ -51,16 +51,20 @@ debugger = ["bevy/bevy_remote", "dep:bevy_debugger_bevy"]
 # that lists none pays nothing. Pinned by git revision on the crate's `main`, never a path. A project's
 # `family.ron` lists the crates it uses; listing one this build lacks is a problem message
 # (`family_host::problems`). The engine-free core crates never depend on these.
+bevy_carnage = ["dep:bevy_carnage"]
 bevy_elements = ["dep:bevy_elements"]
 bevy_flora = ["dep:bevy_flora"]
 bevy_lights = ["dep:bevy_lights"]
 bevy_orca = ["dep:bevy_orca"]
+bevy_speech_bubbles = ["dep:bevy_speech_bubbles"]
 bevy_stigmergy = ["dep:bevy_stigmergy"]
 
 [dependencies]
+bevy_carnage = { git = "https://github.com/Ladvien/bevy_carnage", rev = "615c264e28680448b934d3f28b73487dd8b98750", default-features = false, features = ["serde"], optional = true }
 bevy_elements = { git = "https://github.com/Ladvien/bevy_elements", rev = "ef87797468db6264f24785fe9d1ffaa9d4deb9f0", features = ["serde"], optional = true }
 bevy_lights = { git = "https://github.com/Ladvien/bevy_lights", rev = "15af29a7dc05ada701caa4c154a00cee363c84b3", features = ["serde"], optional = true }
 bevy_orca = { git = "https://github.com/Ladvien/bevy_orca", rev = "e7160df097dc75652633f801f6c0ab1c73356bc4", optional = true }
+bevy_speech_bubbles = { git = "https://github.com/Ladvien/bevy_speech_bubbles", rev = "00bd902f9d04720e891429c381b6df3ba7d3a3b7", optional = true }
 bevy_stigmergy = { git = "https://github.com/Ladvien/bevy_stigmergy", rev = "6ecee6a3c2ff0bf7f18dab10f376c49b49914c44", optional = true }
 bevy_emerge_core = { path = "../bevy_emerge_core" }
 bevy_flora = { git = "https://github.com/Ladvien/bevy_flora", rev = "25e956b3f88ba32a1b6d75957360c6840da6afd9", features = ["ron"], optional = true }

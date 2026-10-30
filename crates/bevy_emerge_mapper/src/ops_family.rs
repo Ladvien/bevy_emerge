@@ -74,6 +74,7 @@ impl FamilySet {
         let text = std::fs::read_to_string(&path)
             .map_err(|e| Refusal::new(format!("{} cannot be read, so nothing was changed: {e}", path.display())))?;
         let (new, old) = family::set_field(&text, &p.field, &p.value).map_err(Refusal::new)?;
+        check_script(&p.krate, &new)?;
         if !write {
             return Ok(None);
         }
@@ -110,4 +111,155 @@ impl Operation for FamilySet {
     fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
         Ok(Self::apply(ctx, params, true)?.expect("a write returns its outcome"))
     }
+}
+
+// ---------------------------------------------------------------- placement_set_family
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PieceParams {
+    /// The placement's id, as the map file names it.
+    pub id: String,
+    /// The family crate whose settings this piece carries, as listed in `family.ron`.
+    #[serde(rename = "crate")]
+    pub krate: String,
+    /// The crate's own settings type for this piece as one RON value, `(base: 900.0, phase: 1.3, depth: 0.15)`.
+    /// Absent takes the settings off the piece.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+impl PieceParams {
+    pub fn schema() -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "crate"],
+            "properties": {
+                "id": {"type": "string", "description": "The placement's id, as the map file names it."},
+                "crate": {"type": "string", "description": "The family crate whose settings the piece carries, as listed in family.ron, e.g. bevy_lights."},
+                "value": {"type": "string", "description": "The crate's own settings type as one RON value, e.g. (base: 900.0, phase: 1.3, depth: 0.15) for a bevy_lights Flicker. Leave it out to take the settings off the piece."}
+            }
+        })
+    }
+
+    pub fn parse(raw: &serde_json::Value) -> Result<PieceParams, Refusal> {
+        serde_json::from_value(raw.clone()).map_err(|e| {
+            Refusal::new(format!("these are not a piece's family settings: {e}. The fields are `id`, `crate` and `value`, and nothing else."))
+        })
+    }
+}
+
+/// **Whether `text` is a value the crate's own type reads**: a crate this build knows is parsed as
+/// that type, so a typo in a field name is refused here and not discovered by the game; any other
+/// listed crate is held to being well-formed RON.
+fn reads_as(krate: &str, text: &str) -> Result<(), String> {
+    #[cfg(feature = "bevy_lights")]
+    if krate == "bevy_lights" {
+        return ron::from_str::<bevy_lights::Flicker>(text).map(|_| ()).map_err(|e| format!("`{text}` is not a bevy_lights Flicker: {e}"));
+    }
+    let _ = krate;
+    ron::from_str::<ron::Value>(text).map(|_| ()).map_err(|e| format!("`{text}` is not RON: {e}"))
+}
+
+fn family_of(open: &crate::project::OpenMap, id: &str, krate: &str) -> serde_json::Value {
+    let value = open.map.placements.iter().find(|p| p.id == id).and_then(|p| p.family.get(krate));
+    json!({"map": open.map.name, "id": id, "crate": krate, "value": value})
+}
+
+/// **Put a family crate's settings on one placement, or take them off.**
+pub struct PlacementSetFamily;
+
+impl PlacementSetFamily {
+    fn check(ctx: &Ctx, p: &PieceParams) -> Result<(), Refusal> {
+        let Some(open) = ctx.open.as_ref() else {
+            return Err(Refusal::new("no map is open, so there are no placements to set."));
+        };
+        if !open.map.placements.iter().any(|q| q.id == p.id) {
+            return Err(Refusal::new(format!("no placement is called `{}` on this map, so nothing was set.", p.id)));
+        }
+        // Reuse the settings-file checks: the name is one path segment and the project lists it.
+        settings_path(ctx, &p.krate)?;
+        if let Some(v) = &p.value {
+            reads_as(&p.krate, v).map_err(|e| Refusal::new(format!("{e}. Nothing was set.")))?;
+        }
+        Ok(())
+    }
+}
+
+impl Operation for PlacementSetFamily {
+    fn name(&self) -> &'static str {
+        "placement_set_family"
+    }
+    fn undo(&self) -> Undo {
+        Undo::Inverse
+    }
+    fn schema(&self) -> serde_json::Value {
+        PieceParams::schema()
+    }
+    fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+        let p = PieceParams::parse(&json!({"id": after.get("id")?, "crate": after.get("crate")?})).ok()?;
+        Some(family_of(ctx.open.as_ref()?, &p.id, &p.krate))
+    }
+    fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let p = PieceParams::parse(params)?;
+        Self::check(ctx, &p)?;
+        Ok(params.clone())
+    }
+    fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+        let p = PieceParams::parse(params)?;
+        Self::check(ctx, &p)?;
+        let mut open = ctx.open.take().expect("check found the map");
+        let index = open.map.placements.iter().position(|q| q.id == p.id).expect("check found the piece");
+        let old = open.map.placements[index].family.get(&p.krate).cloned();
+        let put = |open: &mut crate::project::OpenMap, v: &Option<String>| match v {
+            Some(v) => {
+                open.map.placements[index].family.insert(p.krate.clone(), v.clone());
+            }
+            None => {
+                open.map.placements[index].family.remove(&p.krate);
+            }
+        };
+        put(&mut open, &p.value);
+        let Some(project) = ctx.project.clone() else {
+            put(&mut open, &old);
+            ctx.open = Some(open);
+            return Err(Refusal::new("no project is open."));
+        };
+        if let Err(e) = open.save(&project) {
+            put(&mut open, &old);
+            ctx.open = Some(open);
+            return Err(Refusal::new(format!("the file refused the change, so nothing was written: {e}")));
+        }
+        let summary = match &p.value {
+            Some(v) => format!("{}: {} = {}", p.id, p.krate, v.trim()),
+            None => format!("{}: took {} off", p.id, p.krate),
+        };
+        let after = Some(family_of(&open, &p.id, &p.krate));
+        ctx.open = Some(open);
+        Ok(Outcome {
+            summary,
+            affected: 1,
+            saved: true,
+            inverse: Some(serde_json::to_value(PieceParams { id: p.id, krate: p.krate, value: old }).expect("params serialise")),
+            after,
+        })
+    }
+}
+
+/// **A dialogue script that `validate_script` refuses is never written** (#106): the saved file is the
+/// crate's own `DialogueScript`, so the crate's own validation decides, and its message is the refusal.
+#[cfg(feature = "bevy_speech_bubbles")]
+fn check_script(krate: &str, text: &str) -> Result<(), Refusal> {
+    if krate != "bevy_speech_bubbles" {
+        return Ok(());
+    }
+    let script: bevy_speech_bubbles::DialogueScript =
+        ron::from_str(text).map_err(|e| Refusal::new(format!("that is not a dialogue script, so nothing was written: {e}")))?;
+    bevy_speech_bubbles::validate_script(&script).map_err(|e| Refusal::new(format!("{e}. Nothing was written.")))
+}
+
+#[cfg(not(feature = "bevy_speech_bubbles"))]
+fn check_script(_krate: &str, _text: &str) -> Result<(), Refusal> {
+    Ok(())
 }

@@ -149,3 +149,137 @@ impl Operation for WaterPlace {
         Self::apply(ctx, params, true)
     }
 }
+
+/// `water_run`'s parameters.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunParams {
+    pub map: String,
+    /// Seconds the springs pour before the water runs on by itself. Default 60.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pour_s: Option<f32>,
+    /// Step cap. Default 20000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_steps: Option<u32>,
+    /// An undo's put-back. Not a thing a caller sends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub put_back: Option<PutBack>,
+}
+
+fn field_path(ctx: &Ctx, map: &str) -> Result<std::path::PathBuf, Refusal> {
+    path_of(ctx, map).map(|p| p.with_file_name(format!("{map}.field.ron")))
+}
+
+/// **The kept water of the open map**, the field `water_run` saved, or `None` when it has none.
+pub fn field_of(project: &crate::project::Project, open: &crate::project::OpenMap) -> Option<bevy_emerge_core::water::WaterField> {
+    let name = open.map_path.file_name()?.to_str()?.strip_suffix(".map.ron")?;
+    ron::from_str(&std::fs::read_to_string(project.emerge_dir.join("water").join(format!("{name}.field.ron"))).ok()?).ok()
+}
+
+/// **Run the map's springs, sinks and lakes over its terrain until the water settles, and keep it.**
+/// Previewing (`plan`) runs the same simulation and writes nothing; applying keeps the result as the
+/// map's starting water, in one undo. It runs only when asked, never while sculpting.
+pub struct WaterRun;
+
+impl WaterRun {
+    fn parse(raw: &serde_json::Value) -> Result<RunParams, Refusal> {
+        serde_json::from_value(raw.clone())
+            .map_err(|e| Refusal::new(format!("this is not a water run: {e}. The fields are `map`, `pour_s` and `max_steps`.")))
+    }
+
+    fn apply(ctx: &Ctx, params: &serde_json::Value, write: bool) -> Result<Outcome, Refusal> {
+        use bevy_emerge_core::water::{simulate, RunSettings};
+        let p = Self::parse(params)?;
+        let path = field_path(ctx, &p.map)?;
+        let before = std::fs::read_to_string(&path).ok();
+        let inverse = json!({"map": p.map, "put_back": {"text": before}});
+        let (text, summary, affected) = if let Some(back) = &p.put_back {
+            (back.text.clone(), format!("water {}: put back", p.map), 0)
+        } else {
+            let plan_text = read(ctx, &p.map).ok_or_else(|| Refusal::new(format!("map `{}` has no springs, sinks or lakes to run. Place some with `water_place`.", p.map)))?;
+            let plan: WaterPlan = ron::from_str(&plan_text).map_err(|e| Refusal::new(format!("the water plan is not readable: {e}")))?;
+            if plan.is_empty() {
+                return Err(Refusal::new(format!("map `{}` has no springs, sinks or lakes to run.", p.map)));
+            }
+            let ground_path = ctx.project.as_ref().expect("path_of needs a project").emerge_dir.join("terrain").join(format!("{}.ron", p.map));
+            let ground: bevy_emerge_core::heightfield::Heightfield = ron::from_str(
+                &std::fs::read_to_string(&ground_path)
+                    .map_err(|_| Refusal::new(format!("map `{}` has no terrain for the water to run on. Sculpt one with `terrain_stroke`.", p.map)))?,
+            )
+            .map_err(|e| Refusal::new(format!("{} is not a heightfield: {e}", ground_path.display())))?;
+            let mut settings = RunSettings::default();
+            if let Some(s) = p.pour_s {
+                if !s.is_finite() || s < 0.0 {
+                    return Err(Refusal::new("`pour_s` must be a number of seconds, zero or more."));
+                }
+                settings.pour_s = s;
+            }
+            if let Some(m) = p.max_steps {
+                settings.max_steps = m.max(1);
+            }
+            let field = simulate(&ground, &plan, settings);
+            let summary = format!(
+                "water {}: {} wet cells, {:.1} m3 after {} steps{}",
+                p.map,
+                field.wet_cells(0.01),
+                field.volume_m3(),
+                field.steps,
+                if field.settled { ", settled" } else { ", not settled (step cap)" }
+            );
+            let t = ron::ser::to_string_pretty(&field, ron::ser::PrettyConfig::default())
+                .map_err(|e| Refusal::new(format!("the water could not be written: {e}")))?;
+            (Some(t), summary, field.wet_cells(0.01))
+        };
+        if write {
+            match &text {
+                Some(t) => {
+                    if let Some(dir) = path.parent() {
+                        std::fs::create_dir_all(dir).map_err(|e| Refusal::new(format!("{} cannot be made: {e}", dir.display())))?;
+                    }
+                    std::fs::write(&path, t)
+                        .map_err(|e| Refusal::new(format!("{} refused the change, so nothing was written: {e}", path.display())))?;
+                }
+                None => {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+        Ok(Outcome { summary, affected, saved: write, inverse: Some(inverse), after: Some(json!({"map": p.map, "text": text})) })
+    }
+}
+
+impl Operation for WaterRun {
+    fn name(&self) -> &'static str {
+        "water_run"
+    }
+    fn undo(&self) -> Undo {
+        Undo::Inverse
+    }
+    fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+        Self::parse(params).map(|p| p.put_back.is_some()).unwrap_or(false)
+    }
+    fn schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["map"],
+            "properties": {
+                "map": {"type": "string", "description": "The map whose water is run."},
+                "pour_s": {"type": "number", "description": "Seconds the springs pour before the water runs on by itself until it settles. Default 60."},
+                "max_steps": {"type": "integer", "description": "Step cap, so a run always ends. Default 20000."},
+                "put_back": {"type": "object", "description": "An undo's put-back. Only an undo sends this."}
+            }
+        })
+    }
+    fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+        let map = after.get("map")?.as_str()?;
+        Some(json!({"map": map, "text": std::fs::read_to_string(field_path(ctx, map).ok()?).ok()}))
+    }
+    fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let o = Self::apply(ctx, params, false)?;
+        Ok(json!({"map": Self::parse(params)?.map, "summary": o.summary, "wet_cells": o.affected}))
+    }
+    fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+        Self::apply(ctx, params, true)
+    }
+}
