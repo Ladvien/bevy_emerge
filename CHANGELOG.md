@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **e069-plan-panel** `e9d70f9` The Inspector's PLAN section shows the agent's plan: a count and one numbered row per step with its status *No clip: visible, not yet recorded: no display on big; proved by tests/the_plan_panel_lists_the_agents_steps.rs*
 - **E-043** `3b5e8b0` label_suggest and label_apply: an agent asks the VLM about a piece from its own shots and applies the answer, with undo *No clip: an MCP operation pair; proved by tests/a_vlm_label_is_suggested_then_applied.rs*
 - **105-receipt** `85093ed` The line after 'people run' names the triggers that fired and for whom, and any script error (#105) *No clip: visible, not yet recorded: the viewport draws no people, so only the status line shows it; proved by the_run_receipt_names_the_triggers_that_fired*
 - **E-055** `c177b4d` Stale code comments corrected *No clip: comments only; proved by cargo check*
