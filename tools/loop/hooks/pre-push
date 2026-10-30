@@ -32,6 +32,9 @@ refuse() { note "REFUSED $*"; echo "pre-push gate: REFUSED: $*" >&2; echo "pre-p
 timed() { local name=$1 t0 rc; shift; t0=$(date +%s); "$@"; rc=$?; note "$name rc=$rc $(( $(date +%s) - t0 ))s"; return $rc; }
 [ "$(git rev-parse HEAD)" = "$target" ] || refuse "push the checked-out commit (HEAD $(git rev-parse --short HEAD), pushing ${target:0:9})"
 [ -z "$(git status --porcelain -- crates Cargo.toml Cargo.lock tools)" ] || refuse "uncommitted changes under crates/, Cargo.*, tools/ would be tested instead of the commit; commit or stash them"
+# A merge resolved by hand can leave its conflict markers behind (a10b342 removed six from CHANGELOG.md and ops.rs, 2026-10-29).
+markers=$(git grep -nE '^(<<<<<<<|>>>>>>>) ' "$target" -- . ':!*.patch' 2>/dev/null | head -5)
+[ -z "$markers" ] || refuse "conflict markers in the commit: ${markers//$'\n'/; }"
 python3 tools/loop/backlog.py check >/dev/null || refuse "python3 tools/loop/backlog.py check failed"
 python3 tools/changelog/changelog.py check >/dev/null || refuse "python3 tools/changelog/changelog.py check failed"
 # The editor's integration tests are modules of one binary (`crates/bevy_emerge_mapper/tests/all.rs`, `autotests = false`):
