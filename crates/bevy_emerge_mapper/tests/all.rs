@@ -135,6 +135,7 @@ mod one_undo_takes_back_the_newest_change;
 mod operations_have_two_front_ends;
 mod out_of_area_compares_before_and_after;
 mod piece_select_is_an_operation;
+mod play_starts_and_stops_the_game;
 mod placement_remove;
 mod placement_set_yaw;
 mod placement_undo_without_id;
