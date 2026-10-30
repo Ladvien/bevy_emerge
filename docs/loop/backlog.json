@@ -270,7 +270,7 @@
         "evidence": "A person can drop a reference and say 'like this'; nothing stores it as project data or lets the agent name it back. Mixar keeps a moodboard the agent reads and cites."
       },
       "status": "open",
-      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py",
+      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py. Slice 1 shipped: core references.rs (References beside the map as <map>.references.ron; add/remove/cite/missing, ids never reused, paths inside the project); tests/references.rs. Still open: an operation + MCP tool (reference_add/list/remove through generic apply), the UI drop, and a note summary citing an id.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
