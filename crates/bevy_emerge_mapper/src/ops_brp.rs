@@ -937,23 +937,38 @@ fn capture_sequence_status(
 /// **A discovery tool, not a page of tools.** The MCP server exposes one tool per operation, but
 /// the *BRP* surface is one list, because a BRP caller can ask. **The always-loaded MCP toolset
 /// stays small** and the rare ones are found here.
-fn operation_list(_: In<serde_json::Value>) -> Result<Value, String> {
-    let ops = ops::registry();
-    let list: Vec<Value> = ops
-        .iter()
-        .map(|op| {
-            json!({
-                "operation": op.name(),
-                "undo": match op.undo() {
-                    ops::Undo::None => "none",
-                    ops::Undo::Inverse => "inverse",
-                    ops::Undo::Snapshot => "snapshot",
-                },
-                "parameters": op.schema(),
-            })
+///
+/// **`{"query": "..."}` searches instead of listing** (#141): only the operations `ops::search`
+/// finds, best first, with the query and the registry's `total` beside them, so a caller knows how
+/// much it did not read. No query, or a blank one, lists every operation as before.
+fn operation_list(In(p): In<serde_json::Value>) -> Result<Value, String> {
+    let query = match p.get("query") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(q)) if q.trim().is_empty() => None,
+        Some(Value::String(q)) => Some(q.clone()),
+        Some(other) => return Err(format!("`query` is text to search for, not {other}.")),
+    };
+    let row = |op: &dyn ops::Operation| {
+        json!({
+            "operation": op.name(),
+            "undo": match op.undo() {
+                ops::Undo::None => "none",
+                ops::Undo::Inverse => "inverse",
+                ops::Undo::Snapshot => "snapshot",
+            },
+            "parameters": op.schema(),
         })
-        .collect();
-    Ok(json!({ "operations": list }))
+    };
+    let Some(query) = query else {
+        let list: Vec<Value> = ops::registry().iter().map(|op| row(op.as_ref())).collect();
+        return Ok(json!({ "operations": list }));
+    };
+    let found: Vec<Value> = ops::search(&query).iter().map(|op| row(op.as_ref())).collect();
+    Ok(json!({
+        "query": query,
+        "total": ops::registry().len(),
+        "operations": found,
+    }))
 }
 
 /// **`emerge/operation_preview` — what an operation would change, and nothing changed.**
