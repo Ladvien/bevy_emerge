@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **168-unnested-pane** `c862f0a` The Meshes pane's standards row names each pair of sub-kit modules that do not nest which the piece in focus is part of, in emerge_state's words (#168 slice 3) *No clip: visible, not yet recorded: no display on big*
 - **168-unnested-state** `9d69ab4` emerge_state.standards lists unnested, the pairs of sub-kit modules that do not nest, re-read from standards.ron on every call (#168 slice 2) *No clip: an MCP read, no editor surface changed; proved by crates/bevy_emerge_mapper/tests/emerge_state_names_modules_that_do_not_nest.rs*
 - **168-unnested-core** `e465bcf` Kit standards name the sub-kit modules that do not nest: standards::unnested pairs rules whose modules are not whole multiples of each other, with the run on which they meet again (#168 slice 1) *No clip: an engine-free core API; proved by crates/bevy_emerge_core/tests/a_kit_names_modules_that_do_not_nest.rs*
 - **165-degrees** `df938a1` Relations read a map's yaw in degrees: a piece in front of a turned door is in front of it, and relations solve writes degrees back *No clip: a fix to what relations measure and write on a turned piece; proved by bevy_emerge_mapper/tests/relations_read_a_turned_piece_in_degrees.rs*
