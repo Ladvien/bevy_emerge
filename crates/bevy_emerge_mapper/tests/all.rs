@@ -29,6 +29,7 @@ mod a_fill_tells_the_truth;
 mod a_full_redraw_leaves_the_standing_pieces_standing;
 mod a_height_map_becomes_terrain;
 mod forest_place;
+mod tree_editor;
 mod forest_stroke_is_an_operation;
 mod a_hint_shares_the_receipts_slot;
 mod a_history_jump_is_one_undo_group;
