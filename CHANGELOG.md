@@ -191,7 +191,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **E-022** `3834b0b` The Map opens framed on the map, not on an 18 m close-up of the origin *No clip: visible, not yet recorded (backfill)*
 - **E-017** `8c97677` An agent frames the view: the map, a placement, placements or a rectangle<br><a href="docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif" width="320" alt="clip"></a>
 - **E-016** `63e6631` The inspector names what Cmd+Z and Cmd+Shift+Z will do<br><a href="docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif" width="320" alt="clip"></a>
-- **E-010** `da9b549` Cmd+Z takes back a map-settings change, not only placements *No clip: visible, not yet recorded (backfill)*
+- **E-010** `da9b549` Cmd+Z takes back a map-settings change, not only placements (recorded on the 2026-10-29 build)<br><a href="docs/changelog/media/2026-10-29-E-010.mp4"><img src="docs/changelog/media/2026-10-29-E-010.png" width="320" alt="clip"></a>
 - **E-009** `39ab825` `emerge_undo_operation`: an agent takes its own change back by its id<br><a href="docs/loop/iterations/assets/2026-10-21-556158d/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-556158d/enh-after.gif" width="320" alt="clip"></a>
 
 ## 2026-10-20
