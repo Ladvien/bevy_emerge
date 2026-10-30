@@ -80,6 +80,7 @@ impl Relations {
                 | Kind::LeftOf { within, .. }
                 | Kind::RightOf { within, .. }
                 | Kind::MirrorOf { within, .. }
+                | Kind::BacksOnto { within, .. }
                 | Kind::Between { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
@@ -194,6 +195,14 @@ pub enum Kind {
     /// distance from the mirror point. Positions only: [`Kind::AlignedWith`] and [`Kind::Faces`]
     /// keep headings.
     MirrorOf { of: String, about: String, within: f32 },
+    /// With its back to a placement (a bookshelf against a wall, a throne backed onto the apse, a
+    /// sofa with its back to the window; Bukowski and Séquin's object association, cited by
+    /// Merrell et al.): this placement's centre stands off the other's face, the plane through the
+    /// other's centre square to its forward, by more than nothing and no more than `within` metres,
+    /// on either side, and it faces straight out from that plane, away from it, within
+    /// [`FACING_TOLERANCE_DEG`]. Sideways along the other is free, so a long wall backs a piece
+    /// anywhere along it; [`Kind::Near`] bounds that. Measures the distance off the plane.
+    BacksOnto { of: String, within: f32 },
 }
 
 /// What [`check`] found for one relation.
@@ -390,6 +399,18 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
                 verdict(t > 0.0 && t < 1.0 && d <= *within, d)
             }
             (Err(m), _) | (_, Err(m)) => m,
+        },
+        Kind::BacksOnto { of, within } => match other(of) {
+            Ok(b) => {
+                let (ahead, _) = local(b, a.at);
+                let off = ahead.abs();
+                // Away from the plane is the other's forward on its front side, backward behind it.
+                let (fx, fz) = (b.yaw.sin(), b.yaw.cos());
+                let away = ahead.signum() * (a.yaw.sin() * fx + a.yaw.cos() * fz);
+                let turned = away.clamp(-1.0, 1.0).acos().to_degrees();
+                verdict(off > 0.0 && off <= *within && turned <= FACING_TOLERANCE_DEG, off)
+            }
+            Err(m) => m,
         },
         Kind::MirrorOf { of, about, within } => match (other(of), other(about)) {
             (Ok(p), Ok(axis)) => {
@@ -733,7 +754,9 @@ const SOLVE_ROUNDS: usize = 8;
 /// the nearest blocker sideways off the sight line (both ends stay), [`Kind::Along`] slides the
 /// piece toward the nearest point of its path, on its own side, [`Kind::Between`] sets it on the
 /// segment between its two ends (inside them, on its own side), [`Kind::MirrorOf`] sets it on the
-/// other's mirror point (the axis and the other stay), and [`Kind::ReachableFrom`] slides
+/// other's mirror point (the axis and the other stay), [`Kind::BacksOnto`] turns it straight out
+/// from the other's face and sets it just inside `within` off it, on its own side and where it
+/// stood along it, and [`Kind::ReachableFrom`] slides
 /// the piece whose removal opens a walk just far enough that one opens (both ends stay). A move
 /// is kept only when it lowers the map's (hard unmet, soft unmet) pair, compared hard first
 /// ([`Relation::hard`]): so a hard relation is never broken to mend soft ones, a hard one is
@@ -941,6 +964,18 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             let p = other(of)?;
             let axis = other(about)?;
             free(a).then(|| (a.id.clone(), mirror(axis, p.at), a.yaw))
+        }
+        Kind::BacksOnto { of, within } => {
+            let b = other(of)?;
+            let (ahead, left) = local(b, a.at);
+            // A piece on the plane goes out in front; otherwise it keeps its side.
+            let sign = if ahead < 0.0 { -1.0 } else { 1.0 };
+            let ahead = sign * ahead.abs().clamp(within * 0.1, within * 0.9);
+            // Back from `b`'s frame: forward (fx, fz), left (fz, -fx), as `local` measures.
+            let (fx, fz) = forward(b);
+            let to = (b.at.0 + fx * ahead + fz * left, b.at.1 + fz * ahead - fx * left);
+            let yaw = (sign * fx).atan2(sign * fz);
+            free(a).then(|| (a.id.clone(), to, yaw))
         }
         Kind::ReachableFrom { from, clearance } => {
             let b = other(from)?;

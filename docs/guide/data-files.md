@@ -153,6 +153,16 @@ enclosure: (wish: 0.25, weight: 200),
 | Read by | The editor and the game. |
 | Format version | `bevy_flora`'s. |
 
+## family/bevy_elements.ron
+
+| | |
+|---|---|
+| Where | `<project root>/family/bevy_elements.ron`, beside `family.ron`, which must list `bevy_elements`. Optional: an absent file means the editor's own light and plain ground. |
+| What it holds | A map's environment in `bevy_elements`' own serde types: `clock`, `location`, `climate`, `forced_weather`, and the crate's `snow`, `wetness`, `rocks` and `dust` settings. `volume_cover` is the crate's `SurfaceCover` (a `snow` and a `wetness` band: `amount`, `max_slope_deg`, `slope_soft_deg`, `min_height_m`, `max_height_m`, `height_soft_m`) that the carved ground wears whatever the weather is; `None`, the default, lets the weather decide. Every field but `clock` and `climate` may be left out and takes the crate's default. |
+| Written by | `family_set` (the ENVIRONMENT buttons, the FAMILY SETTINGS field, an agent), one undo per change, or by hand. |
+| Live reload | Yes, with `--features bevy_elements`. The preview's clock, climate, weather and ground cover follow the file. With `isomesh` too (`--features volume_snow` has both), the carved ground's chunks are drawn with the crate's `WeatheredMaterial` and wear `volume_cover` in the next frame, with no remesh. A file that does not parse is named on the status line and the previous values stay. |
+| Read by | The editor; a game reads it with the same crate types. |
+
 ## oplog.jsonl
 
 | | |
