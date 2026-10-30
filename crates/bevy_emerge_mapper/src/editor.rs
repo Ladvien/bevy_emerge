@@ -4466,6 +4466,10 @@ fn terrain_edit_keys(
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("forest ") {
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("people run") {
+                    run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("person ") {
+                    set_person(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
                     sculpt_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 }
@@ -4521,6 +4525,65 @@ fn sculpt_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
         "create": {"origin": [-32.0, -32.0], "cell_m": 1.0, "width": 65, "depth": 65, "height_m": 0.0},
     });
     match crate::ops::dispatch(&mut ctx, "terrain_stroke", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Author a person through the registry** as `person_set`, from the terrain line
+/// `person <name> remove`, or `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>] [tie=<name>[:<affinity>[:<trust>]]]`.
+fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let (Some(open), Some(name)) = (open, words.get(1)) else {
+        state.status.problem(format!("`{}` is not `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>]`, so nothing was changed", raw.trim()));
+        return;
+    };
+    let mut params = serde_json::json!({"map": open.map.name, "name": name});
+    let mut rest = &words[2..];
+    if rest == ["remove"] {
+        params["remove"] = true.into();
+        rest = &[];
+    }
+    if let [x, z, tail @ ..] = rest
+        && let (Ok(x), Ok(z)) = (x.parse::<f32>(), z.parse::<f32>())
+    {
+        params["at"] = serde_json::json!([x, z]);
+        rest = tail;
+    }
+    for w in rest {
+        match w.split_once('=') {
+            Some((k @ ("home" | "work" | "faction"), v)) => params[k] = (*v).into(),
+            Some(("tie", v)) => {
+                let mut f = v.split(':');
+                let with = f.next().unwrap_or_default();
+                let rest: Vec<&str> = f.collect();
+                let nums: Vec<Option<f32>> = rest.iter().map(|n| n.parse().ok()).collect();
+                params["tie"] = if rest == ["remove"] {
+                    serde_json::json!({"with": with, "remove": true})
+                } else if rest.len() <= 2 && nums.iter().all(Option::is_some) {
+                    serde_json::json!({"with": with, "affinity": nums.first().copied().flatten(), "trust": nums.get(1).copied().flatten()})
+                } else {
+                    state.status.problem(format!("`{w}` is not `tie=<name>[:<affinity>[:<trust>]]` or `tie=<name>:remove`, so nothing was changed"));
+                    return;
+                };
+            }
+            _ => {
+                state.status.problem(format!("`{w}` is not a person setting (home=<id>, work=<id>, faction=<id>), so nothing was changed"));
+                return;
+            }
+        }
+    }
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "person_set", &params) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
@@ -4731,6 +4794,42 @@ fn run_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edit
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
         }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Run the map's people forward** through the registry as `people_run`, from the terrain line
+/// `people run [seed] [days]`. It only reads, so there is nothing to undo; the status says what the day was.
+fn run_people(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is nobody to run".to_owned());
+        return;
+    };
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let mut params = serde_json::json!({"map": open.map.name});
+    match (words.get(2).map(|w| w.parse::<u64>()), words.get(3).map(|w| w.parse::<f32>())) {
+        (Some(Err(_)), _) | (_, Some(Err(_))) => {
+            state.status.problem(format!("`{}` is not `people run [seed] [days]`, so nothing was run", raw.trim()));
+            return;
+        }
+        (seed, days) => {
+            if let Some(Ok(s)) = seed {
+                params["seed"] = s.into();
+            }
+            if let Some(Ok(d)) = days {
+                params["days"] = d.into();
+            }
+        }
+    }
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "people_run", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
     }
 }
