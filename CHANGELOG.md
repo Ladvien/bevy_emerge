@@ -30,6 +30,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **115-s5** `8316c61` Rows laid by hand turn into a run: placements_to_run, or Cmd-drag in run mode *No clip: an operation; proved by rows_become_a_run_through_an_operation*
+- **115-live-diff** `3b51545` The live reload names an edited run once by its id, not each of its rows (#115) *No clip: an API; proved by crates/bevy_emerge_core/tests/live_diff_names_runs.rs*
 - **102-forest-scatter** `d7a0d7c` forest_scatter: a stroke plants bevy_flora's own scatter under the brush, on the terrain, one undo step (typed 'forest' line and apply) *No clip: an operation and a typed line, no viewport drawing yet; proved by tests/forest_stroke_is_an_operation.rs*
 - **102-flora-host** `033523f` bevy_flora is a hosted family crate: a project lists it in family.ron and its settings change through family_set *No clip: an API and cargo feature; proved by flora_family tests*
 - **play-stop-group** `2f2603d` Stop ends the game Play started even when it runs through a launcher such as cargo run *No clip: a process-lifecycle fix; proved by play_stop_ends_the_whole_game*
