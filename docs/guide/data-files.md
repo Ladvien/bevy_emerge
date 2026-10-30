@@ -88,7 +88,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 | Where | `assets/emerge/repetition.ron`. Optional: an absent file means the default rules (6 m, structure kinds `building-module`, `fence`, `tile`, `landmark`, `grave`, `door`, weight 0.1). |
 | What it holds | What counts as a visible repeat and what it costs: `radius_m`, the `kind` tokens that make a piece `structure` (meant to repeat), and `structure_weight` against clutter's 1.0. A field left out keeps its default. |
 | Written by | Hand. |
-| Live reload | Yes. `emerge_state.repetition` reads it on every call and names a bad file in its `error`; the status bar's `REPEATS` line re-reads it when it changes. |
+| Live reload | Yes. `emerge_state.repetition` reads it on every call and names a bad file in its `error`; the status bar's `REPEATS` line re-reads it when it changes. The `repetition_vary` operation (or the Terrain field line `repeats vary`) reads it on every run: it turns each clutter copy that looks like an earlier one in range by a half or quarter turn until none does, never turns structure, keeps the first copy's yaw, and one undo puts every turned row back. A bad file is refused, never replaced by the defaults. |
 | Read by | The editor. |
 
 ## rigs.ron

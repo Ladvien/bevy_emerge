@@ -4632,6 +4632,8 @@ fn terrain_edit_keys(
                     clear_plan(project.as_deref(), open.as_deref(), &mut state);
                 } else if raw.trim() == "relations solve" {
                     solve_relations(project.as_deref(), open.as_mut(), due, &mut state);
+                } else if raw.trim() == "repeats vary" {
+                    vary_repeats(project.as_deref(), open.as_mut(), due, &mut state);
                 } else if raw.trim_start().starts_with("people run") {
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("trigger ") {
@@ -5191,12 +5193,36 @@ fn solve_relations(
     due: Option<ResMut<crate::watch::Due>>,
     state: &mut EditorState,
 ) {
+    rewrite_rows("relations_solve", "there are no relations to mend", project, open, due, state);
+}
+
+/// **Turn the clutter copies that repeat visibly** through the registry as `repetition_vary`, from
+/// the terrain line `repeats vary` (#143). The turned rows are redrawn, and one Cmd+Z puts them back.
+fn vary_repeats(
+    project: Option<&Project>,
+    open: Option<&mut ResMut<OpenMap>>,
+    due: Option<ResMut<crate::watch::Due>>,
+    state: &mut EditorState,
+) {
+    rewrite_rows("repetition_vary", "there are no repeats to turn", project, open, due, state);
+}
+
+/// **Dispatch an operation that rewrites some of the open map's rows and takes no parameters**
+/// (`relations_solve`, `repetition_vary`), then redraw what it changed and record its undo.
+fn rewrite_rows(
+    operation: &str,
+    nothing: &str,
+    project: Option<&Project>,
+    open: Option<&mut ResMut<OpenMap>>,
+    due: Option<ResMut<crate::watch::Due>>,
+    state: &mut EditorState,
+) {
     let (Some(project), Some(open)) = (project, open) else {
-        state.status.problem("no map is open, so there are no relations to mend".to_owned());
+        state.status.problem(format!("no map is open, so {nothing}"));
         return;
     };
-    // **A refusal or a solve with nothing to mend is not an edit**, so the map goes in and out of the
-    // operation without change detection, and is marked changed only when rows moved.
+    // **A refusal or a run with nothing to change is not an edit**, so the map goes in and out of
+    // the operation without change detection, and is marked changed only when rows changed.
     let held = open.bypass_change_detection();
     let mut ctx = crate::ops::Ctx {
         project: Some(project.clone()),
@@ -5205,7 +5231,7 @@ fn solve_relations(
         session: crate::ops::session_id(),
         ..crate::ops::Ctx::default()
     };
-    let outcome = crate::ops::dispatch(&mut ctx, "relations_solve", &serde_json::json!({}));
+    let outcome = crate::ops::dispatch(&mut ctx, operation, &serde_json::json!({}));
     if let Some(fresh) = ctx.open.take() {
         *held = fresh;
     }
@@ -5215,7 +5241,7 @@ fn solve_relations(
             if !outcome.saved {
                 return;
             }
-            // **The moved pieces are drawn where the map now has them**, by the same full redraw a
+            // **The changed pieces are drawn where the map now has them**, by the same full redraw a
             // map replaced from disk gets.
             open.set_changed();
             if let Some(mut due) = due {

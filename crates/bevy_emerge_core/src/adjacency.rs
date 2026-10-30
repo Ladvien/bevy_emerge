@@ -635,6 +635,161 @@ pub fn faults(map: &Map, library: &Library, divisions: u32) -> Vec<Fault> {
     out
 }
 
+/// One face of a kit piece that no piece of the kit can meet.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeadEnd {
+    /// The descriptor whose face this is, unturned.
+    pub piece: String,
+    /// N, E, S or W in the piece's own frame, as [`crate::wfc`] numbers them.
+    pub dir: Dir,
+    /// What the face presents, in [`face`]'s order.
+    pub face: Vec<Option<String>>,
+    /// The whole thing in a sentence, for a status line.
+    pub message: String,
+}
+
+/// **Every declared face in a kit that no piece of the kit can meet** — a kit stress test.
+///
+/// Shipped modular kits are proved by building with them: loop a hallway back, cap every opening. A
+/// socket nothing in the kit presents back is a dead end, and until this existed it was found by
+/// placing pieces and reading [`faults`] one seam at a time. This asks the same question of the
+/// whole kit at once, **through [`faults`] itself**: for each face of each piece that declares at
+/// least one token, every piece of the library (itself included) is set against it at every quarter
+/// turn, aligned to the face's near end, its centre and its far end, on a two-piece map. One path,
+/// so a face this calls met is a face the map check accepts.
+///
+/// A face counts as met when some candidate agrees with it over a stretch carrying at least one of
+/// its declared tokens. That is deliberately lenient: a long face may be closed by several pieces,
+/// and a check that demanded one piece cover it whole would report kits that work. What it reports
+/// is therefore certain: **no piece agrees with any declared part of this face.**
+///
+/// A face of only unlabelled cells declares nothing and is not tested; a kit with no tokens at all
+/// reports nothing. Pieces without a footprint, a height or a lattice are skipped, as [`faults`]
+/// skips them. Sorted on `(piece, dir)`.
+pub fn dead_ends(library: &Library, divisions: u32) -> Vec<DeadEnd> {
+    use crate::map::Placed;
+
+    // A piece usable as either side of a trial seam, with its unturned footprint and divisions.
+    type Usable<'a> = (&'a crate::descriptor::Descriptor, (f32, f32), (u32, u32, u32));
+    let usable: Vec<Usable> = library
+        .descriptors
+        .iter()
+        .filter_map(|d| {
+            let fp = crate::descriptor::placed_footprint(d)?;
+            let h = crate::descriptor::placed_height(d)?;
+            if h <= 0.0 {
+                return None;
+            }
+            let div = crate::descriptor::divisions(d, divisions).ok()?;
+            Some((d, fp, div))
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    for (a, (aw, ad), a_div) in &usable {
+        let a_id = a.id.as_str();
+        let Some(a_grid) = &a.subgrid else {
+            continue;
+        };
+        for dir in [N, E, S, W] {
+            let a_face = face(a_grid, dir, *a_div);
+            if a_face.iter().all(Option::is_none) {
+                continue;
+            }
+            let met = usable.iter().any(|(b, (bw, bd), _)| {
+                let b_id = b.id.as_str();
+                (0..4u8).any(|q| {
+                    // The candidate's footprint as turned.
+                    let (bw, bd) = if q % 2 == 1 { (*bd, *bw) } else { (*bw, *bd) };
+                    // Where its centre goes so it touches `a`'s `dir` face, and the lateral span it
+                    // slides along: z for an E/W seam, x for N/S.
+                    let (normal, half_lat, b_half_lat) = match dir {
+                        E => ((aw + bw) * 0.5, ad * 0.5, bd * 0.5),
+                        W => (-(aw + bw) * 0.5, ad * 0.5, bd * 0.5),
+                        S => ((ad + bd) * 0.5, aw * 0.5, bw * 0.5),
+                        _ => (-(ad + bd) * 0.5, aw * 0.5, bw * 0.5),
+                    };
+                    let near = -half_lat + b_half_lat;
+                    let far = half_lat - b_half_lat;
+                    [near, 0.0, far].into_iter().any(|lat| {
+                        let at = if dir == E || dir == W {
+                            (normal, lat)
+                        } else {
+                            (lat, normal)
+                        };
+                        let map = Map {
+                            placements: vec![
+                                Placed {
+                                    id: "a".to_owned(),
+                                    descriptor: a_id.to_owned(),
+                                    ..Placed::default()
+                                },
+                                Placed {
+                                    id: "b".to_owned(),
+                                    descriptor: b_id.to_owned(),
+                                    at,
+                                    yaw: f32::from(q) * 90.0,
+                                    ..Placed::default()
+                                },
+                            ],
+                            ..Map::default()
+                        };
+                        meets(&map, library, divisions, dir)
+                    })
+                })
+            });
+            if !met {
+                out.push(DeadEnd {
+                    piece: a_id.to_owned(),
+                    dir,
+                    face: a_face.iter().map(|t| t.map(str::to_owned)).collect(),
+                    message: format!(
+                        "`{a_id}` face {} is {} and no piece in the kit meets it at any turn",
+                        dir_name(dir),
+                        say(&a_face)
+                    ),
+                });
+            }
+        }
+    }
+    out.sort_by(|l, r| (&l.piece, l.dir).cmp(&(&r.piece, r.dir)));
+    out
+}
+
+/// Whether placement `b` of a two-piece trial map meets `a`'s `dir` face: the seam exists, carries
+/// at least one of `a`'s declared tokens, and [`faults`] finds nothing on the map.
+fn meets(map: &Map, library: &Library, divisions: u32, dir: Dir) -> bool {
+    let (Some(pa), Some(pb)) = (map.placements.first(), map.placements.get(1)) else {
+        return false;
+    };
+    let tile = |p: &crate::map::Placed| -> Option<(Subgrid, Placed3)> {
+        let d = library.get(&p.descriptor)?;
+        let div = crate::descriptor::divisions(d, divisions).ok()?;
+        let (fw, fd) = crate::descriptor::placed_footprint(d)?;
+        let q = quarter_turns(&p.id, p.yaw).ok()?;
+        let (fw, fd) = if q % 2 == 1 { (fd, fw) } else { (fw, fd) };
+        let h = crate::descriptor::placed_height(d)?;
+        let grid = d.subgrid.clone().unwrap_or_default().rotated(q, div);
+        Some((
+            grid,
+            Placed3 {
+                x: (p.at.0 - fw * 0.5, p.at.0 + fw * 0.5),
+                y: (0.0, h),
+                z: (p.at.1 - fd * 0.5, p.at.1 + fd * 0.5),
+                div: crate::descriptor::rotate_div(div, q),
+            },
+        ))
+    };
+    let (Some((ag, a_at)), Some((bg, b_at))) = (tile(pa), tile(pb)) else {
+        return false;
+    };
+    let subunit = crate::grid::SNAP / divisions.max(1) as f32;
+    let Some((a_side, _)) = seam(&ag, a_at, &bg, b_at, dir, subunit) else {
+        return false;
+    };
+    a_side.iter().any(Option::is_some) && faults(map, library, divisions).is_empty()
+}
+
 /// A face, in words. `-` is an unlabelled cell — which is a token, not an absence.
 fn say(face: &[Option<&str>]) -> String {
     if face.is_empty() {
