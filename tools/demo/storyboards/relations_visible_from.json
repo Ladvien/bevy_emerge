@@ -1,0 +1,58 @@
+{
+ "name": "relations_visible_from",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      -9,
+      -7,
+      9,
+      8
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 3
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "relations_solve",
+    "parameters": {}
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    200,
+    650
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "court.relations.ron: sign VisibleFrom gate, clearance 1 m"
+  },
+  {
+   "at": 1.5,
+   "caption": "a bookcase stands on the sight line: the relation names it"
+  },
+  {
+   "at": 3.2,
+   "caption": "agent: relations_solve"
+  },
+  {
+   "at": 4.5,
+   "caption": "the bookcase slides clear of the line; the sign is seen"
+  }
+ ]
+}

@@ -142,6 +142,7 @@ mod people;
 mod people_ties;
 mod person_talks;
 mod family_dialogue;
+mod family_gooey_skin;
 mod family_host;
 mod family_lights_settings;
 mod flora_family;
