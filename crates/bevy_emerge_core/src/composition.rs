@@ -1438,6 +1438,7 @@ pub fn expand(
                 owned: s.owned,
                 owned_because: s.owned_because.clone(),
                 patch: f.patch,
+                family: Default::default(),
                 note: f.note,
             };
             working.placements.push(placed.clone());
@@ -1580,6 +1581,7 @@ pub fn interface(
             on: f.on.clone(),
             owned: false,
             owned_because: None,
+            family: Default::default(),
             patch: f.patch.clone(),
             note: None,
         });

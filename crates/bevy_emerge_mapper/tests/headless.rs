@@ -3278,6 +3278,7 @@ fn the_under_readout_is_blank_while_the_pointer_is_on_a_panel() {
         owned_because: None,
         patch: None,
         note: None,
+        family: Default::default(),
     };
 
     // Over the world, pointing at something: the line names it and the key that acts on it.
@@ -16497,6 +16498,7 @@ fn the_under_readout_says_which_layer_a_two_way_piece_took() {
         owned_because: None,
         patch: None,
         note: None,
+        family: Default::default(),
     };
     let two_way = bevy_emerge_core::descriptor::Descriptor {
         id: "kit/dress_horseshoe_pile".into(),
