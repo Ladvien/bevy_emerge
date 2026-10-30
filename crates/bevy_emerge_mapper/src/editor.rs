@@ -1377,6 +1377,8 @@ type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool
 struct NoteReview {
     lines: Vec<String>,
     ops: Vec<String>,
+    /// The before and after capture paths, drawn as pictures when the files decode.
+    pictures: Vec<String>,
 }
 
 /// An operation a done note ran: clicking it frames the pieces that operation changed (#93).
@@ -4338,9 +4340,10 @@ fn refresh_notes_list(
     open: Option<Res<OpenMap>>,
     filter: Res<NotesFilter>,
     lists: Query<Entity, With<NotesList>>,
-    mut shown: Local<Option<NotesShown>>,
-    mut since: Local<f32>,
+    mut local: Local<(Option<NotesShown>, f32)>,
+    mut images: ResMut<Assets<Image>>,
 ) {
+    let (shown, since) = &mut *local;
     *since += time.delta_secs();
     if shown.is_some() && *since < 0.5 && !filter.is_changed() {
         return;
@@ -4367,7 +4370,8 @@ fn refresh_notes_list(
                         lines.push(format!("before: {before}"));
                         lines.push(format!("after: {after}"));
                     }
-                    NoteReview { lines, ops: ops.clone() }
+                    let pictures = if captures.len() == 2 { captures.clone() } else { Vec::new() };
+                    NoteReview { lines, ops: ops.clone(), pictures }
                 }
                 _ => NoteReview::default(),
             };
@@ -4408,6 +4412,31 @@ fn refresh_notes_list(
                 });
                 for line in &review.lines {
                     p.spawn((Text::new(line.clone()), TextColor(DIM), crate::chrome::font(crate::chrome::text::LABEL)));
+                }
+                let loaded: Vec<Handle<Image>> = review
+                    .pictures
+                    .iter()
+                    .filter_map(|path| {
+                        let bytes = std::fs::read(path).ok()?;
+                        let image = Image::from_buffer(
+                            &bytes,
+                            bevy::image::ImageType::Extension("png"),
+                            bevy::image::CompressedImageFormats::NONE,
+                            true,
+                            bevy::image::ImageSampler::default(),
+                            bevy::asset::RenderAssetUsages::default(),
+                        )
+                        .ok()?;
+                        Some(images.add(image))
+                    })
+                    .collect();
+                if !loaded.is_empty() {
+                    p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), ..default() }).with_children(|h| {
+                        for handle in loaded {
+                            // CHROME-OK: a fixed 4:3 review thumbnail, not spacing
+                            h.spawn((Node { width: Val::Px(160.0), height: Val::Px(120.0), ..default() }, ImageNode::new(handle)));
+                        }
+                    });
                 }
                 if !review.ops.is_empty() {
                     p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|h| {
