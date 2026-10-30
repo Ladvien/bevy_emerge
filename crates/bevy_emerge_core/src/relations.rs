@@ -71,7 +71,7 @@ impl Relations {
             // Faces and AlignedWith have no distance; 0.0 stands in for "nothing to check".
             let metres: [f32; 2] = match &rel.kind {
                 Kind::Faces(_) | Kind::AlignedWith(_) => [0.0, 0.0],
-                Kind::Near { within, .. } | Kind::InFrontOf { within, .. } => [*within, 0.0],
+                Kind::Near { within, .. } | Kind::InFrontOf { within, .. } | Kind::Between { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
                 Kind::VisibleFrom { clearance, .. } | Kind::ReachableFrom { clearance, .. } => [*clearance, 0.0],
@@ -160,6 +160,12 @@ pub enum Kind {
     /// altar, stalls along a street). Measures the angle between the two headings, degrees, the
     /// short way round; facing the opposite way is 180° off.
     AlignedWith(String),
+    /// Between two placements: this one's centre projects strictly inside the segment joining
+    /// `a`'s and `b`'s centres and stands no more than `within` metres off it (a table between two
+    /// chairs, a guard between the gate and the hall). Two ends on one spot have nothing between
+    /// them. Measures the distance to the segment, so past either end it is the distance to that
+    /// end.
+    Between { a: String, b: String, within: f32 },
 }
 
 /// What [`check`] found for one relation.
@@ -314,7 +320,28 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
             }
             Err(m) => m,
         },
+        Kind::Between { a: from, b: to, within } => match (other(from), other(to)) {
+            (Ok(p), Ok(q)) => {
+                let (t, d) = onto_segment(p.at, q.at, a.at);
+                verdict(t > 0.0 && t < 1.0 && d <= *within, d)
+            }
+            (Err(m), _) | (_, Err(m)) => m,
+        },
     }
+}
+
+/// `p` against the segment `from`–`to`: the projection's fraction along it (unclamped; 0 when the
+/// two ends are one spot), and the distance from `p` to the segment's nearest point.
+fn onto_segment(from: (f32, f32), to: (f32, f32), p: (f32, f32)) -> (f32, f32) {
+    let (dx, dz) = (to.0 - from.0, to.1 - from.1);
+    let len2 = dx * dx + dz * dz;
+    let t = if len2 > 1e-8 {
+        ((p.0 - from.0) * dx + (p.1 - from.1) * dz) / len2
+    } else {
+        0.0
+    };
+    let c = t.clamp(0.0, 1.0);
+    (t, distance(p, (from.0 + dx * c, from.1 + dz * c)))
 }
 
 /// The point of the polyline through `path`'s placements nearest `p`, or the first waypoint the map
@@ -631,7 +658,8 @@ const SOLVE_ROUNDS: usize = 8;
 /// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
 /// sideways out of the corridor (the door stays where it was hung), [`Kind::VisibleFrom`] moves
 /// the nearest blocker sideways off the sight line (both ends stay), [`Kind::Along`] slides the
-/// piece toward the nearest point of its path, on its own side, and [`Kind::ReachableFrom`] slides
+/// piece toward the nearest point of its path, on its own side, [`Kind::Between`] sets it on the
+/// segment between its two ends (inside them, on its own side), and [`Kind::ReachableFrom`] slides
 /// the piece whose removal opens a walk just far enough that one opens (both ends stay). A move
 /// is kept only when it lowers the map's (hard unmet, soft unmet) pair, compared hard first
 /// ([`Relation::hard`]): so a hard relation is never broken to mend soft ones, a hard one is
@@ -772,6 +800,24 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             // Keep its side and stand just inside; a piece on the path's centre line stays there.
             let keep = if d > 1e-4 { (within * 0.9).min(d) / d } else { 0.0 };
             let to = (q.0 + (a.at.0 - q.0) * keep, q.1 + (a.at.1 - q.1) * keep);
+            free(a).then(|| (a.id.clone(), to, a.yaw))
+        }
+        Kind::Between { a: from, b: to, within } => {
+            let (p, q) = (other(from)?.at, other(to)?.at);
+            let len = distance(p, q);
+            if len <= 1e-4 {
+                return None;
+            }
+            let (t, _) = onto_segment(p, q, a.at);
+            let t = t.clamp(0.1, 0.9);
+            let (ux, uz) = ((q.0 - p.0) / len, (q.1 - p.1) / len);
+            // Keep its side of the line, just inside `within`: (uz, -ux) is the segment's normal.
+            let side = (a.at.0 - p.0) * uz - (a.at.1 - p.1) * ux;
+            let side = side.signum() * side.abs().min(within * 0.9);
+            let to = (
+                p.0 + ux * len * t + uz * side,
+                p.1 + uz * len * t - ux * side,
+            );
             free(a).then(|| (a.id.clone(), to, a.yaw))
         }
         Kind::ReachableFrom { from, clearance } => {
