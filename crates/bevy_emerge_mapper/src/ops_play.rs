@@ -5,8 +5,10 @@
 //! the editor camera's position in its arguments and environment (`EMERGE_PLAY_MAP`,
 //! `EMERGE_PLAY_CAMERA`, `EMERGE_PLAY_ROOT`). The game is expected to carry `bevy_fairy`; an agent
 //! then reads its state, runs its commands and captures frames through fairy's own MCP. `play` can
-//! wait for `bevy_fairy/status` to say `ready: true`; `play_stop` ends the process it started, by
-//! pid. Neither changes a document, so neither has an undo.
+//! wait for `bevy_fairy/status` to say `ready: true`; `play_stop` ends the game it started: the
+//! whole process group, because a game is usually started through a launcher (`cargo run`), and
+//! killing only the launcher's pid left the game running as an orphan.
+//! Neither changes a document, so neither has an undo.
 
 use bevy_emerge_core::play::PlayConfig;
 use serde::{Deserialize, Serialize};
@@ -131,6 +133,9 @@ impl Operation for Play {
             cmd.env("EMERGE_PLAY_CAMERA", format!("{},{},{}", c[0], c[1], c[2]));
         }
         // The child goes into `RUNNING`, where `running_pid` reaps it (`try_wait`) or `play_stop` kills and waits.
+        // **Its own process group**, so `play_stop` can end what the launcher started as well as the launcher.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
         #[allow(clippy::zombie_processes)]
         let child = cmd.spawn().map_err(|e| Refusal::new(format!("could not start `{}`: {e}. Nothing is running.", argv[0])))?;
         let pid = child.id();
@@ -179,9 +184,18 @@ impl Operation for PlayStop {
         let root = ctx.root_or_project().expect("plan found a root");
         let mut child = with_table(|t| t.remove(&root)).expect("plan found the child");
         let pid = child.id();
+        // The group first (its id is the launcher's pid, from `process_group(0)` in `play`), then the
+        // launcher itself, which also covers a platform with no process groups.
+        #[cfg(unix)]
+        let _ = Command::new("kill")
+            .args(["-KILL", &format!("-{pid}")])
+            .stderr(std::process::Stdio::null())
+            .status();
         let killed = child.kill();
         let _ = child.wait();
-        killed.map_err(|e| Refusal::new(format!("could not stop pid {pid}: {e}")))?;
+        killed
+            .or_else(|e| if e.kind() == std::io::ErrorKind::InvalidInput { Ok(()) } else { Err(e) })
+            .map_err(|e| Refusal::new(format!("could not stop pid {pid}: {e}")))?;
         let _ = planned;
         Ok(Outcome {
             summary: format!("stopped the game (pid {pid})"),
