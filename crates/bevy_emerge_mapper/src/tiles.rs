@@ -9816,6 +9816,49 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                 });
             }
 
+            // **The faces of this piece nothing in the kit meets** (#142 slice 2), one line per
+            // side: `E: jamb_l jamb_r, nothing meets it`. Off the layered library and the project's
+            // divisions, the same call `emerge_state.dead_ends` makes, so the two cannot disagree.
+            // No dead face, no row.
+            let dead: Vec<String> =
+                bevy_emerge_core::adjacency::dead_ends(&project.library, project.lattice.face_bands)
+                    .into_iter()
+                    .filter(|e| e.piece == placed.id)
+                    .map(|e| {
+                        let face: Vec<&str> =
+                            e.face.iter().map(|t| t.as_deref().unwrap_or("-")).collect();
+                        format!(
+                            "{}: {}, nothing meets it",
+                            bevy_emerge_core::adjacency::dir_name(e.dir),
+                            face.join(" ")
+                        )
+                    })
+                    .collect();
+            if !dead.is_empty() {
+                p.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::FlexStart,
+                    margin: UiRect::top(Val::Px(crate::chrome::GAP_ROW)),
+                    ..default()
+                })
+                .with_children(|row| {
+                    crate::chrome::row_label(row, crate::chrome::COL_LABEL, "dead ends");
+                    row.spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    })
+                    .with_children(|col| {
+                        for line in dead {
+                            col.spawn((
+                                Text::new(line),
+                                TextColor(crate::chrome::DANGER),
+                                crate::chrome::font(crate::chrome::text::LABEL),
+                            ));
+                        }
+                    });
+                });
+            }
+
             // **How this piece sits, on one line.** It is what replaced `Role`, `rests_on` and the
             // height heuristic that once decided a 10.9 cm mug was a floor decal — so it is worth a
             // line of its own rather than a place in a list of tags.

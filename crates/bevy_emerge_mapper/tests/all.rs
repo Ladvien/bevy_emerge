@@ -33,6 +33,7 @@ mod forest_stroke_is_an_operation;
 mod a_hint_shares_the_receipts_slot;
 mod a_history_jump_is_one_undo_group;
 mod a_kit_edited_on_disk_reaches_the_screen;
+mod a_kit_s_dead_ends_are_shown;
 mod a_kit_save_rereads_only_that_kit;
 mod a_label_and_its_value_are_two_things;
 mod a_label_set_on_effects_settles_as_the_kind_does;
