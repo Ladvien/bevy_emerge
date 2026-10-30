@@ -688,18 +688,10 @@ pub(crate) fn piece_standards_json(
     piece: &bevy_emerge_core::descriptor::Descriptor,
     project_dir: &std::path::Path,
 ) -> (Value, Vec<String>) {
-    use bevy_emerge_core::library::Library;
-    use bevy_emerge_core::standards::check;
-    let standards = match load_standards(project_dir) {
-        Ok(s) => s,
+    let breaches = match piece_breaches(piece, project_dir) {
+        Ok(b) => b,
         Err(e) => return (json!({"breaches": [], "error": e}), Vec::new()),
     };
-    let one = Library {
-        version: bevy_emerge_core::library::LIBRARY_VERSION,
-        note: None,
-        descriptors: vec![piece.clone()],
-    };
-    let breaches = check(&one, &standards);
     let mut rules: Vec<String> = Vec::new();
     for b in &breaches {
         if !rules.contains(&b.rule) {
@@ -710,9 +702,27 @@ pub(crate) fn piece_standards_json(
     (json!({"breaches": rows, "error": null}), rules)
 }
 
+/// **One piece's breaches of `<project_dir>/standards.ron`**, in file order, or the file's error.
+/// Shared by `piece_import`'s answer and the Meshes pane (#138), so the two cannot disagree.
+pub(crate) fn piece_breaches(
+    piece: &bevy_emerge_core::descriptor::Descriptor,
+    project_dir: &std::path::Path,
+) -> Result<Vec<bevy_emerge_core::standards::Breach>, String> {
+    use bevy_emerge_core::library::Library;
+    let standards = load_standards(project_dir)?;
+    let one = Library {
+        version: bevy_emerge_core::library::LIBRARY_VERSION,
+        note: None,
+        descriptors: vec![piece.clone()],
+    };
+    Ok(bevy_emerge_core::standards::check(&one, &standards))
+}
+
 /// `<project_dir>/standards.ron`, or no rules when there is no such file; any other failure to read
 /// or parse it is the error, naming the file.
-fn load_standards(project_dir: &std::path::Path) -> Result<bevy_emerge_core::standards::Standards, String> {
+pub(crate) fn load_standards(
+    project_dir: &std::path::Path,
+) -> Result<bevy_emerge_core::standards::Standards, String> {
     use bevy_emerge_core::standards::{Standards, FILE};
     let path = project_dir.join(FILE);
     match std::fs::read_to_string(&path) {
