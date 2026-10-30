@@ -1657,6 +1657,10 @@ enum Field {
     /// looks repeat. The same answer `emerge_state.repetition` gives an agent, so a person reads it
     /// too. A standing readout, like [`Self::Edges`], because it is a state the map is in.
     Repeats,
+    /// **The intended relations the open map breaks** (#137), from `<map>.relations.ron` checked by
+    /// `bevy_emerge_core::relations::check`: how many are unmet and missing and the first broken one
+    /// in words. The same answer `emerge_state.relations` gives an agent, so a person reads it too.
+    Relations,
 }
 
 impl Field {
@@ -1684,6 +1688,7 @@ impl Field {
             Field::Redo => "REDO",
             Field::Last => "LAST",
             Field::Repeats => "REPEATS",
+            Field::Relations => "RELATIONS",
         }
     }
 }
@@ -3140,6 +3145,7 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Edges,
                     // **Under EDGES**: both are standing readouts of the map as a whole.
                     Field::Repeats,
+                    Field::Relations,
                 ] {
                     // **The history list sits under REDO and above EDGES (E-018).** Its rows are
                     // fixed in number, so the block keeps one height whatever the history holds.
@@ -6881,12 +6887,16 @@ fn refresh_history(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn refresh_status(
     project: Res<Project>,
     open: Res<OpenMap>,
     faults: Res<EdgeFaults>,
     state: Res<EditorState>,
     under: Res<UnderCursor>,
+    // **When the relations file was last read**, on the wall clock: a file on disk changes on it, and
+    // virtual time clamps a long frame to 250 ms and can be paused.
+    mut relations_read_at: Local<Option<std::time::Instant>>,
     mut fields: Query<(&Field, &mut Text, &mut TextColor), Without<ReceiptLabel>>,
     mut labels: Query<&mut Text, With<ReceiptLabel>>,
 ) {
@@ -6924,6 +6934,16 @@ fn refresh_status(
             && !project.is_changed()
         {
             continue;
+        }
+        // **The relations file is re-read when the map changed, and about once a second**, so an
+        // edit to it shows with no restart and no frame pays for a disk read it did not need.
+        if *field == Field::Relations {
+            let now = std::time::Instant::now();
+            let fresh = relations_read_at.is_some_and(|at| now.duration_since(at).as_secs_f32() < 1.0);
+            if !text.0.is_empty() && !open.is_changed() && fresh {
+                continue;
+            }
+            *relations_read_at = Some(now);
         }
         let (want, tint) = match field {
             // Silent when the map agrees with itself, which is the common case and the one a standing
@@ -7051,6 +7071,9 @@ fn refresh_status(
                     }
                 }
             }
+            // **How many are broken, then the first broken one in words.** Dim when every relation
+            // holds or there is no file, the EDGES rule; a file that does not read is named.
+            Field::Relations => relations_readout(&open),
         };
         if text.0 != want {
             text.0 = want;
@@ -7059,6 +7082,66 @@ fn refresh_status(
             colour.0 = tint;
         }
     }
+}
+
+/// **The `RELATIONS` row's words and tint** for the open map: `none` with no relations file, `N met`
+/// when every relation holds, else `U unmet, M missing: <the first broken relation>`, and the file's
+/// name when it does not read. The same check `emerge_state.relations` runs (#137).
+fn relations_readout(open: &OpenMap) -> (String, Color) {
+    use bevy_emerge_core::relations::{check, path_for_map, Kind, Outcome, Relations};
+    let path = path_for_map(&open.map_path);
+    let unreadable = || {
+        let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+        (format!("{name} does not read"), DANGER)
+    };
+    let relations = match std::fs::read_to_string(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return ("none".to_owned(), DIM),
+        Err(_) => return unreadable(),
+        Ok(text) => match Relations::parse(&text) {
+            Ok(r) => r,
+            Err(_) => return unreadable(),
+        },
+    };
+    if relations.relations.is_empty() {
+        return ("none".to_owned(), DIM);
+    }
+    let outcomes = check(&open.map.placements, &relations);
+    let unmet = outcomes.iter().filter(|o| matches!(o, Outcome::Unmet { .. })).count();
+    let missing = outcomes.iter().filter(|o| matches!(o, Outcome::Missing { .. })).count();
+    if unmet + missing == 0 {
+        return (format!("{} met", outcomes.len()), DIM);
+    }
+    // The first unmet relation, else the first one naming a piece the map does not have.
+    let pairs = || relations.relations.iter().zip(&outcomes);
+    let first = pairs()
+        .find(|(_, o)| matches!(o, Outcome::Unmet { .. }))
+        .or_else(|| pairs().find(|(_, o)| matches!(o, Outcome::Missing { .. })));
+    let words = match first {
+        Some((_, Outcome::Missing { id })) => format!("{id} is not on the map"),
+        Some((r, outcome)) => {
+            let of = &r.of;
+            let what = match &r.kind {
+                Kind::Faces(to) => format!("{of} faces {to}"),
+                Kind::Near { to, .. } => format!("{of} near {to}"),
+                Kind::Apart { from, .. } => format!("{of} apart from {from}"),
+                Kind::InFrontOf { of: other, .. } => format!("{of} in front of {other}"),
+                Kind::ClearInFront { .. } => format!("{of} clear in front"),
+            };
+            match outcome {
+                Outcome::Unmet { by: Some(by), .. } => format!("{what} ({by} in the way)"),
+                _ => what,
+            }
+        }
+        None => String::new(),
+    };
+    let mut counts = Vec::new();
+    if unmet > 0 {
+        counts.push(format!("{unmet} unmet"));
+    }
+    if missing > 0 {
+        counts.push(format!("{missing} missing"));
+    }
+    (format!("{}: {words}", counts.join(", ")), DANGER)
 }
 
 /// **Every text field that can be taking raw keys, in one parameter.**

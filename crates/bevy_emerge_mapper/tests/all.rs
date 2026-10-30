@@ -152,6 +152,7 @@ mod font_fallback;
 mod frame_the_view;
 mod headless;
 mod home_frames_the_view;
+mod inspector_names_broken_relations;
 mod inspector_names_the_worst_repeat;
 mod label_set_is_an_operation;
 mod leaf;
