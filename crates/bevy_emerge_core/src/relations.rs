@@ -29,6 +29,14 @@ pub const FILE_SUFFIX: &str = ".relations.ron";
 /// How far off dead-on, in degrees, a piece may point and still face its target.
 pub const FACING_TOLERANCE_DEG: f32 = 30.0;
 
+/// The relations file that belongs to a map file: `town.map.ron` → `town.relations.ron`, in the
+/// same directory. A map path that does not end `.map.ron` gets [`FILE_SUFFIX`] appended to its stem.
+pub fn path_for_map(map_path: &std::path::Path) -> std::path::PathBuf {
+    let name = map_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = name.strip_suffix(".map.ron").or_else(|| name.strip_suffix(".ron")).unwrap_or(&name);
+    map_path.with_file_name(format!("{stem}{FILE_SUFFIX}"))
+}
+
 /// Every relation one map is meant to keep.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
