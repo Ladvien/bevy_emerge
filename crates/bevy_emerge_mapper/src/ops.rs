@@ -2389,6 +2389,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_volume::VolumeEdit),
         Box::new(crate::ops_forest::ForestScatter),
         Box::new(crate::ops_people::PersonSet),
+        Box::new(crate::ops_people::PeopleRun),
         Box::new(crate::ops_water::WaterPlace),
         Box::new(crate::ops_water::WaterRun),
         Box::new(crate::ops_play::Play),
@@ -2530,6 +2531,8 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The person line (#104)** — `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>]` and `person <name> remove`
     // in the terrain field dispatch `person_set` through `set_person`, the same write an agent's `apply` makes.
     ("person_set", "set_person("),
+    // `people run [seed] [days]` in the same field dispatches `people_run` (a read: no undo) through `run_people`.
+    ("people_run", "run_people("),
     // **The destructible line (#108)** — `destructible <piece> on|off` and `hit <piece> <x> <y> <z> <radius_m>` in the
     // terrain field dispatch `destructible_set` and `destructible_hit` through `mark_destructible` and `hit_destructible`.
     #[cfg(feature = "bevy_carnage")]
