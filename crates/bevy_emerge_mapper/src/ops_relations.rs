@@ -175,6 +175,16 @@ impl Operation for RelationsSolve {
         let (delta, text, moved) = match p.delta {
             Some(delta) => {
                 let n = delta.add_placements.len();
+                if delta == RowDelta::default() {
+                    // **The undo of a solve that moved nothing** changes nothing, so writes nothing.
+                    return Ok(Outcome {
+                        summary: "nothing to put back: the relations solve moved nothing".to_owned(),
+                        affected: 0,
+                        saved: false,
+                        inverse: Some(json!({"delta": delta})),
+                        after: Some(rows_of(open, &[])),
+                    });
+                }
                 (delta, format!("put back {n} row(s) the relations solve moved"), n)
             }
             None => {

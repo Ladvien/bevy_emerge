@@ -4567,7 +4567,7 @@ fn terrain_edit_keys(
                 } else if raw.trim() == "plan clear" {
                     clear_plan(project.as_deref(), open.as_deref(), &mut state);
                 } else if raw.trim() == "relations solve" {
-                    solve_relations(project.as_deref(), open.as_deref_mut(), due, &mut state);
+                    solve_relations(project.as_deref(), open.as_mut(), due, &mut state);
                 } else if raw.trim_start().starts_with("people run") {
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("trigger ") {
@@ -5123,7 +5123,7 @@ fn clear_plan(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edi
 /// terrain line `relations solve` (#137). The moved rows are redrawn, and one Cmd+Z puts them back.
 fn solve_relations(
     project: Option<&Project>,
-    open: Option<&mut OpenMap>,
+    open: Option<&mut ResMut<OpenMap>>,
     due: Option<ResMut<crate::watch::Due>>,
     state: &mut EditorState,
 ) {
@@ -5131,25 +5131,32 @@ fn solve_relations(
         state.status.problem("no map is open, so there are no relations to mend".to_owned());
         return;
     };
+    // **A refusal or a solve with nothing to mend is not an edit**, so the map goes in and out of the
+    // operation without change detection, and is marked changed only when rows moved.
+    let held = open.bypass_change_detection();
     let mut ctx = crate::ops::Ctx {
         project: Some(project.clone()),
-        open: Some(std::mem::replace(open, OpenMap::new(bevy_emerge_core::map::Map::default(), std::path::PathBuf::new()))),
+        open: Some(std::mem::replace(held, OpenMap::new(bevy_emerge_core::map::Map::default(), std::path::PathBuf::new()))),
         source: crate::ops::Source::Human,
         session: crate::ops::session_id(),
         ..crate::ops::Ctx::default()
     };
     let outcome = crate::ops::dispatch(&mut ctx, "relations_solve", &serde_json::json!({}));
     if let Some(fresh) = ctx.open.take() {
-        *open = fresh;
+        *held = fresh;
     }
     match outcome {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            if !outcome.saved {
+                return;
+            }
             // **The moved pieces are drawn where the map now has them**, by the same full redraw a
             // map replaced from disk gets.
-            if let (true, Some(mut due)) = (outcome.saved, due) {
+            open.set_changed();
+            if let Some(mut due) = due {
                 due.map_replaced = true;
             }
-            state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
