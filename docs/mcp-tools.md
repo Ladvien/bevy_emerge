@@ -39,7 +39,7 @@ Put a result in front of the person: a title, a one-paragraph summary, what they
 
 ### `emerge_list_operations`
 
-Every operation the running bevy_emerge editor knows, with each one's parameters' JSON schema and how it is undone. Call this before emerge_apply_operation so the parameters are the ones the operation actually takes. Returns the list; it does not change anything. The undo column names the strategy an operation declares; emerge_undo_operation performs it.
+Every operation the running bevy_emerge editor knows, with each one's parameters' JSON schema and how it is undone. Call this before emerge_apply_operation so the parameters are the ones the operation actually takes. Returns the list; it does not change anything. The undo column names the strategy an operation declares; emerge_undo_operation performs it. Pass query (words such as "carve" or "note") to get only the operations whose name or parameters match, best first, and total, the number of operations there are.
 
 | annotation | value |
 |---|---|

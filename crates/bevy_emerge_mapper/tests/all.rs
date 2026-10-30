@@ -92,6 +92,7 @@ mod an_agent_can_generate_a_layout;
 mod an_agent_can_import_a_mesh;
 mod an_agent_can_make_a_map;
 mod an_agent_can_place_a_piece;
+mod an_agent_can_search_the_operations;
 mod an_agent_can_show_its_plan;
 mod an_agent_can_take_its_own_change_back;
 mod an_agent_change_is_on_the_receipt;
