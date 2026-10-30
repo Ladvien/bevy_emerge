@@ -10,7 +10,8 @@
 //! bounds one [`Dim`]: width and depth are [`crate::descriptor::placed_footprint`] (before yaw),
 //! height is [`crate::descriptor::placed_height`] (after the project's `stretch_y`). A covered piece
 //! whose dimension was never measured, or measured as NaN or infinite, is [`Why::Unmeasured`],
-//! never silently met.
+//! never silently met. The rules are checked against each other too: [`unnested`] names every pair
+//! of sub-kit modules that do not nest, which no single piece can show.
 //!
 //! Engine-free: reads descriptors, nothing else. A breach is reported, not refused; refusing a
 //! piece at import is a separate choice for the caller.
@@ -139,7 +140,8 @@ impl Rule {
         Ok(())
     }
 
-    fn covers(&self, d: &Descriptor) -> bool {
+    /// Whether this rule covers `d`: it names no `kind`, or `d` carries the token it names.
+    pub fn covers(&self, d: &Descriptor) -> bool {
         self.kind.as_ref().is_none_or(|k| d.kind.contains(k))
     }
 }
@@ -223,4 +225,67 @@ pub fn idle<'a>(library: &Library, standards: &'a Standards) -> Vec<&'a str> {
         .filter(|r| !library.descriptors.iter().any(|d| r.covers(d)))
         .map(|r| r.name.as_str())
         .collect()
+}
+
+/// How many lengths of the larger module [`unnested`] walks out looking for a grid line the two
+/// modules share. 64 two-metre modules is 128 m, past the side of any one room or street.
+pub const MEET_WITHIN: u32 = 64;
+
+/// **Two rules whose modules do not nest** (#168): neither is a whole multiple of the other, so
+/// runs of the pieces each covers drift off one another's grid lines.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Unnested {
+    /// The two rules' names, the earlier in the file first.
+    pub rules: [String; 2],
+    /// Their dimensions, in the same order.
+    pub dims: [Dim; 2],
+    /// Their `multiple_of`, in the same order.
+    pub modules: [f32; 2],
+    /// The shortest run, in metres, on which both modules land on one grid line again, or `None`
+    /// when they do not within [`MEET_WITHIN`] lengths of the larger.
+    pub meet: Option<f32>,
+}
+
+/// Whether `v` is a whole multiple of `m`, within [`MULTIPLE_TOLERANCE`].
+fn on_module(v: f32, m: f32) -> bool {
+    (v - (v / m).round() * m).abs() <= MULTIPLE_TOLERANCE
+}
+
+/// **The pairs of rules whose modules do not nest** (#168, lens #4), each pair once, the earlier
+/// rule first, in file order.
+///
+/// Shipped modular kits put every sub-kit on one grid: a sub-kit's module divides the base module or
+/// is a whole multiple of it, so a wall run and a fence run meet on a grid line every module. [`check`]
+/// holds each piece to its own rule's module, so a 2 m wall kit and a 1.5 m fence kit both pass
+/// while they share a line only every 6 m. Two modules nest when the larger is a whole multiple of
+/// the smaller within [`MULTIPLE_TOLERANCE`], as [`check`] measures a piece against one.
+///
+/// Width and depth are compared with each other, because a quarter turn puts a piece's width along
+/// another's depth; height only with height. Rules without `multiple_of` are not compared.
+pub fn unnested(standards: &Standards) -> Vec<Unnested> {
+    let across = |d: Dim| d != Dim::Height;
+    let modules: Vec<(&Rule, f32)> = standards
+        .rules
+        .iter()
+        .filter_map(|r| r.multiple_of.map(|m| (r, m)))
+        .collect();
+    let mut out = Vec::new();
+    for (i, &(a, ma)) in modules.iter().enumerate() {
+        for &(b, mb) in &modules[i + 1..] {
+            let (big, small) = if ma >= mb { (ma, mb) } else { (mb, ma) };
+            if across(a.dim) != across(b.dim) || on_module(big, small) {
+                continue;
+            }
+            let meet = (2..=MEET_WITHIN)
+                .map(|k| k as f32 * big)
+                .find(|&run| on_module(run, small));
+            out.push(Unnested {
+                rules: [a.name.clone(), b.name.clone()],
+                dims: [a.dim, b.dim],
+                modules: [ma, mb],
+                meet,
+            });
+        }
+    }
+    out
 }

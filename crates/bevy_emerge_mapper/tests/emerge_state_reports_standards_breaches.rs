@@ -79,7 +79,7 @@ fn an_edit_to_the_file_is_seen_by_the_next_call() {
     let (mut app, file) = editor(&format!("standards_reload_{}", std::process::id()));
     assert_eq!(
         state(&mut app)["standards"],
-        serde_json::json!({"breaches": [], "idle": [], "error": null}),
+        serde_json::json!({"breaches": [], "idle": [], "unnested": [], "error": null}),
         "a project with no standards file has none, and that is no error"
     );
     write(&file, MODULE_AND_TYPO);
