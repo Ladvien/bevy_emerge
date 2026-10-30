@@ -80,6 +80,20 @@ fn to_text(field: &Heightfield) -> Result<String, Refusal> {
     ron::ser::to_string_pretty(field, ron::ser::PrettyConfig::default()).map_err(|e| Refusal::new(format!("the terrain could not be written: {e}")))
 }
 
+/// **The saved terrain of the open map**, or `None` for flat ground (no file, or one that is not a
+/// heightfield). The map's name is its file name without `.map.ron`, the name `terrain_stroke` takes.
+pub fn ground_of(project: &crate::project::Project, open: &crate::project::OpenMap) -> Option<Heightfield> {
+    let name = open.map_path.file_name()?.to_str()?.strip_suffix(".map.ron")?;
+    let text = std::fs::read_to_string(project.emerge_dir.join("terrain").join(format!("{name}.ron"))).ok()?;
+    ron::from_str(&text).ok()
+}
+
+/// **Where every piece of the open map stands, on its terrain**: [`bevy_emerge_core::stack::resolve_y_on`]
+/// over [`ground_of`], so sculpting lifts what stands on the ground.
+pub fn heights_on_ground(project: &crate::project::Project, open: &crate::project::OpenMap) -> Result<Vec<f32>, String> {
+    bevy_emerge_core::stack::resolve_y_on(&open.map, &project.library, ground_of(project, open).as_ref())
+}
+
 /// **Sculpt a map's heightfield with one stroke.**
 pub struct TerrainStroke;
 
