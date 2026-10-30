@@ -68,6 +68,7 @@ fn tree_path(ctx: &Ctx, name: &str) -> Result<std::path::PathBuf, Refusal> {
     Ok(project.emerge_dir.join("trees").join(format!("{name}.tree.ron")))
 }
 
+#[cfg(feature = "bevy_flora")]
 /// **Set `path` (dotted) inside `root` to `value`**; a path that is not already a field is refused.
 fn set_path(root: &mut serde_json::Value, path: &str, value: serde_json::Value) -> Result<(), Refusal> {
     let mut at = root;
