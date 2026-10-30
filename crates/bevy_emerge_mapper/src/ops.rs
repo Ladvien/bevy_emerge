@@ -2386,6 +2386,8 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_terrain::TerrainPreset),
         Box::new(crate::ops_volume::VolumeEdit),
         Box::new(crate::ops_forest::ForestScatter),
+        Box::new(crate::ops_people::PersonSet),
+        Box::new(crate::ops_people::PeopleRun),
         Box::new(crate::ops_water::WaterPlace),
         Box::new(crate::ops_water::WaterRun),
         Box::new(crate::ops_play::Play),
@@ -2524,6 +2526,11 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Terrain field's `forest` line (#102)** — `forest <x> <z> <radius_m> <spacing_m> <seed> <species>`
     // dispatches `forest_scatter` through `scatter_forest`, the same write an agent's `apply` makes.
     ("forest_scatter", "scatter_forest("),
+    // **The person line (#104)** — `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>]` and `person <name> remove`
+    // in the terrain field dispatch `person_set` through `set_person`, the same write an agent's `apply` makes.
+    ("person_set", "set_person("),
+    // `people run [seed] [days]` in the same field dispatches `people_run` (a read: no undo) through `run_people`.
+    ("people_run", "run_people("),
     // **The destructible line (#108)** — `destructible <piece> on|off` and `hit <piece> <x> <y> <z> <radius_m>` in the
     // terrain field dispatch `destructible_set` and `destructible_hit` through `mark_destructible` and `hit_destructible`.
     #[cfg(feature = "bevy_carnage")]
@@ -5057,6 +5064,17 @@ pub mod placement_remove {
         Ok(rows)
     }
 
+    /// **A building someone lives or works in stays** (#104): the refusal names the person.
+    fn refuse_if_lived_in(project: &Project, open: &OpenMap, group: &[usize]) -> Result<(), Refusal> {
+        let ids: Vec<String> = group.iter().map(|&i| open.map.placements[i].id.clone()).collect();
+        match crate::ops_people::tenant_of(project, &open.map.name, &ids) {
+            Some((who, role, id)) => Err(Refusal::new(format!(
+                "{who} has `{id}` as their {role}, so it was not removed. Change {who}'s {role} first (`person_set`), or take them off the map."
+            ))),
+            None => Ok(()),
+        }
+    }
+
     /// **Take a removal out**, and the group it took with it, then save. A refused save puts every
     /// row back, so the editor and the file agree.
     fn remove(project: &Project, open: &mut OpenMap, id: &str) -> Result<Outcome, Refusal> {
@@ -5068,6 +5086,7 @@ pub mod placement_remove {
         // **A stack goes whole**, by the same function the editor's delete has always used.
         let mut group = bevy_emerge_core::stack::group_of(&open.map, index);
         group.sort_unstable();
+        refuse_if_lived_in(project, open, &group)?;
         let mut rows: Vec<Row> = Vec::with_capacity(group.len());
         for &i in &group {
             let placed = serde_json::to_value(&open.map.placements[i]).map_err(|e| {
@@ -5208,6 +5227,9 @@ pub mod placement_remove {
                 )));
             };
             let group = bevy_emerge_core::stack::group_of(&open.map, index);
+            if let Some(project) = ctx.project.as_ref() {
+                refuse_if_lived_in(project, open, &group)?;
+            }
             Ok(json!({"id": id, "removes": group.len()}))
         }
 
