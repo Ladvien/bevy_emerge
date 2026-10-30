@@ -1964,6 +1964,16 @@
       "last_failure": "",
       "title": "A relations file cannot say a piece must stay in view of another: a crate dropped on the sight line goes unnoticed (#144)",
       "evidence": "Shipped 96d335e (w3, big): core relations Kind::VisibleFrom {from, clearance} (centre-to-segment, riders on either end excluded) in check (Unmet names the nearest blocker, measures its distance off the line) and solve (blocker or its host moved sideways off the line); inspector row 'sign seen from gate'. tests/a_sight_line_no_piece_may_stand_in.rs (6) failed before (no variant VisibleFrom). Assumed decision: centre model over bounds raycast or view cone. Clip owed (no display on big)."
+    },
+    {
+      "id": "E-094",
+      "kind": "enhancement",
+      "area": "relations",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "A relations file cannot keep a piece beside a path through other pieces: a lamp meant for the road is met behind the gate (#146)",
+      "evidence": "Shipped e8b7fe0 (w3, big): core relations Kind::Along {path, within} (centre-to-polyline through waypoint centres, clamped at the ends; Missing for an absent waypoint; parse refuses <2 waypoints) in check and solve (piece slid toward the nearest path point on its own side, just inside within, riders carried); inspector row 'lamp along gate → well → hall'. tests/a_piece_kept_beside_a_path.rs (6) failed before (no variant Along). Assumed decision: centre model over swept bounds or navmesh route. Clip owed (no display on big)."
     }
   ]
 }
