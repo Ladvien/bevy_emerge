@@ -176,9 +176,13 @@ impl Plugin for ViewPlugin {
         app.init_resource::<Rig>()
             .init_resource::<Pointer>()
             .add_systems(OnEnter(crate::screen::Screen::Editor), setup)
-            // **Before anything acts on it.** `Phase::Sense` is where this editor decides who owns an
-            // input for the frame — the keyboard already does — so the pointer is read once, there,
-            // and every spatial system downstream sees one answer.
+            // **Before anything acts on it, which means before `Update` starts.** It ran in
+            // `Phase::Sense`, and that ordered it only before the systems in a `Phase` set: the Note
+            // tool, the placement tools and their ghosts are in none, so Bevy was free to run one of
+            // them first, and a click landed where the pointer had been the frame before (#180:
+            // the Note tool's second Shift-click took the first piece back out, 3 runs in 24).
+            // `BeforeFixedMainLoop` is after `PreUpdate`, where the window's cursor and a test's
+            // injected one have moved, and before every `Update` system, whatever its set.
             //
             // **Ungated by screen, and that is a correction.** It ran only in the editor, which was
             // true while `Pointer` served the map's spatial verbs and nothing else. It now feeds
@@ -186,7 +190,10 @@ impl Plugin for ViewPlugin {
             // pointer to `bevy_picking` at all — so leaving it off on the menu meant the menu's rows
             // could be given a click observer and never receive one. Where the pointer is is true on
             // both screens; it was the *readers* that were editor-only.
-            .add_systems(Update, sense_pointer.in_set(keys::Phase::Sense))
+            .add_systems(
+                RunFixedMainLoop,
+                sense_pointer.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+            )
             .add_systems(Update,
                 (drive.in_set(keys::Phase::Act))
                     .run_if(in_state(crate::screen::Screen::Editor)),
@@ -540,8 +547,9 @@ pub fn over_ui<'a>(
 /// Where the pointer meets the ground plane, in world metres.
 ///
 /// The editor's whole spatial input is this one function, so it is worth being exact about: a ray
-/// through the cursor, intersected with `y = 0`. `None` when the cursor is off-window or the ray runs
-/// parallel to the ground — both are "there is no honest answer", and the callers treat them as such
+/// through the cursor, intersected with `y = 0`. `None` when the cursor is outside the viewport (off
+/// the window, or over the chrome around the frame's hole) or the ray runs parallel to the ground —
+/// all are "there is no honest answer", and the callers treat them as such
 /// rather than falling back to the origin.
 ///
 /// Takes the position rather than the `Window` so that there is exactly one place deciding *which*
@@ -562,6 +570,16 @@ pub fn cursor_ray(
     cam_tf: &GlobalTransform,
 ) -> Option<(Vec3, Vec3)> {
     let cursor = cursor?;
+    // **Only through the viewport, which is a region and not the window** (B-021, #182). The map
+    // camera draws into the frame's hole (`surface::fit_viewport_to_frame`), and
+    // `Camera::viewport_to_world` does not check that its point is inside that hole: past an edge it
+    // extrapolates a ray through a pixel that does not exist. So a click on the door strip above the
+    // hole, or the status band below it, met the ground somewhere real, and placed a piece there:
+    // (-1965.65, -98.65) in B-021, far off the map, where nobody saw it to undo it. A pointer over
+    // the chrome has no ground under it, which is this function's "no honest answer".
+    if !camera.logical_viewport_rect()?.contains(cursor) {
+        return None;
+    }
     let ray = camera.viewport_to_world(cam_tf, cursor).ok()?;
     Some((ray.origin, *ray.direction))
 }

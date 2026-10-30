@@ -2176,6 +2176,8 @@ impl Plugin for EditorPlugin {
         );
         #[cfg(all(feature = "bevy_flora", feature = "bevy_elements"))]
         app.add_systems(Update, crate::forest_season::follow_date.after(crate::environment::scrub_clock));
+        #[cfg(feature = "bevy_flora")]
+        app.add_plugins(crate::forest_view::ForestViewPlugin);
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
         // **The light map (#103):** shown by its button, re-baked when the map changes, drawn over the floor.
@@ -7276,6 +7278,7 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::Between { a, b, .. } => format!("{of} between {a} and {b}"),
                 Kind::MirrorOf { of: other, about, .. } => format!("{of} mirror of {other} about {about}"),
                 Kind::BacksOnto { of: other, .. } => format!("{of} backs onto {other}"),
+                Kind::Inside { of: other, .. } => format!("{of} inside {other}"),
             };
             let what = if r.hard { format!("{what} (hard)") } else { what };
             match outcome {

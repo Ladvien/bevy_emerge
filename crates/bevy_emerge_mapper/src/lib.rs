@@ -108,6 +108,8 @@ pub mod volume_mesh;
 pub mod ops_forest;
 #[cfg(all(feature = "bevy_flora", feature = "bevy_elements"))]
 pub mod forest_season;
+#[cfg(feature = "bevy_flora")]
+pub mod forest_view;
 pub mod ops_tree;
 pub mod ops_water;
 pub mod terrain_view;
