@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **101-draw** `e8dc64c` A carve in the ground is drawn: the viewport shows the volume's isomesh chunks in place of the heightfield mesh (#101 slice 6) *No clip: visible, not yet recorded: no display on big; proved by carved_ground_is_drawn*
 - **water-pond-clip** `61c7f57` A spring on a sculpted valley is run until it settles into a pond, drawn in the viewport and kept as the map's water (#100)<br><a href="docs/changelog/media/2026-10-30-water-pond.mp4"><img src="docs/changelog/media/2026-10-30-water-pond.png" width="320" alt="clip"></a>
 - **people-run** `72e9b7c` people_run (and the terrain line 'people run [seed] [days]') runs a map's villagers forward in bevy_society's own app: same seed, same day (#104) *No clip: visible, not yet recorded: no display on big*
 - **106-runtime** `b982f0f` A conversation attached to a piece plays through the crate's own runtime: the talker asks, the chosen option leads to its line *No clip: visible, not yet recorded: no display on big; proved by dialogue_runtime::the_conversation_a_piece_carries_is_walked_by_the_crates_runtime_down_the_chosen_option*
