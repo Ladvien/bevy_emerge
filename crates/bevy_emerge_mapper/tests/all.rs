@@ -112,11 +112,8 @@ mod every_list_follows_its_selection;
 mod every_refusal_is_in_a_problem;
 mod every_resource_says_what_a_door_does_to_it;
 mod family_host;
-<<<<<<< HEAD
-mod flora_family;
-=======
 mod family_lights_settings;
->>>>>>> c50b5e707a5345f7308c4dd63c556ab1661cdc95
+mod flora_family;
 mod family_set_is_an_operation;
 mod family_settings_reload;
 mod family_settings_at_launch;
