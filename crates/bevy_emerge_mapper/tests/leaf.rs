@@ -92,6 +92,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "the owner's reciprocal-avoidance crowd solver, hosted by the family layer (#107) — OPTIONAL, reached only by `--features bevy_orca` and pinned by git rev, so an ordinary build pays nothing",
     ),
     (
+        "bevy_society",
+        "the owner's living-society crate (people, needs, ties, factions), hosted by the family layer (#104, #96) — OPTIONAL, reached only by `--features bevy_society` and pinned by git rev, so an ordinary build pays nothing",
+    ),
+    (
         "bevy_speech_bubbles",
         "the owner's speech balloon, conversation graph and dialog box crate, hosted by the family layer (#106, #96) — OPTIONAL, reached only by `--features bevy_speech_bubbles` and pinned by git rev, so an ordinary build pays nothing",
     ),

@@ -124,6 +124,7 @@ mod family_host;
 mod family_lights_settings;
 mod flora_family;
 mod family_set_is_an_operation;
+mod family_society;
 mod placement_family;
 mod family_settings_reload;
 mod family_settings_at_launch;

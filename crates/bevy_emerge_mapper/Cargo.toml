@@ -56,6 +56,7 @@ bevy_elements = ["dep:bevy_elements"]
 bevy_flora = ["dep:bevy_flora"]
 bevy_lights = ["dep:bevy_lights"]
 bevy_orca = ["dep:bevy_orca"]
+bevy_society = ["dep:bevy_society"]
 bevy_speech_bubbles = ["dep:bevy_speech_bubbles"]
 bevy_stigmergy = ["dep:bevy_stigmergy"]
 
@@ -64,6 +65,7 @@ bevy_carnage = { git = "https://github.com/Ladvien/bevy_carnage", rev = "615c264
 bevy_elements = { git = "https://github.com/Ladvien/bevy_elements", rev = "ef87797468db6264f24785fe9d1ffaa9d4deb9f0", features = ["serde"], optional = true }
 bevy_lights = { git = "https://github.com/Ladvien/bevy_lights", rev = "15af29a7dc05ada701caa4c154a00cee363c84b3", features = ["serde"], optional = true }
 bevy_orca = { git = "https://github.com/Ladvien/bevy_orca", rev = "e7160df097dc75652633f801f6c0ab1c73356bc4", optional = true }
+bevy_society = { git = "https://github.com/Ladvien/bevy_society", rev = "d2e39703e06ebf40b5e787a2da4b6882a9beee3e", default-features = false, optional = true }
 bevy_speech_bubbles = { git = "https://github.com/Ladvien/bevy_speech_bubbles", rev = "00bd902f9d04720e891429c381b6df3ba7d3a3b7", optional = true }
 bevy_stigmergy = { git = "https://github.com/Ladvien/bevy_stigmergy", rev = "6ecee6a3c2ff0bf7f18dab10f376c49b49914c44", optional = true }
 bevy_emerge_core = { path = "../bevy_emerge_core" }

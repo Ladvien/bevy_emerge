@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **101-volume-edit** `51d0e09` Volume edit list: add and carve sphere, box and capsule primitives, one undo each, saved beside the map *No clip: an operation and a data type, not yet drawn (isomesh meshing owed); proved by volume_edit_is_an_operation*
+- **104-society-host** `2b3486f` bevy_society is a hosted family crate: family_set refuses a society definition the crate cannot compile *No clip: an API; proved by family_society tests*
 
 ## 2026-10-29
 
