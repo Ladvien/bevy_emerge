@@ -1,0 +1,132 @@
+{
+ "name": "forest_view",
+ "fps": 8,
+ "scale": 2,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      -24,
+      -22,
+      24,
+      6
+     ]
+    }
+   }
+  },
+  {
+   "mcp": "emerge_apply_operation",
+   "args": {
+    "operation": "tree_edit",
+    "parameters": {
+     "name": "tall",
+     "preset": "birch",
+     "set": {
+      "trunk.radius": 0.25
+     }
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 1.5
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "forest_scatter",
+    "parameters": {
+     "map": "grove",
+     "plant": {
+      "points": [
+       [
+        -20.0,
+        -14.0
+       ],
+       [
+        -6.0,
+        -16.0
+       ],
+       [
+        8.0,
+        -14.0
+       ],
+       [
+        20.0,
+        -18.0
+       ]
+      ],
+      "radius_m": 7.0,
+      "spacing_m": 4.0,
+      "seed": 3,
+      "species": [
+       {
+        "name": "oak",
+        "weight": 1.0
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "forest_scatter",
+    "parameters": {
+     "map": "grove",
+     "place": {
+      "species": "trees/tall.tree.ron",
+      "at": [
+       0.0,
+       2.0
+      ],
+      "age_years": 14.0,
+      "seed": 7
+     }
+    }
+   }
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "tree_edit",
+    "parameters": {
+     "name": "tall",
+     "set": {
+      "trunk.radius": 0.9
+     }
+    }
+   }
+  },
+  {
+   "seconds": 1.5
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.2,
+   "caption": "a map with no trees"
+  },
+  {
+   "at": 1.7,
+   "caption": "agent: forest_scatter plants oaks along a stroke, from bevy_flora's pool"
+  },
+  {
+   "at": 4.7,
+   "caption": "agent: one birch placed, grown from its own seed and age"
+  },
+  {
+   "at": 7.7,
+   "caption": "agent: tree_edit trunk.radius 0.25 -> 0.9, the birch regrows"
+  },
+  {
+   "at": 10.7,
+   "caption": "forest/grove.ron and trees/tall.tree.ron; each edit is one undo"
+  }
+ ]
+}
