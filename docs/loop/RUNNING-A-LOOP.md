@@ -373,12 +373,20 @@ things up.
 | `bevy_emerge_w4` | laptop | `~/bevy_emerge_w4` | `com.ladvien.wiggum-emerge-w4` | `~/target/emerge-w4`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only` | 4 | native Metal | 20 GB, above Sanctuary's 15 so this worker stops first |
 | `bevy_emerge_w5` | big | `~/bevy_emerge_w5` | `wiggum@emerge-w5.service`, `MemoryHigh=6G`, `MemoryMax=8G`, no swap | `~/target/emerge-w5`, started as a btrfs reflink copy of w3's (`cp -a --reflink=always`), so no cold build | 4 | Xvfb `:94` | 150 GB |
 | `bevy_emerge_w6` | bmb (account `rebekahbrittain`) | `~/bevy_emerge_w6` | `com.ladvien.wiggum-emerge-w6` (gui/501) | `~/target/emerge-w6`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only` | 8 of 14, leaving room for golem's FLUX jobs | native Metal | 20 GB |
+| `bevy_emerge_w7` | bmb, beside w6 (48 GB of RAM, so memory has room) | `~/bevy_emerge_w7` | `com.ladvien.wiggum-emerge-w7` (gui/501) | `~/target/emerge-w7`, an APFS clone of w6's (`cp -c -R`), so no cold build | 6 | native Metal | 20 GB |
 | Sanctuary `emerge-loop` | laptop | `~/sanctuary` (shared checkout) | `wiggum.sh start` | `~/.cargo-target-shared/global` | — | native | 15 GB |
 | lights, society | big | `~/bevy_lights_loop`, `~/bevy_society_loop` | `wiggum@lights`, `wiggum@society` (society: `RAYON_NUM_THREADS=1` drop-in), `MemoryMax=7G`, no swap | | 2, 3 | Xvfb `:97`, `:98` | |
 | fairy | big | `~/bevy_fairy_loop` | `wiggum@fairy`, `MemoryMax=8G`, no swap; driver is a copy at `~/.local/share/wiggum/wiggum.sh` (bevy_fairy has none in its tree) | `~/target/fairy-loop` | 3 | Xvfb `:95` | |
 | elements | big_mac | `~/bevy_elements` | `com.ladvien.wiggum-elements` | | 6 | native Metal | |
 
 Every running loop uses Claude Sonnet 5.5. **bmb** joined on 2026-10-29 (owner: "Use bmb. It's what it's there for."): it needed `brew install gh node`, `gh auth login --with-token` with the owner's token, an `hs cloud enroll` of its own (a copied `cloud-token` would rotate under the other machine), the home-still bridge copied to `~/.local/bin` with `mcp.json` pointing at this account's home, and 80 GB of stale build caches removed (`~/target/*`, `~/bevy_elements_i5*/target`); leave `~/llm` and `~/.cache/huggingface`, which hold the models golem's image jobs use. The machines not used: **one, two, three, four** are Raspberry Pi 4/5 boards (4 cores, 3–15 GB, no `omp`). Adding a worker: a fresh clone named `bevy_emerge_w<N>`, its own target dir, `git -C <clone> config core.hooksPath tools/loop/hooks` (the push gate), a supervisor copied from a row above, a display no other loop uses, and the row here. Before its first pass, build in its own target dir with step 5's `cargo build -p bevy_emerge_mapper -p bevy_emerge_mcp` and `cargo test --workspace --no-run`, with the supervisor's own `CARGO_PROFILE_*` settings (a different profile rebuilds everything): on 2026-10-29 a cold build took w4's whole first two-hour pass and w2's first two passes. On btrfs (big), start the target as a `cp -a --reflink=always` copy of another worker's instead.
+
+bmb also needs `brew install git-lfs` and `git lfs install` (found 2026-10-29 starting w7: without it a clone's checkout fails at the first LFS file, and `changelog.py check` refuses on a machine with no `git-lfs`).
+
+**Every loop on big has two template drop-ins** in `~/.config/systemd/user/wiggum@.service.d/` (2026-10-29). Both were added because big has 31 GB of RAM for HomeStill and five or more loops:
+
+- `oom.conf`, `OOMPolicy=continue`: with the default (`stop`), one OOM-killed linker ended the whole pass (w5's passes 5 and 6).
+- `debug.conf`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only`: a Linux link reads every crate's DWARF, and under memory pressure fairy's test link re-read 148 GB from disk over 56 minutes. Changing it rebuilds every dependency once per target dir.
 
 ## Verify a loop is real, not just active
 
