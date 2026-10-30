@@ -1924,6 +1924,16 @@
       "last_failure": "",
       "title": "Repetition rules are hard-wired: a project cannot say which kinds are structure (#139)",
       "evidence": "Shipped e8f9edf (w3, big): <project_dir>/repetition.ron read by emerge_state.repetition (error names a bad file) and the REPEATS status line, watched by watch.rs; tests/a_projects_repetition_rules_decide_what_is_structure.rs failed before (3 of 4), 4 pass after. Clip owed: no display on big."
+    },
+    {
+      "id": "E-091",
+      "kind": "enhancement",
+      "area": "mcp",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "emerge_list_operations cannot search: an agent reads 64+ schemas to find one operation (#141)",
+      "evidence": "Shipped 1dfe893 (w3, big): ops::search + emerge/operation_list {query} (query, total, best first) + MCP ListParams.query; tests/an_agent_can_search_the_operations.rs failed before (2 of 2, query ignored), 2 pass after."
     }
   ]
 }

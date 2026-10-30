@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **E-091** `1dfe893` emerge_list_operations takes a query: an agent finds an operation by searching, best first, instead of reading all 64+ *No clip: an MCP/BRP API; proved by tests/an_agent_can_search_the_operations.rs*
 - **E-090** `e8f9edf` A project's repetition.ron decides which kinds are structure and how far a repeat is seen; emerge_state and the REPEATS line follow an edit live *No clip: visible, not yet recorded: no display on big*
 - **E-089-4** `4c4144f` The Meshes pane names the project standards the selected piece breaks, and an edit to standards.ron reaches it live *No clip: visible, not yet recorded: no display on big*
 - **137-relations-solve** `009a7e5` relations_solve and the Terrain line `relations solve` move the pieces of a map's broken relations, with one undo *No clip: visible, not yet recorded: no display on big*
