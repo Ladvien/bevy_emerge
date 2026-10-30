@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **release-publishable-set** `5cd5fbc` The game-facing crates (solver, core, snip, bevy_emerge, anim) package for crates.io; the editor and MCP server are marked unpublished *No clip: build metadata; proved by cargo publish -p bevy_emerge_solver --dry-run and cargo package --list*
 - **e002-composition-arm** `a97b657` composition_arm: an agent arms a composition through the operation the picker and COMPOSE Enter now dispatch *No clip: an operation for an existing verb, no visible change; proved by tests/composition_arm_is_an_operation.rs*
 - **relations-visible-from** `96d335e` A relation keeps a sight line clear: VisibleFrom names the piece in the way, and relations solve moves it off *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_sight_line_no_piece_may_stand_in.rs*
 - **E-142-2** `6665972` The Meshes pane and emerge_state name every kit face no piece can meet (dead ends) *No clip: visible, not yet recorded: no display on big*
