@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **177-note-box-on-screen** `ee0ce2b` While a note is typed, the Inspector scrolls its text (LAST: the words, the caret, [auto]) back on screen, even when it was scrolled down to NOTES *No clip: visible, not yet recorded: this sib pass's budget went to the gate; storyboard owed (note_auto.json with the Inspector wheeled to NOTES before the drag)*
 - **173-second-shift-click** `59193ea` The Note tool's second Shift-click adds its piece to the open note, so one note can name a group of pieces (#173) *No clip: visible, not yet recorded: #95's end-to-end clip shows it (two Shift-clicks, one note); proved by a_person_shift_clicks_two_pieces_into_one_note*
 - **95-undo-removal** `d5d5132` Undoing a note whose agent removed a piece puts the piece back in one step, instead of refusing *No clip: a fix to note_undo_work's reading of a removal's undo; proved by notes_end_to_end::two_notes_kept_and_one_undone_leave_the_map_file_with_only_the_kept_work; #95's end-to-end clip will show it*
 - **168-unnested-pane** `c862f0a` The Meshes pane's standards row names each pair of sub-kit modules that do not nest which the piece in focus is part of, in emerge_state's words (#168 slice 3)<br><a href="docs/changelog/media/2026-10-30-168-unnested-pane.mp4"><img src="docs/changelog/media/2026-10-30-168-unnested-pane.png" width="320" alt="clip"></a>
