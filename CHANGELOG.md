@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **153-options** `8c44207` An agent asked for options gets distinct layouts, each with the seed that lays it (layout_propose options) *No clip: an MCP operation parameter; proved by tests/a_proposal_offers_options.rs*
+- **152-clockscrub-door** `a17d0ea` With bevy_elements on, the Environment panel's held hour is released when the door changes, and the feature's tests are green *No clip: a resource classification; proved by every_resource_says_what_a_door_does_to_it with --features bevy_elements*
 - **relations-hard** `15698c2` A relation can be hard: relations solve never breaks it to mend soft ones, and names the relations it left unmet *No clip: visible, not yet recorded: no display on big (inspector row marks a broken hard relation); proved by a_hard_relation_outranks_soft_ones*
 - **relations-reachable-from** `abf6439` Relations: ReachableFrom, a walk from one piece to another round whatever stands between, and solve opens a sealed one *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_reachable_from_another.rs*
 - **gooey-skin** `fe2d94f` A project's family/bevy_gooey.ron is the running UI skin: a partial file restyles bevy_gooey widgets live, and a bad file or a WCAG failure is a status-line problem (#147) *No clip: visible, not yet recorded: no display on big; proved by family_gooey_skin*
