@@ -645,7 +645,8 @@ impl Emerge {
                        not_multiple_of or unmeasured, bound) and idle, the rules no piece is covered by; \
                        error names a file that does not parse. \
                        dead_ends is the kit stress test: every declared face (piece, dir N/E/S/W, \
-                       face tokens, message) that no piece of the kit meets at any quarter turn, \
+                       face tokens, closest {piece, turn, misses [{at, want, found}]} the piece \
+                       nearest to meeting it or null, message) that no piece of the kit meets at any quarter turn, \
                        up to 20, with total counting them all. \
                        Returns that summary \
                        as JSON, and changes nothing. \

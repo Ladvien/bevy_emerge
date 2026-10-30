@@ -644,8 +644,38 @@ pub struct DeadEnd {
     pub dir: Dir,
     /// What the face presents, in [`face`]'s order.
     pub face: Vec<Option<String>>,
+    /// The piece that comes nearest to meeting it (#145), or `None` when no piece shares a stretch
+    /// of the face carrying one of its declared tokens.
+    pub closest: Option<Closest>,
     /// The whole thing in a sentence, for a status line.
     pub message: String,
+}
+
+/// **The piece that comes nearest to closing a dead end**, and the cells that keep it from it.
+///
+/// Of every trial [`dead_ends`] makes, the one whose seam disagrees with the face in the fewest
+/// cells; ties go to the piece id, then the turn, then the placement along the face (near end,
+/// centre, far end). So an author reads "one token off, and which one" instead of setting every
+/// piece against the face by hand.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Closest {
+    /// The candidate's descriptor id.
+    pub piece: String,
+    /// Its quarter turns, 0..4, as placed against the face.
+    pub turn: u8,
+    /// Each seam sample where the two disagree, in [`seam`]'s order.
+    pub misses: Vec<Miss>,
+}
+
+/// One cell of a seam where the candidate presents something other than the face.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Miss {
+    /// The sample's index along the seam, `y` outer as [`seam`] reads it.
+    pub at: usize,
+    /// What the dead end's face presents there.
+    pub want: Option<String>,
+    /// What the candidate presents there.
+    pub found: Option<String>,
 }
 
 /// **Every declared face in a kit that no piece of the kit can meet** — a kit stress test.
@@ -696,9 +726,12 @@ pub fn dead_ends(library: &Library, divisions: u32) -> Vec<DeadEnd> {
             if a_face.iter().all(Option::is_none) {
                 continue;
             }
-            let met = usable.iter().any(|(b, (bw, bd), _)| {
+            let mut met = false;
+            // (misses, piece, turn, slide, the misses themselves): the smallest is the closest.
+            let mut best: Option<(usize, &str, u8, usize, Vec<Miss>)> = None;
+            'trials: for (b, (bw, bd), _) in &usable {
                 let b_id = b.id.as_str();
-                (0..4u8).any(|q| {
+                for q in 0..4u8 {
                     // The candidate's footprint as turned.
                     let (bw, bd) = if q % 2 == 1 { (*bd, *bw) } else { (*bw, *bd) };
                     // Where its centre goes so it touches `a`'s `dir` face, and the lateral span it
@@ -711,7 +744,7 @@ pub fn dead_ends(library: &Library, divisions: u32) -> Vec<DeadEnd> {
                     };
                     let near = -half_lat + b_half_lat;
                     let far = half_lat - b_half_lat;
-                    [near, 0.0, far].into_iter().any(|lat| {
+                    for (slide, lat) in [near, 0.0, far].into_iter().enumerate() {
                         let at = if dir == E || dir == W {
                             (normal, lat)
                         } else {
@@ -734,17 +767,62 @@ pub fn dead_ends(library: &Library, divisions: u32) -> Vec<DeadEnd> {
                             ],
                             ..Map::default()
                         };
-                        meets(&map, library, divisions, dir)
-                    })
-                })
-            });
+                        let Some((a_side, b_side)) = trial_seam(&map, library, divisions, dir) else {
+                            continue;
+                        };
+                        if !a_side.iter().any(Option::is_some) {
+                            continue;
+                        }
+                        if faults(&map, library, divisions).is_empty() {
+                            met = true;
+                            break 'trials;
+                        }
+                        let misses: Vec<Miss> = a_side
+                            .iter()
+                            .zip(&b_side)
+                            .enumerate()
+                            .filter(|(_, (w, f))| w != f)
+                            .map(|(at, (w, f))| Miss { at, want: w.clone(), found: f.clone() })
+                            .collect();
+                        let key = (misses.len(), b_id, q, slide);
+                        if best.as_ref().is_none_or(|(n, p, t, s, _)| key < (*n, *p, *t, *s)) {
+                            best = Some((key.0, b_id, q, slide, misses));
+                        }
+                    }
+                }
+            }
             if !met {
+                let closest = best.map(|(_, piece, turn, _, misses)| Closest {
+                    piece: piece.to_owned(),
+                    turn,
+                    misses,
+                });
+                let near = match &closest {
+                    Some(c) => format!(
+                        "; closest is `{}` turned {}°, off in {} cell{}: {}",
+                        c.piece,
+                        u32::from(c.turn) * 90,
+                        c.misses.len(),
+                        if c.misses.len() == 1 { "" } else { "s" },
+                        c.misses
+                            .iter()
+                            .map(|m| format!(
+                                "wants {} finds {}",
+                                m.want.as_deref().unwrap_or("-"),
+                                m.found.as_deref().unwrap_or("-")
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    None => String::new(),
+                };
                 out.push(DeadEnd {
                     piece: a_id.to_owned(),
                     dir,
                     face: a_face.iter().map(|t| t.map(str::to_owned)).collect(),
+                    closest,
                     message: format!(
-                        "`{a_id}` face {} is {} and no piece in the kit meets it at any turn",
+                        "`{a_id}` face {} is {} and no piece in the kit meets it at any turn{near}",
                         dir_name(dir),
                         say(&a_face)
                     ),
@@ -756,12 +834,13 @@ pub fn dead_ends(library: &Library, divisions: u32) -> Vec<DeadEnd> {
     out
 }
 
-/// Whether placement `b` of a two-piece trial map meets `a`'s `dir` face: the seam exists, carries
-/// at least one of `a`'s declared tokens, and [`faults`] finds nothing on the map.
-fn meets(map: &Map, library: &Library, divisions: u32, dir: Dir) -> bool {
-    let (Some(pa), Some(pb)) = (map.placements.first(), map.placements.get(1)) else {
-        return false;
-    };
+/// Both sides of a seam, owned.
+type OwnedSeam = (Vec<Option<String>>, Vec<Option<String>>);
+
+/// The seam of a two-piece trial map across `a`'s `dir` face: what `a` presents there and what `b`
+/// presents back, in [`seam`]'s order. `None` when either piece cannot be read or they share no seam.
+fn trial_seam(map: &Map, library: &Library, divisions: u32, dir: Dir) -> Option<OwnedSeam> {
+    let (pa, pb) = (map.placements.first()?, map.placements.get(1)?);
     let tile = |p: &crate::map::Placed| -> Option<(Subgrid, Placed3)> {
         let d = library.get(&p.descriptor)?;
         let div = crate::descriptor::divisions(d, divisions).ok()?;
@@ -780,14 +859,11 @@ fn meets(map: &Map, library: &Library, divisions: u32, dir: Dir) -> bool {
             },
         ))
     };
-    let (Some((ag, a_at)), Some((bg, b_at))) = (tile(pa), tile(pb)) else {
-        return false;
-    };
+    let ((ag, a_at), (bg, b_at)) = (tile(pa)?, tile(pb)?);
     let subunit = crate::grid::SNAP / divisions.max(1) as f32;
-    let Some((a_side, _)) = seam(&ag, a_at, &bg, b_at, dir, subunit) else {
-        return false;
-    };
-    a_side.iter().any(Option::is_some) && faults(map, library, divisions).is_empty()
+    let (a_side, b_side) = seam(&ag, a_at, &bg, b_at, dir, subunit)?;
+    let own = |s: Vec<Option<&str>>| s.into_iter().map(|t| t.map(str::to_owned)).collect();
+    Some((own(a_side), own(b_side)))
 }
 
 /// A face, in words. `-` is an unlabelled cell — which is a token, not an absence.

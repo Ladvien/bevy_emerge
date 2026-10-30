@@ -706,10 +706,20 @@ fn dead_ends_json(library: &bevy_emerge_core::library::Library, divisions: u32) 
         .iter()
         .take(DEAD_ENDS_CAP)
         .map(|d| {
+            // The piece nearest to closing it (#145), with the cells that keep it from it.
+            let closest = d.closest.as_ref().map(|c| {
+                let misses: Vec<Value> = c
+                    .misses
+                    .iter()
+                    .map(|m| json!({"at": m.at, "want": m.want, "found": m.found}))
+                    .collect();
+                json!({"piece": c.piece, "turn": u32::from(c.turn) * 90, "misses": misses})
+            });
             json!({
                 "piece": d.piece,
                 "dir": dir_name(d.dir),
                 "face": d.face,
+                "closest": closest,
                 "message": d.message,
             })
         })
