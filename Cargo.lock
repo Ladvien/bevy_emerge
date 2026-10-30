@@ -968,6 +968,7 @@ dependencies = [
  "bevy_fairy",
  "bevy_lights",
  "bevy_orca",
+ "bevy_speech_bubbles",
  "bevy_stigmergy",
  "image",
  "ron",
@@ -1843,6 +1844,16 @@ dependencies = [
  "rand_distr",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "bevy_speech_bubbles"
+version = "0.2.1"
+source = "git+https://github.com/Ladvien/bevy_speech_bubbles?rev=00bd902f9d04720e891429c381b6df3ba7d3a3b7#00bd902f9d04720e891429c381b6df3ba7d3a3b7"
+dependencies = [
+ "ab_glyph",
+ "bevy",
+ "serde",
 ]
 
 [[package]]
