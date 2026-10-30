@@ -54,7 +54,9 @@ fn fields_of(source: &str, name: &str) -> Vec<String> {
         .find(&head)
         .unwrap_or_else(|| panic!("no `{head}` in the source this test read"));
     let body = &source[at + head.len()..];
-    let end = body.find("\n}").unwrap_or_else(|| panic!("`{name}` is never closed"));
+    let end = body
+        .find("\n}")
+        .unwrap_or_else(|| panic!("`{name}` is never closed"));
     body[..end]
         .lines()
         .filter_map(|line| {

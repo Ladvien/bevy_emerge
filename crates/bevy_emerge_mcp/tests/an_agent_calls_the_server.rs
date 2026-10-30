@@ -783,8 +783,11 @@ fn a_snip_whose_picture_is_missing_is_named_and_the_list_still_answers() {
 #[test]
 fn a_snip_still_being_saved_is_listed_as_pending() {
     let (project, dir) = snips_folder("pending");
-    bevy_emerge_snip::write_pending(&dir, &record("snip-3000", now_ms(), "the gate is too narrow"))
-        .expect("the pending record is written");
+    bevy_emerge_snip::write_pending(
+        &dir,
+        &record("snip-3000", now_ms(), "the gate is too narrow"),
+    )
+    .expect("the pending record is written");
 
     let mut server = Server::start_with(&["--project", project.to_str().expect("a UTF-8 path")]);
     let answer = server.call("emerge_list_snips", json!({}));
@@ -793,7 +796,10 @@ fn a_snip_still_being_saved_is_listed_as_pending() {
         "{answer}"
     );
     let body = answer_text(answer["result"]["content"].as_array().expect("content"));
-    assert_eq!(body["total"], 0, "a pending snip is not a finished one: {body}");
+    assert_eq!(
+        body["total"], 0,
+        "a pending snip is not a finished one: {body}"
+    );
     assert_eq!(body["pending"][0]["stem"], "snip-3000", "{body}");
     assert_eq!(
         body["pending"][0]["note"], "the gate is too narrow",
@@ -940,8 +946,15 @@ fn a_pending_record_that_does_not_parse_is_named() {
         .as_array()
         .expect("not_snips is a list")
         .iter()
-        .any(|p| p.as_str().unwrap_or_default().contains("pending-snip-9000.json"));
-    assert!(named, "the broken pending record is reported nowhere: {body}");
+        .any(|p| {
+            p.as_str()
+                .unwrap_or_default()
+                .contains("pending-snip-9000.json")
+        });
+    assert!(
+        named,
+        "the broken pending record is reported nowhere: {body}"
+    );
     let _ = std::fs::remove_dir_all(&project);
 }
 
@@ -1051,7 +1064,9 @@ fn emerge_present_is_listed_and_refuses_readably_with_no_editor() {
         .expect("tools/list answers a list")
         .iter()
         .find(|t| t["name"] == "emerge_present")
-        .unwrap_or_else(|| panic!("emerge_present is not published, so an agent cannot present: {listed}"));
+        .unwrap_or_else(|| {
+            panic!("emerge_present is not published, so an agent cannot present: {listed}")
+        });
     let description = present["description"].as_str().unwrap_or_default();
     assert!(
         description.contains("Keep") && description.contains("presentation.answer"),
@@ -1143,7 +1158,11 @@ fn an_agent_can_read_the_rules_a_layout_is_generated_from() {
     );
     let body = answer_text(answer["result"]["content"].as_array().expect("content"));
     let blocks = body["blocks"].as_array().expect("blocks is a list");
-    assert_eq!(blocks.len(), 1, "the one stated block is not listed: {body}");
+    assert_eq!(
+        blocks.len(),
+        1,
+        "the one stated block is not listed: {body}"
+    );
     let block = &blocks[0];
     assert_eq!(block["example"], "town_block", "{body}");
     assert_eq!(block["weights"][0]["prefix"], "town/road", "{body}");
@@ -1151,14 +1170,28 @@ fn an_agent_can_read_the_rules_a_layout_is_generated_from() {
     assert_eq!(block["attempts"], 40, "{body}");
     // **The path is in the answer**, so an agent can cite the file it read and the person can open it.
     assert!(
-        body["path"].as_str().unwrap_or_default().ends_with("rules.ron"),
+        body["path"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with("rules.ron"),
         "the answer does not name the file it read: {body}"
     );
 
     // **Every field the description promises is in the answer**, not a sample of them: an agent
     // reads this to decide which number to change, and a field silently missing from the JSON is
     // one it cannot cite.
-    for field in ["example", "regions", "cell", "size", "border", "no_empty", "weights", "footprints", "attempts", "seed"] {
+    for field in [
+        "example",
+        "regions",
+        "cell",
+        "size",
+        "border",
+        "no_empty",
+        "weights",
+        "footprints",
+        "attempts",
+        "seed",
+    ] {
         assert!(
             block.get(field).is_some(),
             "`{field}` is promised by the description but absent from the block: {block}"
@@ -1194,11 +1227,7 @@ fn rules_the_editor_would_refuse_are_refused_here() {
     let cases: &[(&str, &str, &str)] = &[
         // (name, the file, a word the refusal must carry)
         ("blank", "", "rules.ron"),
-        (
-            "version",
-            r#"( version: 99, blocks: [] )"#,
-            "version 99",
-        ),
+        ("version", r#"( version: 99, blocks: [] )"#, "version 99"),
         (
             "attempts",
             r#"( version: 1, blocks: [ ( example: "m", cell: 2.0, size: (4, 4), attempts: 0, seed: 1 ) ] )"#,

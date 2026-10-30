@@ -44,6 +44,23 @@ const MUTATING_METHODS: &[&str] = &[
     "emerge/project_root",
 ];
 
+/// **Why a call failed**, for a caller that treats the two causes differently (#179).
+enum Failure {
+    /// **The editor is up and did not finish within the call's budget.**
+    Busy(String),
+    /// **The transport, the editor's refusal, or an answer that could not be read.**
+    Other(String),
+}
+
+impl Failure {
+    /// **The sentence an agent reads**, whichever the cause.
+    fn into_message(self) -> String {
+        match self {
+            Failure::Busy(m) | Failure::Other(m) => m,
+        }
+    }
+}
+
 impl Brp {
     /// **A client for the editor at `url`.**
     pub fn new(url: impl Into<String>) -> Brp {
@@ -72,19 +89,56 @@ impl Brp {
     /// pool** — `ureq` is a blocking client, and calling it on the async thread would park the
     /// whole runtime for the length of the request.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        self.on_blocking_pool(method, params, Self::call_blocking)
+            .await?
+    }
+
+    /// **Call one BRP method, where an editor too busy to answer within the budget is `Ok(None)`,
+    /// not a refusal** (#179).
+    ///
+    /// For a poll of work the editor is already doing: a status it could not answer in time is
+    /// "still running", and the caller decides when to stop asking. A missing editor, a refusal or
+    /// an unreadable answer is still an `Err`.
+    pub async fn call_unless_busy(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<Option<Value>, String> {
+        match self
+            .on_blocking_pool(method, params, Self::attempt_blocking)
+            .await?
+        {
+            Ok(v) => Ok(Some(v)),
+            Err(Failure::Busy(_)) => Ok(None),
+            Err(Failure::Other(e)) => Err(e),
+        }
+    }
+
+    /// **Run one request on the blocking pool**, with the next request id.
+    async fn on_blocking_pool<T: Send + 'static>(
+        &self,
+        method: &str,
+        params: Value,
+        request: fn(&str, &str, u64, Value) -> T,
+    ) -> Result<T, String> {
         let url = self.url.clone();
         let name = method.to_owned();
         let next_id = self.next_id.clone();
         tokio::task::spawn_blocking(move || {
             let id = next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Self::call_blocking(&url, &name, id, params)
+            request(&url, &name, id, params)
         })
         .await
-        .map_err(|e| format!("the editor call did not finish: {e}"))?
+        .map_err(|e| format!("the editor call did not finish: {e}"))
     }
 
     /// **The call itself, on a thread that is allowed to block.**
     fn call_blocking(url: &str, method: &str, id: u64, params: Value) -> Result<Value, String> {
+        Self::attempt_blocking(url, method, id, params).map_err(Failure::into_message)
+    }
+
+    /// **The call, with the cause of a failure kept** for [`Brp::call_unless_busy`].
+    fn attempt_blocking(url: &str, method: &str, id: u64, params: Value) -> Result<Value, Failure> {
         let body = json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -106,7 +160,9 @@ impl Brp {
             READ_TIMEOUT
         };
         let agent = ureq::Agent::new_with_config(
-            ureq::Agent::config_builder().timeout_global(Some(budget)).build(),
+            ureq::Agent::config_builder()
+                .timeout_global(Some(budget))
+                .build(),
         );
         let response = agent.post(url).send_json(&body).map_err(|e| {
             // **Two sentences, because there are two causes.** `TimedOut` is the editor taking too
@@ -118,25 +174,29 @@ impl Brp {
                 _ => false,
             };
             if timed_out {
-                format!(
+                Failure::Busy(format!(
                     "the editor did not finish `{method}` within {} s, so the call was abandoned. \
                      It is running — this is the work taking longer than the budget, not a missing \
                      editor. Ask for less at once, or check emerge/state to see what it is doing.",
                     budget.as_secs()
-                )
+                ))
             } else {
-                format!(
+                Failure::Other(format!(
                     "the editor did not answer `{method}` at {url}: {e}. Is it running, and is \
                      BEVY_BRP_PORT the same on both sides?"
-                )
+                ))
             }
         })?;
-        let text = response
-            .into_body()
-            .read_to_string()
-            .map_err(|e| format!("the editor's answer to `{method}` was not readable: {e}"))?;
-        let parsed: Value = serde_json::from_str(&text)
-            .map_err(|e| format!("the editor's answer to `{method}` was not JSON: {e}"))?;
+        let text = response.into_body().read_to_string().map_err(|e| {
+            Failure::Other(format!(
+                "the editor's answer to `{method}` was not readable: {e}"
+            ))
+        })?;
+        let parsed: Value = serde_json::from_str(&text).map_err(|e| {
+            Failure::Other(format!(
+                "the editor's answer to `{method}` was not JSON: {e}"
+            ))
+        })?;
         // **A JSON-RPC error is a refusal, and it is reported as one.**
         if let Some(error) = parsed.get("error") {
             let message = error
@@ -148,17 +208,17 @@ impl Brp {
             // "method not found" would send the agent looking for a typo**, and the answer is
             // that there is no editor to answer.
             if message.contains("not found") {
-                return Err(format!(
+                return Err(Failure::Other(format!(
                     "the editor at {url} does not answer `{method}` — it is probably not running, \
                      or it was built without its BRP commands. Start it and try again."
-                ));
+                )));
             }
-            return Err(format!("{method}: {message}"));
+            return Err(Failure::Other(format!("{method}: {message}")));
         }
         parsed
             .get("result")
             .cloned()
-            .ok_or_else(|| format!("{method}: the editor's answer had no result"))
+            .ok_or_else(|| Failure::Other(format!("{method}: the editor's answer had no result")))
     }
 }
 

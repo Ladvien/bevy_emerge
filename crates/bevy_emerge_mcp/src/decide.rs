@@ -75,19 +75,31 @@ pub fn needs_view(params: &DecideParams, checks: &Checks) -> bool {
 /// A file under `project`, as a data URL. Refuses a path that leaves the project.
 fn image_data_url(project: &Path, rel: &str) -> Result<String, String> {
     use base64::Engine as _;
-    let root = project.canonicalize().map_err(|e| format!("{}: {e}", project.display()))?;
+    let root = project
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", project.display()))?;
     let full: PathBuf = root.join(rel);
-    let full = full.canonicalize().map_err(|e| format!("image `{rel}`: {e}"))?;
+    let full = full
+        .canonicalize()
+        .map_err(|e| format!("image `{rel}`: {e}"))?;
     if !full.starts_with(&root) {
         return Err(format!("image `{rel}` is outside the project."));
     }
-    let mime = match full.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+    let mime = match full
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("png") => "image/png",
         Some("jpg" | "jpeg") => "image/jpeg",
         _ => return Err(format!("image `{rel}` is not a .png or .jpg file.")),
     };
     let bytes = std::fs::read(&full).map_err(|e| format!("image `{rel}`: {e}"))?;
-    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 /// **Decide.** `view` is the editor's current picture as base64 PNG, when it was taken.
@@ -118,9 +130,15 @@ pub fn decide(
             let checks = load_checks(project)?;
             let check: &Check = checks.get(name).ok_or_else(|| {
                 let known: Vec<&str> = checks.checks.iter().map(|c| c.name.as_str()).collect();
-                format!("no check named `{name}`; the checks are: {}.", known.join(", "))
+                format!(
+                    "no check named `{name}`; the checks are: {}.",
+                    known.join(", ")
+                )
             })?;
-            let evidence = Evidence { images, facts: params.facts.clone() };
+            let evidence = Evidence {
+                images,
+                facts: params.facts.clone(),
+            };
             let finding = check.run(transport, &evidence).map_err(|e| e.to_string())?;
             Ok(json!({
                 "check": name,
@@ -134,7 +152,8 @@ pub fn decide(
         (None, Some(questions)) => {
             let mut req = Request::new(params.state.clone().unwrap_or_default());
             for (id, q) in questions {
-                let q: Question = serde_json::from_value(q.clone()).map_err(|e| format!("question `{id}`: {e}"))?;
+                let q: Question = serde_json::from_value(q.clone())
+                    .map_err(|e| format!("question `{id}`: {e}"))?;
                 req.questions.insert(id.clone(), q);
             }
             req.images = ordered;

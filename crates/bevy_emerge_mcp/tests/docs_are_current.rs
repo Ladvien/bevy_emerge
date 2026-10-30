@@ -233,15 +233,34 @@ fn the_tool_table_and_its_count_are_the_servers() {
         bevy_emerge_mcp::docs::TOOLS.len()
     );
     let words = [
-        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
-        "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
         "twenty",
     ];
     let said = words
         .iter()
         .position(|w| *w == count_word)
         .map(|i| i + 1)
-        .unwrap_or_else(|| panic!("the sentence counts the tools as `{count_word}`, which is not a number"));
+        .unwrap_or_else(|| {
+            panic!("the sentence counts the tools as `{count_word}`, which is not a number")
+        });
     assert_eq!(
         said,
         bevy_emerge_mcp::docs::TOOLS.len(),

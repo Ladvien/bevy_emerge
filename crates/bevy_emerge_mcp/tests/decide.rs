@@ -13,11 +13,13 @@ impl Transport for Scene {
         "scene".into()
     }
     fn send(&self, r: &Request) -> Result<Response, Error> {
-        use bevy_emerge_decide::Question;
         use base64::Engine as _;
+        use bevy_emerge_decide::Question;
         let floating = r.images.iter().any(|i| {
             let b64 = i.split_once("base64,").map_or("", |x| x.1);
-            base64::engine::general_purpose::STANDARD.decode(b64).is_ok_and(|b| b == b"floating")
+            base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .is_ok_and(|b| b == b"floating")
         });
         let p = if floating { 0.93 } else { 0.04 };
         let answers = r
@@ -30,7 +32,10 @@ impl Transport for Scene {
                         let first = criteria.keys().next().unwrap().clone();
                         Answer::Choice {
                             choice: first.clone(),
-                            probabilities: criteria.keys().map(|k| (k.clone(), if *k == first { 0.8 } else { 0.2 })).collect(),
+                            probabilities: criteria
+                                .keys()
+                                .map(|k| (k.clone(), if *k == first { 0.8 } else { 0.2 }))
+                                .collect(),
                             confidence: 0.8,
                         }
                     }
@@ -39,7 +44,11 @@ impl Transport for Scene {
                 (id.clone(), a)
             })
             .collect::<BTreeMap<_, _>>();
-        Ok(Response { model: None, answers, usage: None })
+        Ok(Response {
+            model: None,
+            answers,
+            usage: None,
+        })
     }
 }
 
@@ -50,7 +59,10 @@ fn project(tag: &str) -> std::path::PathBuf {
 }
 
 fn named(name: &str, path: &str) -> NamedImage {
-    NamedImage { name: name.into(), path: path.into() }
+    NamedImage {
+        name: name.into(),
+        path: path.into(),
+    }
 }
 
 #[test]
@@ -101,7 +113,10 @@ fn ad_hoc_questions_return_every_probability() {
 #[test]
 fn a_check_without_its_evidence_is_refused_naming_it() {
     let dir = project("missing");
-    let p = DecideParams { check: Some("floating".into()), ..Default::default() };
+    let p = DecideParams {
+        check: Some("floating".into()),
+        ..Default::default()
+    };
     let err = decide(&p, &dir, None, &Scene).unwrap_err();
     assert!(err.contains("closeup, facts"), "{err}");
     std::fs::remove_dir_all(dir).unwrap();
@@ -110,7 +125,11 @@ fn a_check_without_its_evidence_is_refused_naming_it() {
 #[test]
 fn an_image_outside_the_project_is_refused() {
     let dir = project("escape");
-    std::fs::write(dir.parent().unwrap().join("emerge-decide-outside.png"), b"x").unwrap();
+    std::fs::write(
+        dir.parent().unwrap().join("emerge-decide-outside.png"),
+        b"x",
+    )
+    .unwrap();
     let p = DecideParams {
         check: Some("floating".into()),
         images: vec![named("closeup", "../emerge-decide-outside.png")],
@@ -126,7 +145,14 @@ fn an_image_outside_the_project_is_refused() {
 #[test]
 fn a_projects_checks_are_read_on_every_call_and_replace_the_editors_of_the_same_name() {
     let dir = project("hot");
-    assert!(load_checks(&dir).unwrap().get("floating").unwrap().threshold > 0.5);
+    assert!(
+        load_checks(&dir)
+            .unwrap()
+            .get("floating")
+            .unwrap()
+            .threshold
+            > 0.5
+    );
     std::fs::write(
         dir.join("assets/emerge/checks.ron"),
         r#"(checks: [(name: "floating", question: "Mine?", threshold: 0.2), (name: "mine", question: "Q?", threshold: 0.5)])"#,
@@ -141,11 +167,36 @@ fn a_projects_checks_are_read_on_every_call_and_replace_the_editors_of_the_same_
 #[test]
 fn the_view_is_taken_only_when_asked_for_or_a_check_needs_it_and_was_not_given_it() {
     let checks = bevy_emerge_decide::Checks::builtin();
-    let view_check = checks.checks.iter().find(|c| c.images.iter().any(|i| i == "view")).expect("a built-in needs view").name.clone();
-    let p = DecideParams { check: Some(view_check.clone()), ..Default::default() };
+    let view_check = checks
+        .checks
+        .iter()
+        .find(|c| c.images.iter().any(|i| i == "view"))
+        .expect("a built-in needs view")
+        .name
+        .clone();
+    let p = DecideParams {
+        check: Some(view_check.clone()),
+        ..Default::default()
+    };
     assert!(needs_view(&p, &checks));
-    let given = DecideParams { check: Some(view_check), images: vec![named("view", "v.png")], ..Default::default() };
+    let given = DecideParams {
+        check: Some(view_check),
+        images: vec![named("view", "v.png")],
+        ..Default::default()
+    };
     assert!(!needs_view(&given, &checks));
-    assert!(!needs_view(&DecideParams { check: Some("floating".into()), ..Default::default() }, &checks));
-    assert!(needs_view(&DecideParams { view: true, ..Default::default() }, &checks));
+    assert!(!needs_view(
+        &DecideParams {
+            check: Some("floating".into()),
+            ..Default::default()
+        },
+        &checks
+    ));
+    assert!(needs_view(
+        &DecideParams {
+            view: true,
+            ..Default::default()
+        },
+        &checks
+    ));
 }

@@ -381,7 +381,12 @@ pub fn tool_table_and_count() -> (usize, String) {
         .lines()
         .find(|line| line.contains(", and the set is small on purpose."))
         .and_then(|line| line.split("**").nth(1))
-        .map(|s| s.split_whitespace().next().unwrap_or_default().to_lowercase())
+        .map(|s| {
+            s.split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_lowercase()
+        })
         .unwrap_or_default();
     (rows, count_word)
 }

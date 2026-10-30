@@ -55,7 +55,7 @@ use rmcp::{ErrorData, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use bevy_emerge_mcp::{brp, docs};
+use bevy_emerge_mcp::{brp, docs, sequence};
 
 use brp::Brp;
 
@@ -496,7 +496,11 @@ impl Emerge {
         &self,
         Parameters(p): Parameters<ListParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        match self.editor.call("emerge/operation_list", json!({"query": p.query})).await {
+        match self
+            .editor
+            .call("emerge/operation_list", json!({"query": p.query}))
+            .await
+        {
             Ok(v) => Ok(CallToolResult::structured(v)),
             Err(e) => Ok(refusal(&e)),
         }
@@ -668,7 +672,10 @@ impl Emerge {
     ) -> Result<CallToolResult, ErrorData> {
         match self
             .editor
-            .call("emerge/state", json!({"pinned_from": p.pinned_from, "note": p.note}))
+            .call(
+                "emerge/state",
+                json!({"pinned_from": p.pinned_from, "note": p.note}),
+            )
             .await
         {
             Ok(v) => Ok(CallToolResult::structured(v)),
@@ -1270,20 +1277,9 @@ impl Emerge {
         // frame, not only the sequence's length.
         let expected_frames = (p.seconds * p.fps as f32) as u32;
         let deadline = std::time::Instant::now() + sequence_wait(p.seconds, expected_frames);
-        let status = loop {
-            let answer = match self
-                .editor
-                .call("emerge/capture_sequence_status", json!({"id": id}))
-                .await
-            {
-                Ok(v) => v,
-                Err(e) => return Ok(refusal(&e)),
-            };
-            let done = answer.get("status").and_then(|s| s.as_str()) != Some("running");
-            if done || std::time::Instant::now() > deadline {
-                break answer;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let status = match sequence::wait_for_sequence(&self.editor, id, deadline).await {
+            Ok(v) => v,
+            Err(e) => return Ok(refusal(&e)),
         };
         // **The frames are read back and returned as images**, so the caller sees the sequence
         // without opening the files.
