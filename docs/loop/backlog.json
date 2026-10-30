@@ -171,8 +171,8 @@
       "kind": "enhancement",
       "area": "mcp",
       "title": "Review gaps 14 and 16 (confidence wording, duplicate confidence_word)",
-      "status": "open",
-      "evidence": "Gap 15 fixed in bfc538b: the only copy of the pieces_from wording in crates/bevy_emerge_mcp/src is docs.rs:279 (counted in the filtered list; 0 is the first match). Gap 16 open: crates/bevy_emerge_mapper/src/ops_brp.rs:462 fn confidence_word (cycle 8 cited :451; the line moved). Gap 14 open: confidence and at describe the record, not what is unchecked (local://c8-review.md, not in repo). Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "status": "shipped",
+      "evidence": "Gap 15 fixed in bfc538b: the only copy of the pieces_from wording in crates/bevy_emerge_mcp/src is docs.rs:279 (counted in the filtered list; 0 is the first match). Gap 16 open: crates/bevy_emerge_mapper/src/ops_brp.rs:462 fn confidence_word (cycle 8 cited :451; the line moved). Gap 14 open: confidence and at describe the record, not what is unchecked (local://c8-review.md, not in repo). Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md | Shipped: Confidence::FromStr in core replaces ops_brp confidence_word (test a_confidence_word_parses_back); emerge_list_pieces description says confidence/at report the record, not whether labels were checked.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
