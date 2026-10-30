@@ -9827,8 +9827,17 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                     .map(|e| {
                         let face: Vec<&str> =
                             e.face.iter().map(|t| t.as_deref().unwrap_or("-")).collect();
+                        // The piece nearest to closing it (#145), so the author knows what to fix.
+                        let near = e.closest.as_ref().map_or(String::new(), |c| {
+                            format!(
+                                "; closest {} at {}°, {} off",
+                                c.piece,
+                                u32::from(c.turn) * 90,
+                                c.misses.len()
+                            )
+                        });
                         format!(
-                            "{}: {}, nothing meets it",
+                            "{}: {}, nothing meets it{near}",
                             bevy_emerge_core::adjacency::dir_name(e.dir),
                             face.join(" ")
                         )
