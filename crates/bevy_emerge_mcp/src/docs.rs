@@ -133,6 +133,10 @@ pub const TOOLS: &[ToolDoc] = &[
                        repetition names up to 10 visible repeats (the same piece at one yaw and tip \
                        within 6 m), the one a player notices first first: descriptor, patched, role \
                        (clutter or structure), pieces, pairs, score; total counts them all. \
+                       relations checks the <map>.relations.ron beside the open map, re-read on \
+                       every call: each relation (of, kind) with outcome met, unmet or missing, \
+                       measured (metres, or degrees off for Faces), by (the piece that breaks it) \
+                       and missing_id; unmet and missing count them; error names a file that does not parse. \
                        Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \

@@ -568,6 +568,9 @@ fn editor_state(
             (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library),
             _ => Value::Null,
         },
+        // **The intended relations this map breaks** (#137): read from `<map>.relations.ron` on every
+        // call, so an edit to that file is seen by the next answer with no restart.
+        "relations": open.as_ref().map(|o| relations_json(&o.map.placements, &o.map_path)),
         "project": project_summary,
         "editor": editor,
         "presentation": presentation,
@@ -612,6 +615,53 @@ fn repetition_json(
         })
         .collect();
     json!({"repeats": rows, "total": all.len()})
+}
+
+/// **The relations beside a map, checked against its placements**, as `emerge_state` reports them.
+/// No file is no relations and no error; a file that cannot be read or parsed is named in `error`,
+/// never read as an empty list.
+fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::path::Path) -> Value {
+    use bevy_emerge_core::relations::{check, path_for_map, Outcome, Relations};
+    let path = path_for_map(map_path);
+    let loaded = match std::fs::read_to_string(&path) {
+        Ok(text) => Relations::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Relations::default()),
+        Err(e) => Err(e.to_string()),
+    };
+    let relations = match loaded {
+        Ok(r) => r,
+        Err(e) => {
+            return json!({"relations": [], "unmet": 0, "missing": 0, "error": format!("{}: {e}", path.display())})
+        }
+    };
+    let (mut unmet, mut missing) = (0, 0);
+    let rows: Vec<Value> = relations
+        .relations
+        .iter()
+        .zip(check(placements, &relations))
+        .map(|(r, outcome)| {
+            let (word, measured, by, missing_id) = match outcome {
+                Outcome::Met { measured } => ("met", Some(measured), None, None),
+                Outcome::Unmet { measured, by } => {
+                    unmet += 1;
+                    ("unmet", Some(measured), by, None)
+                }
+                Outcome::Missing { id } => {
+                    missing += 1;
+                    ("missing", None, None, Some(id))
+                }
+            };
+            json!({
+                "of": r.of,
+                "kind": serde_json::to_value(&r.kind).unwrap_or(Value::Null),
+                "outcome": word,
+                "measured": measured,
+                "by": by,
+                "missing_id": missing_id,
+            })
+        })
+        .collect();
+    json!({"relations": rows, "unmet": unmet, "missing": missing, "error": null})
 }
 
 /// **The parameters of `emerge/pieces`.** Every filter is optional, and they combine: a piece is

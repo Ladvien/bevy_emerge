@@ -78,6 +78,7 @@ pub use bevy_emerge_rng as rng;
 pub mod ron_surgery;
 pub mod smart;
 pub mod stack;
+pub mod standards;
 pub mod vocab;
 pub mod wfc;
 pub mod volume;
