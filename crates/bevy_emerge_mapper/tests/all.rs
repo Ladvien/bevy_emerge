@@ -53,6 +53,7 @@ mod a_piece_lands_where_the_pointer_is;
 mod a_placement_in_a_doorway_says_so;
 mod a_placement_in_reserved_space_says_so;
 mod a_preview_draws_at_the_level_the_piece_lands_at;
+mod a_projects_repetition_rules_decide_what_is_structure;
 mod a_proposal_is_drawn_before_it_is_kept;
 mod a_proposal_says_how_varied_it_is;
 mod a_receipt_does_not_move_the_panel;

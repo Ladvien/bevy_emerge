@@ -29,6 +29,9 @@ use crate::stack::descriptor_of;
 /// Two yaws closer than this, in degrees, are one look.
 pub const YAW_TOLERANCE_DEG: f32 = 1.0;
 
+/// The project's rules, beside `kits.ron` (#139). Absent means [`RepetitionRules::default`].
+pub const FILE: &str = "repetition.ron";
+
 /// What a repeat is, and what it costs, as data an author can tune.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -50,6 +53,29 @@ impl Default for RepetitionRules {
                 .to_vec(),
             structure_weight: 0.1,
         }
+    }
+}
+
+impl RepetitionRules {
+    /// Parse a project's `repetition.ron`. A field it leaves out keeps its default; a radius that
+    /// is not a positive number of metres, or a weight that is negative or not a number, is refused
+    /// rather than read as a report nobody could trust.
+    pub fn parse(text: &str) -> Result<RepetitionRules, String> {
+        let r: RepetitionRules =
+            ron::from_str(text).map_err(|e| format!("repetition: parse: {e}"))?;
+        if !(r.radius_m.is_finite() && r.radius_m > 0.0) {
+            return Err(format!(
+                "repetition: radius_m {} is not a positive number of metres",
+                r.radius_m
+            ));
+        }
+        if !(r.structure_weight.is_finite() && r.structure_weight >= 0.0) {
+            return Err(format!(
+                "repetition: structure_weight {} is not a weight of zero or more",
+                r.structure_weight
+            ));
+        }
+        Ok(r)
     }
 }
 
