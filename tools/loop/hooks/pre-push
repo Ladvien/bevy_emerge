@@ -17,7 +17,17 @@ while read -r _local_ref local_sha remote_ref remote_sha; do
   [ "$remote_ref" = "refs/heads/main" ] || continue
   [ "$local_sha" = "$zero" ] && continue
   target="$local_sha" remote="$remote_sha"
-  if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+  # **A push origin will refuse costs no gate** (owner's session, 2026-10-30). When main has moved past
+  # this clone (origin's tip is unknown here, or not an ancestor of the push), the push is refused as
+  # non-fast-forward after the hook anyway, so running the 30-40 minute gate first only loses the race
+  # again: bmb's w2 lost its log line to this loop for hours (30 commits ahead, a gate timed out at
+  # 1800 s, main moved meanwhile). Refuse at once, so the worker merges and pushes again while it is fresh.
+  if [ "$remote_sha" != "$zero" ] && { ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null ||
+       ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; }; then
+    echo "pre-push gate: REFUSED without running the gate: origin's main (${remote_sha:0:9}) is not in this push, so origin would refuse it as non-fast-forward. Run git pull --no-rebase origin main, then push again at once." >&2
+    exit 1
+  fi
+  if [ "$remote_sha" = "$zero" ]; then
     code=1
   elif git diff --name-only "$remote_sha" "$local_sha" | grep -qvE '^docs/|\.md$|\.(gif|mp4|png|jpg|webp)$'; then
     code=1
