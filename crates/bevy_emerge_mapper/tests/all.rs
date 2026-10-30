@@ -128,6 +128,7 @@ mod door_open_is_an_operation;
 mod e024_an_agent_can_pin_a_placement;
 mod e026_emerge_state_reports_each_pin;
 mod emerge_pieces_lists_the_library;
+mod emerge_state_names_modules_that_do_not_nest;
 mod emerge_state_names_the_library;
 mod emerge_state_names_visible_repeats;
 mod emerge_state_reports_broken_relations;
