@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **137-relations-solve** `009a7e5` relations_solve and the Terrain line `relations solve` move the pieces of a map's broken relations, with one undo *No clip: visible, not yet recorded: no display on big*
+- **106-balloon** `pending` Dialogue preview balloon: the lines a dialogue <name> walk says are drawn as one balloon over the piece that carries the conversation, following the camera (#106 slice 6) *No clip: visible, not yet recorded: needs a Mac with a project holding a speaker piece; proved by balloon::tests::the_balloon_stands_over_the_piece_that_carries_the_conversation (anchor and text only; drawing unobserved)*
 - **138-import-standards** `d2a3ee9` piece_import names which of the project's standards the imported piece breaks *No clip: an MCP answer field; proved by tests/an_imported_piece_names_the_standards_it_breaks.rs*
 - **E-089-s2** `a23ba4b` emerge_state names the kit pieces that break the project's standards.ron, and the rules that cover no piece (#138 slice 2) *No clip: an MCP read, no editor surface changed; proved by crates/bevy_emerge_mapper/tests/emerge_state_reports_standards_breaches.rs*
 - **137-solve** `4353041` relations::solve nudges pieces until a map's intended relations hold, never breaking one to mend another *No clip: an engine-free API; proved by crates/bevy_emerge_core/tests/a_solver_mends_broken_relations.rs*
