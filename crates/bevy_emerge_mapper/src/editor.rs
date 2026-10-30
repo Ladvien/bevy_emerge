@@ -7164,6 +7164,7 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::ReachableFrom { from, .. } => format!("{of} reachable from {from}"),
                 Kind::AlignedWith(to) => format!("{of} aligned with {to}"),
                 Kind::Between { a, b, .. } => format!("{of} between {a} and {b}"),
+                Kind::MirrorOf { of: other, about, .. } => format!("{of} mirror of {other} about {about}"),
             };
             let what = if r.hard { format!("{what} (hard)") } else { what };
             match outcome {
