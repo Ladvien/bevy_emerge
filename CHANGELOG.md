@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **101-cover** `48272bf` The carved ground wears snow and wetness from the environment file: volume_cover, bevy_elements' SurfaceCover, is put on the chunks' WeatheredMaterial and follows a family_set live (#101) *No clip: visible, not yet recorded: no display on big; proved by volume_wears_its_cover (--features volume_snow)*
 - **167-degrees** `a67d95b` Relations: #167's acceptance (AlignedWith 0/20 met, 0/90 unmet, 350/10 met; Faces at every quarter turn as drawn) proved against the map's degrees *No clip: a regression test for what relations measure on a turned piece; proved by bevy_emerge_core/tests/relations_read_a_maps_yaw_in_degrees.rs*
 - **170-mirror** `cee3587` Relations: MirrorOf keeps a piece opposite another across a third's axis (a pair of lamps flanking a door), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_mirrored_across_another.rs*
 - **168-unnested-state** `9d69ab4` emerge_state.standards lists unnested, the pairs of sub-kit modules that do not nest, re-read from standards.ron on every call (#168 slice 2) *No clip: an MCP read, no editor surface changed; proved by crates/bevy_emerge_mapper/tests/emerge_state_names_modules_that_do_not_nest.rs*
