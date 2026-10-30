@@ -4468,6 +4468,8 @@ fn terrain_edit_keys(
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("people run") {
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("trigger ") {
+                    set_trigger(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("person ") {
                     set_person(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
@@ -4790,6 +4792,72 @@ fn run_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edit
         ..crate::ops::Ctx::default()
     };
     match crate::ops::dispatch(&mut ctx, "water_run", &serde_json::json!({"map": open.map.name})) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Author a trigger through the registry** as `trigger_set`, from the terrain line
+/// `trigger <id> remove`, or `trigger <id> | <on> | <if> | <then> [| people=<a,b>] [| faction=<id>] [| area=<x0,z0,x1,z1>]`
+/// (`<on>` is a bevy_society event as RON, `<if>` may be empty). A script that does not compile is refused with its line.
+fn set_trigger(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is nowhere to keep a trigger".to_owned());
+        return;
+    };
+    let mut parts = raw.trim_start().trim_start_matches("trigger").split(" | ").map(str::trim);
+    let head = parts.next().unwrap_or_default();
+    let mut params = serde_json::json!({"map": open.map.name});
+    if let Some(id) = head.strip_suffix(" remove") {
+        params["id"] = id.trim().into();
+        params["remove"] = true.into();
+    } else {
+        let (Some(on), Some(cond), Some(then)) = (parts.next(), parts.next(), parts.next()) else {
+            state.status.problem("`trigger <id> | <on> | <if> | <then>` has four parts, so nothing was changed".to_owned());
+            return;
+        };
+        params["id"] = head.into();
+        params["on"] = on.into();
+        params["if"] = cond.into();
+        params["then"] = then.into();
+        let mut bind = serde_json::Map::new();
+        for w in parts {
+            match w.split_once('=') {
+                Some(("people", v)) => {
+                    bind.insert("people".into(), v.split(',').map(str::trim).collect::<Vec<_>>().into());
+                }
+                Some(("faction", v)) => {
+                    bind.insert("faction".into(), v.into());
+                }
+                Some(("area", v)) => {
+                    let n: Vec<f32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    if n.len() != 4 {
+                        state.status.problem(format!("`{w}` is not `area=<x0,z0,x1,z1>`, so nothing was changed"));
+                        return;
+                    }
+                    bind.insert("area".into(), n.into());
+                }
+                _ => {
+                    state.status.problem(format!("`{w}` is not a binding (people=, faction=, area=), so nothing was changed"));
+                    return;
+                }
+            }
+        }
+        if !bind.is_empty() {
+            params["bind"] = bind.into();
+        }
+    }
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "trigger_set", &params) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
@@ -9267,27 +9335,24 @@ fn stamp_here(project: &mut Project,
         return;
     }
     state.next_id += 1;
-    let id = format!("{}@{}", short_id(&of), state.next_id);
-
-    let stamped = bevy_emerge_core::composition::Stamped {
-        id: id.clone(),
-        of: of.clone(),
+    // **The operation's own planning, tried before it is kept**, so a click and `stamp_add` share the
+    // id rule, the trial expansion and the refusals.
+    let stamped = match crate::ops_stamp::plan_stamp(
+        project,
+        &open.map,
+        &of,
         at,
-        yaw: state.brush_yaw,
-        ..Default::default()
+        state.brush_yaw,
+        None,
+        state.next_id,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            state.status.problem(e);
+            return;
+        }
     };
-    // **Tried before it is kept.** A trial map rather than a push-then-pop, so a refusal cannot leave
-    // the real map holding a stamp that does not resolve.
-    let mut trial = open.map.clone();
-    trial.stamps.push(stamped.clone());
-    if let Err(e) =
-        bevy_emerge_core::composition::expand(&trial, &trial.stamps, &comps, &project.library)
-    {
-        state
-            .status
-            .problem(format!("cannot stamp `{of}` here: {e}"));
-        return;
-    }
+    let id = stamped.id.clone();
     open.map.stamps.push(stamped);
     state.record(Undo::Stamped { count: 1 });
     state.status.note(format!("stamped `{of}` as {id}"));

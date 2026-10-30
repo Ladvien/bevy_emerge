@@ -53,8 +53,9 @@ fn play_starts_the_game_on_the_map_until_fairy_is_ready_and_stop_ends_it_by_pid(
     let applied = ops::dispatch(&mut c, "play", &json!({"map": "town", "camera": [1.0, 2.0, 3.0], "wait_s": 20.0})).unwrap();
     let Applied::Done { outcome, .. } = applied else { panic!("play was refused") };
     let after = outcome.after.unwrap();
-    assert_eq!(after["ready"], true, "fairy's status answered ready: {}", outcome.summary);
     let pid = after["pid"].as_u64().unwrap();
+    let _cleanup = KillGroupOnDrop(pid);
+    assert_eq!(after["ready"], true, "fairy's status answered ready: {}", outcome.summary);
     assert!(alive(pid));
     assert_eq!(std::fs::read_to_string(root.join("started.txt")).unwrap(), "town 1,2,3 1,2,3");
     let again = ops::dispatch(&mut c, "play", &json!({"map": "town"}));
@@ -63,6 +64,22 @@ fn play_starts_the_game_on_the_map_until_fairy_is_ready_and_stop_ends_it_by_pid(
     assert_eq!(outcome.after.unwrap()["pid"].as_u64().unwrap(), pid);
     assert!(!alive(pid), "the process Play started is gone");
     assert!(matches!(ops::dispatch(&mut c, "play_stop", &json!({})), Err(_) | Ok(Applied::Refused(_))));
+}
+
+/// **A failing test still ends the game it started.** Before this, a panic between `play` and
+/// `play_stop` left the game running. The orphan held the runner's output pipe open, so an agent's
+/// `cargo test | …` or `git push` (the gate) never returned. Measured 2026-10-30 on big_mac and bmb:
+/// eight orphans across both machines. `play` puts the game in its own process group, whose id is
+/// its pid.
+pub(crate) struct KillGroupOnDrop(pub(crate) u64);
+
+impl Drop for KillGroupOnDrop {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", &format!("-{}", self.0)])
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
 }
 
 #[test]
