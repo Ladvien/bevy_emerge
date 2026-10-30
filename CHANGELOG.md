@@ -5,6 +5,9 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **B-187-terrain-shape** `d2d9762` A terrain file whose heights do not fill its shape (a hand edit, a truncated write) no longer panics the editor: it draws no ground, names terrain/<map>.ron on the status line, and terrain_stroke and water_run refuse it (#187) *No clip: a bug fix: what it removes is a panic; proved by bevy_emerge_core/tests/a_terrain_file_that_does_not_fill_its_shape_is_refused.rs and the editor's a_terrain_file_that_does_not_fill_its_shape_is_refused::*
+- **103-overlay** `1768ce8` The light map is drawn over the open map: a LIGHT MAP button shows bevy_light_grid's field, blue where dark and amber where lit, and it follows the map as torches are lit (#103) *No clip: visible, not yet recorded: owed with #103's night clip (a street at night, two torches, the light map changes); proved by tests/light_overlay.rs*
+- **103-pool** `1e73078` light_pool operation: which placed fixtures are real lights from a viewer position, read from bevy_lights' own pool budget (#103) *No clip: an operation's numbers; proved by tests/light_pool.rs*
+- **102-forest-view** `06f6e5b` The planted forest is drawn in the viewport with bevy_flora's own trees: scattered trees from the species' pool, placed trees grown with their own seed and age, regrown within half a second of a forest or .tree.ron edit (#102) *No clip: visible, not yet recorded: no editor was built with --features bevy_flora for capture this pass; proved by tests/forest_view.rs*
 - **B-021** `a8c87ac` A click on the chrome around the viewport (the door strip, the status band) no longer places the armed piece far off the map, unseen (#182) *No clip: a bug fix: what it removes is a placement nobody could see; proved by tests/a_click_outside_the_viewport_places_nothing.rs*
 - **184-round-repeats** `9a013de` repetition.ron's round kinds: a barrel or a pot repeats at any turn, and repetition_vary never turns one but counts it as left *No clip: a repetition rule in a project data file (agent and REPEATS line read it); proved by crates/bevy_emerge_core/tests/a_round_piece_repeats_at_any_turn.rs*
 - **183-inside** `149f032` Relations: Inside keeps a piece inside an area of another (a table on the rug, a stall in the square), and relations solve sets it just inside *No clip: a relation kind and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_inside_an_area.rs*
@@ -105,6 +108,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **light-map-op** `a5bf126` light_map operation: bevy_light_grid's illuminance field over the open map, from placed torches, with walls casting shadow (#103, feature bevy_light_grid) *No clip: an API (overlay drawing and clip still owed); proved by tests/light_map.rs*
 - **115-s5** `8316c61` Rows laid by hand turn into a run: placements_to_run, or Cmd-drag in run mode *No clip: an operation; proved by rows_become_a_run_through_an_operation*
 - **115-live-diff** `3b51545` The live reload names an edited run once by its id, not each of its rows (#115) *No clip: an API; proved by crates/bevy_emerge_core/tests/live_diff_names_runs.rs*
 - **102-forest-scatter** `d7a0d7c` forest_scatter: a stroke plants bevy_flora's own scatter under the brush, on the terrain, one undo step (typed 'forest' line and apply) *No clip: an operation and a typed line, no viewport drawing yet; proved by tests/forest_stroke_is_an_operation.rs*
