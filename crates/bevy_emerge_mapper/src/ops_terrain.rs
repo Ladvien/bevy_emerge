@@ -88,10 +88,12 @@ pub fn ground_of(project: &crate::project::Project, open: &crate::project::OpenM
     ron::from_str(&text).ok()
 }
 
-/// **Where every piece of the open map stands, on its terrain**: [`bevy_emerge_core::stack::resolve_y_on`]
-/// over [`ground_of`], so sculpting lifts what stands on the ground.
+/// **Where every piece of the open map stands, on its terrain and in its caves**: [`bevy_emerge_core::stack::resolve_y_in`]
+/// over [`ground_of`] and the map's saved volume, so sculpting lifts what stands on the ground and a piece
+/// authored inside a carved cave stands on its floor.
 pub fn heights_on_ground(project: &crate::project::Project, open: &crate::project::OpenMap) -> Result<Vec<f32>, String> {
-    bevy_emerge_core::stack::resolve_y_on(&open.map, &project.library, ground_of(project, open).as_ref())
+    let volume = crate::ops_volume::volume_of(project, open);
+    bevy_emerge_core::stack::resolve_y_in(&open.map, &project.library, ground_of(project, open).as_ref(), volume.as_ref())
 }
 
 /// **Sculpt a map's heightfield with one stroke.**

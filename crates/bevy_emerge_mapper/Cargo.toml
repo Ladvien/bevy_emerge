@@ -56,6 +56,9 @@ bevy_elements = ["dep:bevy_elements"]
 bevy_flora = ["dep:bevy_flora"]
 # Not a family crate: the engine-free mesher a carved volume (#101) is sampled through. Off by default.
 isomesh = ["dep:isomesh"]
+# Snow on a carved volume (#101): `bevy_elements`' `SnowyField` over the volume. Needs the one isomesh
+# (the workspace `[patch.crates-io]` points the registry 0.0.11 `bevy_elements` asks for at our pin).
+volume_snow = ["bevy_elements", "isomesh", "bevy_elements/isomesh"]
 bevy_lights = ["dep:bevy_lights"]
 bevy_orca = ["dep:bevy_orca"]
 bevy_society = ["dep:bevy_society"]

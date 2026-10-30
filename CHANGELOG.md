@@ -5,6 +5,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **104-people** `ade2541` People: person_set authors a person (home, workplace, faction) beside the map; a building someone lives in cannot be removed (#104) *No clip: visible, not yet recorded: no display on big*
+- **101-snow** `244e532` Snow lies on a carved hill and never fills its tunnel: bevy_elements' SnowyField over the volume (#101 slice 5, feature volume_snow) *No clip: an API behind the volume_snow feature; proved by volume_snow::snow_covers_the_top_and_the_tunnel_stays_open*
+- **101-caves-rest** `cecc860` A floor piece authored inside a carved cave stands on the cave's floor (resolve_y_in, #101) *No clip: visible, not yet recorded: no display on big; proved by tests/pieces_in_caves.rs*
 - **106-dialogue-preview** Preview a conversation without playing it: dialogue_preview walks a path through the script, says its lines, offers an unmade choice's options and names nodes no path reaches (family field: dialogue <name> [options]) *No clip: visible, not yet recorded: no display on big; proved by dialogue_preview::the_chosen_path_is_said_in_order_and_the_unreachable_node_is_named*
 - **101-cave-floor** `0e40c30` Volume::floor_below: the floor under a point inside a carved cave, for pieces placed in caves (#101) *No clip: an engine-free query; proved by bevy_emerge_core/tests/volume_floor.rs*
 - **terrain-preset** `6114249` terrain_preset: hills, mountains, dunes or plains from bevy_elements baked into the map's saved terrain, one undo *No clip: an operation with no viewport surface yet; proved by tests/terrain_preset_is_an_operation.rs*
