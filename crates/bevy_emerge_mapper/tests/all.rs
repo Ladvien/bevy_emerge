@@ -27,6 +27,7 @@ mod a_door_answer_says_whether_it_waits;
 mod a_dressed_camera_leaves_the_world_on_the_surface;
 mod a_fill_tells_the_truth;
 mod a_full_redraw_leaves_the_standing_pieces_standing;
+mod a_height_map_becomes_terrain;
 mod a_hint_shares_the_receipts_slot;
 mod a_history_jump_is_one_undo_group;
 mod a_kit_edited_on_disk_reaches_the_screen;
