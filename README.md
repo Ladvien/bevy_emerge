@@ -25,7 +25,7 @@ An agent calls `emerge_apply_operation` twice (a turn, then a removal). The insp
 
 **Works today:** the editor (`bevy_emerge_mapper`) for building maps from kits; the MCP server (`bevy_emerge_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout, drawn before you commit to it; pieces that may rest on a surface or on the floor.
 
-**Not on a registry.** Use the crates by path or git. Every path dependency in this workspace names a path and no version, so no crate here can be published as it stands; `bevy_devshot` and `bevy_emerge_solver` are additionally marked `publish = false`.
+**On crates.io, the libraries a game links.** `bevy_emerge_rng`, `bevy_emerge_solver`, `bevy_emerge_core`, `bevy_emerge_snip`, `bevy_emerge` and `bevy_emerge_anim` are published at 0.1.0 (`cargo add bevy_emerge_core`). The editor (`bevy_emerge_mapper`), the MCP server (`bevy_emerge_mcp`), `bevy_emerge_decide` and `bevy_devshot` are not (`publish = false`): the editor pins the owner's family crates by git revision, which crates.io refuses, so run it from a clone of this repository, on your game's project.
 
 The mapper editor is AI-written and has not had a line-by-line human audit. It is covered by tests, but read [`crates/bevy_emerge_mapper/README.md`](crates/bevy_emerge_mapper/README.md) before you trust it with a project you care about.
 
@@ -76,7 +76,7 @@ The tools are listed in [MCP tools](docs/mcp-tools.md).
 
 ## Use it in your game
 
-Depend on the crates you need by path or git. `bevy_emerge_core` has no engine dependency and holds the grammar and solver, so a game can use it without the editor. Sanctuary, the game this was built for, depends on `bevy_emerge_core` by path and lays out its town blocks with it. See [your game](docs/guide/your-game.md) for the steps.
+Depend on the crates you need from crates.io (`bevy_emerge_core = "0.1"`), or by path or git to follow this repository. `bevy_emerge_core` has no engine dependency and holds the grammar and solver, so a game can use it without the editor. Sanctuary, the game this was built for, depends on `bevy_emerge_core` by path and lays out its town blocks with it. See [your game](docs/guide/your-game.md) for the steps.
 
 ## Crates
 
