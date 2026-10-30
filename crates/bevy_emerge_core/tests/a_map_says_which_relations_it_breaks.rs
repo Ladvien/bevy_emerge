@@ -154,3 +154,122 @@ fn relations_round_trip_as_ron() {
         "a future version is refused"
     );
 }
+
+#[test]
+fn the_nearest_intruder_in_a_corridor_is_the_one_named() {
+    // Door at x = 4 looking toward -x; corridor 2 m deep, 1.2 m wide (0.6 m each side).
+    let map = vec![
+        at("door", 4.0, 0.0, -90.0),
+        at("barrel", 2.5, -0.5, 0.0), // 1.5 m in, 0.5 m aside: inside
+        at("crate", 3.4, 0.4, 0.0),   // 0.6 m in, 0.4 m aside: inside, nearer
+        at("sack", 3.5, 0.9, 0.0),    // 0.5 m in but 0.9 m aside: outside a 1.2 m corridor
+    ];
+    let r = Relations {
+        version: RELATIONS_VERSION,
+        relations: vec![rel(
+            "door",
+            Kind::ClearInFront {
+                depth: 2.0,
+                width: 1.2,
+            },
+        )],
+    };
+    match &check(&map, &r)[0] {
+        Outcome::Unmet { measured, by } => {
+            assert_eq!(
+                by.as_deref(),
+                Some("crate"),
+                "the nearer intruder, not the sack beside the corridor"
+            );
+            assert!((measured - 0.6).abs() < 1e-4, "{measured}");
+        }
+        v => panic!("{v:?}"),
+    }
+}
+
+#[test]
+fn in_front_of_is_a_cone_and_a_missing_target_is_missing() {
+    // Door at x = 4 looking toward -x.
+    let map = vec![
+        at("door", 4.0, 0.0, -90.0),
+        at("ahead", 1.0, 1.0, 0.0), // 3 m ahead, 1 m aside: inside the cone
+        at("aside", 3.0, -2.0, 0.0), // 1 m ahead, 2 m aside: outside the 45° half-cone
+        at("behind", 6.0, 0.0, 0.0), // behind the door
+    ];
+    let r = Relations {
+        version: RELATIONS_VERSION,
+        relations: vec![
+            rel(
+                "ahead",
+                Kind::InFrontOf {
+                    of: "door".into(),
+                    within: 5.0,
+                },
+            ),
+            rel(
+                "aside",
+                Kind::InFrontOf {
+                    of: "door".into(),
+                    within: 5.0,
+                },
+            ),
+            rel(
+                "behind",
+                Kind::InFrontOf {
+                    of: "door".into(),
+                    within: 5.0,
+                },
+            ),
+            rel(
+                "ahead",
+                Kind::InFrontOf {
+                    of: "door".into(),
+                    within: 2.0,
+                },
+            ),
+            rel(
+                "ahead",
+                Kind::Near {
+                    to: "well".into(),
+                    within: 1.0,
+                },
+            ),
+        ],
+    };
+    let v = check(&map, &r);
+    assert!(
+        matches!(v[0], Outcome::Met { measured } if (measured - 3.0).abs() < 1e-4),
+        "{v:?}"
+    );
+    assert!(
+        matches!(v[1], Outcome::Unmet { .. }),
+        "outside the cone: {v:?}"
+    );
+    assert!(matches!(v[2], Outcome::Unmet { .. }), "behind: {v:?}");
+    assert!(
+        matches!(v[3], Outcome::Unmet { measured, .. } if (measured - 3.0).abs() < 1e-4),
+        "too far: {v:?}"
+    );
+    assert_eq!(
+        v[4],
+        Outcome::Missing { id: "well".into() },
+        "the target, not `of`, is missing"
+    );
+}
+
+#[test]
+fn a_negative_or_unknown_distance_is_refused_when_read() {
+    let ok =
+        "(version: 1, relations: [(of: \"door\", kind: ClearInFront(depth: 2.0, width: 1.2))])";
+    assert!(Relations::parse(ok).is_ok());
+    let negative = ok.replace("width: 1.2", "width: -1.2");
+    assert!(
+        Relations::parse(&negative).is_err(),
+        "a negative corridor would always read as clear"
+    );
+    let typo = ok.replace("width: 1.2", "width: 1.2, wdith: 3.0");
+    assert!(
+        Relations::parse(&typo).is_err(),
+        "an unknown field is refused"
+    );
+}

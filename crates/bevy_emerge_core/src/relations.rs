@@ -48,7 +48,9 @@ impl Default for Relations {
 }
 
 impl Relations {
-    /// Read a relations file, refusing a version this build does not read.
+    /// Read a relations file, refusing a version this build does not read and a distance that is
+    /// negative or not finite (a negative corridor would contain nothing, so a typo would read as a
+    /// clear doorway).
     pub fn parse(text: &str) -> Result<Relations, String> {
         let r: Relations = ron::from_str(text).map_err(|e| format!("relations: parse: {e}"))?;
         if r.version != RELATIONS_VERSION {
@@ -56,6 +58,21 @@ impl Relations {
                 "relations: version {} is not the {RELATIONS_VERSION} this build reads",
                 r.version
             ));
+        }
+        for (i, rel) in r.relations.iter().enumerate() {
+            // Faces has no distance; 0.0 stands in for "nothing to check".
+            let metres: [f32; 2] = match &rel.kind {
+                Kind::Faces(_) => [0.0, 0.0],
+                Kind::Near { within, .. } | Kind::InFrontOf { within, .. } => [*within, 0.0],
+                Kind::Apart { at_least, .. } => [*at_least, 0.0],
+                Kind::ClearInFront { depth, width } => [*depth, *width],
+            };
+            if let Some(bad) = metres.iter().find(|m| !(m.is_finite() && **m >= 0.0)) {
+                return Err(format!(
+                    "relations: relation {i} (of {:?}) has distance {bad}; distances are finite metres, 0 or more",
+                    rel.of
+                ));
+            }
         }
         Ok(r)
     }
@@ -78,6 +95,7 @@ pub struct Relation {
 
 /// What a relation asks of [`Relation::of`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Kind {
     /// Points at this placement, within [`FACING_TOLERANCE_DEG`]. Measures the angle off, degrees.
     Faces(String),
