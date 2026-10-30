@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **159-between** `7523243` A relation keeps a piece between two others (a table between two chairs), and relations solve sets it there *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_kept_between_two_others.rs*
 - **relations-aligned-with** `8777873` Relations: AlignedWith keeps a piece on another's heading (a row of pews), and relations solve turns it there in place *No clip: visible, not yet recorded: no display on big (RELATIONS row reads 'pew_2 aligned with pew_1'); proved by bevy_emerge_core/tests/a_piece_kept_aligned_with_another.rs*
 - **153-options** `8c44207` An agent asked for options gets distinct layouts, each with the seed that lays it (layout_propose options) *No clip: an MCP operation parameter; proved by tests/a_proposal_offers_options.rs*
 - **152-clockscrub-door** `a17d0ea` With bevy_elements on, the Environment panel's held hour is released when the door changes, and the feature's tests are green *No clip: a resource classification; proved by every_resource_says_what_a_door_does_to_it with --features bevy_elements*
