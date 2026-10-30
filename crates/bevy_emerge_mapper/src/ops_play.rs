@@ -6,8 +6,8 @@
 //! `EMERGE_PLAY_CAMERA`, `EMERGE_PLAY_ROOT`). The game is expected to carry `bevy_fairy`; an agent
 //! then reads its state, runs its commands and captures frames through fairy's own MCP. `play` can
 //! wait for `bevy_fairy/status` to say `ready: true`; `play_stop` ends the game it started: the
-//! whole process group, because a game is usually started through a launcher (`cargo run`, and on
-//! macOS `python3` itself), and killing only the launcher's pid left the game running as an orphan.
+//! whole process group, because a game is usually started through a launcher (`cargo run`), and
+//! killing only the launcher's pid left the game running as an orphan.
 //! Neither changes a document, so neither has an undo.
 
 use bevy_emerge_core::play::PlayConfig;
