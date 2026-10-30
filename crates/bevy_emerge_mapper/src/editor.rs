@@ -4466,6 +4466,8 @@ fn terrain_edit_keys(
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("forest ") {
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("people run") {
+                    run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("person ") {
                     set_person(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
@@ -4778,6 +4780,42 @@ fn run_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edit
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
         }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Run the map's people forward** through the registry as `people_run`, from the terrain line
+/// `people run [seed] [days]`. It only reads, so there is nothing to undo; the status says what the day was.
+fn run_people(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is nobody to run".to_owned());
+        return;
+    };
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let mut params = serde_json::json!({"map": open.map.name});
+    match (words.get(2).map(|w| w.parse::<u64>()), words.get(3).map(|w| w.parse::<f32>())) {
+        (Some(Err(_)), _) | (_, Some(Err(_))) => {
+            state.status.problem(format!("`{}` is not `people run [seed] [days]`, so nothing was run", raw.trim()));
+            return;
+        }
+        (seed, days) => {
+            if let Some(Ok(s)) = seed {
+                params["seed"] = s.into();
+            }
+            if let Some(Ok(d)) = days {
+                params["days"] = d.into();
+            }
+        }
+    }
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "people_run", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
     }
 }

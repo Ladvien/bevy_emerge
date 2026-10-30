@@ -71,3 +71,38 @@ fn one_undo_takes_a_person_back() {
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].name, "Ola");
 }
+
+/// **A run of a fixture village is deterministic, and the seed matters** (#104): same seed, same day.
+#[cfg(feature = "bevy_society")]
+mod run {
+    use super::*;
+
+    fn village(tag: &str) -> Ctx {
+        let (mut ctx, _) = open(tag);
+        let (house, shop) = (place(&mut ctx, [0.5, 0.5]), place(&mut ctx, [9.5, 0.5]));
+        for (i, name) in ["Mara", "Tobin", "Iva"].iter().enumerate() {
+            let Applied::Done { .. } =
+                ops::dispatch(&mut ctx, "person_set", &json!({"map": "m", "name": name, "at": [i as f32, 2.0], "home": house, "work": shop})).unwrap()
+            else {
+                panic!("refused")
+            };
+        }
+        ctx
+    }
+
+    fn run(ctx: &mut Ctx, seed: u64) -> serde_json::Value {
+        let Applied::Done { outcome, .. } = ops::dispatch(ctx, "people_run", &json!({"map": "m", "seed": seed, "days": 0.25})).unwrap() else {
+            panic!("refused")
+        };
+        outcome.after.expect("a run reports")
+    }
+
+    #[test]
+    fn the_same_seed_gives_the_same_day_and_people_have_moved() {
+        let mut ctx = village("people_run");
+        let (a, b) = (run(&mut ctx, 7), run(&mut ctx, 7));
+        assert_eq!(a, b, "same seed, same day");
+        let moved = a["people"].as_array().unwrap().iter().any(|p| p["at"][1].as_f64().unwrap() != 2.0 || p["at"][0].as_f64().unwrap().fract() != 0.0);
+        assert!(moved, "nobody left where they started: {a}");
+    }
+}
