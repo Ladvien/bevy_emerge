@@ -850,7 +850,80 @@ pub fn dead_ends(library: &Library, divisions: u32) -> Vec<DeadEnd> {
 /// the kit cannot close a loop. Deterministic: pieces in id order, turns ascending, north-west first.
 /// Pieces without a lattice, a footprint, a height or divisions are skipped, as [`faults`] skips them.
 pub fn ring(library: &Library, divisions: u32) -> Option<Ring> {
-    use crate::map::Placed;
+    let (cells, (w, d)) = block(library, divisions, 2, 2)?;
+    let corners = [("nw", (0.0, 0.0)), ("ne", (w, 0.0)), ("sw", (0.0, d)), ("se", (w, d))];
+    let map = Map {
+        placements: corners
+            .iter()
+            .zip(&cells)
+            .map(|(&(id, at), (piece, q))| block_placed(id, piece, *q, at))
+            .collect(),
+        ..Map::default()
+    };
+    Some(Ring {
+        pieces: cells.try_into().ok()?,
+        map,
+    })
+}
+
+/// **The smallest room with a middle a kit can build** — the kit stress test after [`ring`] (#162).
+///
+/// Shipped modular kits are also proved by opening a hall out into a room: a run two and more pieces
+/// wide, with a piece in the middle that meets a neighbour on every side (a pillared hall, an open
+/// floor). A corridor kit of straights and corners passes [`dead_ends`] and [`ring`] and still never
+/// makes one, so every room an author tries ends in patch-up pieces. This builds it: nine pieces of
+/// one turned footprint in three rows of three, each at a quarter turn, where **every one of the
+/// twelve inner seams is declared and [`faults`] finds nothing** on it. So the middle piece meets a
+/// neighbour on all four sides, each edge piece on three and each corner on two. What the outer faces
+/// present is not asked, as [`ring`] does not ask it.
+///
+/// `None` means the kit cannot open into a room. Deterministic on [`ring`]'s rule: pieces in id
+/// order, turns ascending, north-west first, row by row. Pieces without a lattice, a footprint, a
+/// height or divisions are skipped, as [`faults`] skips them.
+pub fn room(library: &Library, divisions: u32) -> Option<Room> {
+    const IDS: [[&str; 3]; 3] = [["nw", "n", "ne"], ["w", "middle", "e"], ["sw", "s", "se"]];
+    let (cells, (w, d)) = block(library, divisions, 3, 3)?;
+    let steps = [0.0, 1.0, 2.0];
+    let mut placements = Vec::with_capacity(9);
+    for ((ids, row), z) in IDS.iter().zip(cells.chunks(3)).zip(steps) {
+        for ((id, (piece, q)), x) in ids.iter().zip(row).zip(steps) {
+            placements.push(block_placed(id, piece, *q, (x * w, z * d)));
+        }
+    }
+    let [nw, n, ne, west, middle, east, sw, s, se]: [(String, u8); 9] = cells.try_into().ok()?;
+    Some(Room {
+        pieces: [[nw, n, ne], [west, middle, east], [sw, s, se]],
+        map: Map {
+            placements,
+            ..Map::default()
+        },
+    })
+}
+
+/// A placement of `piece` at `q` quarter turns with its north-west corner at `at`, for a trial map.
+fn block_placed(id: &str, piece: &str, q: u8, at: (f32, f32)) -> crate::map::Placed {
+    crate::map::Placed {
+        id: id.to_owned(),
+        descriptor: piece.to_owned(),
+        at,
+        yaw: f32::from(q) * 90.0,
+        ..crate::map::Placed::default()
+    }
+}
+
+/// Each cell's `(descriptor id, quarter turns)`, row by row, and the turned footprint they share.
+type Block = (Vec<(String, u8)>, (f32, f32));
+
+/// **The first `rows` × `cols` block of one turned footprint whose every inner seam is declared**
+/// (the near side presents at least one token) **and passes [`faults`]**: the search [`ring`] and
+/// [`room`] share. Each cell's `(descriptor id, quarter turns)`, row by row from the north-west, and
+/// the turned footprint every cell shares.
+///
+/// Each pair is tried on a two-piece map through [`faults`] itself, as [`dead_ends`] does, and
+/// remembered. Backtracking, cell by cell: a cell's candidates are the options of the first cell's
+/// footprint that meet the cell to its west across their east seam and the cell to its north across
+/// their south seam.
+fn block(library: &Library, divisions: u32, rows: usize, cols: usize) -> Option<Block> {
     use std::collections::HashMap;
 
     // (descriptor id, quarter turns, turned footprint) for every usable piece at every turn.
@@ -872,13 +945,6 @@ pub fn ring(library: &Library, divisions: u32) -> Option<Ring> {
         }
     }
     let same = |l: (f32, f32), r: (f32, f32)| (l.0 - r.0).abs() < 1e-4 && (l.1 - r.1).abs() < 1e-4;
-    let placed = |id: &str, piece: &str, q: u8, at: (f32, f32)| Placed {
-        id: id.to_owned(),
-        descriptor: piece.to_owned(),
-        at,
-        yaw: f32::from(q) * 90.0,
-        ..Placed::default()
-    };
 
     // Does option `b`, set against option `a`'s `dir` face (E or S), meet it on a declared seam?
     let mut memo: HashMap<(usize, usize, Dir), bool> = HashMap::new();
@@ -887,7 +953,10 @@ pub fn ring(library: &Library, divisions: u32) -> Option<Ring> {
             let ((ap, aq, (w, d)), (bp, bq, _)) = (opts[a], opts[b]);
             let at = if dir == E { (w, 0.0) } else { (0.0, d) };
             let map = Map {
-                placements: vec![placed("a", ap, aq, (0.0, 0.0)), placed("b", bp, bq, at)],
+                placements: vec![
+                    block_placed("a", ap, aq, (0.0, 0.0)),
+                    block_placed("b", bp, bq, at),
+                ],
                 ..Map::default()
             };
             trial_seam(&map, library, divisions, dir)
@@ -896,41 +965,42 @@ pub fn ring(library: &Library, divisions: u32) -> Option<Ring> {
         })
     };
 
-    for nw in 0..opts.len() {
-        let fp = opts[nw].2;
-        let fits: Vec<usize> = (0..opts.len()).filter(|&o| same(opts[o].2, fp)).collect();
-        for &ne in &fits {
-            if !meets(nw, ne, E) {
+    // Fill `cells` from its length to `rows * cols`, trying `fits` in order; true once full.
+    fn fill(
+        cells: &mut Vec<usize>,
+        fits: &[usize],
+        cols: usize,
+        total: usize,
+        meets: &mut dyn FnMut(usize, usize, Dir) -> bool,
+    ) -> bool {
+        let i = cells.len();
+        if i == total {
+            return true;
+        }
+        for &o in fits {
+            let west = i.is_multiple_of(cols) || meets(cells[i - 1], o, E);
+            if !(west && (i < cols || meets(cells[i - cols], o, S))) {
                 continue;
             }
-            for &sw in &fits {
-                if !meets(nw, sw, S) {
-                    continue;
-                }
-                for &se in &fits {
-                    if !(meets(ne, se, S) && meets(sw, se, E)) {
-                        continue;
-                    }
-                    let (w, d) = fp;
-                    let corners = [
-                        (nw, "nw", (0.0, 0.0)),
-                        (ne, "ne", (w, 0.0)),
-                        (sw, "sw", (0.0, d)),
-                        (se, "se", (w, d)),
-                    ];
-                    let map = Map {
-                        placements: corners
-                            .iter()
-                            .map(|&(o, id, at)| placed(id, opts[o].0, opts[o].1, at))
-                            .collect(),
-                        ..Map::default()
-                    };
-                    return Some(Ring {
-                        pieces: corners.map(|(o, _, _)| (opts[o].0.to_owned(), opts[o].1)),
-                        map,
-                    });
-                }
+            cells.push(o);
+            if fill(cells, fits, cols, total, meets) {
+                return true;
             }
+            cells.pop();
+        }
+        false
+    }
+
+    for first in 0..opts.len() {
+        let fp = opts[first].2;
+        let fits: Vec<usize> = (0..opts.len()).filter(|&o| same(opts[o].2, fp)).collect();
+        let mut cells = vec![first];
+        if fill(&mut cells, &fits, cols, rows * cols, &mut meets) {
+            let picked = cells
+                .iter()
+                .map(|&o| (opts[o].0.to_owned(), opts[o].1))
+                .collect();
+            return Some((picked, fp));
         }
     }
     None
@@ -944,6 +1014,17 @@ pub struct Ring {
     pub pieces: [(String, u8); 4],
     /// The four pieces placed edge to edge around the origin's south-east corner, placement ids
     /// `nw`, `ne`, `sw`, `se`: the map [`faults`] passes.
+    pub map: Map,
+}
+
+/// A room of nine pieces with a middle, as [`room`] found it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Room {
+    /// `(descriptor id, quarter turns)` for each piece, rows from north to south, each row from west
+    /// to east: `pieces[1][1]` is the middle.
+    pub pieces: [[(String, u8); 3]; 3],
+    /// The nine pieces placed edge to edge, placement ids `nw`, `n`, `ne`, `w`, `middle`, `e`, `sw`,
+    /// `s`, `se`, one footprint apart: the map [`faults`] passes.
     pub map: Map,
 }
 
