@@ -78,6 +78,12 @@ const ALLOWED: &[(&str, &str)] = &[
          build and a game that lists no family crate pay nothing",
     ),
     (
+        "bevy_gooey",
+        "the owner's game-UI skin and widgets crate, hosted by the family layer (#147) — \
+         OPTIONAL, reached only by `--features bevy_gooey` and pinned by git rev, so an ordinary \
+         build and a game that lists no family crate pay nothing",
+    ),
+    (
         "isomesh",
         "the owner's engine-free isosurface mesher (#101); the carved volume is sampled through it — \
          OPTIONAL, reached only by `--features isomesh` and pinned by git rev, so an ordinary build pays nothing",
