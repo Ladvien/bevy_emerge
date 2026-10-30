@@ -2122,12 +2122,14 @@ impl Plugin for EditorPlugin {
         app.init_resource::<crate::environment::ClockScrub>().add_systems(
             Update,
             (
-                crate::environment::apply_environment.after(crate::family_host::reload_settings),
+                crate::environment::apply_environment.after(crate::family_host::Reloaded),
                 crate::environment::scrub_clock.after(crate::environment::apply_environment),
             ),
         );
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
+        #[cfg(feature = "bevy_gooey")]
+        crate::ui_skin::build(app);
         app.add_observer(on_play_click);
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
@@ -2135,7 +2137,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<NoteBox>()
             .init_resource::<NotesFilter>()
             .init_resource::<crate::family_host::FamilySettings>()
-            .add_systems(Update, (crate::family_host::report_problems, crate::family_host::reload_settings))
+            .add_systems(Update, (crate::family_host::report_problems, crate::family_host::reload_settings.in_set(crate::family_host::Reloaded)))
             // Registered in the same commit as `drive_move` and `keys` read it — a missing `ResMut`
             // panics its system in Bevy 0.19 rather than skipping it (`CLAUDE.md`).
             .init_resource::<MoveDrag>()
