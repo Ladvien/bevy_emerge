@@ -971,6 +971,7 @@ dependencies = [
  "bevy_emerge_snip",
  "bevy_fairy",
  "bevy_flora",
+ "bevy_gooey",
  "bevy_lights",
  "bevy_orca",
  "bevy_society",
@@ -1245,6 +1246,15 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "wgpu-types",
+]
+
+[[package]]
+name = "bevy_gooey"
+version = "0.1.0"
+source = "git+https://github.com/Ladvien/bevy_gooey?rev=23e851a8d4921cb0375a59400f5ec60f68fe8ea5#23e851a8d4921cb0375a59400f5ec60f68fe8ea5"
+dependencies = [
+ "bevy",
+ "serde",
 ]
 
 [[package]]
