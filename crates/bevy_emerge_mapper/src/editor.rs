@@ -4424,6 +4424,8 @@ fn terrain_edit_keys(
                     place_water(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("import ") {
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("forest ") {
+                    scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
                     sculpt_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 }
@@ -4489,6 +4491,40 @@ fn sculpt_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
 
 /// **Import a 16-bit height map through the registry** as `terrain_import`, from the terrain line
 /// `import <file> <cell_m> <low_m> <high_m>`; the field's first cell is the origin.
+/// **Plant the typed line through the registry** as `forest_scatter`: `forest <x> <z> <radius_m>
+/// <spacing_m> <seed> <species>`, one point, so one undo step.
+fn scatter_forest(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Option<Vec<f32>> = words.get(1..5).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
+    let seed: Option<i32> = words.get(5).and_then(|n| n.parse().ok());
+    let (Some(open), Some(nums), Some(seed), Some(species)) = (open, nums, seed, words.get(6)) else {
+        state.status.problem(format!(
+            "`{}` is not `forest <x> <z> <radius_m> <spacing_m> <seed> <species>`, so nothing was planted",
+            raw.trim()
+        ));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = serde_json::json!({
+        "map": open.map.name,
+        "plant": {"points": [[nums[0], nums[1]]], "radius_m": nums[2], "spacing_m": nums[3], "seed": seed,
+                  "species": [{"name": species, "weight": 1.0}]},
+    });
+    match crate::ops::dispatch(&mut ctx, "forest_scatter", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
 fn import_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
     let words: Vec<&str> = raw.split_whitespace().collect();
     let nums: Option<Vec<f32>> = words.get(2..).filter(|w| w.len() == 3).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
