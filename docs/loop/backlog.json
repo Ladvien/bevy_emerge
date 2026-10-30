@@ -167,16 +167,6 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-046",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "Decision: refuse a door write when the log append fails (gap 9)",
-      "status": "open",
-      "evidence": "Cycle 8 review gap 9. Behaviour unchanged in c6016bc. Needs a decision. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
       "id": "E-047",
       "kind": "enhancement",
       "area": "mcp",
