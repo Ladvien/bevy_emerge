@@ -2541,6 +2541,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(piece_import::PieceImport),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
+        Box::new(placement_set_tip::PlacementSetTip),
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
         Box::new(crate::ops_stamp::StampAdd),
@@ -2742,6 +2743,8 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("placement_set_pin", "set_pin("),
     // **The turn keys**, R and T, which dispatch `placement_set_yaw` through `set_yaw`.
     ("placement_set_yaw", "set_yaw("),
+    // **The tip keys**, Y and U, which dispatch `placement_set_tip` through `set_tip` (E-002, #129).
+    ("placement_set_tip", "set_tip("),
     // **The map's name field**, which the N key opens. Enter dispatches `map_rename` through
     // `rename_map`, so the name rule and the file's move are the operation's.
     ("map_rename", "rename_map("),
@@ -4245,6 +4248,213 @@ pub mod placement_set_yaw {
                 saved,
                 inverse: Some(inverse),
                 after,
+            })
+        }
+    }
+}
+
+/// **Tip one placement to a quarter-turn pose about X and Z** (E-002, #129 slice 3): what `Y` and
+/// `U` do to the piece under the cursor, and what an agent asks for.
+///
+/// Two refusals are the schema's own rather than taste: a piece something rests on cannot tip (its
+/// guests' heights name a surface that would no longer exist — `stack::host_under` skips tipped
+/// hosts for the same reason), and an unmeasured piece cannot tip (`descriptor::tipped_extents`
+/// cannot seat bounds it does not know, so the mesh would sink through the floor).
+pub mod placement_set_tip {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The placement's id, as the map file and `emerge/state` name it.
+        pub id: String,
+        /// Quarter turns about X, then about Z, each 0 to 3. `[0, 0]` is upright.
+        pub tip: [u8; 2],
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "tip"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The placement's id, as the map file names it."
+                    },
+                    "tip": {
+                        "type": "array",
+                        "items": {"type": "integer", "minimum": 0, "maximum": 3},
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Quarter turns about X, then about Z, each 0 to 3. [0, 0] is upright."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal, and a quarter
+        /// count past 3 is refused rather than wrapped: `[5, 0]` is a mistake, not a pose.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not a placement's tip: {e}. The fields are `id` and `tip` (two \
+                     quarter-turn counts, about X then Z), and nothing else."
+                ))
+            })?;
+            if p.tip.iter().any(|q| *q > 3) {
+                return Err(Refusal::new(format!(
+                    "a tip is two quarter-turn counts from 0 to 3, and {:?} is not. Nothing was tipped.",
+                    p.tip
+                )));
+            }
+            Ok(p)
+        }
+    }
+
+    /// **Why this placement cannot take this tip**, or `None` when it can. The plan and the commit
+    /// ask the same question, so a dry run refuses what the real one would.
+    fn refusal(project: Option<&Project>, open: &OpenMap, id: &str, tip: (u8, u8)) -> Option<Refusal> {
+        let Some(p) = open.map.placements.iter().find(|q| q.id == id) else {
+            return Some(Refusal::new(format!(
+                "no placement is called `{id}` on this map, so nothing was tipped."
+            )));
+        };
+        if p.tip == tip {
+            return None;
+        }
+        let resting = open
+            .map
+            .placements
+            .iter()
+            .filter(|q| q.on.as_deref() == Some(id))
+            .count();
+        if resting > 0 {
+            return Some(Refusal::new(format!(
+                "`{id}` holds {resting} piece(s) up, and a tipped surface holds nothing: move them \
+                 first. Nothing was tipped."
+            )));
+        }
+        let Some(project) = project else {
+            return Some(Refusal::new("no project is open."));
+        };
+        let measured = bevy_emerge_core::stack::descriptor_of(&project.library, p)
+            .is_some_and(|d| bevy_emerge_core::descriptor::tipped_extents(&d, tip).is_some());
+        if !measured {
+            return Some(Refusal::new(format!(
+                "`{id}` is unmeasured, so a tip cannot be seated: measure it on the tiles tab first. \
+                 Nothing was tipped."
+            )));
+        }
+        None
+    }
+
+    /// **Tip one placement.**
+    pub struct PlacementSetTip;
+
+    impl Operation for PlacementSetTip {
+        fn name(&self) -> &'static str {
+            "placement_set_tip"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            let tips: Vec<serde_json::Value> = open
+                .map
+                .placements
+                .iter()
+                .map(|p| json!([p.id, [p.tip.0, p.tip.1]]))
+                .collect();
+            Some(json!({"map": open.map.name, "tips": tips}))
+        }
+
+        /// **The tipped piece's pose now**, against the one its change recorded.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let Some(id) = after.get("id").and_then(serde_json::Value::as_str) else {
+                return self.state(ctx);
+            };
+            let open = ctx.open.as_ref()?;
+            let p = open.map.placements.iter().find(|q| q.id == id)?;
+            Some(json!({"id": p.id, "tip": [p.tip.0, p.tip.1]}))
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to tip.",
+                ));
+            };
+            if let Some(no) = refusal(ctx.project.as_ref(), open, &p.id, (p.tip[0], p.tip[1])) {
+                return Err(no);
+            }
+            Ok(json!({"id": p.id, "tip": p.tip}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let tip = (p.tip[0], p.tip[1]);
+            let Some(mut open) = ctx.open.take() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to tip.",
+                ));
+            };
+            if let Some(no) = refusal(ctx.project.as_ref(), &open, &p.id, tip) {
+                ctx.open = Some(open);
+                return Err(no);
+            }
+            let Some(index) = open.map.placements.iter().position(|q| q.id == p.id) else {
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "no placement is called `{}` on this map, so nothing was tipped.",
+                    p.id
+                )));
+            };
+            // **The old pose, for the undo.** Its inverse is the same operation with this value.
+            let old = std::mem::replace(&mut open.map.placements[index].tip, tip);
+            let summary = if tip == (0, 0) {
+                format!("{} upright again", p.id)
+            } else {
+                format!("{} tipped {}/4 about X, {}/4 about Z", p.id, tip.0, tip.1)
+            };
+            // **And the file, so the tip is not only in memory.** A refusal to save puts the old
+            // pose back, so the editor and the file agree.
+            let Some(project) = ctx.project.as_ref() else {
+                open.map.placements[index].tip = old;
+                ctx.open = Some(open);
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map.placements[index].tip = old;
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "the file refused the tip, so nothing was written and the pose is unchanged: {e}"
+                )));
+            }
+            let map_name = open.map.name.clone();
+            ctx.open = Some(open);
+            // **Only the tipped piece is recorded**, so an unrelated edit cannot block its undo.
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({"id": p.id, "tip": [old.0, old.1]})),
+                after: Some(json!({"map": map_name, "id": p.id, "tip": [tip.0, tip.1]})),
             })
         }
     }

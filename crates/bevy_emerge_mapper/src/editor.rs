@@ -12255,6 +12255,51 @@ fn set_yaw(
     }
 }
 
+/// **Tip one placement to a pose through the operation registry** (E-002, #129 slice 3), so a tip
+/// is validated, saved and logged the way an agent's is. The refusals (a piece holding others up,
+/// an unmeasured piece) are the operation's and land as a problem, where the author looks.
+fn set_tip(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+    tip: (u8, u8),
+) -> Option<(String, String)> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(
+            &mut *open,
+            OpenMap::new(
+                bevy_emerge_core::map::Map::default(),
+                std::path::PathBuf::new(),
+            ),
+        )),
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let outcome = crate::ops::dispatch(
+        &mut ctx,
+        "placement_set_tip",
+        &serde_json::json!({"id": id, "tip": [tip.0, tip.1]}),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => Some((operation_id, outcome.summary)),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+            None
+        }
+    }
+}
+
 /// Turn the placement under the cursor by `step` degrees, and redraw it.
 ///
 /// Rewrites the yaw in the map and respawns the entity rather than rotating the transform in place:
@@ -13472,13 +13517,12 @@ fn lift_under_cursor(
     }
 }
 
-/// **Tip the placement under the cursor a quarter turn** — about X on `Y`, about Z on `U`.
+/// **Tip the placement under the cursor a quarter turn** — about X on `Y`, about Z on `U` — through
+/// `placement_set_tip`, the operation an agent calls (E-002, #129 slice 3).
 ///
-/// Set dressing, with two refusals that are the schema's own rather than this function's taste:
-/// a piece something rests on cannot tip (its guests' heights name a surface that would no longer
-/// exist — `stack::host_under` skips tipped hosts for the same reason), and an unmeasured piece
-/// cannot tip (`bevy_emerge::tip_seat` cannot seat bounds it does not know, so the mesh would sink
-/// through the floor).
+/// Set dressing, with two refusals that are the schema's own rather than this function's taste, and
+/// both are the operation's: a piece something rests on cannot tip, and an unmeasured piece cannot
+/// tip. The tip is saved and logged, and `Cmd+Z` takes it back through the operation's inverse.
 #[allow(clippy::too_many_arguments)]
 fn tip_under_cursor(
     commands: &mut Commands,
@@ -13499,48 +13543,18 @@ fn tip_under_cursor(
     let Some(p) = open.map.placements.get(index) else {
         return;
     };
-    let resting = open
-        .map
-        .placements
-        .iter()
-        .filter(|q| q.on.as_deref() == Some(p.id.as_str()))
-        .count();
-    if resting > 0 {
-        state.status.problem(format!(
-            "`{}` holds {resting} piece(s) up — a tipped surface holds nothing; move them first",
-            p.id
-        ));
-        return;
-    }
     let want = if about_x {
         ((p.tip.0 + 1) % 4, p.tip.1)
     } else {
         (p.tip.0, (p.tip.1 + 1) % 4)
     };
-    let Some(d) = descriptor_of(&project.library, p) else {
-        return;
-    };
-    if bevy_emerge_core::descriptor::tipped_extents(&d, want).is_none() {
-        state.status.problem(format!(
-            "`{}` is unmeasured — a tip cannot be seated. Measure it on the tiles tab first.",
-            p.id
-        ));
-        return;
-    }
-    let Some(p) = open.map.placements.get_mut(index) else {
-        return;
-    };
-    let was = std::mem::replace(&mut p.tip, want);
     let id = p.id.clone();
-    state.record(Undo::Tipped { index, tip: was });
+    let Some((line, summary)) = set_tip(project, open, state, &id, want) else {
+        return;
+    };
+    state.record_logged(line, summary.clone(), false);
     match redraw_placements(commands, assets, project, &*open, placed, &[index]) {
-        Ok(()) => {
-            state.status.note(if want == (0, 0) {
-                format!("{id} upright again")
-            } else {
-                format!("{id} tipped {}/4 about X, {}/4 about Z", want.0, want.1)
-            });
-        }
+        Ok(()) => state.status.note(summary),
         Err(e) => {
             state
                 .status

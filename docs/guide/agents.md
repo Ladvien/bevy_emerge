@@ -43,7 +43,7 @@ Say to the agent what you see. For example: "The abbey blocks the gate. Take it 
 5. It calls `emerge_capture_still` again. The gate is clear.
 6. You press Cmd+Z in the editor. The abbey comes back. `emerge_read_oplog` shows the undo as a new line.
 
-To turn a placement instead of removing it, use `placement_set_yaw` with `id` and `yaw`. Yaw wraps to 0 to 360, so `-15` is `345`.
+To turn a placement instead of removing it, use `placement_set_yaw` with `id` and `yaw`. Yaw wraps to 0 to 360, so `-15` is `345`. To lay it on its side, use `placement_set_tip` with `id` and `tip`, two quarter-turn counts (about X, then Z) from 0 to 3; `[0, 0]` is upright.
 
 ![The whole editor window: the agent turns the abbey with placement_set_yaw and removes its table with placement_remove; the inspector's LAST line and history list name each change as the agent's; two Cmd+Z presses take both back](../media/agent-drives.gif)
 
@@ -76,6 +76,7 @@ Goal: know what an agent can change, and what undoes each change.
 | `map_set_settings` | Sets a map's origin, bounds, axis, bash, or note. `null` clears the bash or the note. | Puts the old settings back |
 | `placement_set_pin` | Pins or unpins a placement. | Puts the old pin back |
 | `placement_set_yaw` | Turns a placement to a new yaw in degrees, wrapped to 0 to 360. | Puts the old yaw back |
+| `placement_set_tip` | Tips a placement to quarter turns about X and Z, each 0 to 3, as `Y` and `U` do. Refuses a piece something rests on and an unmeasured piece. | Puts the old tip back |
 | `placement_remove` | Removes a placement, and any piece standing on it. | Puts the pieces back |
 | `stamp_remove` | Removes a stamp from the map. | Puts the stamp back |
 | `map_rename` | Renames the open map. The name is forced to snake_case, so `Town Two` becomes `town_two`. | Puts the old name back |
