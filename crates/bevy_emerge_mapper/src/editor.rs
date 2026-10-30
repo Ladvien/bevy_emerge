@@ -7232,6 +7232,7 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::VisibleFrom { from, .. } => format!("{of} seen from {from}"),
                 Kind::Along { path, .. } => format!("{of} along {}", path.join(" → ")),
                 Kind::ReachableFrom { from, .. } => format!("{of} reachable from {from}"),
+                Kind::AlignedWith(to) => format!("{of} aligned with {to}"),
             };
             let what = if r.hard { format!("{what} (hard)") } else { what };
             match outcome {
