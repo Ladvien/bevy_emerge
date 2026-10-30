@@ -1,0 +1,29 @@
+{
+ "name": "note_box_on_screen",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [],
+ "chunks": [
+  {
+   "seconds": 8
+  },
+  {
+   "seconds": 5
+  }
+ ],
+ "steps": [
+  {"at": 0.0, "cursor": [300, 112]},
+  {"at": 0.1, "caption": "the Inspector is scrolled down to NOTES; LAST is off screen"},
+  {"at": 1.4, "caption": "Shift+N arms the note tool; drag an area"},
+  {"at": 1.6, "key": "KeyN", "mods": ["ShiftLeft"]},
+  {"at": 2.0, "drag": [640, 400, 760, 460], "secs": 1.0},
+  {"at": 3.3, "caption": "typing: the Inspector scrolls LAST back on screen, the words and the caret"},
+  {"at": 3.4, "type": "a gate in the north wall"},
+  {"at": 5.6, "caption": "Tab marks it auto: [auto] beside the words"},
+  {"at": 5.7, "key": "Tab"},
+  {"at": 7.6, "key": "Enter"},
+  {"at": 7.8, "caption": "Enter saves it; back down to NOTES, its row is there"},
+  {"at": 8.6, "wheel": {"y": -4, "n": 3, "at": [220, 450]}}
+ ]
+}
