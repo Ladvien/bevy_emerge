@@ -1340,6 +1340,15 @@ struct TerrainField;
 #[derive(Component, Clone, Copy)]
 struct TerrainReadout;
 
+/// **The crowd field** (#107): one line, `<from_x> <from_z> <to_x> <to_z> <walkers>`, whose Enter
+/// dispatches `crowd_preview` through [`run_crowd_preview`].
+#[derive(Component, Clone, Copy)]
+struct CrowdField;
+
+/// The text of the crowd field, refreshed as it is typed into.
+#[derive(Component, Clone, Copy)]
+struct CrowdReadout;
+
 /// **The Data panel's list** (#86): one row per leaf of every registered file. Rebuilt by
 /// [`refresh_data_list`] when the leaves change on disk or by an edit.
 #[derive(Component, Clone, Copy)]
@@ -1409,6 +1418,12 @@ pub struct DataEdit {
 /// The terrain field's buffer while it is being typed into; its own resource for [`FamilyEdit`]'s reason.
 #[derive(Resource, Default)]
 pub struct TerrainEdit {
+    active: Option<String>,
+}
+
+/// The crowd field's buffer while it is being typed into.
+#[derive(Resource, Default)]
+pub struct CrowdEdit {
     active: Option<String>,
 }
 
@@ -1921,8 +1936,18 @@ fn edit_note(project: Option<&mut Project>, open: &mut OpenMap, state: &mut Edit
 }
 
 /// **Send every draft through the registry**, as `note_send` does for an agent.
-fn send_notes(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState) {
-    dispatch_note(project, open, state, "note_send", serde_json::json!({}), "send the drafts");
+///
+/// **Then start the project's notes agent** (#94), once per Send, when `agent.ron` names one. A launch
+/// that fails is a problem on the status line; the notes stay sent either way.
+pub fn send_notes(project: Option<&mut Project>, open: &mut OpenMap, state: &mut EditorState) {
+    let root = project.as_deref().map(|p| p.root.clone());
+    let sent = dispatch_note(project, open, state, "note_send", serde_json::json!({}), "send the drafts");
+    let Some(root) = root.filter(|_| sent) else { return };
+    match bevy_emerge_core::note_agent::AgentSettings::load(&root).and_then(|s| s.launch(&root)) {
+        Ok(Some(pid)) => state.status.note(format!("started the notes agent (pid {pid})")),
+        Ok(None) => {}
+        Err(e) => state.status.problem(e),
+    }
 }
 
 /// **Hold, keep or give back a note through the registry** (#91): `op` is `note_claim`, `note_renew` or
@@ -1967,7 +1992,7 @@ fn dispatch_note(
     name: &str,
     params: serde_json::Value,
     phrase: &str,
-) {
+) -> bool {
     let mut ctx = crate::ops::Ctx {
         project: project.as_ref().map(|p| (**p).clone()),
         open: Some(std::mem::replace(
@@ -1987,8 +2012,12 @@ fn dispatch_note(
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary);
             state.record(Undo::Logged { line: operation_id, phrase: phrase.to_owned(), agent: false });
+            true
         }
-        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(format!("cannot {phrase}: {}", e.0)),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(format!("cannot {phrase}: {}", e.0));
+            false
+        }
     }
 }
 
@@ -2049,6 +2078,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<FamilyEdit>()
             .init_resource::<DataEdit>()
             .init_resource::<TerrainEdit>()
+            .init_resource::<CrowdEdit>()
             .init_resource::<Folded>()
             .init_resource::<EdgeFaults>()
             // Shared by both tabs' lists, so it is registered once here rather than by whichever
@@ -2200,7 +2230,7 @@ impl Plugin for EditorPlugin {
                         // goes down, rather than one where it is invisible and still eating keys.
                         leaving_a_tab_puts_the_name_prompt_down.in_set(keys::Phase::Sense),
                     ),
-                    (size_edit_keys, family_edit_keys, data_edit_keys, terrain_edit_keys).in_set(keys::Phase::Text),
+                    (size_edit_keys, family_edit_keys, data_edit_keys, terrain_edit_keys, crowd_edit_keys).in_set(keys::Phase::Text),
                     // No `not_typing`, no `in_map_mode`: `keys::just_pressed` now refuses on both
                     // counts, and a run condition repeating it would be a second census. Dropping
                     // `in_map_mode` also makes `Cmd+S` and `Cmd+Z` work from every tab, which is what
@@ -2310,7 +2340,7 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family, refresh_data, refresh_terrain, refresh_data_list, refresh_notes_list),
+                    (refresh_size, refresh_family, refresh_data, refresh_terrain, refresh_crowd, refresh_data_list, refresh_notes_list),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -2352,6 +2382,7 @@ impl Plugin for EditorPlugin {
             .add_observer(on_family_field_click)
             .add_observer(on_data_field_click)
             .add_observer(on_terrain_field_click)
+            .add_observer(on_crowd_field_click)
             .add_observer(on_data_leaf_click)
             .add_observer(on_notes_click);
     }
@@ -3164,6 +3195,26 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     crate::chrome::text::BODY,
                     ("brush x z radius strength".to_owned(), TEXT),
                     TerrainReadout,
+                );
+            });
+
+            // **Crowd (#107).** One line: `<from_x> <from_z> <to_x> <to_z> <walkers>`, e.g. `-8 -8 8 8 40`.
+            // Enter walks that many people between two 2 m squares round the open map's solid pieces.
+            #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "CROWD");
+                crate::chrome::text_field(
+                    s,
+                    Val::Percent(100.0),
+                    CrowdField,
+                    crate::chrome::text::BODY,
+                    ("from_x from_z to_x to_z walkers".to_owned(), TEXT),
+                    CrowdReadout,
                 );
             });
 
@@ -4279,7 +4330,9 @@ fn terrain_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                if raw.trim_start().starts_with("import ") {
+                if raw.trim_start().starts_with("water ") {
+                    place_water(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("import ") {
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("forest ") {
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
@@ -4406,6 +4459,49 @@ fn import_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
     }
 }
 
+/// **Place water through the registry** as `water_place`, from the terrain line
+/// `water spring <x> <z> <rate_m3_s> <radius_m>`, `water sink <x> <z> <rate_m3_s> <radius_m>` or
+/// `water lake <x> <z> <radius_m> <level_m>`; `water clear` removes the map's water.
+fn place_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Option<Vec<f32>> = words.get(2..).filter(|w| w.len() == 4).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is no water to place".to_owned());
+        return;
+    };
+    let place = match (words.get(1).copied(), nums) {
+        (Some("clear"), _) if words.len() == 2 => None,
+        (Some("spring"), Some(n)) => Some(serde_json::json!({"Spring": {"x": n[0], "z": n[1], "rate_m3_s": n[2], "radius_m": n[3]}})),
+        (Some("sink"), Some(n)) => Some(serde_json::json!({"Sink": {"x": n[0], "z": n[1], "rate_m3_s": n[2], "radius_m": n[3]}})),
+        (Some("lake"), Some(n)) => Some(serde_json::json!({"Lake": {"x": n[0], "z": n[1], "radius_m": n[2], "level_m": n[3]}})),
+        _ => {
+            state.status.problem(format!(
+                "`{}` is not `water spring|sink <x> <z> <rate_m3_s> <radius_m>`, `water lake <x> <z> <radius_m> <level_m>` or `water clear`, so nothing was changed",
+                raw.trim()
+            ));
+            return;
+        }
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = match place {
+        Some(p) => serde_json::json!({"map": open.map.name, "place": p}),
+        None => serde_json::json!({"map": open.map.name, "clear": true}),
+    };
+    match crate::ops::dispatch(&mut ctx, "water_place", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
 /// A brush word as the stroke's JSON spells it.
 fn terrain_brush(word: &str) -> Option<serde_json::Value> {
     let mut parts = word.split(':');
@@ -4419,6 +4515,128 @@ fn terrain_brush(word: &str) -> Option<serde_json::Value> {
         }
         _ => return None,
     })
+}
+
+fn on_crowd_field_click(
+    activate: On<Activate>,
+    fields: Query<&CrowdField>,
+    edit: Option<ResMut<CrowdEdit>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let (Some(mut edit), Some(mut state)) = (edit, state) else {
+        return;
+    };
+    if fields.get(activate.entity).is_err() {
+        return;
+    }
+    edit.active = Some(String::new());
+    state.status.note("crowd: `<from_x> <from_z> <to_x> <to_z> <walkers>`, Enter to run, Esc to leave it".to_owned());
+}
+
+fn crowd_edit_keys(
+    mut events: MessageReader<KeyboardInput>,
+    mut edit: ResMut<CrowdEdit>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    mut state: ResMut<EditorState>,
+) {
+    if edit.active.is_none() {
+        return;
+    }
+    for event in events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        match &event.logical_key {
+            Key::Enter => {
+                let raw = edit.active.take().unwrap_or_default();
+                run_crowd_preview(project.as_deref(), open.as_deref(), &mut state, &raw);
+                return;
+            }
+            Key::Escape => {
+                edit.active = None;
+                state.status.note("crowd preview left".to_owned());
+                return;
+            }
+            Key::Backspace => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.pop();
+                }
+            }
+            Key::Space => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.push(' ');
+                }
+            }
+            Key::Character(c) => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.push_str(c);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The two 2 m squares and the head count of a typed crowd line, as `crowd_preview`'s parameters.
+fn crowd_params(raw: &str) -> Option<serde_json::Value> {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    if words.len() != 5 {
+        return None;
+    }
+    let n: Vec<f32> = words[..4].iter().map(|w| w.parse().ok()).collect::<Option<_>>()?;
+    let walkers: usize = words[4].parse().ok()?;
+    let square = |x: f32, z: f32| [x - 1.0, z - 1.0, x + 1.0, z + 1.0];
+    Some(serde_json::json!({"from": square(n[0], n[1]), "to": square(n[2], n[3]), "walkers": walkers}))
+}
+
+/// **Run the typed line through the registry** as `crowd_preview` and say what it measured.
+fn run_crowd_preview(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let Some(params) = crowd_params(raw) else {
+        state.status.problem(format!("`{}` is not `<from_x> <from_z> <to_x> <to_z> <walkers>`, so no crowd was run", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: open.cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "crowd_preview", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+fn refresh_crowd(
+    edit: Res<CrowdEdit>,
+    mut readouts: Query<(&mut Text, &mut TextColor), With<CrowdReadout>>,
+    mut fields: Query<(&Hovered, &mut BackgroundColor), With<CrowdField>>,
+) {
+    for (mut text, mut colour) in &mut readouts {
+        let (want, want_colour) =
+            crate::chrome::field_text(edit.active.as_deref(), ("from_x from_z to_x to_z walkers".to_owned(), TEXT));
+        if text.0 != want {
+            text.0 = want;
+        }
+        if colour.0 != want_colour {
+            colour.0 = want_colour;
+        }
+    }
+    for (hovered, mut bg) in &mut fields {
+        let want = if edit.active.is_some() {
+            FOCUS_BG
+        } else if hovered.0 {
+            ROW_HOVER
+        } else {
+            ROW_BG
+        };
+        if bg.0 != want {
+            bg.0 = want;
+        }
+    }
 }
 
 fn refresh_terrain(
@@ -5976,6 +6194,8 @@ pub struct Fields<'w> {
     pub data: Res<'w, DataEdit>,
     /// **The terrain field (#99).**
     pub terrain: Res<'w, TerrainEdit>,
+    /// **The crowd field (#107).**
+    pub crowd: Res<'w, CrowdEdit>,
     pub import: Res<'w, crate::tiles::ImportState>,
     pub cell: Res<'w, crate::tiles::CellEdit>,
     pub note: Res<'w, crate::tiles::NoteEdit>,
@@ -6030,6 +6250,7 @@ impl Fields<'_> {
             || self.family.active.is_some()
             || self.data.active.is_some()
             || self.terrain.active.is_some()
+            || self.crowd.active.is_some()
             || self.import.renaming.is_some()
             || self.cell.typing()
             || self.note.typing()

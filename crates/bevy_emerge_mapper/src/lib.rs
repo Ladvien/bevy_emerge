@@ -78,10 +78,13 @@ pub mod present;
 pub mod ops;
 #[cfg(feature = "debugger")]
 pub mod ops_brp;
+#[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+pub mod ops_crowd;
 pub mod ops_data;
 pub mod ops_family;
 pub mod ops_terrain;
 pub mod ops_forest;
+pub mod ops_water;
 pub mod ops_play;
 pub mod ops_notes;
 pub mod ops_runs;

@@ -101,6 +101,7 @@ mod check_view_asks_the_checks_on_demand;
 mod chrome_census;
 mod closeup_frames_the_edit;
 mod compose_is_read_only;
+mod crowd_preview_is_an_operation;
 mod crowd_preview_measures;
 mod data_set_is_an_operation;
 mod decision_labels_mount_front;
@@ -147,6 +148,7 @@ mod placement_undo_without_id;
 mod project_clone_shares;
 mod roads_and_fields_do_not_z_fight;
 mod runs_are_edited_through_operations;
+mod send_starts_the_notes_agent;
 mod stamp_remove;
 mod terrain_stroke_is_an_operation;
 mod the_arm_crosses_the_door;
@@ -174,6 +176,7 @@ mod the_viewport_keeps_a_usable_width_in_a_narrow_window;
 mod the_way_back_actually_goes_back;
 mod the_whole_map_is_inside_the_cameras_depth;
 mod two_writers_never_share_a_sequence_number;
+mod water_place_is_an_operation;
 mod world_gizmos_stay_in_the_world;
 
 /// A file under `tests/` that is not a module here is never compiled, so its tests would silently
