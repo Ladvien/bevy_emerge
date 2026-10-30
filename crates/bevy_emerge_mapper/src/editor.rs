@@ -1362,6 +1362,11 @@ struct DataLeafRow {
     path: String,
 }
 
+/// **The Plan panel's list** (E-069): the agent's plan for the open map, one numbered row per step
+/// with its status, under a count of how many are done.
+#[derive(Component, Clone, Copy)]
+struct PlanList;
+
 /// **The Notes panel's list** (#90): a header of two buttons, then one row per note.
 #[derive(Component, Clone, Copy)]
 struct NotesList;
@@ -1386,8 +1391,8 @@ struct NotesFilterButton;
 #[derive(Component, Clone, Copy)]
 struct NotesSendAll;
 
-/// What the Notes list last drew: the filter and `(id, status, text)` per row.
-type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool, NoteReview)>);
+/// What the Notes list last drew: the filter and `(id, status, text, waiting, review, auto)` per row.
+type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool, NoteReview, bool)>);
 
 /// What a done note shows for review (#93): its summary, assumptions, the before and after captures
 /// and the operations it ran. Empty for every other status.
@@ -2417,7 +2422,17 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family, refresh_data, refresh_terrain, refresh_crowd, refresh_data_list, refresh_notes_list, refresh_scripts_list),
+                    (
+                        refresh_size,
+                        refresh_family,
+                        refresh_data,
+                        refresh_terrain,
+                        refresh_crowd,
+                        refresh_data_list,
+                        refresh_notes_list,
+                        refresh_scripts_list,
+                        refresh_plan_list,
+                    ),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -3352,6 +3367,25 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 crate::chrome::section(s, "NOTES");
                 s.spawn((
                     NotesList,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                ));
+            });
+
+            // **Plan (E-069).** What the agent means to do on this map and how far it has got: the
+            // `.plan.ron` that `plan_set` writes, read like the notes are.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "PLAN");
+                s.spawn((
+                    PlanList,
                     Node {
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(crate::chrome::GAP_TIGHT),
@@ -5479,6 +5513,58 @@ fn on_notes_click(
     }
 }
 
+/// Keep [`PlanList`] equal to the open map's plan: a count, then `<n> [<status>] <text>` per step in
+/// the agent's order, or "no plan". Read twice a second, like the notes, so a `plan_set`, its undo
+/// and a hand edit of the file all show; rebuilt only when what it says changed.
+fn refresh_plan_list(
+    mut commands: Commands,
+    time: Res<Time>,
+    open: Option<Res<OpenMap>>,
+    lists: Query<Entity, With<PlanList>>,
+    mut local: Local<(Option<bevy_emerge_core::plan::Plan>, f32)>,
+) {
+    use bevy_emerge_core::plan::{self, Plan, Status};
+    let (shown, since) = &mut *local;
+    *since += time.delta_secs();
+    if shown.is_some() && *since < 0.5 {
+        return;
+    }
+    *since = 0.0;
+    let now = open.and_then(|o| Plan::load(&plan::path_for_map(&o.map_path)).ok()).unwrap_or_default();
+    if shown.as_ref() == Some(&now) {
+        return;
+    }
+    for list in &lists {
+        commands.entity(list).despawn_related::<Children>();
+        commands.entity(list).with_children(|p| {
+            if now.items.is_empty() {
+                p.spawn((Text::new("no plan"), TextColor(DIM), crate::chrome::font(crate::chrome::text::LABEL)));
+                return;
+            }
+            let (_, _, done, _) = now.counts();
+            p.spawn((
+                Text::new(format!("plan: {done} of {} done", now.items.len())),
+                TextColor(DIM),
+                crate::chrome::font(crate::chrome::text::LABEL),
+            ));
+            for (at, item) in now.items.iter().enumerate() {
+                let (status, colour) = match item.status {
+                    Status::Pending => ("pending", TEXT),
+                    Status::Doing => ("doing", ACCENT),
+                    Status::Done => ("done", DIM),
+                    Status::Skipped => ("skipped", DIM),
+                };
+                p.spawn((
+                    Text::new(format!("{} [{status}] {}", at + 1, item.text)),
+                    TextColor(colour),
+                    crate::chrome::font(crate::chrome::text::BODY),
+                ));
+            }
+        });
+    }
+    *shown = Some(now);
+}
+
 /// Keep [`NotesList`] equal to the open map's notes under the current filter: newest first, every
 /// status, resolved notes included. Read twice a second; rebuilt only when what it says changed.
 fn refresh_notes_list(
@@ -5499,7 +5585,7 @@ fn refresh_notes_list(
     let all = open
         .and_then(|o| bevy_emerge_core::notes::Notes::load(&bevy_emerge_core::notes::path_for_map(&o.map_path)).ok())
         .unwrap_or_default();
-    let rows: Vec<(String, &'static str, String, bool, NoteReview)> = all
+    let rows: Vec<(String, &'static str, String, bool, NoteReview, bool)> = all
         .listing(filter.0)
         .iter()
         .map(|n| {
@@ -5522,7 +5608,7 @@ fn refresh_notes_list(
                 }
                 _ => NoteReview::default(),
             };
-            (n.id.clone(), n.status(), text, waiting.is_some(), review)
+            (n.id.clone(), n.status(), text, waiting.is_some(), review, n.auto)
         })
         .collect();
     let key = (filter.0, rows);
@@ -5549,13 +5635,34 @@ fn refresh_notes_list(
                     crate::chrome::font(crate::chrome::text::LABEL),
                 ));
             }
-            for (id, status, text, waiting, review) in rows {
+            for (id, status, text, waiting, review, auto) in rows {
                 crate::chrome::list_row(p, false, NoteRow { id: id.clone() }).with_children(|row| {
                     row.spawn((
                         Text::new(format!("{id} [{status}] {text}")),
                         TextColor(TEXT),
                         crate::chrome::font(crate::chrome::text::BODY),
                     ));
+                    // **An auto note says so on its row** (E-070): the agent decides its minor
+                    // choices itself instead of asking. A label, not a button: Tab in the note box
+                    // and `note_add`'s `auto` are where it is set.
+                    if *auto {
+                        row.spawn((
+                            Node {
+                                padding: crate::chrome::CHIP_PAD,
+                                border: UiRect::all(Val::Px(crate::chrome::EDGE_W)),
+                                border_radius: BorderRadius::all(Val::Px(crate::chrome::RADIUS_ROW)),
+                                ..default()
+                            },
+                            BorderColor::all(crate::chrome::SUGGEST),
+                        ))
+                        .with_children(|chip| {
+                            chip.spawn((
+                                Text::new("auto"),
+                                TextColor(crate::chrome::SUGGEST),
+                                crate::chrome::font(crate::chrome::text::LABEL),
+                            ));
+                        });
+                    }
                 });
                 for line in &review.lines {
                     p.spawn((Text::new(line.clone()), TextColor(DIM), crate::chrome::font(crate::chrome::text::LABEL)));

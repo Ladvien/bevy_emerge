@@ -110,6 +110,8 @@ A snip that is confirmed but not yet written is pending. The editor clears pendi
 
 The state read has its own paging. `emerge_state` takes `pinned_from` to page the list of pins, and returns `pinned_next` when more follow. It also reports `undo_next`, `undo_depth`, `redo_next`, `redo_depth`, `leaving`, and `door_waiting`.
 
+An agent shows what it means to do with the `plan_set` operation: the whole list of steps as it now stands, each `pending`, `doing`, `done` or `skipped`. The plan is `<map>.plan.ron` beside the map, `emerge_state` reports it under `plan`, and one undo puts the previous list back. The editor's Inspector shows it under **PLAN**: a line `plan: k of n done`, then one numbered row per step with its status, redrawn within half a second of a change, and `no plan` when the list is empty.
+
 ## Who did what
 
 Goal: find out who changed a map, and take back only the change you want.
