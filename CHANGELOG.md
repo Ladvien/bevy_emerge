@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **water-pond-clip** `61c7f57` A spring on a sculpted valley is run until it settles into a pond, drawn in the viewport and kept as the map's water (#100)<br><a href="docs/changelog/media/2026-10-30-water-pond.mp4"><img src="docs/changelog/media/2026-10-30-water-pond.png" width="320" alt="clip"></a>
 - **106-attach** `0ecb31a` A conversation can be attached to a placed piece by name; one the dialogue script lacks is refused *No clip: visible, not yet recorded: no display on big; proved by family_dialogue attach test*
 - **101-s2** `d3f9e8a` Volume: the carved edit list meshes in chunks through isomesh, sealed with no cracks at chunk seams *No clip: an API behind the isomesh feature; proved by volume_meshes_without_cracks*
 - **terrain-water-draw** `db5f919` The sculpted ground and the kept water are drawn in the editor viewport, following terrain_stroke and water_run (#99, #100) *No clip: visible, not yet recorded: no clip yet, drawn from files the editor polls; proved by terrain_view_draws_water*
