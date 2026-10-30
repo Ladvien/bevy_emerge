@@ -122,6 +122,7 @@ mod family_carnage_settings;
 mod dialogue_preview;
 mod dialogue_runtime;
 mod people;
+mod people_ties;
 mod family_dialogue;
 mod family_host;
 mod family_lights_settings;

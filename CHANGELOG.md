@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **104-ties** People can have ties to each other (person_set tie, terrain line tie=Odo:0.3:0.8); a people run starts from them and reports each person's bonds (#104 slice 4) *No clip: visible, not yet recorded: no display on big; proved by people_ties tests*
 - **people-run** `72e9b7c` people_run (and the terrain line 'people run [seed] [days]') runs a map's villagers forward in bevy_society's own app: same seed, same day (#104) *No clip: visible, not yet recorded: no display on big*
 - **106-runtime** `b982f0f` A conversation attached to a piece plays through the crate's own runtime: the talker asks, the chosen option leads to its line *No clip: visible, not yet recorded: no display on big; proved by dialogue_runtime::the_conversation_a_piece_carries_is_walked_by_the_crates_runtime_down_the_chosen_option*
 - **104-people** `ade2541` People: person_set authors a person (home, workplace, faction) beside the map; a building someone lives in cannot be removed (#104) *No clip: visible, not yet recorded: no display on big*
