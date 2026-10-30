@@ -187,10 +187,12 @@ pub fn score(session: &Session, played: &[Played]) -> Result<Score, String> {
             (Expect::Ask, false) => Ask::Under,
             _ => Ask::Right,
         };
-        let own = relations::check(&p.placements, &keeps[i]);
+        // A turn's rows are the map's, yaw in degrees: turned once for every check below (#165).
+        let rows = relations::in_radians(&p.placements);
+        let own = relations::check(&rows, &keeps[i]);
         let mut broken = Vec::new();
         for (j, earlier) in keeps[..i].iter().enumerate() {
-            for (r, now) in relations::check(&p.placements, earlier).into_iter().enumerate() {
+            for (r, now) in relations::check(&rows, earlier).into_iter().enumerate() {
                 let met = matches!(now, Outcome::Met { .. });
                 if held[j][r] && !met {
                     broken.push(Regression { turn: j, relation: r, now });

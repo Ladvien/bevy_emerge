@@ -71,7 +71,7 @@ struct Mend {
 
 fn mend(open: &OpenMap) -> Result<Mend, Refusal> {
     let relations = load(open)?;
-    let solved = relations::solve(&open.map.placements, &relations);
+    let solved = relations::solve_map(&open.map.placements, &relations);
     // **Every row that changed, carried riders included**: `moved` lists only the pieces the solver
     // chose, but a rider moved with its host must be put back by the same undo.
     let add_placements: Vec<Indexed<Placed>> = solved

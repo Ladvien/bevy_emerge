@@ -11,7 +11,10 @@
 //! [`Outcome::Missing`], never silently met.
 //!
 //! Forward is `(sin yaw, cos yaw)`, the convention [`crate::placement::ir::facing_cosine`] scores
-//! with. Distances are between placement centres on the floor plan ([`crate::map::Placed::at`]).
+//! with, and [`check`] and [`solve`] read that yaw in radians. A map's own rows store
+//! [`crate::map::Placed::yaw`] in **degrees** (the `place` schema, the spawner), so a caller holding
+//! map rows uses [`check_map`] and [`solve_map`] (#165). Distances are between placement centres on
+//! the floor plan ([`crate::map::Placed::at`]).
 //!
 //! Engine-free: reads placements, nothing else. Runs and stamps are not expanded here; a relation is
 //! about a placement row.
@@ -770,6 +773,35 @@ pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
         unmet_after: total(count),
         unsatisfied,
     }
+}
+
+/// [`check`] on a map's own rows, whose [`Placed::yaw`] is degrees.
+pub fn check_map(placements: &[Placed], relations: &Relations) -> Vec<Outcome> {
+    check(&in_radians(placements), relations)
+}
+
+/// [`solve`] on a map's own rows (yaw in degrees), handing the rows back in degrees. A row whose
+/// yaw the solve did not turn keeps its stored yaw bit for bit, so the degrees → radians → degrees
+/// round trip never reads as an edit of a row nobody moved.
+pub fn solve_map(placements: &[Placed], relations: &Relations) -> Solved {
+    let radians = in_radians(placements);
+    let mut solved = solve(&radians, relations);
+    // `Solved::placements` is in input order, row for row.
+    for ((row, given), stored) in solved.placements.iter_mut().zip(&radians).zip(placements) {
+        row.yaw = if row.yaw == given.yaw { stored.yaw } else { row.yaw.to_degrees() };
+    }
+    solved
+}
+
+/// A map's rows with yaw turned from the degrees they store to the radians [`check`] reads.
+pub(crate) fn in_radians(placements: &[Placed]) -> Vec<Placed> {
+    placements
+        .iter()
+        .map(|p| Placed {
+            yaw: p.yaw.to_radians(),
+            ..p.clone()
+        })
+        .collect()
 }
 
 /// The moves that would mend `r`: which pieces, and where they go. Empty when the piece to move
