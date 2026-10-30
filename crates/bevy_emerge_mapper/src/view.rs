@@ -201,6 +201,17 @@ impl Plugin for ViewPlugin {
     }
 }
 
+/// **The editor's own fill light**, on its camera. `AmbientLight` is a COMPONENT in Bevy 0.19 and
+/// applies per-camera; the resource form is global. On the camera is both correct and the only
+/// form that compiles. `environment::dress_camera` puts it back when the preview's sky comes off,
+/// since `bevy_elements` drives this component while it dresses the camera.
+pub fn editor_ambient() -> AmbientLight {
+    AmbientLight {
+        brightness: 320.0,
+        ..default()
+    }
+}
+
 fn setup(
     mut commands: Commands,
     rig: Res<Rig>,
@@ -227,12 +238,7 @@ fn setup(
         }),
         map_projection(rig.height, &tf, open.as_deref()),
         tf,
-        // `AmbientLight` is a COMPONENT in Bevy 0.19 and applies per-camera; the resource form is
-        // global. On the camera is both correct and the only form that compiles.
-        AmbientLight {
-            brightness: 320.0,
-            ..default()
-        },
+        editor_ambient(),
     ));
 
     // A key light and enough ambient to read a mesh's form. Directional rather than point, because
