@@ -1,0 +1,58 @@
+{
+ "name": "relations_reachable_from",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      -7,
+      -5,
+      7,
+      5
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 3
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "relations_solve",
+    "parameters": {}
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    200,
+    650
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "ring.relations.ron: table ReachableFrom sofa, clearance 0.6 m"
+  },
+  {
+   "at": 1.5,
+   "caption": "a ring of lamps seals the table: the row names the one in the way"
+  },
+  {
+   "at": 3.2,
+   "caption": "agent: relations_solve"
+  },
+  {
+   "at": 4.5,
+   "caption": "that lamp slides aside; the walk from the sofa is open"
+  }
+ ]
+}
