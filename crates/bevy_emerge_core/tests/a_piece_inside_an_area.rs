@@ -8,8 +8,8 @@
 //! spills out of the hall's sides or misses its ends. The area is the `width` × `depth` rectangle
 //! centred on the other, in its own frame (`width` across its left and right, `depth` along its
 //! forward), so turning the other turns the area. `check` measures the distance from the piece's
-//! centre to the rectangle (0 inside); `solve` sets a piece outside just inside the nearest edge and
-//! keeps its heading.
+//! centre to the rectangle (0 inside); `solve` sets a piece outside just inside each edge it stood
+//! past and keeps its heading.
 //!
 //! Rows are a map's, yaw in degrees, through `check_map` and `solve_map`.
 
@@ -96,7 +96,7 @@ fn a_missing_rug_is_missing() {
 }
 
 #[test]
-fn solve_sets_the_table_just_inside_the_nearest_edge_and_keeps_its_heading() {
+fn solve_sets_the_table_just_inside_each_edge_it_stood_past_and_keeps_its_heading() {
     // Off the corner, turned 37 degrees.
     let before = rows(0.0, (3.0, 5.0), 37.0);
     let solved = solve_map(&before, &inside("rug", 2.0, 4.0));
@@ -121,6 +121,13 @@ fn solve_sets_the_table_just_inside_the_nearest_edge_and_keeps_its_heading() {
     assert_eq!(solved.unmet_after, 0, "{:?}", solved.unsatisfied);
     let table = solved.placements.iter().find(|p| p.id == "table").unwrap();
     assert!(table.at.0.abs() < 1e-4 && table.at.1 > 0.0 && table.at.1 <= 1.0, "{:?}", table.at);
+
+    // A rug away from the origin, turned: its 2 m width lies along z around z = -3.
+    let away = vec![piece("rug", (5.0, -3.0), 90.0), piece("table", (5.0, 1.0), 0.0)];
+    let solved = solve_map(&away, &inside("rug", 2.0, 4.0));
+    assert_eq!(solved.unmet_after, 0, "{:?}", solved.unsatisfied);
+    let table = solved.placements.iter().find(|p| p.id == "table").unwrap();
+    assert!((table.at.0 - 5.0).abs() < 1e-4 && table.at.1 > -3.0 && table.at.1 <= -2.0, "{:?}", table.at);
 }
 
 #[test]
