@@ -7155,6 +7155,7 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::Near { to, .. } => format!("{of} near {to}"),
                 Kind::Apart { from, .. } => format!("{of} apart from {from}"),
                 Kind::InFrontOf { of: other, .. } => format!("{of} in front of {other}"),
+                Kind::Behind { of: other, .. } => format!("{of} behind {other}"),
                 Kind::ClearInFront { .. } => format!("{of} clear in front"),
                 Kind::VisibleFrom { from, .. } => format!("{of} seen from {from}"),
                 Kind::Along { path, .. } => format!("{of} along {}", path.join(" → ")),
