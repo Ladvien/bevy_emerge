@@ -51,12 +51,14 @@ debugger = ["bevy/bevy_remote", "dep:bevy_debugger_bevy"]
 # that lists none pays nothing. Pinned by git revision on the crate's `main`, never a path. A project's
 # `family.ron` lists the crates it uses; listing one this build lacks is a problem message
 # (`family_host::problems`). The engine-free core crates never depend on these.
+bevy_carnage = ["dep:bevy_carnage"]
 bevy_elements = ["dep:bevy_elements"]
 bevy_lights = ["dep:bevy_lights"]
 bevy_orca = ["dep:bevy_orca"]
 bevy_stigmergy = ["dep:bevy_stigmergy"]
 
 [dependencies]
+bevy_carnage = { git = "https://github.com/Ladvien/bevy_carnage", rev = "615c264e28680448b934d3f28b73487dd8b98750", default-features = false, features = ["serde"], optional = true }
 bevy_elements = { git = "https://github.com/Ladvien/bevy_elements", rev = "ef87797468db6264f24785fe9d1ffaa9d4deb9f0", features = ["serde"], optional = true }
 bevy_lights = { git = "https://github.com/Ladvien/bevy_lights", rev = "15af29a7dc05ada701caa4c154a00cee363c84b3", features = ["serde"], optional = true }
 bevy_orca = { git = "https://github.com/Ladvien/bevy_orca", rev = "e7160df097dc75652633f801f6c0ab1c73356bc4", optional = true }

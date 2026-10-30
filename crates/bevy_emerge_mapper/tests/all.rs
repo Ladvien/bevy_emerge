@@ -117,6 +117,7 @@ mod every_list_follows_its_selection;
 mod every_refusal_is_in_a_problem;
 mod every_resource_says_what_a_door_does_to_it;
 mod family_host;
+mod family_carnage_settings;
 mod family_lights_settings;
 mod family_set_is_an_operation;
 mod family_settings_reload;
