@@ -2370,6 +2370,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(label_set::LabelSet),
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
+        Box::new(crate::ops_family::PlacementSetFamily),
         Box::new(crate::ops_terrain::TerrainStroke),
         Box::new(crate::ops_compose::CompositionDefine),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
@@ -2492,6 +2493,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The family settings field (#96)** — Enter on `<crate> <field> <value>` dispatches
     // `family_set` through `set_family_field`, the same write an agent's `apply` makes.
     ("family_set", "set_family_field("),
+    // **A piece's family settings (#103)** — the same field with `@<id> <crate> <value>` dispatches
+    // `placement_set_family` through `set_piece_family`.
+    ("placement_set_family", "set_piece_family("),
     // **The Play / Stop buttons (#97)** — dispatch `play` and `play_stop` through `play_game` and
     // `stop_game`, the same start and stop an agent's `apply` makes.
     ("play", "play_game("),

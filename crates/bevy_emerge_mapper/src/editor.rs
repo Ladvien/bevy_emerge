@@ -4240,6 +4240,7 @@ fn family_edit_keys(
     mut events: MessageReader<KeyboardInput>,
     mut edit: ResMut<FamilyEdit>,
     project: Option<ResMut<Project>>,
+    mut open: Option<ResMut<OpenMap>>,
     mut state: ResMut<EditorState>,
 ) {
     if edit.active.is_none() {
@@ -4252,7 +4253,11 @@ fn family_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                set_family_field(project.as_deref(), &mut state, &raw);
+                if raw.trim_start().starts_with('@') {
+                    set_piece_family(project.as_deref(), open.as_deref_mut(), &mut state, &raw);
+                } else {
+                    set_family_field(project.as_deref(), &mut state, &raw);
+                }
                 return;
             }
             Key::Escape => {
@@ -4296,6 +4301,42 @@ fn set_family_field(project: Option<&Project>, state: &mut EditorState, raw: &st
     };
     let params = serde_json::json!({"crate": krate, "field": field, "value": value});
     match crate::ops::dispatch(&mut ctx, "family_set", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Commit `@<id> <crate> <value>` through the registry** as `placement_set_family`: the piece
+/// named by the id carries the crate's own settings as one RON value; no value takes them off.
+fn set_piece_family(project: Option<&Project>, open: Option<&mut OpenMap>, state: &mut EditorState, raw: &str) {
+    let mut words = raw.trim().trim_start_matches('@').splitn(3, ' ');
+    let (Some(id), Some(krate)) = (words.next(), words.next()) else {
+        state.status.problem(format!("`{}` is not `@<id> <crate> <value>`, so nothing was written", raw.trim()));
+        return;
+    };
+    let (Some(project), Some(open)) = (project, open) else {
+        state.status.problem("no map is open, so there is no piece to set".to_owned());
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, OpenMap::new(bevy_emerge_core::map::Map::default(), std::path::PathBuf::new()))),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let mut params = serde_json::json!({"id": id, "crate": krate});
+    if let Some(value) = words.next().filter(|v| !v.trim().is_empty()) {
+        params["value"] = serde_json::Value::String(value.to_owned());
+    }
+    let outcome = crate::ops::dispatch(&mut ctx, "placement_set_family", &params);
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
@@ -7930,6 +7971,7 @@ fn stamp_set(
             owned_because: piece.owned_because.clone(),
             patch: piece.patch.clone(),
             note: piece.note.clone(),
+            family: Default::default(),
         });
     }
 
