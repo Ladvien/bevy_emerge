@@ -644,6 +644,9 @@ impl Emerge {
                        every call: breaches (piece, rule, dim, found metres, why below_min, above_max, \
                        not_multiple_of or unmeasured, bound) and idle, the rules no piece is covered by; \
                        error names a file that does not parse. \
+                       dead_ends is the kit stress test: every declared face (piece, dir N/E/S/W, \
+                       face tokens, message) that no piece of the kit meets at any quarter turn, \
+                       up to 20, with total counting them all. \
                        Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
