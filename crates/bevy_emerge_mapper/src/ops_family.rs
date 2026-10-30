@@ -45,7 +45,7 @@ impl Params {
     }
 }
 
-fn settings_path(ctx: &Ctx, krate: &str) -> Result<std::path::PathBuf, Refusal> {
+pub(crate) fn settings_path(ctx: &Ctx, krate: &str) -> Result<std::path::PathBuf, Refusal> {
     let Some(root) = ctx.root_or_project() else {
         return Err(Refusal::new("no project is open, so there are no family settings to change."));
     };
@@ -75,6 +75,7 @@ impl FamilySet {
             .map_err(|e| Refusal::new(format!("{} cannot be read, so nothing was changed: {e}", path.display())))?;
         let (new, old) = family::set_field(&text, &p.field, &p.value).map_err(Refusal::new)?;
         check_script(&p.krate, &new)?;
+        check_society(&p.krate, &new)?;
         if !write {
             return Ok(None);
         }
@@ -183,8 +184,34 @@ impl PlacementSetFamily {
         if let Some(v) = &p.value {
             reads_as(&p.krate, v).map_err(|e| Refusal::new(format!("{e}. Nothing was set.")))?;
         }
+        check_conversation(&settings_path(ctx, &p.krate)?, p)?;
         Ok(())
     }
+}
+
+/// **A conversation attached to a piece must be one the project's dialogue script defines** (#106): the
+/// row carries the conversation's name as a RON string, and the crate's own `DialogueScript` says which exist.
+#[cfg(feature = "bevy_speech_bubbles")]
+fn check_conversation(script: &std::path::Path, p: &PieceParams) -> Result<(), Refusal> {
+    let (true, Some(v)) = (p.krate == "bevy_speech_bubbles", p.value.as_deref()) else {
+        return Ok(());
+    };
+    let name: String = ron::from_str(v)
+        .map_err(|e| Refusal::new(format!("`{v}` is not a conversation name (a quoted string such as \"hello\"): {e}. Nothing was set.")))?;
+    let text = std::fs::read_to_string(script)
+        .map_err(|e| Refusal::new(format!("{} cannot be read, so no conversation can be attached: {e}", script.display())))?;
+    let defined: bevy_speech_bubbles::DialogueScript =
+        ron::from_str(&text).map_err(|e| Refusal::new(format!("the project's dialogue script is not readable: {e}")))?;
+    if defined.conversations.contains_key(&name) {
+        return Ok(());
+    }
+    let known: Vec<&str> = defined.conversations.keys().map(String::as_str).collect();
+    Err(Refusal::new(format!("the dialogue script has no conversation `{name}` (it has: {}). Nothing was set.", known.join(", "))))
+}
+
+#[cfg(not(feature = "bevy_speech_bubbles"))]
+fn check_conversation(_script: &std::path::Path, _p: &PieceParams) -> Result<(), Refusal> {
+    Ok(())
 }
 
 impl Operation for PlacementSetFamily {
@@ -245,6 +272,21 @@ impl Operation for PlacementSetFamily {
             after,
         })
     }
+}
+
+/// **A society definition that `SocietyDefs` refuses to compile is never written** (#104): the saved file is
+/// the crate's own `DefsFile`, so the crate's own compile step decides, and its message is the refusal.
+#[cfg(feature = "bevy_society")]
+fn check_society(krate: &str, text: &str) -> Result<(), Refusal> {
+    if krate != "bevy_society" {
+        return Ok(());
+    }
+    bevy_society::SocietyDefs::from_ron(text).map(|_| ()).map_err(|e| Refusal::new(format!("{e}. Nothing was written.")))
+}
+
+#[cfg(not(feature = "bevy_society"))]
+fn check_society(_krate: &str, _text: &str) -> Result<(), Refusal> {
+    Ok(())
 }
 
 /// **A dialogue script that `validate_script` refuses is never written** (#106): the saved file is the

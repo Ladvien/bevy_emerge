@@ -2388,6 +2388,7 @@ impl Plugin for EditorPlugin {
                     (
                         draw_bounds,
                         draw_map_grid,
+                        crate::terrain_view::sync_terrain_view,
                         fit_bounds_floor
                             .run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
                     ),
@@ -4253,7 +4254,9 @@ fn family_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                if raw.trim_start().starts_with('@') {
+                if raw.trim_start().starts_with("dialogue ") {
+                    preview_dialogue(project.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with('@') {
                     set_piece_family(project.as_deref(), open.as_deref_mut(), &mut state, &raw);
                 } else {
                     set_family_field(project.as_deref(), &mut state, &raw);
@@ -4307,6 +4310,41 @@ fn set_family_field(project: Option<&Project>, state: &mut EditorState, raw: &st
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
     }
+}
+
+/// **Walk a conversation through the registry** as `dialogue_preview`: `dialogue <conversation> [option numbers]`,
+/// and say its lines in the status line.
+#[cfg(feature = "bevy_speech_bubbles")]
+fn preview_dialogue(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+    let mut words = raw.split_whitespace().skip(1);
+    let Some(name) = words.next() else {
+        state.status.problem("`dialogue` needs a conversation name: `dialogue <conversation> [option numbers]`".to_owned());
+        return;
+    };
+    let Ok(choices) = words.map(str::parse::<usize>).collect::<Result<Vec<_>, _>>() else {
+        state.status.problem(format!("`{}` has an option that is not a number, so nothing was walked", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "dialogue_preview", &serde_json::json!({"conversation": name, "choices": choices})) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            let said = outcome.after.as_ref().and_then(|a| a["lines"].as_array()).map(|l| {
+                l.iter().map(|x| format!("{}: {}", x["speaker"].as_str().unwrap_or(""), x["text"].as_str().unwrap_or(""))).collect::<Vec<_>>().join(" / ")
+            });
+            state.status.note(format!("{} — {}", outcome.summary, said.unwrap_or_default()));
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+#[cfg(not(feature = "bevy_speech_bubbles"))]
+fn preview_dialogue(_project: Option<&Project>, state: &mut EditorState, _raw: &str) {
+    state.status.problem("this editor was built without bevy_speech_bubbles, so there is no dialogue to preview".to_owned());
 }
 
 /// **Commit `@<id> <crate> <value>` through the registry** as `placement_set_family`: the piece
@@ -4420,6 +4458,8 @@ fn terrain_edit_keys(
                     hit_destructible(project.as_deref(), &mut state, &raw);
                 } else if raw.trim() == "water run" {
                     run_water(project.as_deref(), open.as_deref(), &mut state);
+                } else if raw.trim_start().starts_with("volume ") {
+                    edit_volume(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("water ") {
                     place_water(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("import ") {
@@ -4620,6 +4660,50 @@ fn place_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Ed
         None => serde_json::json!({"map": open.map.name, "clear": true}),
     };
     match crate::ops::dispatch(&mut ctx, "water_place", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Add or carve volume through the registry** as `volume_edit`, from the terrain line
+/// `volume add|carve sphere <x> <y> <z> <radius_m> [smooth_m]`, `... box <x> <y> <z> <hx> <hy> <hz> [smooth_m]`,
+/// `... capsule <ax> <ay> <az> <bx> <by> <bz> <radius_m> [smooth_m]`; `volume clear` removes the map's edits.
+fn edit_volume(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is no volume to edit".to_owned());
+        return;
+    };
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Vec<f32> = words.iter().skip(3).map_while(|n| n.parse().ok()).collect();
+    let (arity, shape) = match words.get(2).copied() {
+        Some("sphere") => (4, nums.get(..4).map(|n| serde_json::json!({"Sphere": {"center": [n[0], n[1], n[2]], "radius_m": n[3]}}))),
+        Some("box") => (6, nums.get(..6).map(|n| serde_json::json!({"Box": {"center": [n[0], n[1], n[2]], "half_m": [n[3], n[4], n[5]]}}))),
+        Some("capsule") => (7, nums.get(..7).map(|n| serde_json::json!({"Capsule": {"a": [n[0], n[1], n[2]], "b": [n[3], n[4], n[5]], "radius_m": n[6]}}))),
+        _ => (0, None),
+    };
+    let mode = words.get(1).copied().filter(|m| matches!(*m, "add" | "carve")).map(|m| if m == "add" { "Add" } else { "Carve" });
+    let params = if words.len() == 2 && words[1] == "clear" {
+        serde_json::json!({"map": open.map.name, "clear": true})
+    } else if let (Some(shape), Some(mode), true) = (shape, mode, nums.len() <= arity + 1 && words.len() == 3 + nums.len()) {
+        serde_json::json!({"map": open.map.name, "edit": {"shape": shape, "mode": mode, "smooth_m": nums.get(arity).copied().unwrap_or(0.0)}})
+    } else {
+        state.status.problem(format!(
+            "`{}` is not `volume add|carve sphere|box|capsule <numbers> [smooth_m]` or `volume clear`, so nothing was changed",
+            raw.trim()
+        ));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "volume_edit", &params) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });

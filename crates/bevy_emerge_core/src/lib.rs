@@ -76,6 +76,7 @@ pub mod smart;
 pub mod stack;
 pub mod vocab;
 pub mod wfc;
+pub mod volume;
 pub mod water;
 
 /// Hermite ease between two edges. Pure math, so it lives here rather than in a crate that has a

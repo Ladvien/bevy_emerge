@@ -60,3 +60,43 @@ fn a_valid_edit_is_written_and_reads_back_as_the_crates_own_script() {
     let script: bevy_speech_bubbles::DialogueScript = ron::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(script.conversation("hello").unwrap().start, "b");
 }
+
+fn placed(name: &str) -> (Ctx, std::path::PathBuf) {
+    let root = fixtures::Fixture::new(name).descriptor("site/wall", "alpha").place("site/wall", (0.0, 0.0)).build("m");
+    std::fs::create_dir_all(root.join("family")).unwrap();
+    std::fs::write(root.join("family.ron"), "(version: 1, crates: [\"bevy_speech_bubbles\"])").unwrap();
+    std::fs::write(root.join("family/bevy_speech_bubbles.ron"), SCRIPT).unwrap();
+    let mut app = bevy_emerge_mapper::harness::build_headless(&root, "m", None).unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..4 {
+        app.update();
+    }
+    let project = app.world().resource::<bevy_emerge_mapper::project::Project>().clone();
+    let open = app.world().resource::<bevy_emerge_mapper::project::OpenMap>().clone();
+    (Ctx { project: Some(project), open: Some(open), session: name.to_owned(), ..Ctx::default() }, root)
+}
+
+fn saved_family(root: &std::path::Path) -> std::collections::BTreeMap<String, String> {
+    let text = std::fs::read_to_string(root.join("assets/emerge/maps/m.map.ron")).unwrap();
+    let map: bevy_emerge_core::map::Map = ron::from_str(&text).unwrap();
+    map.placements[0].family.clone().into_iter().collect()
+}
+
+#[test]
+fn a_conversation_attached_to_a_piece_is_saved_on_its_row_and_one_the_script_lacks_is_refused() {
+    let (mut ctx, root) = placed("dialogue_attach");
+    let id = ctx.open.as_ref().unwrap().map.placements[0].id.clone();
+    let done = ops::dispatch(&mut ctx, "placement_set_family", &json!({"id": id, "crate": "bevy_speech_bubbles", "value": "\"hello\""})).unwrap();
+    assert!(matches!(done, Applied::Done { .. }), "{done:?}");
+    assert_eq!(saved_family(&root)["bevy_speech_bubbles"], "\"hello\"");
+
+    let r = ops::dispatch(&mut ctx, "placement_set_family", &json!({"id": id, "crate": "bevy_speech_bubbles", "value": "\"goodbye\""}));
+    let said = match r {
+        Ok(Applied::Refused(e)) | Err(e) => e.0,
+        Ok(other) => panic!("an undefined conversation was accepted: {other:?}"),
+    };
+    assert!(said.contains("goodbye") && said.contains("hello"), "{said}");
+    assert_eq!(saved_family(&root)["bevy_speech_bubbles"], "\"hello\"", "a refusal leaves the row as it was");
+
+    ops::undo(&mut ctx, None).unwrap();
+    assert!(saved_family(&root).is_empty(), "undo takes the conversation back off the piece");
+}
