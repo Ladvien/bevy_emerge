@@ -72,6 +72,17 @@ const ALLOWED: &[(&str, &str)] = &[
          build and a game that lists no family crate pay nothing",
     ),
     (
+        "bevy_flora",
+        "the owner's procedural trees and forests crate, hosted by the family layer (#96, #102) — \
+         OPTIONAL, reached only by `--features bevy_flora` and pinned by git rev, so an ordinary \
+         build and a game that lists no family crate pay nothing",
+    ),
+    (
+        "isomesh",
+        "the owner's engine-free isosurface mesher (#101); the carved volume is sampled through it — \
+         OPTIONAL, reached only by `--features isomesh` and pinned by git rev, so an ordinary build pays nothing",
+    ),
+    (
         "bevy_carnage",
         "the owner's fracture, wound and blood crate, hosted by the family layer (#108, #96) — OPTIONAL, reached only by `--features bevy_carnage` (without its render features) and pinned by git rev, so an ordinary build and a game that lists no family crate pay nothing",
     ),
@@ -84,6 +95,10 @@ const ALLOWED: &[(&str, &str)] = &[
     (
         "bevy_orca",
         "the owner's reciprocal-avoidance crowd solver, hosted by the family layer (#107) — OPTIONAL, reached only by `--features bevy_orca` and pinned by git rev, so an ordinary build pays nothing",
+    ),
+    (
+        "bevy_society",
+        "the owner's living-society crate (people, needs, ties, factions), hosted by the family layer (#104, #96) — OPTIONAL, reached only by `--features bevy_society` and pinned by git rev, so an ordinary build pays nothing",
     ),
     (
         "bevy_speech_bubbles",

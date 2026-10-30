@@ -2,10 +2,25 @@
 
 What each change added, newest first. A visible change has a clip: click the still to play it. `python3 tools/changelog/changelog.py page --open` plays them all in one page.
 
+## 2026-10-30
+
+- **101-snow** `244e532` Snow lies on a carved hill and never fills its tunnel: bevy_elements' SnowyField over the volume (#101 slice 5, feature volume_snow) *No clip: an API behind the volume_snow feature; proved by volume_snow::snow_covers_the_top_and_the_tunnel_stays_open*
+- **101-caves-rest** `cecc860` A floor piece authored inside a carved cave stands on the cave's floor (resolve_y_in, #101) *No clip: visible, not yet recorded: no display on big; proved by tests/pieces_in_caves.rs*
+- **106-dialogue-preview** Preview a conversation without playing it: dialogue_preview walks a path through the script, says its lines, offers an unmade choice's options and names nodes no path reaches (family field: dialogue <name> [options]) *No clip: visible, not yet recorded: no display on big; proved by dialogue_preview::the_chosen_path_is_said_in_order_and_the_unreachable_node_is_named*
+- **101-cave-floor** `0e40c30` Volume::floor_below: the floor under a point inside a carved cave, for pieces placed in caves (#101) *No clip: an engine-free query; proved by bevy_emerge_core/tests/volume_floor.rs*
+- **terrain-preset** `6114249` terrain_preset: hills, mountains, dunes or plains from bevy_elements baked into the map's saved terrain, one undo *No clip: an operation with no viewport surface yet; proved by tests/terrain_preset_is_an_operation.rs*
+- **106-attach** `0ecb31a` A conversation can be attached to a placed piece by name; one the dialogue script lacks is refused *No clip: visible, not yet recorded: no display on big; proved by family_dialogue attach test*
+- **101-s2** `d3f9e8a` Volume: the carved edit list meshes in chunks through isomesh, sealed with no cracks at chunk seams *No clip: an API behind the isomesh feature; proved by volume_meshes_without_cracks*
+- **terrain-water-draw** `db5f919` The sculpted ground and the kept water are drawn in the editor viewport, following terrain_stroke and water_run (#99, #100) *No clip: visible, not yet recorded: no clip yet, drawn from files the editor polls; proved by terrain_view_draws_water*
+- **101-volume-edit** `51d0e09` Volume edit list: add and carve sphere, box and capsule primitives, one undo each, saved beside the map *No clip: an operation and a data type, not yet drawn (isomesh meshing owed); proved by volume_edit_is_an_operation*
+- **104-society-host** `2b3486f` bevy_society is a hosted family crate: family_set refuses a society definition the crate cannot compile *No clip: an API; proved by family_society tests*
+
 ## 2026-10-29
 
 - **115-s5** `8316c61` Rows laid by hand turn into a run: placements_to_run, or Cmd-drag in run mode *No clip: an operation; proved by rows_become_a_run_through_an_operation*
 - **115-live-diff** `3b51545` The live reload names an edited run once by its id, not each of its rows (#115) *No clip: an API; proved by crates/bevy_emerge_core/tests/live_diff_names_runs.rs*
+- **102-forest-scatter** `d7a0d7c` forest_scatter: a stroke plants bevy_flora's own scatter under the brush, on the terrain, one undo step (typed 'forest' line and apply) *No clip: an operation and a typed line, no viewport drawing yet; proved by tests/forest_stroke_is_an_operation.rs*
+- **102-flora-host** `033523f` bevy_flora is a hosted family crate: a project lists it in family.ron and its settings change through family_set *No clip: an API and cargo feature; proved by flora_family tests*
 - **play-stop-group** `2f2603d` Stop ends the game Play started even when it runs through a launcher such as cargo run *No clip: a process-lifecycle fix; proved by play_stop_ends_the_whole_game*
 - **f4-cover-settings** Snow, wetness, rock scatter and blown sand are settings in bevy_elements' own types, set through family_set, one undo each, and drive the preview (#100) *No clip: visible, not yet recorded: no display on big; proved by environment_applies::snow_rocks_and_sand_are_set_in_the_crates_own_types_and_an_old_file_still_loads*
 - **water-run** `316cd58` Springs and lakes run over the sculpted ground until the water settles, and the result is kept as the map's water in one undo *No clip: visible, not yet recorded: no display on big*
