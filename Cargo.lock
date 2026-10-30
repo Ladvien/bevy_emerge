@@ -966,6 +966,7 @@ dependencies = [
  "bevy_emerge_core",
  "bevy_emerge_decide",
  "bevy_emerge_snip",
+ "bevy_lights",
  "image",
  "ron",
  "serde",
@@ -1359,6 +1360,15 @@ dependencies = [
  "smallvec",
  "tracing",
  "wgpu-types",
+]
+
+[[package]]
+name = "bevy_lights"
+version = "0.2.5"
+source = "git+https://github.com/Ladvien/bevy_lights?rev=15af29a7dc05ada701caa4c154a00cee363c84b3#15af29a7dc05ada701caa4c154a00cee363c84b3"
+dependencies = [
+ "bevy",
+ "serde",
 ]
 
 [[package]]
