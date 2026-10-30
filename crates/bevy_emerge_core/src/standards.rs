@@ -212,3 +212,15 @@ pub fn check(library: &Library, standards: &Standards) -> Vec<Breach> {
     }
     out
 }
+
+/// **The rules that cover no piece in `library`**, by name in file order. A rule scoped to a `kind`
+/// no piece carries (most often a misspelt token) checks nothing, so a kit would read as meeting it;
+/// naming it is how the author finds out.
+pub fn idle<'a>(library: &Library, standards: &'a Standards) -> Vec<&'a str> {
+    standards
+        .rules
+        .iter()
+        .filter(|r| !library.descriptors.iter().any(|d| r.covers(d)))
+        .map(|r| r.name.as_str())
+        .collect()
+}
