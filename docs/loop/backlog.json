@@ -28,7 +28,7 @@
         "evidence": "cargo info for all seven crates says 'could not find ... in registry'. There is no published baseline, so no release can be made and no pre-publish gate has a version to check against."
       },
       "status": "open",
-      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` fails before any decision is reachable \u2014 \"all dependencies must have a version requirement specified when packaging: dependency `bevy_emerge_rng` does not specify a version\" (the `path` spec is dropped and crates.io is consulted). `bevy_emerge_solver` and `bevy_devshot` are also `publish = false`, so the graph has an unpublishable node in the middle. Making the workspace publishable is therefore: add a version to every intra-workspace path dependency (core->rng, core->solver, snip, anim, mapper->core/rng/solver/devshot, mcp->core), decide whether solver/devshot ship at all, then publish in dependency order rng -> solver -> core -> snip -> anim -> devshot -> mapper -> mcp. Until then the README's 'use the crates by path or git' is the only install path that works, and it is accurate. `bevy_elements` is a separate repo and already published (0.5.3, now 0.6.0).",
+      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` fails before any decision is reachable — \"all dependencies must have a version requirement specified when packaging: dependency `bevy_emerge_rng` does not specify a version\" (the `path` spec is dropped and crates.io is consulted). `bevy_emerge_solver` and `bevy_devshot` are also `publish = false`, so the graph has an unpublishable node in the middle. Making the workspace publishable is therefore: add a version to every intra-workspace path dependency (core->rng, core->solver, snip, anim, mapper->core/rng/solver/devshot, mcp->core), decide whether solver/devshot ship at all, then publish in dependency order rng -> solver -> core -> snip -> anim -> devshot -> mapper -> mcp. Until then the README's 'use the crates by path or git' is the only install path that works, and it is accurate. `bevy_elements` is a separate repo and already published (0.5.3, now 0.6.0).",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -64,9 +64,9 @@
       "id": "E-019",
       "kind": "enhancement",
       "area": "sanctuary",
-      "status": "open",
+      "status": "shipped",
       "title": "Sanctuary lifts its roads in code (town.rs:60 ROAD_LIFT = 0.15), so the editor cannot know the game's draw order from data",
-      "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only)."
+      "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only). | 2026-10-30 w3 (#133): obsolete, closed with no editor change. Sanctuary c6da877 has no ROAD_LIFT: town.rs:1262-1266 'The roads are the ground's own' (bevy_elements PathNetwork wears them into the terrain), so the game draws no road over any flat piece. In its town.map.ron no town/road footprint overlaps a town/field footprint (15 roads, 4 fields, 0 overlapping pairs by rectangle test), so there is no order for Placed::paint to author; the editor's draw_order (authored paint first, then area) already honours a paint if one is ever written. Assumed decision: close as obsolete rather than author paint values the game would not read."
     },
     {
       "id": "E-023",
@@ -253,8 +253,8 @@
         "no_workaround": false,
         "evidence": "Open-ended requests produce 2-3 alternatives as the brief asks, but there is no way for the person to say 'decide these yourself this turn'. Mixar carries an `auto_mode` on the turn, and omitting the field IS false."
       },
-      "status": "open",
-      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Person-side: Tab in the note box toggles auto (tests/a_note_box_can_say_auto.rs); status line shows it. Still open: a clip, and a visible Auto chip in the Notes panel.",
+      "status": "shipped",
+      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Person-side: Tab in the note box toggles auto (tests/a_note_box_can_say_auto.rs); status line shows it. Notes panel: an auto note's row carries an 'auto' chip (tests/notes_panel_shows_the_auto_flag.rs, #135). Clip owed (changelog 'not yet recorded', no display on big).",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
@@ -285,8 +285,8 @@
         "no_workaround": false,
         "evidence": "`compositions.ron` holds `Bounded: 0, Anchored: 16`. `grammar::from_compositions` skips an anchored group by definition (\"it presents no edge to match\"), so `layout_propose {source: composed}` is refused there with \"nothing has been placed yet\" and no composed layout can be measured. `learned` works but derives no wall interfaces, so E-080's measurement answers `null` on the only real project in this repo. Found live while proving E-080; the metric itself is proved on the crate's own fixture."
       },
-      "status": "open",
-      "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip)",
+      "status": "shipped",
+      "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip) | Shipped cc725d4 (#132): from_compositions refuses a tileless set by name (tests/a_tileless_composition_set_says_why.rs). Assumed decision: no slicing of anchored groups (111 distinct cell slices on Sanctuary, over the 32 cap) and no multi-cell prototypes; the game authors Bounded one-cell tiles for the composed source.",
       "last_failure": "",
       "first_seen": "2026-10-26"
     },

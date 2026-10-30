@@ -158,6 +158,7 @@ mod note_undo_work;
 mod notes_are_operations;
 mod notes_history_and_send;
 mod notes_panel_lists_every_note;
+mod notes_panel_shows_the_auto_flag;
 mod one_prompt_one_vocabulary;
 mod one_undo_takes_back_the_newest_change;
 mod operations_have_two_front_ends;
