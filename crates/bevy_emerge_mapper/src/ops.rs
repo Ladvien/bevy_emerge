@@ -2371,6 +2371,8 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_family::PlacementSetFamily),
+        #[cfg(feature = "bevy_speech_bubbles")]
+        Box::new(crate::ops_dialogue::DialoguePreview),
         Box::new(crate::ops_terrain::TerrainStroke),
         Box::new(crate::ops_compose::CompositionDefine),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
@@ -2498,6 +2500,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **A piece's family settings (#103)** — the same field with `@<id> <crate> <value>` dispatches
     // `placement_set_family` through `set_piece_family`.
     ("placement_set_family", "set_piece_family("),
+    // **The family field's `dialogue` line (#106)** — `dialogue <conversation> [option numbers]` dispatches
+    // `dialogue_preview` through `preview_dialogue`, the same walk an agent's `apply` makes.
+    #[cfg(feature = "bevy_speech_bubbles")]
+    ("dialogue_preview", "preview_dialogue("),
     // **The Play / Stop buttons (#97)** — dispatch `play` and `play_stop` through `play_game` and
     // `stop_game`, the same start and stop an agent's `apply` makes.
     ("play", "play_game("),

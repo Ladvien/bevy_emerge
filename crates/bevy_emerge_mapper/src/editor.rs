@@ -4254,7 +4254,9 @@ fn family_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                if raw.trim_start().starts_with('@') {
+                if raw.trim_start().starts_with("dialogue ") {
+                    preview_dialogue(project.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with('@') {
                     set_piece_family(project.as_deref(), open.as_deref_mut(), &mut state, &raw);
                 } else {
                     set_family_field(project.as_deref(), &mut state, &raw);
@@ -4308,6 +4310,41 @@ fn set_family_field(project: Option<&Project>, state: &mut EditorState, raw: &st
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
     }
+}
+
+/// **Walk a conversation through the registry** as `dialogue_preview`: `dialogue <conversation> [option numbers]`,
+/// and say its lines in the status line.
+#[cfg(feature = "bevy_speech_bubbles")]
+fn preview_dialogue(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+    let mut words = raw.split_whitespace().skip(1);
+    let Some(name) = words.next() else {
+        state.status.problem("`dialogue` needs a conversation name: `dialogue <conversation> [option numbers]`".to_owned());
+        return;
+    };
+    let Ok(choices) = words.map(str::parse::<usize>).collect::<Result<Vec<_>, _>>() else {
+        state.status.problem(format!("`{}` has an option that is not a number, so nothing was walked", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "dialogue_preview", &serde_json::json!({"conversation": name, "choices": choices})) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            let said = outcome.after.as_ref().and_then(|a| a["lines"].as_array()).map(|l| {
+                l.iter().map(|x| format!("{}: {}", x["speaker"].as_str().unwrap_or(""), x["text"].as_str().unwrap_or(""))).collect::<Vec<_>>().join(" / ")
+            });
+            state.status.note(format!("{} — {}", outcome.summary, said.unwrap_or_default()));
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+#[cfg(not(feature = "bevy_speech_bubbles"))]
+fn preview_dialogue(_project: Option<&Project>, state: &mut EditorState, _raw: &str) {
+    state.status.problem("this editor was built without bevy_speech_bubbles, so there is no dialogue to preview".to_owned());
 }
 
 /// **Commit `@<id> <crate> <value>` through the registry** as `placement_set_family`: the piece

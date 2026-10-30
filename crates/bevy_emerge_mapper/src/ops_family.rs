@@ -45,7 +45,7 @@ impl Params {
     }
 }
 
-fn settings_path(ctx: &Ctx, krate: &str) -> Result<std::path::PathBuf, Refusal> {
+pub(crate) fn settings_path(ctx: &Ctx, krate: &str) -> Result<std::path::PathBuf, Refusal> {
     let Some(root) = ctx.root_or_project() else {
         return Err(Refusal::new("no project is open, so there are no family settings to change."));
     };
