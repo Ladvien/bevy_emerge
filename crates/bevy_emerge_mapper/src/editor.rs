@@ -4534,8 +4534,9 @@ fn terrain_edit_keys(
     mut events: MessageReader<KeyboardInput>,
     mut edit: ResMut<TerrainEdit>,
     project: Option<ResMut<Project>>,
-    open: Option<Res<OpenMap>>,
+    mut open: Option<ResMut<OpenMap>>,
     mut state: ResMut<EditorState>,
+    due: Option<ResMut<crate::watch::Due>>,
 ) {
     if edit.active.is_none() {
         return;
@@ -4565,6 +4566,8 @@ fn terrain_edit_keys(
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim() == "plan clear" {
                     clear_plan(project.as_deref(), open.as_deref(), &mut state);
+                } else if raw.trim() == "relations solve" {
+                    solve_relations(project.as_deref(), open.as_deref_mut(), due, &mut state);
                 } else if raw.trim_start().starts_with("people run") {
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("trigger ") {
@@ -5109,6 +5112,43 @@ fn clear_plan(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edi
     };
     match crate::ops::dispatch(&mut ctx, "plan_set", &serde_json::json!({"items": []})) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Mend the open map's broken relations** through the registry as `relations_solve`, from the
+/// terrain line `relations solve` (#137). The moved rows are redrawn, and one Cmd+Z puts them back.
+fn solve_relations(
+    project: Option<&Project>,
+    open: Option<&mut OpenMap>,
+    due: Option<ResMut<crate::watch::Due>>,
+    state: &mut EditorState,
+) {
+    let (Some(project), Some(open)) = (project, open) else {
+        state.status.problem("no map is open, so there are no relations to mend".to_owned());
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(open, OpenMap::new(bevy_emerge_core::map::Map::default(), std::path::PathBuf::new()))),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let outcome = crate::ops::dispatch(&mut ctx, "relations_solve", &serde_json::json!({}));
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            // **The moved pieces are drawn where the map now has them**, by the same full redraw a
+            // map replaced from disk gets.
+            if let (true, Some(mut due)) = (outcome.saved, due) {
+                due.map_replaced = true;
+            }
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
         }
