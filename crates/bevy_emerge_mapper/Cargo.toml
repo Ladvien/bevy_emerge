@@ -52,11 +52,8 @@ debugger = ["bevy/bevy_remote", "dep:bevy_debugger_bevy"]
 # `family.ron` lists the crates it uses; listing one this build lacks is a problem message
 # (`family_host::problems`). The engine-free core crates never depend on these.
 bevy_elements = ["dep:bevy_elements"]
-<<<<<<< HEAD
 bevy_flora = ["dep:bevy_flora"]
-=======
 bevy_lights = ["dep:bevy_lights"]
->>>>>>> c50b5e707a5345f7308c4dd63c556ab1661cdc95
 
 [dependencies]
 bevy_elements = { git = "https://github.com/Ladvien/bevy_elements", rev = "ef87797468db6264f24785fe9d1ffaa9d4deb9f0", features = ["serde"], optional = true }

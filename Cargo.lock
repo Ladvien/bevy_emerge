@@ -953,12 +953,9 @@ dependencies = [
  "bevy_emerge_core",
  "bevy_emerge_decide",
  "bevy_emerge_snip",
-<<<<<<< HEAD
- "bevy_flora",
-=======
  "bevy_fairy",
+ "bevy_flora",
  "bevy_lights",
->>>>>>> c50b5e707a5345f7308c4dd63c556ab1661cdc95
  "image",
  "ron",
  "serde",
