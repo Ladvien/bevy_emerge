@@ -31,11 +31,17 @@ fn one() -> u64 {
     1
 }
 
+/// A run's heat overlay cells `(centre, trail, congestion)` and their size in metres.
+struct Heat {
+    cells: Vec<(bevy::math::Vec2, f32, f32)>,
+    cell: f32,
+}
+
 /// **Walk a crowd across the open map and measure where it queues.**
 pub struct CrowdPreview;
 
 impl CrowdPreview {
-    fn run(ctx: &Ctx, raw: &serde_json::Value) -> Result<(crate::crowd_preview::Report, Params), Refusal> {
+    fn run(ctx: &Ctx, raw: &serde_json::Value) -> Result<(crate::crowd_preview::Report, Params, Heat), Refusal> {
         let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
             Refusal::new(format!("this is not a crowd preview: {e}. The fields are `from`, `to`, `walkers`, `seed` and `max_steps`."))
         })?;
@@ -45,7 +51,8 @@ impl CrowdPreview {
         let map = open.map.expanded(&project.compositions.compositions, &project.library).map_err(Refusal::new)?;
         let mut preview = Preview::new(&map, &project.library, Spec::new(p.from, p.to, p.walkers, p.seed)).map_err(Refusal::new)?;
         let report = preview.run(p.max_steps.unwrap_or(DEFAULT_MAX_STEPS));
-        Ok((report, p))
+        let heat = preview.heat();
+        Ok((report, p, Heat { cells: heat, cell: preview.frame().cell_size }))
     }
 }
 
@@ -82,11 +89,11 @@ impl Operation for CrowdPreview {
         })
     }
     fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
-        let (report, p) = Self::run(ctx, params)?;
+        let (report, p, _) = Self::run(ctx, params)?;
         Ok(json!({"walkers": p.walkers, "report": report_json(&report)}))
     }
     fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
-        let (report, p) = Self::run(ctx, params)?;
+        let (report, p, Heat { cells: heat, cell }) = Self::run(ctx, params)?;
         let hot = match report.hotspot {
             Some((at, _)) => format!(", queue at ({:.1}, {:.1})", at.x, at.y),
             None => String::new(),
@@ -96,7 +103,13 @@ impl Operation for CrowdPreview {
             affected: 0,
             saved: false,
             inverse: None,
-            after: Some(report_json(&report)),
+            after: Some({
+                let mut after = report_json(&report);
+                // The heat overlay's cells: `[x, z, trail, congestion]`, each channel 0..=1 of its peak.
+                after["cell"] = json!(cell);
+                after["heat"] = json!(heat.iter().map(|(at, t, g)| [at.x, at.y, *t, *g]).collect::<Vec<_>>());
+                after
+            }),
         })
     }
 }

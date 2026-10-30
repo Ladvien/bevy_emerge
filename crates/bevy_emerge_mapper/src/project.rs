@@ -813,6 +813,45 @@ impl Project {
         Ok(())
     }
 
+    /// **Take a composition out of the project's collection** — the inverse of
+    /// [`Project::commit_composition`] for an id that did not exist before.
+    ///
+    /// Refuses while any map in the project names the id between quotes (a conservative text test: a
+    /// map that stamped it would stop loading), and when another composition nests it. Nothing is
+    /// written on a refusal.
+    pub fn remove_composition(&mut self, id: &str) -> Result<(), String> {
+        let mut proposed = self.compositions.clone();
+        let before = proposed.compositions.len();
+        proposed.compositions.retain(|c| c.id != id);
+        if proposed.compositions.len() == before {
+            return Err(format!("the project has no composition `{id}`"));
+        }
+        let quoted = format!("\"{id}\"");
+        if let Ok(entries) = self.maps_dir.read_dir() {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("ron") {
+                    continue;
+                }
+                if std::fs::read_to_string(&path).is_ok_and(|t| t.contains(&quoted)) {
+                    return Err(format!(
+                        "{} still names `{id}`, so it cannot be removed. Remove its stamps first.",
+                        path.display()
+                    ));
+                }
+            }
+        }
+        bevy_emerge_core::composition::validate(&proposed.compositions, &self.library)?;
+        let path = self
+            .project_dir
+            .join(bevy_emerge_core::composition::Compositions::FILE);
+        let text = proposed.to_ron()?;
+        bevy_emerge_core::ron_surgery::save_atomic(&path, &text)
+            .map_err(|e| format!("NOT WRITTEN: {e}"))?;
+        self.compositions = proposed;
+        Ok(())
+    }
+
     /// **Rename a composition, and every map that stamps it.**
     ///
     /// # Why it lives here

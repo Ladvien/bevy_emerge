@@ -40,6 +40,8 @@ pub struct FileWatch {
     seen: BTreeMap<PathBuf, SystemTime>,
     changed_at: Option<f64>,
     last_poll: Option<f64>,
+    poll_secs: f64,
+    settle_secs: f64,
 }
 
 impl FileWatch {
@@ -52,9 +54,19 @@ impl FileWatch {
             seen: BTreeMap::new(),
             changed_at: None,
             last_poll: None,
+            poll_secs: POLL_SECS,
+            settle_secs: SETTLE_SECS,
         };
         watch.seen = watch.stat();
         watch
+    }
+
+    /// The same watch with its own poll interval and settle time, for a few small files whose
+    /// reload should not wait the project's half second twice.
+    pub fn with_timing(mut self, poll_secs: f64, settle_secs: f64) -> FileWatch {
+        self.poll_secs = poll_secs;
+        self.settle_secs = settle_secs;
+        self
     }
 
     /// Stats at most once per [`POLL_SECS`] of `now_secs`. True exactly once, when the set of
@@ -62,7 +74,7 @@ impl FileWatch {
     pub fn poll(&mut self, now_secs: f64) -> bool {
         if self
             .last_poll
-            .is_some_and(|last| now_secs - last < POLL_SECS)
+            .is_some_and(|last| now_secs - last < self.poll_secs)
         {
             return false;
         }
@@ -73,7 +85,7 @@ impl FileWatch {
             &mut self.changed_at,
             stats,
             now_secs,
-            SETTLE_SECS,
+            self.settle_secs,
         )
     }
 

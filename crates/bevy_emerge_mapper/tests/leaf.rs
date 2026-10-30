@@ -72,6 +72,10 @@ const ALLOWED: &[(&str, &str)] = &[
          build and a game that lists no family crate pay nothing",
     ),
     (
+        "bevy_carnage",
+        "the owner's fracture, wound and blood crate, hosted by the family layer (#108, #96) — OPTIONAL, reached only by `--features bevy_carnage` (without its render features) and pinned by git rev, so an ordinary build and a game that lists no family crate pay nothing",
+    ),
+    (
         "bevy_lights",
         "the owner's fires, torches and budgeted light pool crate, hosted by the family layer (#103) — \
          OPTIONAL, reached only by `--features bevy_lights` and pinned by git rev, so an ordinary \
@@ -80,6 +84,10 @@ const ALLOWED: &[(&str, &str)] = &[
     (
         "bevy_orca",
         "the owner's reciprocal-avoidance crowd solver, hosted by the family layer (#107) — OPTIONAL, reached only by `--features bevy_orca` and pinned by git rev, so an ordinary build pays nothing",
+    ),
+    (
+        "bevy_speech_bubbles",
+        "the owner's speech balloon, conversation graph and dialog box crate, hosted by the family layer (#106, #96) — OPTIONAL, reached only by `--features bevy_speech_bubbles` and pinned by git rev, so an ordinary build pays nothing",
     ),
     (
         "bevy_stigmergy",

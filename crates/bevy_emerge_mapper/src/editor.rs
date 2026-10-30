@@ -1425,6 +1425,47 @@ pub struct TerrainEdit {
 #[derive(Resource, Default)]
 pub struct CrowdEdit {
     active: Option<String>,
+    /// The last run's heat overlay (#107): cell size in metres and `[x, z, trail, congestion]`
+    /// cells in map space. A measurement kept for drawing; never saved. Empty draws nothing.
+    heat: CrowdHeat,
+}
+
+/// What [`draw_crowd_heat`] draws.
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct CrowdHeat {
+    pub cell: f32,
+    pub cells: Vec<[f32; 4]>,
+}
+
+impl CrowdHeat {
+    /// Read the `cell` and `heat` fields of a `crowd_preview` outcome's `after`.
+    pub fn from_after(after: &serde_json::Value) -> CrowdHeat {
+        let cell = after["cell"].as_f64().unwrap_or(0.0) as f32;
+        let cells = after["heat"]
+            .as_array()
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| {
+                        let v: Vec<f32> = r.as_array()?.iter().filter_map(|n| n.as_f64().map(|n| n as f32)).collect();
+                        <[f32; 4]>::try_from(v).ok()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        CrowdHeat { cell, cells }
+    }
+
+    /// The colour of one cell: congestion runs from amber to red and wins over the trail, which is a
+    /// faint blue, so a queue is never hidden under the path that led to it.
+    pub fn colour(trail: f32, congestion: f32) -> Color {
+        if congestion >= trail {
+            // CHROME-OK: world ink, a heat ramp over the floor like the gizmo palettes, not panel chrome.
+            Color::srgba(1.0, 0.85 - 0.75 * congestion, 0.05, 0.25 + 0.6 * congestion)
+        } else {
+            // CHROME-OK: world ink, the faint trail under the heat.
+            Color::srgba(0.3, 0.6, 1.0, 0.1 + 0.4 * trail)
+        }
+    }
 }
 
 /// The node the palette is rebuilt into, so collapsing a category can redraw it.
@@ -2351,7 +2392,7 @@ impl Plugin for EditorPlugin {
                             .run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
                     ),
                     check_edges.run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
-                    draw_edge_faults.run_if(in_map_mode),
+                    (draw_edge_faults, draw_crowd_heat).run_if(in_map_mode),
                 ),)
                     .run_if(in_state(crate::screen::Screen::Editor))
                     .run_if(crate::tiles::Door::map_door_is_open),
@@ -4330,7 +4371,15 @@ fn terrain_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                if raw.trim_start().starts_with("import ") {
+                if cfg!(feature = "bevy_carnage") && raw.trim_start().starts_with("destructible ") {
+                    #[cfg(feature = "bevy_carnage")]
+                    mark_destructible(project.as_deref(), &mut state, &raw);
+                } else if cfg!(feature = "bevy_carnage") && raw.trim_start().starts_with("hit ") {
+                    #[cfg(feature = "bevy_carnage")]
+                    hit_destructible(project.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("water ") {
+                    place_water(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("import ") {
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
                     sculpt_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
@@ -4421,6 +4470,85 @@ fn import_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
     }
 }
 
+/// **Mark a piece destructible through the registry** as `destructible_set`, from the terrain line
+/// `destructible <piece> on|off`.
+#[cfg(feature = "bevy_carnage")]
+fn mark_destructible(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let (Some(piece), Some(on)) = (words.get(1), words.get(2).and_then(|w| match *w { "on" => Some(true), "off" => Some(false), _ => None })) else {
+        state.status.problem(format!("`{}` is not `destructible <piece> on|off`, so nothing was changed", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx { project: project.cloned(), source: crate::ops::Source::Human, session: crate::ops::session_id(), ..crate::ops::Ctx::default() };
+    match crate::ops::dispatch(&mut ctx, "destructible_set", &serde_json::json!({"piece": piece, "on": on})) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Preview a hit through the registry** as `destructible_hit`, from the terrain line
+/// `hit <piece> <x> <y> <z> <radius_m>`; it changes nothing.
+#[cfg(feature = "bevy_carnage")]
+fn hit_destructible(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Option<Vec<f32>> = words.get(2..).filter(|w| w.len() == 4).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
+    let (Some(piece), Some(n)) = (words.get(1), nums) else {
+        state.status.problem(format!("`{}` is not `hit <piece> <x> <y> <z> <radius_m>`, so no hit was previewed", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx { project: project.cloned(), source: crate::ops::Source::Human, session: crate::ops::session_id(), ..crate::ops::Ctx::default() };
+    match crate::ops::dispatch(&mut ctx, "destructible_hit", &serde_json::json!({"piece": piece, "point": [n[0], n[1], n[2]], "radius": n[3]})) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Place water through the registry** as `water_place`, from the terrain line
+/// `water spring <x> <z> <rate_m3_s> <radius_m>`, `water sink <x> <z> <rate_m3_s> <radius_m>` or
+/// `water lake <x> <z> <radius_m> <level_m>`; `water clear` removes the map's water.
+fn place_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Option<Vec<f32>> = words.get(2..).filter(|w| w.len() == 4).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is no water to place".to_owned());
+        return;
+    };
+    let place = match (words.get(1).copied(), nums) {
+        (Some("clear"), _) if words.len() == 2 => None,
+        (Some("spring"), Some(n)) => Some(serde_json::json!({"Spring": {"x": n[0], "z": n[1], "rate_m3_s": n[2], "radius_m": n[3]}})),
+        (Some("sink"), Some(n)) => Some(serde_json::json!({"Sink": {"x": n[0], "z": n[1], "rate_m3_s": n[2], "radius_m": n[3]}})),
+        (Some("lake"), Some(n)) => Some(serde_json::json!({"Lake": {"x": n[0], "z": n[1], "radius_m": n[2], "level_m": n[3]}})),
+        _ => {
+            state.status.problem(format!(
+                "`{}` is not `water spring|sink <x> <z> <rate_m3_s> <radius_m>`, `water lake <x> <z> <radius_m> <level_m>` or `water clear`, so nothing was changed",
+                raw.trim()
+            ));
+            return;
+        }
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = match place {
+        Some(p) => serde_json::json!({"map": open.map.name, "place": p}),
+        None => serde_json::json!({"map": open.map.name, "clear": true}),
+    };
+    match crate::ops::dispatch(&mut ctx, "water_place", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
 /// A brush word as the stroke's JSON spells it.
 fn terrain_brush(word: &str) -> Option<serde_json::Value> {
     let mut parts = word.split(':');
@@ -4470,7 +4598,9 @@ fn crowd_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                run_crowd_preview(project.as_deref(), open.as_deref(), &mut state, &raw);
+                if let Some(heat) = run_crowd_preview(project.as_deref(), open.as_deref(), &mut state, &raw) {
+                    edit.heat = heat;
+                }
                 return;
             }
             Key::Escape => {
@@ -4511,10 +4641,10 @@ fn crowd_params(raw: &str) -> Option<serde_json::Value> {
 }
 
 /// **Run the typed line through the registry** as `crowd_preview` and say what it measured.
-fn run_crowd_preview(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+fn run_crowd_preview(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) -> Option<CrowdHeat> {
     let Some(params) = crowd_params(raw) else {
         state.status.problem(format!("`{}` is not `<from_x> <from_z> <to_x> <to_z> <walkers>`, so no crowd was run", raw.trim()));
-        return;
+        return None;
     };
     let mut ctx = crate::ops::Ctx {
         project: project.cloned(),
@@ -4524,8 +4654,36 @@ fn run_crowd_preview(project: Option<&Project>, open: Option<&OpenMap>, state: &
         ..crate::ops::Ctx::default()
     };
     match crate::ops::dispatch(&mut ctx, "crowd_preview", &params) {
-        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
-        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            state.status.note(outcome.summary);
+            outcome.after.as_ref().map(CrowdHeat::from_after)
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+            None
+        }
+    }
+}
+
+/// **Draw the crowd preview's heat over the floor** (#107): one flat square per cell the run wore a
+/// path through or queued in. Gizmos, like `draw_edge_faults`: it is a statement about the run, not
+/// a thing in the map, and an empty [`CrowdHeat`] draws nothing.
+fn draw_crowd_heat(edit: Res<CrowdEdit>, open: Res<OpenMap>, project: Res<Project>, mut gizmos: Gizmos) {
+    let heat = &edit.heat;
+    if heat.cells.is_empty() || heat.cell <= 0.0 {
+        return;
+    }
+    let y = open.map.origin.1 - ground_drop(&project) + BOUNDS_FILL_CLEARANCE + 0.02;
+    let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    for [x, z, trail, congestion] in &heat.cells {
+        // Nested outlines read as a filled square: gizmos have no fill.
+        for k in [0.9, 0.6, 0.3] {
+            gizmos.rect(
+                Isometry3d::new(Vec3::new(open.map.origin.0 + x, y, open.map.origin.2 + z), flat),
+                Vec2::splat(heat.cell * k),
+                CrowdHeat::colour(*trail, *congestion),
+            );
+        }
     }
 }
 
@@ -7649,40 +7807,8 @@ fn drive_clone(
         snap_point(&project, sum.1 / n, SnapLevel::Tile),
     );
 
-    let mut pieces = Vec::with_capacity(caught.len());
-    let (mut bx0, mut bz0, mut bx1, mut bz1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-    for &i in &caught {
-        let p = &open.map.placements[i];
-        let on = match &p.on {
-            None => CloneHost::Layer,
-            Some(host) => caught
-                .iter()
-                .position(|&j| open.map.placements[j].id == *host)
-                .map(CloneHost::InSet)
-                .unwrap_or(CloneHost::Outside),
-        };
-        let offset = (p.at.0 - anchor.0, p.at.1 - anchor.1);
-        // Bounds from the real footprints, so the marker claims what the stamp will occupy.
-        let (w, depth) = descriptor_of(&project.library, p)
-            .map(|d| crate::fill::cell_extents(&d, p.yaw, p.tip))
-            .unwrap_or((crate::fill::MIN_CELL, crate::fill::MIN_CELL));
-        bx0 = bx0.min(offset.0 - w * 0.5);
-        bz0 = bz0.min(offset.1 - depth * 0.5);
-        bx1 = bx1.max(offset.0 + w * 0.5);
-        bz1 = bz1.max(offset.1 + depth * 0.5);
-        pieces.push(ClonePiece {
-            descriptor: p.descriptor.clone(),
-            offset,
-            yaw: p.yaw,
-            tip: p.tip,
-            lift: p.lift,
-            note: p.note.clone(),
-            owned: p.owned,
-            owned_because: p.owned_because.clone(),
-            patch: p.patch.clone(),
-            on,
-        });
-    }
+    let (pieces, [mut bx0, mut bz0, mut bx1, mut bz1]) =
+        capture_pieces(&project, &open.map, &caught, anchor);
     // The stamps, carried whole. Their bounds come from the rows the picture already knows about,
     // so the marker claims what the stamp actually covers rather than a point at its anchor.
     let mut stamps = Vec::with_capacity(caught_stamps.len());
@@ -11491,6 +11617,95 @@ fn redraw_edited(
             .status
             .problem(format!("a library edit did not reach the map: {e}")),
     }
+}
+
+/// **The pieces of a capture**: each placement in `caught` (indices into `map.placements`) as a
+/// [`ClonePiece`] offset from `anchor`, with a host inside the set resolved to its index and any
+/// other host marked [`CloneHost::Outside`], and the bounds `[x0, z0, x1, z1]` of their real
+/// footprints. One function for the box capture and for [`set_of_placements`], so a group an agent
+/// names and a group a person draws a box round are the same group.
+fn capture_pieces(
+    project: &Project,
+    map: &bevy_emerge_core::map::Map,
+    caught: &[usize],
+    anchor: (f32, f32),
+) -> (Vec<ClonePiece>, [f32; 4]) {
+    let mut pieces = Vec::with_capacity(caught.len());
+    let (mut bx0, mut bz0, mut bx1, mut bz1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for &i in caught {
+        let p = &map.placements[i];
+        let on = match &p.on {
+            None => CloneHost::Layer,
+            Some(host) => caught
+                .iter()
+                .position(|&j| map.placements[j].id == *host)
+                .map(CloneHost::InSet)
+                .unwrap_or(CloneHost::Outside),
+        };
+        let offset = (p.at.0 - anchor.0, p.at.1 - anchor.1);
+        // Bounds from the real footprints, so the marker claims what the stamp will occupy.
+        let (w, depth) = descriptor_of(&project.library, p)
+            .map(|d| crate::fill::cell_extents(&d, p.yaw, p.tip))
+            .unwrap_or((crate::fill::MIN_CELL, crate::fill::MIN_CELL));
+        bx0 = bx0.min(offset.0 - w * 0.5);
+        bz0 = bz0.min(offset.1 - depth * 0.5);
+        bx1 = bx1.max(offset.0 + w * 0.5);
+        bz1 = bz1.max(offset.1 + depth * 0.5);
+        pieces.push(ClonePiece {
+            descriptor: p.descriptor.clone(),
+            offset,
+            yaw: p.yaw,
+            tip: p.tip,
+            lift: p.lift,
+            note: p.note.clone(),
+            owned: p.owned,
+            owned_because: p.owned_because.clone(),
+            patch: p.patch.clone(),
+            on,
+        });
+    }
+    (pieces, [bx0, bz0, bx1, bz1])
+}
+
+/// **The placements an agent names, as a set in hand** — what the box capture builds from a
+/// rectangle, built from ids. Anchored on the tile-snapped centroid like the box. Refuses an id the
+/// map does not hold, naming it, and a repeated one.
+pub fn set_of_placements(
+    project: &Project,
+    map: &bevy_emerge_core::map::Map,
+    ids: &[String],
+) -> Result<CloneSet, String> {
+    if ids.is_empty() {
+        return Err("name the placements to group: `from` is empty".to_owned());
+    }
+    let mut caught: Vec<usize> = Vec::with_capacity(ids.len());
+    for id in ids {
+        let i = map
+            .placements
+            .iter()
+            .position(|p| p.id == *id)
+            .ok_or_else(|| format!("the open map has no placement `{id}`"))?;
+        if caught.contains(&i) {
+            return Err(format!("`{id}` is named twice"));
+        }
+        caught.push(i);
+    }
+    let n = caught.len() as f32;
+    let sum = caught.iter().fold((0.0f32, 0.0f32), |s, &i| {
+        (s.0 + map.placements[i].at.0, s.1 + map.placements[i].at.1)
+    });
+    let anchor = (
+        snap_point(project, sum.0 / n, SnapLevel::Tile),
+        snap_point(project, sum.1 / n, SnapLevel::Tile),
+    );
+    let (pieces, [bx0, bz0, bx1, bz1]) = capture_pieces(project, map, &caught, anchor);
+    Ok(CloneSet {
+        pieces,
+        stamps: Vec::new(),
+        centre_off: ((bx0 + bx1) * 0.5, (bz0 + bz1) * 0.5),
+        half: ((bx1 - bx0) * 0.5, (bz1 - bz0) * 0.5),
+        yaw: 0.0,
+    })
 }
 
 /// **A set in hand becomes a reusable group.**

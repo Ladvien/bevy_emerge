@@ -76,6 +76,7 @@ pub mod smart;
 pub mod stack;
 pub mod vocab;
 pub mod wfc;
+pub mod water;
 
 /// Hermite ease between two edges. Pure math, so it lives here rather than in a crate that has a
 /// renderer — `bevy_emerge_anim`'s weight blending and the game's own `util` both take it from one place.
