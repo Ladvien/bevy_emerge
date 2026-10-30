@@ -65,9 +65,11 @@ pub enum Role {
 /// One descriptor's visible repeats.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Repeat {
-    /// The descriptor repeated. A patched copy is a different look, so one descriptor can head two
-    /// rows: its plain copies and its copies under one patch.
+    /// The descriptor repeated. A patched copy is a different look, so one descriptor can head
+    /// several rows: its plain copies, and its copies under each patch.
     pub descriptor: String,
+    /// The patch every copy in this row carries, `None` for plain copies.
+    pub patch: Option<crate::descriptor::Descriptor>,
     pub role: Role,
     /// Pairs of look-alikes in range of each other.
     pub pairs: usize,
@@ -80,7 +82,8 @@ pub struct Repeat {
 /// Every descriptor of `placements` that repeats visibly, the one a player notices first, first.
 ///
 /// Placements whose descriptor the library does not hold are skipped: they have no role to weigh.
-/// Ties are broken by descriptor id, so the report is deterministic.
+/// Ties are broken by descriptor id, then plain before patched, then by where the look first
+/// appears in `placements`, so the report is deterministic.
 pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules) -> Vec<Repeat> {
     // Group by the look: descriptor id plus patch, so a patched copy is a different piece.
     let mut groups: Vec<(String, Role, Vec<&Placed>)> = Vec::new();
@@ -127,6 +130,7 @@ pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules
             };
             Some(Repeat {
                 descriptor: rows[0].descriptor.clone(),
+                patch: rows[0].patch.clone(),
                 role,
                 pairs,
                 pieces,
@@ -138,6 +142,7 @@ pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules
         b.score
             .total_cmp(&a.score)
             .then_with(|| a.descriptor.cmp(&b.descriptor))
+            .then_with(|| a.patch.is_some().cmp(&b.patch.is_some()))
     });
     report
 }
