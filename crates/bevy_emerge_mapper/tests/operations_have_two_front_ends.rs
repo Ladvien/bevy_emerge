@@ -229,7 +229,6 @@ fn every_mcp_tool_is_prefixed_and_unique() {
 const UNMIGRATED: &[Action] = &[
     Action::ComposePrev,
     Action::ComposeNext,
-    Action::RenameComposition,
     Action::PickComposition,
     Action::CompositionPrev,
     Action::CompositionNext,
@@ -355,7 +354,8 @@ const UNMIGRATED: &[Action] = &[
 // 125 -> 123: `PalettePrev` and `PaletteNext` -> `brush_arm` (gap 1): the arrow walk arms through the operation a click uses.
 // 123 -> 119: `TabSlot1`, `TabSlot2`, `TabSlot3` and `SwitchDoor` -> `door_open` (cycle 8, item 1): every door and tab key opens through the operation.
 // 113 -> 111: `ComposeArm` and `ArmComposition` -> `composition_arm` (E-002, #129): the COMPOSE tab's Enter, the picker's Enter and a picker row's click arm through the operation an agent calls.
-const UNMIGRATED_MAX: usize = 111;
+// 111 -> 110: `RenameComposition` -> `composition_rename` (E-002, #129 slice 2): the COMPOSE tab's name field renames through the operation an agent calls.
+const UNMIGRATED_MAX: usize = 110;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

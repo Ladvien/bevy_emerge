@@ -531,7 +531,7 @@ enumerated! {
     /// The same verb as [`Action::TypeId`], on a different subject: *"say what this thing is
     /// called"*. The Meshes tab's `I` renames a *candidate*'s id; this renames a *composition*'s.
     /// **One verb, two subjects, two contexts** — and the contexts never overlap, so the same key
-    /// serves both.
+    /// serves both. Enter dispatches `composition_rename`, the operation an agent calls.
     RenameComposition,
     /// **Take the arrows to the composition picker** — the Map door's list of compositions.
     ///
@@ -897,6 +897,7 @@ impl Action {
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::ArmComposition | Action::ComposeArm => Some("composition_arm"),
+            Action::RenameComposition => Some("composition_rename"),
             Action::RenameMap => Some("map_rename"),
             Action::NoteTool => Some("note_add"),
             Action::SetRule => Some("rules_set"),
