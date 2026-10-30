@@ -2,6 +2,10 @@
 
 What each change added, newest first. A visible change has a clip: click the still to play it. `python3 tools/changelog/changelog.py page --open` plays them all in one page.
 
+## 2026-10-30
+
+- **101-volume-edit** `51d0e09` Volume edit list: add and carve sphere, box and capsule primitives, one undo each, saved beside the map *No clip: an operation and a data type, not yet drawn (isomesh meshing owed); proved by volume_edit_is_an_operation*
+
 ## 2026-10-29
 
 - **play-stop-group** `2f2603d` Stop ends the game Play started even when it runs through a launcher such as cargo run *No clip: a process-lifecycle fix; proved by play_stop_ends_the_whole_game*
