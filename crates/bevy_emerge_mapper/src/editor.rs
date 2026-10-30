@@ -4371,7 +4371,13 @@ fn terrain_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                if raw.trim_start().starts_with("water ") {
+                if cfg!(feature = "bevy_carnage") && raw.trim_start().starts_with("destructible ") {
+                    #[cfg(feature = "bevy_carnage")]
+                    mark_destructible(project.as_deref(), &mut state, &raw);
+                } else if cfg!(feature = "bevy_carnage") && raw.trim_start().starts_with("hit ") {
+                    #[cfg(feature = "bevy_carnage")]
+                    hit_destructible(project.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("water ") {
                     place_water(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("import ") {
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
@@ -4460,6 +4466,42 @@ fn import_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
         }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Mark a piece destructible through the registry** as `destructible_set`, from the terrain line
+/// `destructible <piece> on|off`.
+#[cfg(feature = "bevy_carnage")]
+fn mark_destructible(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let (Some(piece), Some(on)) = (words.get(1), words.get(2).and_then(|w| match *w { "on" => Some(true), "off" => Some(false), _ => None })) else {
+        state.status.problem(format!("`{}` is not `destructible <piece> on|off`, so nothing was changed", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx { project: project.cloned(), source: crate::ops::Source::Human, session: crate::ops::session_id(), ..crate::ops::Ctx::default() };
+    match crate::ops::dispatch(&mut ctx, "destructible_set", &serde_json::json!({"piece": piece, "on": on})) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Preview a hit through the registry** as `destructible_hit`, from the terrain line
+/// `hit <piece> <x> <y> <z> <radius_m>`; it changes nothing.
+#[cfg(feature = "bevy_carnage")]
+fn hit_destructible(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Option<Vec<f32>> = words.get(2..).filter(|w| w.len() == 4).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
+    let (Some(piece), Some(n)) = (words.get(1), nums) else {
+        state.status.problem(format!("`{}` is not `hit <piece> <x> <y> <z> <radius_m>`, so no hit was previewed", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx { project: project.cloned(), source: crate::ops::Source::Human, session: crate::ops::session_id(), ..crate::ops::Ctx::default() };
+    match crate::ops::dispatch(&mut ctx, "destructible_hit", &serde_json::json!({"piece": piece, "point": [n[0], n[1], n[2]], "radius": n[3]})) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
     }
 }
