@@ -4487,13 +4487,10 @@ fn terrain_edit_keys(
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("forest ") {
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
-<<<<<<< HEAD
                 } else if raw.trim_start().starts_with("tree ") {
                     edit_tree(project.as_deref(), open.as_deref(), &mut state, &raw);
-=======
                 } else if raw.trim() == "plan clear" {
                     clear_plan(project.as_deref(), open.as_deref(), &mut state);
->>>>>>> e0489c1ca16190ddd22df11bfec87dcd346fc3a8
                 } else if raw.trim_start().starts_with("people run") {
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("trigger ") {
