@@ -350,18 +350,24 @@ pub fn cross(world: &mut World, to: crate::tiles::Door) -> Result<(), String> {
 /// this whole file is about. `the_door_resets_what_it_says_it_owns` compares this macro's types
 /// against every `Ownership::Door` row in [`OWNERSHIP`] and fails on either half of a drift — a type
 /// classified `Door` and not reset, or reset and not classified.
+///
+/// A type only one cargo feature registers carries that feature's `#[cfg]`, here and on its
+/// [`OWNERSHIP`] row, so either build compares the list and the table it actually has.
 macro_rules! door_state {
-    ($($t:ty),* $(,)?) => {
+    ($($(#[$attr:meta])* $t:ty),* $(,)?) => {
         pub(crate) fn reset_door_state(world: &mut World) {
             $(
-                world.remove_resource::<$t>();
-                world.init_resource::<$t>();
+                $(#[$attr])*
+                {
+                    world.remove_resource::<$t>();
+                    world.init_resource::<$t>();
+                }
             )*
         }
 
         /// The types [`reset_door_state`] puts back, by type path, for the ratchet.
         pub fn door_state_type_paths() -> Vec<&'static str> {
-            vec![$( std::any::type_name::<$t>() ),*]
+            vec![$( $(#[$attr])* std::any::type_name::<$t>() ),*]
         }
     };
 }
@@ -428,6 +434,9 @@ door_state![
     crate::badges::ShowingFor,
     crate::view::Rig,
     crate::token_prompt::TokenPrompt,
+    // The Environment panel's held hour (#98): what this door's preview is showing, released with it.
+    #[cfg(feature = "bevy_elements")]
+    crate::environment::ClockScrub,
 ];
 
 /// **Despawn every root a screen could have spawned.** The one implementation, called by both
@@ -610,6 +619,11 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     // The game's newest verdict on a reload, read from `.live/game.ron`: true for as long as the app runs.
     ("bevy_emerge_mapper::live::LiveGame", Ownership::Session),
     ("bevy_emerge_mapper::family_host::FamilySettings", Ownership::Session),
+    // **`Door`, like the camera it sits beside**: the hour the Environment panel's clock buttons
+    // hold the preview at (#98). It is a view of the open project, never written to its file, so a
+    // door change lets the next project's own clock run.
+    #[cfg(feature = "bevy_elements")]
+    ("bevy_emerge_mapper::environment::ClockScrub", Ownership::Door),
     ("bevy_emerge_mapper::editor::Folded", Ownership::Door),
     ("bevy_emerge_mapper::editor::StampPicture", Ownership::Door),
     ("bevy_emerge_mapper::editor::TargetLock", Ownership::Door),
