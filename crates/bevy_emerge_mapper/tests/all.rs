@@ -112,7 +112,11 @@ mod every_list_follows_its_selection;
 mod every_refusal_is_in_a_problem;
 mod every_resource_says_what_a_door_does_to_it;
 mod family_host;
+<<<<<<< HEAD
 mod flora_family;
+=======
+mod family_lights_settings;
+>>>>>>> c50b5e707a5345f7308c4dd63c556ab1661cdc95
 mod family_set_is_an_operation;
 mod family_settings_reload;
 mod family_settings_at_launch;
@@ -135,6 +139,7 @@ mod one_undo_takes_back_the_newest_change;
 mod operations_have_two_front_ends;
 mod out_of_area_compares_before_and_after;
 mod piece_select_is_an_operation;
+mod play_starts_and_stops_the_game;
 mod placement_remove;
 mod placement_set_yaw;
 mod placement_undo_without_id;
@@ -142,6 +147,7 @@ mod project_clone_shares;
 mod roads_and_fields_do_not_z_fight;
 mod runs_are_edited_through_operations;
 mod stamp_remove;
+mod terrain_stroke_is_an_operation;
 mod the_arm_crosses_the_door;
 mod the_arm_survives_the_door_change;
 mod the_door_switch_crosses;
