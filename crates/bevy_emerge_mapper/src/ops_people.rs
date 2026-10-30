@@ -31,6 +31,21 @@ pub struct Person {
     /// The id of the placement they work in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<String>,
+    /// Ties this person starts with, to other people on the map (`bevy_society`'s `TieSpec`, by name).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ties: Vec<Tie>,
+}
+
+/// A directed starting tie from one person to another.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tie {
+    /// The other person's name.
+    pub with: String,
+    /// Liking in `[-1, 1]`.
+    pub affinity: f32,
+    /// Reliance in `[0, 1]`.
+    pub trust: f32,
 }
 
 /// A map's people: `<emerge_dir>/people/<map>.ron`.
@@ -44,6 +59,22 @@ pub struct People {
 #[serde(deny_unknown_fields)]
 pub struct PutBack {
     pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TieParams {
+    /// The other person's name; they must be on the map.
+    pub with: String,
+    /// Liking in `[-1, 1]`; 0 when left out on a new tie, unchanged on a standing one.
+    #[serde(default)]
+    pub affinity: Option<f32>,
+    /// Reliance in `[0, 1]`; 0.5 when left out on a new tie, unchanged on a standing one.
+    #[serde(default)]
+    pub trust: Option<f32>,
+    /// End the tie.
+    #[serde(default)]
+    pub remove: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -66,6 +97,9 @@ pub struct Params {
     /// Take the person off the map.
     #[serde(default)]
     pub remove: bool,
+    /// Set the tie from this person to another person, or end it with `remove`.
+    #[serde(default)]
+    pub tie: Option<TieParams>,
     #[serde(default)]
     pub put_back: Option<PutBack>,
 }
@@ -130,7 +164,7 @@ pub struct PersonSet;
 impl PersonSet {
     fn apply(ctx: &Ctx, raw: &serde_json::Value, write: bool) -> Result<Outcome, Refusal> {
         let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
-            Refusal::new(format!("this is not a person: {e}. The fields are `map`, `name`, `at`, `faction`, `home`, `work` and `remove`."))
+            Refusal::new(format!("this is not a person: {e}. The fields are `map`, `name`, `at`, `faction`, `home`, `work`, `tie` and `remove`."))
         })?;
         let Some(project) = ctx.project.as_ref() else {
             return Err(Refusal::new("no project is open, so there is nobody to place."));
@@ -152,12 +186,15 @@ impl PersonSet {
                     return Err(Refusal::new(format!("nobody on `{}` is called `{name}`. Nothing was changed.", p.map)));
                 };
                 people.people.remove(i);
+                for q in &mut people.people {
+                    q.ties.retain(|t| t.with != name);
+                }
                 format!("{name} left {}", p.map)
             } else {
                 let mut person = match at_row {
                     Some(i) => people.people[i].clone(),
                     None => match p.at {
-                        Some(at) => Person { name: name.to_owned(), at, faction: None, home: None, work: None },
+                        Some(at) => Person { name: name.to_owned(), at, faction: None, home: None, work: None, ties: Vec::new() },
                         None => return Err(Refusal::new(format!("`{name}` is new, so they need an `at` (x, z). Nothing was changed."))),
                     },
                 };
@@ -180,6 +217,36 @@ impl PersonSet {
                             *slot = Some(id.to_owned());
                         }
                         None => {}
+                    }
+                }
+                if let Some(t) = &p.tie {
+                    if t.with == name {
+                        return Err(Refusal::new(format!("{name} cannot have a tie to themselves. Nothing was changed.")));
+                    }
+                    if !people.people.iter().any(|q| q.name == t.with) {
+                        return Err(Refusal::new(format!("nobody on `{}` is called `{}`, so {name} cannot have a tie to them. Nothing was changed.", p.map, t.with)));
+                    }
+                    for (v, lo, hi, what) in [(t.affinity, -1.0, 1.0, "affinity"), (t.trust, 0.0, 1.0, "trust")] {
+                        if let Some(v) = v
+                            && !(v.is_finite() && (lo..=hi).contains(&v))
+                        {
+                            return Err(Refusal::new(format!("the tie's {what} is {v}; it is between {lo} and {hi}. Nothing was changed.")));
+                        }
+                    }
+                    let row = person.ties.iter().position(|x| x.with == t.with);
+                    if t.remove {
+                        let Some(i) = row else {
+                            return Err(Refusal::new(format!("{name} has no tie to {}. Nothing was changed.", t.with)));
+                        };
+                        person.ties.remove(i);
+                    } else {
+                        match row {
+                            Some(i) => {
+                                person.ties[i].affinity = t.affinity.unwrap_or(person.ties[i].affinity);
+                                person.ties[i].trust = t.trust.unwrap_or(person.ties[i].trust);
+                            }
+                            None => person.ties.push(Tie { with: t.with.clone(), affinity: t.affinity.unwrap_or(0.0), trust: t.trust.unwrap_or(0.5) }),
+                        }
                     }
                 }
                 let summary = format!("{} {name}", if at_row.is_some() { "changed" } else { "added" });
@@ -234,6 +301,12 @@ impl Operation for PersonSet {
                 "faction": {"type": "string", "description": "A faction the project's society definitions declare; \"\" leaves it."},
                 "home": {"type": "string", "description": "The id of the placement they live in; \"\" clears it. That placement cannot be removed while they live there."},
                 "work": {"type": "string", "description": "The id of the placement they work in; \"\" clears it."},
+                "tie": {"type": "object", "additionalProperties": false, "required": ["with"], "description": "A starting tie from this person to another person on the map; the run begins with it. `remove` ends it.", "properties": {
+                    "with": {"type": "string"},
+                    "affinity": {"type": "number", "minimum": -1, "maximum": 1},
+                    "trust": {"type": "number", "minimum": 0, "maximum": 1},
+                    "remove": {"type": "boolean"}
+                }},
                 "remove": {"type": "boolean", "description": "Take the named person off the map."},
                 "put_back": {"type": "object", "description": "An undo's put-back. Only an undo sends this."}
             }
@@ -260,6 +333,8 @@ pub struct Stood {
     pub name: String,
     pub at: (f32, f32),
     pub ties: usize,
+    /// Each tie as `(other person, affinity, trust)` after the run.
+    pub bonds: Vec<(String, f32, f32)>,
 }
 
 /// **The society after `days` game-days**: who stands where and how many ties each has, with one hash of
@@ -355,6 +430,23 @@ pub fn run_forward(
         }
     }
 
+    let named: std::collections::BTreeMap<String, Entity> = {
+        let mut q = app.world_mut().query_filtered::<(Entity, &Name), With<Person>>();
+        q.iter(app.world()).map(|(e, n)| (n.as_str().to_owned(), e)).collect()
+    };
+    let by_name = |n: &str| named.get(n).copied();
+    for p in people.people.iter().filter(|p| !p.ties.is_empty()) {
+        let owner = by_name(&p.name).expect("spawned above");
+        let mut ties = Ties::default();
+        for t in &p.ties {
+            let Some(target) = by_name(&t.with) else {
+                return Err(Refusal::new(format!("{} has a tie to `{}`, who is not on the map.", p.name, t.with)));
+            };
+            ties.entry_with(target, t.affinity).trust = t.trust;
+        }
+        app.world_mut().entity_mut(owner).insert(ties);
+    }
+
     let ticks = (days * SECONDS_PER_DAY * TICK_HZ) as usize + 1;
     for _ in 0..ticks {
         app.update();
@@ -377,7 +469,15 @@ pub fn run_forward(
         mix(u64::from(t.x.to_bits()));
         mix(u64::from(t.z.to_bits()));
         mix(ties as u64);
-        out.push(Stood { name: w.get::<Name>(e).map(|n| n.as_str().to_owned()).unwrap_or_default(), at: (t.x, t.z), ties });
+        let bonds = w
+            .get::<Ties>(e)
+            .map(|ts| {
+                ts.0.iter()
+                    .map(|t| (w.get::<Name>(t.target).map(|n| n.as_str().to_owned()).unwrap_or_default(), t.affinity, t.trust))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(Stood { name: w.get::<Name>(e).map(|n| n.as_str().to_owned()).unwrap_or_default(), at: (t.x, t.z), ties, bonds });
     }
     Ok(RunReport { seed, days, ticks, people: out, hash })
 }

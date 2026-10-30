@@ -4534,7 +4534,7 @@ fn sculpt_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
 }
 
 /// **Author a person through the registry** as `person_set`, from the terrain line
-/// `person <name> remove`, or `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>]`.
+/// `person <name> remove`, or `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>] [tie=<name>[:<affinity>[:<trust>]]]`.
 fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
     let words: Vec<&str> = raw.split_whitespace().collect();
     let (Some(open), Some(name)) = (open, words.get(1)) else {
@@ -4556,6 +4556,20 @@ fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edi
     for w in rest {
         match w.split_once('=') {
             Some((k @ ("home" | "work" | "faction"), v)) => params[k] = (*v).into(),
+            Some(("tie", v)) => {
+                let mut f = v.split(':');
+                let with = f.next().unwrap_or_default();
+                let rest: Vec<&str> = f.collect();
+                let nums: Vec<Option<f32>> = rest.iter().map(|n| n.parse().ok()).collect();
+                params["tie"] = if rest == ["remove"] {
+                    serde_json::json!({"with": with, "remove": true})
+                } else if rest.len() <= 2 && nums.iter().all(Option::is_some) {
+                    serde_json::json!({"with": with, "affinity": nums.first().copied().flatten(), "trust": nums.get(1).copied().flatten()})
+                } else {
+                    state.status.problem(format!("`{w}` is not `tie=<name>[:<affinity>[:<trust>]]` or `tie=<name>:remove`, so nothing was changed"));
+                    return;
+                };
+            }
             _ => {
                 state.status.problem(format!("`{w}` is not a person setting (home=<id>, work=<id>, faction=<id>), so nothing was changed"));
                 return;
