@@ -100,6 +100,38 @@ impl Heightfield {
         Ok(Self { origin, cell_m, width, depth, heights })
     }
 
+    /// **Read a terrain file** (`<emerge_dir>/terrain/<map>.ron`), refusing one whose shape and data
+    /// disagree (#187). Every reader indexes `heights` by `iz * width + ix` and clamps to
+    /// `width - 1`, so a short or overfull `heights`, a side under 2, or a size or height that is not
+    /// a finite number would panic the editor or wrap. This is the one way a file becomes a field; the
+    /// refusal names the shape, as `Relations::parse` and `Standards::parse` name theirs.
+    pub fn parse(text: &str) -> Result<Heightfield, String> {
+        let field: Heightfield = ron::from_str(text).map_err(|e| format!("terrain: {e}"))?;
+        field.validate()?;
+        Ok(field)
+    }
+
+    /// What [`Self::parse`] checks, for a field built some other way.
+    pub fn validate(&self) -> Result<(), String> {
+        let (w, d) = (self.width, self.depth);
+        if w < 2 || d < 2 {
+            return Err(format!("terrain: a {w}x{d} field has no cell to stand in (each side needs 2)"));
+        }
+        if w.checked_mul(d) != Some(self.heights.len()) {
+            return Err(format!("terrain: {} heights for {w}x{d} (it needs {})", self.heights.len(), w.saturating_mul(d)));
+        }
+        if !(self.cell_m.is_finite() && self.cell_m > 0.0) {
+            return Err(format!("terrain: cell_m {} is not a positive size", self.cell_m));
+        }
+        if !(self.origin.0.is_finite() && self.origin.1.is_finite()) {
+            return Err(format!("terrain: origin {:?} is not a finite point", self.origin));
+        }
+        if let Some(i) = self.heights.iter().position(|h| !h.is_finite()) {
+            return Err(format!("terrain: height {i} (cell {}, {}) is {}", i % w, i / w, self.heights[i]));
+        }
+        Ok(())
+    }
+
     /// The field as a 16-bit height map over `range_m`; heights outside it clamp.
     pub fn to_u16(&self, range_m: (f32, f32)) -> Result<Vec<u16>, HeightmapError> {
         let (lo, hi) = range_m;

@@ -123,17 +123,21 @@ pub fn ground_base() -> StandardMaterial {
     StandardMaterial { perceptual_roughness: 1.0, ..default() }
 }
 
-/// **Draw the open map's terrain and water**, and redraw when either file changes.
+/// **Draw the open map's terrain and water**, and redraw when either file changes. A terrain file
+/// that does not read ([`Heightfield::parse`]: heights that do not fill its shape, say) draws no
+/// ground and is named on the status line, once per change to the file (#187).
+#[allow(clippy::too_many_arguments)]
 pub fn sync_terrain_view(
     time: Res<Time>,
     project: Res<Project>,
     open: Res<OpenMap>,
+    mut state: ResMut<crate::editor::EditorState>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut state: Local<(f32, Option<Built>, Vec<Entity>)>,
+    mut drawn_state: Local<(f32, Option<Built>, Vec<Entity>)>,
 ) {
-    let (since, built, drawn) = &mut *state;
+    let (since, built, drawn) = &mut *drawn_state;
     *since += time.delta_secs();
     if built.is_some() && *since < 0.5 {
         return;
@@ -158,7 +162,12 @@ pub fn sync_terrain_view(
     for e in drawn.drain(..) {
         commands.entity(e).despawn();
     }
-    let ground: Option<Heightfield> = ground_of(&ground_path);
+    let ground = match std::fs::read_to_string(&ground_path) {
+        Ok(text) => Heightfield::parse(&text)
+            .inspect_err(|e| state.status.problem(format!("terrain/{name}.ron does not read, so no terrain is drawn: {e}")))
+            .ok(),
+        Err(_) => None,
+    };
     if let Some(ground) = &ground {
         let at = Transform::from_xyz(open.map.origin.0, open.map.origin.1 - drop, open.map.origin.2);
         let carved = volume_chunks(&project, &open, ground);
@@ -182,10 +191,6 @@ pub fn sync_terrain_view(
         }
     }
     *built = Some(now);
-}
-
-fn ground_of(path: &std::path::Path) -> Option<Heightfield> {
-    ron::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
 /// **The carved ground's chunk meshes** (#101): empty when the map has no volume edits, or when the
