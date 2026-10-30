@@ -642,7 +642,9 @@ impl Emerge {
                        and missing_id; unmet and missing count them; error names a file that does not parse. \
                        standards checks the project's standards.ron (beside kits.ron), re-read on \
                        every call: breaches (piece, rule, dim, found metres, why below_min, above_max, \
-                       not_multiple_of or unmeasured, bound) and idle, the rules no piece is covered by; \
+                       not_multiple_of or unmeasured, bound), idle, the rules no piece is covered by, \
+                       and unnested, the pairs of rules whose multiple_of modules do not nest (rules, \
+                       dims, modules, meet metres where they share a grid line again or null, message); \
                        error names a file that does not parse. \
                        dead_ends is the kit stress test: every declared face (piece, dir N/E/S/W, \
                        face tokens, closest {piece, turn, misses [{at, want, found}]} the piece \

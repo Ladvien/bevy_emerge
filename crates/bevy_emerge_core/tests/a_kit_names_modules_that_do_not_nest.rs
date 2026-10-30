@@ -105,10 +105,11 @@ fn modules_within_the_multiple_tolerance_nest() {
 
 #[test]
 fn modules_that_never_meet_within_the_limit_say_so() {
-    // 127 x 2 m = 200 x 1.27 m: the first shared line is 254 m out, far past any map.
+    // A 1.215 m module against 2 m comes nearest a shared line at 96 m, and even there it is 1.5 cm
+    // off, past the 1 cm tolerance.
     let s = of(vec![
         module("wall module", Dim::Width, 2.0),
-        module("odd module", Dim::Width, 1.27),
+        module("odd module", Dim::Width, 1.215),
     ]);
     let found = unnested(&s);
     assert_eq!(names(&found), vec![["wall module", "odd module"]]);
