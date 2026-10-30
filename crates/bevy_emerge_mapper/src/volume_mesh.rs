@@ -67,3 +67,40 @@ impl Sdf for OwnedVolume {
         self.volume.sdf(p, p[1] - ground)
     }
 }
+
+/// Metres per cell and cells per chunk edge of the drawn volume: powers of two, so two neighbours' shared sample plane is the same float from both sides.
+pub const DRAWN_CELL_M: f32 = 1.0;
+pub const DRAWN_CHUNK_CELLS: u32 = 16;
+
+/// **The carved ground as chunk meshes**, one per chunk that has a surface, over a heightfield's
+/// extent and its height range padded by one chunk each way (room for a carve under or an add above
+/// the ground). Positions are world metres on the heightfield's own datum. Empty when the volume has
+/// no edits: then the ground is just the heightfield.
+pub fn mesh_volume(volume: &Volume, ground: &bevy_emerge_core::heightfield::Heightfield) -> Result<Vec<MeshBuffer<f32>>, isomesh::Error> {
+    if volume.is_empty() {
+        return Ok(Vec::new());
+    }
+    let span = DRAWN_CHUNK_CELLS as f32 * DRAWN_CELL_M;
+    let (lo, hi) = ground.range();
+    let (min_x, min_z) = (((ground.origin.0) / span).floor() * span, ((ground.origin.1) / span).floor() * span);
+    let min_y = ((lo - span) / span).floor() * span;
+    let layout = ChunkLayout::<f32>::new(DRAWN_CHUNK_CELLS, DRAWN_CELL_M, [min_x, min_y, min_z])?;
+    let max_x = ground.origin.0 + (ground.width - 1) as f32 * ground.cell_m;
+    let max_z = ground.origin.1 + (ground.depth - 1) as f32 * ground.cell_m;
+    let count = |max: f32, min: f32| (((max - min) / span).ceil() as i32).max(1);
+    let (nx, nz) = (count(max_x, min_x), count(max_z, min_z));
+    let ny = count(hi + span, min_y);
+    let field = VolumeField { volume, ground: |x, z| ground.height_at(x, z) };
+    let mut out = Vec::new();
+    for cy in 0..ny {
+        for cz in 0..nz {
+            for cx in 0..nx {
+                let mesh = mesh_chunk(&field, &layout, ChunkId::new([cx, cy, cz]))?;
+                if !mesh.indices.is_empty() {
+                    out.push(mesh);
+                }
+            }
+        }
+    }
+    Ok(out)
+}

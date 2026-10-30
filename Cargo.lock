@@ -1905,7 +1905,7 @@ dependencies = [
 [[package]]
 name = "bevy_speech_bubbles"
 version = "0.2.1"
-source = "git+https://github.com/Ladvien/bevy_speech_bubbles?rev=00bd902f9d04720e891429c381b6df3ba7d3a3b7#00bd902f9d04720e891429c381b6df3ba7d3a3b7"
+source = "git+https://github.com/Ladvien/bevy_speech_bubbles?rev=b2d67f0d8a8a984a78f9bc9291cc63be867c6822#b2d67f0d8a8a984a78f9bc9291cc63be867c6822"
 dependencies = [
  "ab_glyph",
  "bevy",

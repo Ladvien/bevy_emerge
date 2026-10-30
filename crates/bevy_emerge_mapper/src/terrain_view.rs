@@ -29,6 +29,8 @@ const WATER_TINT: [f32; 4] = [0.16, 0.42, 0.78, 0.62]; // CHROME-OK: world ink â
 pub enum TerrainView {
     Ground,
     Water,
+    /// One chunk of the carved ground (#101); drawn instead of [`TerrainView::Ground`] while the map has volume edits.
+    Volume,
 }
 
 /// **The ground as a lit mesh**, one vertex per cell, tinted low (green) to high (tan) over the
@@ -107,6 +109,7 @@ pub struct Built {
     map_path: std::path::PathBuf,
     ground: Option<std::time::SystemTime>,
     water: Option<std::time::SystemTime>,
+    volume: Option<std::time::SystemTime>,
     origin: [u32; 3],
     drop: u32,
 }
@@ -134,11 +137,13 @@ pub fn sync_terrain_view(
     let name = open.map_path.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_suffix(".map.ron")).unwrap_or_default().to_owned();
     let ground_path = project.emerge_dir.join("terrain").join(format!("{name}.ron"));
     let water_path = project.emerge_dir.join("water").join(format!("{name}.field.ron"));
+    let volume_path = project.emerge_dir.join("volume").join(format!("{name}.ron"));
     let drop = crate::editor::ground_drop(&project);
     let now = Built {
         map_path: open.map_path.clone(),
         ground: modified(&ground_path),
         water: modified(&water_path),
+        volume: modified(&volume_path),
         origin: [open.map.origin.0.to_bits(), open.map.origin.1.to_bits(), open.map.origin.2.to_bits()],
         drop: drop.to_bits(),
     };
@@ -151,12 +156,15 @@ pub fn sync_terrain_view(
     let ground: Option<Heightfield> = ground_of(&ground_path);
     if let Some(ground) = &ground {
         let at = Transform::from_xyz(open.map.origin.0, open.map.origin.1 - drop, open.map.origin.2);
-        drawn.push(commands.spawn((
-            TerrainView::Ground,
-            Mesh3d(meshes.add(ground_mesh(ground))),
-            MeshMaterial3d(materials.add(StandardMaterial { perceptual_roughness: 1.0, ..default() })),
-            at,
-        )).id());
+        let carved = volume_chunks(&project, &open, ground);
+        let material = materials.add(StandardMaterial { perceptual_roughness: 1.0, ..default() });
+        if carved.is_empty() {
+            drawn.push(commands.spawn((TerrainView::Ground, Mesh3d(meshes.add(ground_mesh(ground))), MeshMaterial3d(material), at)).id());
+        } else {
+            for mesh in carved {
+                drawn.push(commands.spawn((TerrainView::Volume, Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone()), at)).id());
+            }
+        }
         let water: Option<WaterField> = std::fs::read_to_string(&water_path).ok().and_then(|t| ron::from_str(&t).ok());
         if let Some(mesh) = water.and_then(|w| water_mesh(ground, &w)) {
             drawn.push(commands.spawn((
@@ -173,4 +181,27 @@ pub fn sync_terrain_view(
 
 fn ground_of(path: &std::path::Path) -> Option<Heightfield> {
     ron::from_str(&std::fs::read_to_string(path).ok()?).ok()
+}
+
+/// **The carved ground's chunk meshes** (#101): empty when the map has no volume edits, or when the
+/// `isomesh` feature is off, and the heightfield mesh is drawn instead.
+#[cfg(feature = "isomesh")]
+fn volume_chunks(project: &Project, open: &OpenMap, ground: &Heightfield) -> Vec<Mesh> {
+    let Some(volume) = crate::ops_volume::volume_of(project, open) else { return Vec::new() };
+    let buffers = crate::volume_mesh::mesh_volume(&volume, ground).unwrap_or_default();
+    buffers
+        .into_iter()
+        .map(|b| {
+            let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, b.positions);
+            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, b.normals);
+            mesh.insert_indices(Indices::U32(b.indices));
+            mesh
+        })
+        .collect()
+}
+
+#[cfg(not(feature = "isomesh"))]
+fn volume_chunks(_: &Project, _: &OpenMap, _: &Heightfield) -> Vec<Mesh> {
+    Vec::new()
 }
