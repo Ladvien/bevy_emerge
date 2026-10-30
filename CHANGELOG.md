@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **171-stress-state** `08ac0a1` emerge_state.stress tells an agent whether the kit can loop a hallway back (ring) and open into a room (room), with each piece and its turn *No clip: an emerge_state section for agents; proved by crates/bevy_emerge_mapper/tests/emerge_state_says_whether_the_kit_loops_and_opens_into_a_room.rs*
 - **168-unnested-pane** `c862f0a` The Meshes pane's standards row names each pair of sub-kit modules that do not nest which the piece in focus is part of, in emerge_state's words (#168 slice 3) *No clip: visible, not yet recorded: no display on big*
 - **167-degrees** `a67d95b` Relations: #167's acceptance (AlignedWith 0/20 met, 0/90 unmet, 350/10 met; Faces at every quarter turn as drawn) proved against the map's degrees *No clip: a regression test for what relations measure on a turned piece; proved by bevy_emerge_core/tests/relations_read_a_maps_yaw_in_degrees.rs*
 - **170-mirror** `cee3587` Relations: MirrorOf keeps a piece opposite another across a third's axis (a pair of lamps flanking a door), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_mirrored_across_another.rs*

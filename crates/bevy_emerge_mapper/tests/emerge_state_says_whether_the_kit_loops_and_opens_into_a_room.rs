@@ -113,18 +113,18 @@ fn a_corridor_kit_loops_back_and_has_no_room() {
     let s = stress(&mut app);
     assert_eq!(s["declared"], 2, "{s}");
     assert_eq!(s["room"], Value::Null, "a corridor has no piece open on three sides: {s}");
-    // A loop of four turns is four corners, each facing a different way.
-    assert_eq!(piece_names(&s["ring"]), vec!["corner"; 4], "{s}");
-    let mut turns: Vec<u64> = s["ring"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|c| c["turn"].as_u64().unwrap_or_else(|| panic!("no turn: {c}")))
-        .collect();
-    assert!(turns.iter().all(|t| t % 90 == 0 && *t < 360), "turns are degrees: {s}");
-    turns.sort_unstable();
-    turns.dedup();
-    assert_eq!(turns.len(), 4, "the four corners of a loop face four ways: {s}");
+    // A loop of four turns is four corners, each facing a different way, in the order north-west,
+    // north-east, south-west, south-east: the unturned corner (open east and south) stands north-west.
+    assert_eq!(
+        s["ring"],
+        json!([
+            {"piece": "corner", "turn": 0},
+            {"piece": "corner", "turn": 270},
+            {"piece": "corner", "turn": 90},
+            {"piece": "corner", "turn": 180},
+        ]),
+        "{s}"
+    );
 }
 
 #[test]
@@ -154,6 +154,17 @@ fn a_wall_and_a_middle_open_the_kit_into_a_room() {
         ],
         "{s}"
     );
+    // The room's corners in the ring's order and turns, so rows run north to south and west to east.
+    let corners: Vec<&Value> = [(0, 0), (0, 2), (2, 0), (2, 2)]
+        .iter()
+        .map(|&(r, c)| &s["room"][r][c])
+        .collect();
+    let ring: Vec<&Value> = s["ring"]
+        .as_array()
+        .unwrap_or_else(|| panic!("a kit with corners closes a loop: {s}"))
+        .iter()
+        .collect();
+    assert_eq!(corners, ring, "{s}");
 
     // Without the four-sided piece the walls alone make no room.
     let root = project(
