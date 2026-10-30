@@ -7156,6 +7156,7 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::ClearInFront { .. } => format!("{of} clear in front"),
                 Kind::VisibleFrom { from, .. } => format!("{of} seen from {from}"),
                 Kind::Along { path, .. } => format!("{of} along {}", path.join(" → ")),
+                Kind::ReachableFrom { from, .. } => format!("{of} reachable from {from}"),
             };
             match outcome {
                 Outcome::Unmet { by: Some(by), .. } => format!("{what} ({by} in the way)"),
