@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **E-087b** `0b4323b` emerge_state names the repeats a player will notice: repeated clutter first, structure after *No clip: an MCP state field; proved by tests/emerge_state_names_visible_repeats.rs*
+- **e075-drop** `4417f4d` Dropping an image on the editor window keeps it as a reference of the open map, copied into the project's references/ *No clip: visible, not yet recorded: no display on big*
 - **136-repetition** `bdafe68` Role-weighted repetition: a map reports which repeated pieces a player will notice, clutter above structure *No clip: an engine-free API with no UI yet; proved by tests/repeated_clutter_outranks_repeated_structure.rs*
 - **E-070-chip** `be3b1d7` A note the agent may decide for itself shows an 'auto' chip on its row in the Notes panel (E-070) *No clip: visible, not yet recorded: no display on big; proved by tests/notes_panel_shows_the_auto_flag.rs*
 - **E-083** `cc725d4` Generating from compositions on a project with no tile says which groups were left out and why, instead of 'nothing has been placed yet' *No clip: an error message from the composition grammar; proved by crates/bevy_emerge_core/tests/a_tileless_composition_set_says_why.rs*
