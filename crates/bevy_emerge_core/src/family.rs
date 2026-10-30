@@ -236,6 +236,11 @@ pub fn settings_dir(root: &Path) -> PathBuf {
     root.join("family")
 }
 
+/// Settings files are a few small files: look every tenth of a second and take a change as settled
+/// after another, so a reload lands well inside the second the editor promises, even on a busy machine.
+const SETTINGS_POLL_SECS: f64 = 0.1;
+const SETTINGS_SETTLE_SECS: f64 = 0.1;
+
 /// **Notices a family settings file changing on disk, and says which crates it touched** (#96's hot
 /// reload). The editor's `family_set` and a person editing the file reach the same place: the
 /// file. A settled change is reported once, by crate name, with the new text, so the preview and a
@@ -262,7 +267,7 @@ impl FamilyWatch {
     /// Stats and reads the project's settings now. Call before first use of them.
     pub fn new(root: &Path) -> FamilyWatch {
         let dir = settings_dir(root);
-        let mut watch = FamilyWatch { files: crate::live::FileWatch::new(&dir, &["ron"]), dir, good: Default::default() };
+        let mut watch = FamilyWatch { files: crate::live::FileWatch::new(&dir, &["ron"]).with_timing(SETTINGS_POLL_SECS, SETTINGS_SETTLE_SECS), dir, good: Default::default() };
         for (krate, text) in watch.read() {
             if ron::from_str::<ron::Value>(&text).is_ok() {
                 watch.good.insert(krate, text);

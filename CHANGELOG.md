@@ -4,6 +4,18 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **106-s1** `55d25d6` bevy_speech_bubbles is a hosted family crate: a conversation is saved as the crate's own DialogueScript and a graph validate_script rejects is refused *No clip: visible, not yet recorded: no display on big; proved by family_dialogue*
+- **108-s1** `803eed1` bevy_carnage is a hosted family crate: its CarnageSettings are authored through family_set *No clip: an API/feature host; proved by family_carnage_settings*
+- **108-destructible** Mark a piece destructible (bevy_carnage): it is fractured once, the chunks cached in the project, and a previewed hit breaks it into closed chunks; the violence dials are the crate's own settings *No clip: visible, not yet recorded: no display on big*
+- **E-072a** `cbb2ac5` An agent can define a composition from placements on the map (composition_define), replace it on request, and undo it *No clip: an operation over MCP; proved by tests/an_agent_can_define_a_composition.rs*
+- **fix-120** `0df31ae` Family settings reload in about 0.2 s instead of up to 1.5 s (flaky gate, #120) *No clip: a latency change, not visible in a clip; proved by family_settings_reload test*
+- **107-heat** `a10b342` Crowd preview heat overlay: the run's trail and queues drawn on the floor, and carried in crowd_preview's outcome *No clip: visible, not yet recorded: the overlay needs a clip of 100 walkers gate to church; proved by crowd_heat tests*
+- **water-place** `385bcbe` Springs, sinks and lakes can be placed on a map and saved beside it, one undo each *No clip: visible, not yet recorded: no display on big*
+- **94-agent** `f99a11f` Send starts the project's notes agent (agent.ron), and the MCP docs say how any agent works a note *No clip: visible, not yet recorded: no display on big; proved by tests/send_starts_the_notes_agent.rs*
+- **107-crowd-op** `345ddd8` Crowd preview is an operation and a Crowd field: walk N people between two spots and read who arrived and where they queue *No clip: visible, not yet recorded: heat overlay not built yet; proved by crowd_preview_is_an_operation*
+- **99-terrain-import** `40d5d9b` Terrain can start from a 16-bit PNG height map: terrain_import (or 'import file cell_m low high' on the Terrain line), one undo step (#99) *No clip: visible, not yet recorded: no display on big*
+- **crowd-preview-107** `pending` Crowd preview engine (#107, slice 1): walkers step with bevy_orca avoidance round the map's solid pieces and lay bevy_stigmergy trail and congestion fields; features bevy_orca and bevy_stigmergy *No clip: visible, not yet recorded: the engine has no editor panel or overlay yet; proved by tests/crowd_preview_measures.rs*
+- **99-ground** Pieces standing on the floor ride the map's sculpted terrain: the editor's heights and picking read terrain/<map>.ron *No clip: visible, not yet recorded: no display on big; proved by pieces_stand_on_sculpted_ground*
 - **F7-placement-flicker** `114e55a` A brazier is a placement carrying its bevy_lights Flicker: placement_set_family saves it on the row and undoes it *No clip: an operation and a saved field; proved by tests/placement_family.rs*
 - **n97-fairy** `7608736` The editor's agent channel is bevy_fairy, pinned by revision; bevy_debugger_mcp is gone (#97) *No clip: a dependency swap and wire-method rename; proved by the mapper (745) and mcp tests building and passing on bevy_fairy*
 - **103-lights-f0** `86fec1f` bevy_lights is a hosted family crate: its feature and git pin are in, and family.ron may list it (#103 slice 1) *No clip: an API and a cargo feature; proved by family_lights_settings::a_brazier_flicker_is_set_through_family_set_and_reads_back_as_the_crates_own_type*

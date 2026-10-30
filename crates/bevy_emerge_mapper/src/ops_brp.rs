@@ -260,6 +260,15 @@ pub(crate) fn put_back(
     {
         crate::editor::adopt_library(handle, fresh);
     }
+    // **The compositions too** (E-072): `composition_define` writes `compositions.ron` through the
+    // clone's project, and the editor's own copy must say so or the next define would not see it.
+    // Compared first, like the rules and the library.
+    if let Some(fresh) = ctx.project.as_ref()
+        && project.as_deref().is_some_and(|p| p.compositions != fresh.compositions)
+        && let Some(handle) = project.as_deref_mut()
+    {
+        handle.compositions = fresh.compositions.clone();
+    }
     if let Some(fresh) = ctx.open
         && let Some(handle) = open.as_deref_mut()
     {

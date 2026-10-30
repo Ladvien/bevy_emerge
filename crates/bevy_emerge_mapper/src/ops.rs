@@ -2372,6 +2372,15 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_family::PlacementSetFamily),
         Box::new(crate::ops_terrain::TerrainStroke),
+        Box::new(crate::ops_compose::CompositionDefine),
+        #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+        Box::new(crate::ops_crowd::CrowdPreview),
+        #[cfg(feature = "bevy_carnage")]
+        Box::new(crate::ops_destructible::DestructibleSet),
+        #[cfg(feature = "bevy_carnage")]
+        Box::new(crate::ops_destructible::DestructibleHit),
+        Box::new(crate::ops_terrain::TerrainImport),
+        Box::new(crate::ops_water::WaterPlace),
         Box::new(crate::ops_play::Play),
         Box::new(crate::ops_play::PlayStop),
         Box::new(crate::ops_runs::RunAdd),
@@ -2421,6 +2430,12 @@ pub const CHOOSER_ENTRY_POINTS: &[(&str, &str)] = &[
 /// of source the editor, screen, chooser or tiles module must contain for that entry point to be
 /// there. Read by the parity test (E-086).
 pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
+    // **The keep-as-group key** (Shift+B's box, then the group key) and `composition_define` are two
+    // fronts of one function, `keep_as_group`: the key hands it the set in hand, the operation hands
+    // it the placements an agent named, so the refusals, the replace rule and the write are shared
+    // (E-072). The held set carries no placement ids, which is why the key does not dispatch the
+    // operation itself.
+    ("composition_define", "keep_as_group("),
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
     ("placement_set_pin", "set_pin("),
@@ -2490,6 +2505,19 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Terrain field (#99)** — Enter on `<brush> <x> <z> <radius_m> <strength>` dispatches
     // `terrain_stroke` through `sculpt_terrain`, the same write an agent's `apply` makes.
     ("terrain_stroke", "sculpt_terrain("),
+    // **The Crowd field (#107)** — Enter on `<from_x> <from_z> <to_x> <to_z> <walkers>` dispatches
+    // `crowd_preview` through `run_crowd_preview`, the same measurement an agent's `apply` makes.
+    #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+    ("crowd_preview", "run_crowd_preview("),
+    ("terrain_import", "import_terrain("),
+    // **The destructible line (#108)** — `destructible <piece> on|off` and `hit <piece> <x> <y> <z> <radius_m>` in the
+    // terrain field dispatch `destructible_set` and `destructible_hit` through `mark_destructible` and `hit_destructible`.
+    #[cfg(feature = "bevy_carnage")]
+    ("destructible_set", "mark_destructible("),
+    #[cfg(feature = "bevy_carnage")]
+    ("destructible_hit", "hit_destructible("),
+    // **The water line (#100)** — `water <spring|sink|lake> ...` in the terrain field dispatches `water_place` through `place_water`.
+    ("water_place", "place_water("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).
@@ -3089,31 +3117,10 @@ fn append(ctx: &Ctx, entry: &mut Entry) -> Result<(), String> {
     Ok(())
 }
 
-/// Edit distance between two ids. Core's `vocab::edit_distance` is private, and the ops that
-/// suggest ids need only a short list, so they share this one.
-fn levenshtein(a: &str, b: &str) -> usize {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.chars().enumerate() {
-        let mut prev = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let old = row[j + 1];
-            row[j + 1] = if ca == *cb {
-                prev
-            } else {
-                1 + prev.min(row[j]).min(old)
-            };
-            prev = old;
-        }
-    }
-    row[b.len()]
-}
-
 /// The three ids closest to `bad`, nearest first.
 fn nearest_ids(ids: &[&str], bad: &str) -> Vec<String> {
     let mut scored: Vec<(usize, &str)> =
-        ids.iter().map(|id| (levenshtein(id, bad), *id)).collect();
+        ids.iter().map(|id| (bevy_emerge_core::vocab::edit_distance(id, bad), *id)).collect();
     scored.sort();
     scored
         .into_iter()

@@ -74,6 +74,7 @@ impl FamilySet {
         let text = std::fs::read_to_string(&path)
             .map_err(|e| Refusal::new(format!("{} cannot be read, so nothing was changed: {e}", path.display())))?;
         let (new, old) = family::set_field(&text, &p.field, &p.value).map_err(Refusal::new)?;
+        check_script(&p.krate, &new)?;
         if !write {
             return Ok(None);
         }
@@ -244,4 +245,21 @@ impl Operation for PlacementSetFamily {
             after,
         })
     }
+}
+
+/// **A dialogue script that `validate_script` refuses is never written** (#106): the saved file is the
+/// crate's own `DialogueScript`, so the crate's own validation decides, and its message is the refusal.
+#[cfg(feature = "bevy_speech_bubbles")]
+fn check_script(krate: &str, text: &str) -> Result<(), Refusal> {
+    if krate != "bevy_speech_bubbles" {
+        return Ok(());
+    }
+    let script: bevy_speech_bubbles::DialogueScript =
+        ron::from_str(text).map_err(|e| Refusal::new(format!("that is not a dialogue script, so nothing was written: {e}")))?;
+    bevy_speech_bubbles::validate_script(&script).map_err(|e| Refusal::new(format!("{e}. Nothing was written.")))
+}
+
+#[cfg(not(feature = "bevy_speech_bubbles"))]
+fn check_script(_krate: &str, _text: &str) -> Result<(), Refusal> {
+    Ok(())
 }
