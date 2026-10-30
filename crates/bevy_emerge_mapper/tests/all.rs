@@ -120,6 +120,7 @@ mod every_refusal_is_in_a_problem;
 mod every_resource_says_what_a_door_does_to_it;
 mod family_carnage_settings;
 mod dialogue_preview;
+mod dialogue_runtime;
 mod people;
 mod family_dialogue;
 mod family_host;

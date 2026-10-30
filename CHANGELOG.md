@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **people-run** `72e9b7c` people_run (and the terrain line 'people run [seed] [days]') runs a map's villagers forward in bevy_society's own app: same seed, same day (#104) *No clip: visible, not yet recorded: no display on big*
+- **106-runtime** `b982f0f` A conversation attached to a piece plays through the crate's own runtime: the talker asks, the chosen option leads to its line *No clip: visible, not yet recorded: no display on big; proved by dialogue_runtime::the_conversation_a_piece_carries_is_walked_by_the_crates_runtime_down_the_chosen_option*
 - **104-people** `ade2541` People: person_set authors a person (home, workplace, faction) beside the map; a building someone lives in cannot be removed (#104) *No clip: visible, not yet recorded: no display on big*
 - **101-snow** `244e532` Snow lies on a carved hill and never fills its tunnel: bevy_elements' SnowyField over the volume (#101 slice 5, feature volume_snow) *No clip: an API behind the volume_snow feature; proved by volume_snow::snow_covers_the_top_and_the_tunnel_stays_open*
 - **101-caves-rest** `cecc860` A floor piece authored inside a carved cave stands on the cave's floor (resolve_y_in, #101) *No clip: visible, not yet recorded: no display on big; proved by tests/pieces_in_caves.rs*
