@@ -209,6 +209,7 @@ mod the_journal_draws_the_agents_steps;
 mod the_layout_score_counts_crossings;
 mod the_library_seed_is_a_selection;
 mod the_map_opens_framed;
+mod the_meshes_pane_names_modules_that_do_not_nest;
 mod the_meshes_pane_names_the_standards_a_piece_breaks;
 mod the_meshes_pane_says_how_sure_the_labels_are;
 mod the_next_undo_is_named;
