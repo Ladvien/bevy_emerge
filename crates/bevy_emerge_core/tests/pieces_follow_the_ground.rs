@@ -36,7 +36,7 @@ fn a_house_rides_up_when_the_ground_under_it_is_raised() {
     assert_eq!(resolve_y_on(&m, &l, Some(&g)).unwrap()[0], 0.0);
     g.apply(&Stroke { brush: Brush::Raise, radius_m: 3.0, strength: 1.5, points: vec![(5.0, 5.0)] });
     let y = resolve_y_on(&m, &l, Some(&g)).unwrap()[0];
-    assert!(y >= 1.5 - 1e-4 && y <= 1.5 + 1e-4, "the house stands at the hilltop, got {y}");
+    assert!((y - 1.5).abs() <= 1e-4, "the house stands at the hilltop, got {y}");
 }
 
 #[test]
