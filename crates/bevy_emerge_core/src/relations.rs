@@ -74,6 +74,7 @@ impl Relations {
                 Kind::Near { within, .. } | Kind::InFrontOf { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
+                Kind::VisibleFrom { clearance, .. } => [*clearance, 0.0],
             };
             if let Some(bad) = metres.iter().find(|m| !(m.is_finite() && **m >= 0.0)) {
                 return Err(format!(
@@ -118,6 +119,11 @@ pub enum Kind {
     /// door's swing, a counter's working side). Measures how far in the nearest intruder stands, or
     /// `depth` when clear.
     ClearInFront { depth: f32, width: f32 },
+    /// Seen from a placement: no third placement's centre stands within `clearance` metres of the
+    /// line between the two centres (a sign seen from the gate, a door a guard watches). What rests
+    /// on either end ([`Placed::on`], at any depth) is part of that end and never blocks. Measures
+    /// how far off the line the nearest blocker stands, or `clearance` when clear.
+    VisibleFrom { from: String, clearance: f32 },
 }
 
 /// What [`check`] found for one relation.
@@ -229,7 +235,51 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
                 None => Outcome::Met { measured: *depth },
             }
         }
+        Kind::VisibleFrom { from, clearance } => match other(from) {
+            Ok(b) => match blocker(placements, b, a, *clearance) {
+                Some((p, off)) => Outcome::Unmet {
+                    measured: off,
+                    by: Some(p.id.clone()),
+                },
+                None => Outcome::Met { measured: *clearance },
+            },
+            Err(m) => m,
+        },
     }
+}
+
+/// Whether `p` rests on `end`, directly or through a chain of hosts. A chain is never longer than
+/// the map, so an `on` cycle in a malformed file ends.
+fn rests_on(placements: &[Placed], p: &Placed, end: &str) -> bool {
+    let mut host = p.on.as_deref();
+    for _ in 0..placements.len() {
+        match host {
+            Some(h) if h == end => return true,
+            Some(h) => host = find(placements, h).ok().and_then(|q| q.on.as_deref()),
+            None => return false,
+        }
+    }
+    false
+}
+
+/// The placement nearest the line from `from` to `to` among those within `clearance` of it and
+/// strictly between its ends, with its distance off the line.
+fn blocker<'a>(placements: &'a [Placed], from: &Placed, to: &Placed, clearance: f32) -> Option<(&'a Placed, f32)> {
+    let length = distance(from.at, to.at);
+    if length <= 1e-4 {
+        return None;
+    }
+    let (ux, uz) = ((to.at.0 - from.at.0) / length, (to.at.1 - from.at.1) / length);
+    placements
+        .iter()
+        .filter(|p| p.id != from.id && p.id != to.id)
+        .filter_map(|p| {
+            let (dx, dz) = (p.at.0 - from.at.0, p.at.1 - from.at.1);
+            let (along, side) = (ux * dx + uz * dz, uz * dx - ux * dz);
+            (along > 0.0 && along < length && side.abs() <= clearance).then_some((p, side.abs()))
+        })
+        .filter(|(p, _)| !rests_on(placements, p, &from.id) && !rests_on(placements, p, &to.id))
+        .min_by(|x, y| x.1.total_cmp(&y.1))
 }
 
 /// What [`solve`] did to a map's placements.
@@ -252,9 +302,10 @@ const SOLVE_ROUNDS: usize = 8;
 /// For each [`Outcome::Unmet`] relation the solver proposes one move: [`Kind::Faces`] turns the
 /// piece to its target, [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
 /// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
-/// sideways out of the corridor (the door stays where it was hung). A move is kept only when it lowers
-/// the map's unmet count, so a relation is never mended by breaking another, and contradictory ones
-/// end with as many met as one move each allows.
+/// sideways out of the corridor (the door stays where it was hung), and [`Kind::VisibleFrom`] moves
+/// the nearest blocker sideways off the sight line (both ends stay). A move is kept only when it
+/// lowers the map's unmet count, so a relation is never mended by breaking another, and
+/// contradictory ones end with as many met as one move each allows.
 ///
 /// The moved piece is the relation's subject, or for a corridor the intruder; a piece resting on
 /// another ([`Placed::on`]) is not pulled off it — an intruder on a host moves its host — and
@@ -365,6 +416,26 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Option<(Str
                 a.at.1 + fz * ahead - fx * side,
             );
             Some((intruder.id.clone(), to, intruder.yaw))
+        }
+        Kind::VisibleFrom { from, clearance } => {
+            let b = other(from)?;
+            let mut blocking = other(by?)?;
+            for _ in 0..placements.len() {
+                let Some(host) = blocking.on.as_deref().and_then(other) else {
+                    break;
+                };
+                blocking = host;
+            }
+            // Off the line on the side it already stands, measured from the host's own centre.
+            let length = distance(b.at, a.at);
+            let (ux, uz) = ((a.at.0 - b.at.0) / length, (a.at.1 - b.at.1) / length);
+            let (dx, dz) = (blocking.at.0 - b.at.0, blocking.at.1 - b.at.1);
+            let (along, side) = (ux * dx + uz * dz, uz * dx - ux * dz);
+            let sign = if side < 0.0 { -1.0 } else { 1.0 };
+            let side = sign * (clearance * 1.1 + 0.05);
+            // Back from the line's frame: along (ux, uz), sideways (uz, -ux).
+            let to = (b.at.0 + ux * along + uz * side, b.at.1 + uz * along - ux * side);
+            Some((blocking.id.clone(), to, blocking.yaw))
         }
     }
 }
