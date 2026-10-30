@@ -263,8 +263,8 @@ impl RowDelta {
     ///    recorded against a map that has since shrunk is still answerable: the row goes at the end
     ///    rather than vanishing.
     ///
-    /// An added id that is already on the map is refused: two rows with one id is a map the editor
-    /// cannot address, and nothing downstream would say so.
+    /// An added id that is already on the map, and that this delta does not remove, is refused: two
+    /// rows with one id is a map the editor cannot address, and nothing downstream would say so.
     pub fn apply(&self, map: &mut bevy_emerge_core::map::Map) -> Result<RowDelta, Refusal> {
         // 1 — find, and refuse before touching anything.
         let mut doomed_placements: Vec<(usize, bevy_emerge_core::map::Placed)> = Vec::new();
@@ -295,13 +295,17 @@ impl RowDelta {
                 })?;
             doomed_stamps.push((at, map.stamps[at].clone()));
         }
+        // **A row this delta removes may come back changed** (a replaced row, as a relations solve
+        // moves one): only an id that stays on the map is a second row with one id.
         for add in &self.add_placements {
-            if map.placements.iter().any(|p| p.id == add.row.id) {
+            if !self.remove_placements.contains(&add.row.id)
+                && map.placements.iter().any(|p| p.id == add.row.id)
+            {
                 return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
             }
         }
         for add in &self.add_stamps {
-            if map.stamps.iter().any(|s| s.id == add.row.id) {
+            if !self.remove_stamps.contains(&add.row.id) && map.stamps.iter().any(|s| s.id == add.row.id) {
                 return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
             }
         }
@@ -2381,6 +2385,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(stamp_remove::StampRemove),
         Box::new(crate::ops_stamp::StampAdd),
         Box::new(crate::ops_plan::PlanSet),
+        Box::new(crate::ops_relations::RelationsSolve),
         Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
@@ -2624,6 +2629,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // `clear_plan`, so a person can empty an agent's plan the way an agent replaces it. The checklist
     // panel that shows it is owed (it needs a display to verify).
     ("plan_set", "clear_plan("),
+    // **The Terrain field's `relations solve` line (#137)** dispatches `relations_solve` through
+    // `solve_relations`, the same mend an agent's `apply` makes, with one undo.
+    ("relations_solve", "solve_relations("),
 ];
 
 /// **Apply an operation, and record what happened.**
