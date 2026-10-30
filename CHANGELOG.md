@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **B-187-terrain-shape** `d2d9762` A terrain file whose heights do not fill its shape (a hand edit, a truncated write) no longer panics the editor: it draws no ground, names terrain/<map>.ron on the status line, and terrain_stroke and water_run refuse it (#187) *No clip: a bug fix: what it removes is a panic; proved by bevy_emerge_core/tests/a_terrain_file_that_does_not_fill_its_shape_is_refused.rs and the editor's a_terrain_file_that_does_not_fill_its_shape_is_refused::*
 - **B-021** `a8c87ac` A click on the chrome around the viewport (the door strip, the status band) no longer places the armed piece far off the map, unseen (#182) *No clip: a bug fix: what it removes is a placement nobody could see; proved by tests/a_click_outside_the_viewport_places_nothing.rs*
 - **184-round-repeats** `9a013de` repetition.ron's round kinds: a barrel or a pot repeats at any turn, and repetition_vary never turns one but counts it as left *No clip: a repetition rule in a project data file (agent and REPEATS line read it); proved by crates/bevy_emerge_core/tests/a_round_piece_repeats_at_any_turn.rs*
 - **183-inside** `149f032` Relations: Inside keeps a piece inside an area of another (a table on the rug, a stall in the square), and relations solve sets it just inside *No clip: a relation kind and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_inside_an_area.rs*
