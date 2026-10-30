@@ -56,6 +56,8 @@ pub mod compass;
 pub mod compose;
 pub mod compose_labels;
 pub mod confirm;
+#[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
+pub mod crowd_preview;
 pub mod decide_labels;
 pub mod devshot;
 pub mod editor;
