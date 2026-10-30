@@ -25,6 +25,7 @@ fn chest_from_gate(clearance: f32) -> Relations {
                 from: "gate".into(),
                 clearance,
             },
+            hard: false,
         }],
     }
 }

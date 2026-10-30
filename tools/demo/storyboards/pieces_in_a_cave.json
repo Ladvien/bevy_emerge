@@ -1,0 +1,108 @@
+{
+ "name": "pieces_in_a_cave",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      -8,
+      -8,
+      8,
+      8
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 2
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "terrain_stroke",
+    "parameters": {
+     "map": "cave",
+     "stroke": {
+      "brush": "Raise",
+      "radius_m": 9.0,
+      "strength": 5.0,
+      "points": [
+       [
+        0.0,
+        0.0
+       ],
+       [
+        0.2,
+        0.2
+       ]
+      ]
+     },
+     "create": {
+      "origin": [
+       -8.0,
+       -8.0
+      ],
+      "cell_m": 0.5,
+      "width": 33,
+      "depth": 33,
+      "height_m": 0.0
+     }
+    }
+   }
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "volume_edit",
+    "parameters": {
+     "map": "cave",
+     "edit": {
+      "shape": {
+       "Box": {
+        "center": [
+         2.5,
+         1.5,
+         2.5
+        ],
+        "half_m": [
+         4.0,
+         1.5,
+         4.0
+        ]
+       }
+      },
+      "mode": "Carve",
+      "smooth_m": 0.2
+     }
+    }
+   }
+  },
+  {
+   "seconds": 3
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.2,
+   "caption": "five pieces on flat ground, each authored 1 m up"
+  },
+  {
+   "at": 2.3,
+   "caption": "terrain_stroke raises a hill: the pieces ride it up"
+  },
+  {
+   "at": 5.3,
+   "caption": "volume_edit carves a cave under the hill"
+  },
+  {
+   "at": 7.0,
+   "caption": "the pieces inside now stand on the cave's floor; the lamp outside stays on the slope"
+  }
+ ]
+}
