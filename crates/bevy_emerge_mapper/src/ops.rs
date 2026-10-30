@@ -2292,8 +2292,24 @@ pub mod piece_import {
             let mut trial = project.measured.clone();
             trial.descriptors.push(descriptor);
             crate::tiles::commit_measured(project, trial).map_err(Refusal::new)?;
+            // **The new piece's breaches of the project's standards** (#138 slice 3), read from the
+            // policy-applied library a placement uses, and from `standards.ron` as it is now. Reported,
+            // not refused: the piece is admitted either way, and the summary says what it breaks.
+            let (standards, broken) = match project.library.get(&imported) {
+                Some(d) => crate::ops_brp::piece_standards_json(d, &project.project_dir),
+                None => (json!({"breaches": [], "error": null}), Vec::new()),
+            };
+            let summary = if broken.is_empty() {
+                format!("added `{imported}` — it is in the palette now")
+            } else {
+                format!(
+                    "added `{imported}` — it is in the palette now, and it breaks the project's \
+                     standards: {}",
+                    broken.join(", ")
+                )
+            };
             Ok(Outcome {
-                summary: format!("added `{imported}` — it is in the palette now"),
+                summary,
                 affected: 1,
                 saved: true,
                 inverse: Some(json!({"remove": imported})),
@@ -2301,6 +2317,7 @@ pub mod piece_import {
                     "id": plan["id"],
                     "kit": plan["kit"],
                     "mesh": rel,
+                    "standards": standards,
                 })),
             })
         }
