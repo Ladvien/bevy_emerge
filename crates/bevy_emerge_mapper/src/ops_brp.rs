@@ -651,7 +651,7 @@ pub(crate) fn load_repetition(
 /// No file is no relations and no error; a file that cannot be read or parsed is named in `error`,
 /// never read as an empty list.
 fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::path::Path) -> Value {
-    use bevy_emerge_core::relations::{check, path_for_map, Outcome, Relations};
+    use bevy_emerge_core::relations::{check_map, path_for_map, Outcome, Relations};
     let path = path_for_map(map_path);
     let loaded = match std::fs::read_to_string(&path) {
         Ok(text) => Relations::parse(&text),
@@ -668,7 +668,7 @@ fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::
     let rows: Vec<Value> = relations
         .relations
         .iter()
-        .zip(check(placements, &relations))
+        .zip(check_map(placements, &relations))
         .map(|(r, outcome)| {
             let (word, measured, by, missing_id) = match outcome {
                 Outcome::Met { measured } => ("met", Some(measured), None, None),
@@ -728,16 +728,18 @@ fn dead_ends_json(library: &bevy_emerge_core::library::Library, divisions: u32) 
 }
 
 /// **The project's standards, checked against its library**, as `emerge_state` reports them: every
-/// breach, and every rule that covers no piece. No file is no rules and no error; a file that cannot
-/// be read or parsed is named in `error`, never read as an empty list.
+/// breach, every rule that covers no piece, and every pair of rules whose modules do not nest (#168).
+/// No file is no rules and no error; a file that cannot be read or parsed is named in `error`, never
+/// read as an empty list.
 fn standards_json(library: &bevy_emerge_core::library::Library, project_dir: &std::path::Path) -> Value {
-    use bevy_emerge_core::standards::{check, idle};
+    use bevy_emerge_core::standards::{check, idle, unnested};
     let standards = match load_standards(project_dir) {
         Ok(s) => s,
-        Err(e) => return json!({"breaches": [], "idle": [], "error": e}),
+        Err(e) => return json!({"breaches": [], "idle": [], "unnested": [], "error": e}),
     };
     let rows: Vec<Value> = check(library, &standards).iter().map(breach_json).collect();
-    json!({"breaches": rows, "idle": idle(library, &standards), "error": null})
+    let pairs: Vec<Value> = unnested(&standards).iter().map(unnested_json).collect();
+    json!({"breaches": rows, "idle": idle(library, &standards), "unnested": pairs, "error": null})
 }
 
 /// **One piece's breaches of the project's standards** (#138 slice 3), as `piece_import` reports
@@ -793,8 +795,17 @@ pub(crate) fn load_standards(
     .map_err(|e| format!("{}: {e}", path.display()))
 }
 
+fn dim_name(d: bevy_emerge_core::standards::Dim) -> &'static str {
+    use bevy_emerge_core::standards::Dim;
+    match d {
+        Dim::Width => "width",
+        Dim::Depth => "depth",
+        Dim::Height => "height",
+    }
+}
+
 fn breach_json(b: &bevy_emerge_core::standards::Breach) -> Value {
-    use bevy_emerge_core::standards::{Dim, Why};
+    use bevy_emerge_core::standards::Why;
     let (why, bound) = match b.why {
         Why::Unmeasured => ("unmeasured", None),
         Why::BelowMin(v) => ("below_min", Some(v)),
@@ -804,10 +815,31 @@ fn breach_json(b: &bevy_emerge_core::standards::Breach) -> Value {
     json!({
         "piece": b.piece,
         "rule": b.rule,
-        "dim": match b.dim { Dim::Width => "width", Dim::Depth => "depth", Dim::Height => "height" },
+        "dim": dim_name(b.dim),
         "found": b.found,
         "why": why,
         "bound": bound,
+    })
+}
+
+/// **Two sub-kit modules that do not nest** (#168): the rules, their dimensions and modules in file
+/// order, where runs of the two land on one grid line again (`null` when not within
+/// `standards::MEET_WITHIN` lengths of the larger), and a sentence saying so.
+fn unnested_json(u: &bevy_emerge_core::standards::Unnested) -> Value {
+    use bevy_emerge_core::standards::MEET_WITHIN;
+    let [a, b] = &u.rules;
+    let [ma, mb] = u.modules;
+    let [da, db] = u.dims.map(dim_name);
+    let meet = match u.meet {
+        Some(m) => format!("they share a grid line only every {m} m"),
+        None => format!("they share no grid line within {MEET_WITHIN} lengths of {} m", ma.max(mb)),
+    };
+    json!({
+        "rules": [a, b],
+        "dims": [da, db],
+        "modules": [ma, mb],
+        "meet": u.meet,
+        "message": format!("{a} ({da}, {ma} m) and {b} ({db}, {mb} m) do not nest: {meet}"),
     })
 }
 

@@ -11,7 +11,10 @@
 //! [`Outcome::Missing`], never silently met.
 //!
 //! Forward is `(sin yaw, cos yaw)`, the convention [`crate::placement::ir::facing_cosine`] scores
-//! with. Distances are between placement centres on the floor plan ([`crate::map::Placed::at`]).
+//! with, and [`check`] and [`solve`] read that yaw in radians. A map's own rows store
+//! [`crate::map::Placed::yaw`] in **degrees** (the `place` schema, the spawner), so a caller holding
+//! map rows uses [`check_map`] and [`solve_map`] (#165). Distances are between placement centres on
+//! the floor plan ([`crate::map::Placed::at`]).
 //!
 //! Engine-free: reads placements, nothing else. Runs and stamps are not expanded here; a relation is
 //! about a placement row.
@@ -71,7 +74,12 @@ impl Relations {
             // Faces and AlignedWith have no distance; 0.0 stands in for "nothing to check".
             let metres: [f32; 2] = match &rel.kind {
                 Kind::Faces(_) | Kind::AlignedWith(_) => [0.0, 0.0],
-                Kind::Near { within, .. } | Kind::InFrontOf { within, .. } | Kind::Between { within, .. } => [*within, 0.0],
+                Kind::Near { within, .. }
+                | Kind::InFrontOf { within, .. }
+                | Kind::Behind { within, .. }
+                | Kind::LeftOf { within, .. }
+                | Kind::RightOf { within, .. }
+                | Kind::Between { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
                 Kind::VisibleFrom { clearance, .. } | Kind::ReachableFrom { clearance, .. } => [*clearance, 0.0],
@@ -134,6 +142,18 @@ pub enum Kind {
     /// Stands in front of a placement: ahead of its forward, inside a 45° half-cone, and no more than
     /// `within` metres along it. Measures the distance along the other's forward.
     InFrontOf { of: String, within: f32 },
+    /// Stands behind a placement: against its forward, inside a 45° half-cone, and no more than
+    /// `within` metres back along it (a chest behind the counter, a guard behind the throne).
+    /// Measures the distance along the other's backward; a piece in front measures negative.
+    Behind { of: String, within: f32 },
+    /// Stands to a placement's left, in that placement's own frame as it faces its forward: out
+    /// along its left, inside a 45° half-cone, and no more than `within` metres out (a lamp left of
+    /// the door). Measures the distance along the other's left; a piece on its right measures
+    /// negative.
+    LeftOf { of: String, within: f32 },
+    /// [`Kind::LeftOf`] on the other side: out along the placement's own right (a chair right of
+    /// the desk, a guard at the throne's right hand). A piece on its left measures negative.
+    RightOf { of: String, within: f32 },
     /// No other placement's centre stands in the `width` × `depth` corridor in front of this one (a
     /// door's swing, a counter's working side). Measures how far in the nearest intruder stands, or
     /// `depth` when clear.
@@ -206,7 +226,8 @@ fn distance(a: (f32, f32), b: (f32, f32)) -> f32 {
     ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt()
 }
 
-/// `p` in `from`'s frame: (along its forward, sideways).
+/// `p` in `from`'s frame: (along its forward, sideways). Sideways is positive on `from`'s own
+/// left (forward is local +z, turned about +y; its left is local +x).
 fn local(from: &Placed, p: (f32, f32)) -> (f32, f32) {
     let (fx, fz) = (from.yaw.sin(), from.yaw.cos());
     let (dx, dz) = (p.0 - from.at.0, p.1 - from.at.1);
@@ -257,6 +278,29 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
                     ahead > 0.0 && ahead <= *within && side.abs() <= ahead,
                     ahead,
                 )
+            }
+            Err(m) => m,
+        },
+        Kind::Behind { of, within } => match other(of) {
+            Ok(b) => {
+                let (ahead, side) = local(b, a.at);
+                let back = -ahead;
+                verdict(back > 0.0 && back <= *within && side.abs() <= back, back)
+            }
+            Err(m) => m,
+        },
+        Kind::LeftOf { of, within } => match other(of) {
+            Ok(b) => {
+                let (ahead, left) = local(b, a.at);
+                verdict(left > 0.0 && left <= *within && ahead.abs() <= left, left)
+            }
+            Err(m) => m,
+        },
+        Kind::RightOf { of, within } => match other(of) {
+            Ok(b) => {
+                let (ahead, left) = local(b, a.at);
+                let right = -left;
+                verdict(right > 0.0 && right <= *within && ahead.abs() <= right, right)
             }
             Err(m) => m,
         },
@@ -655,7 +699,9 @@ const SOLVE_ROUNDS: usize = 8;
 /// For each [`Outcome::Unmet`] relation the solver proposes one move: [`Kind::Faces`] turns the
 /// piece to its target, [`Kind::AlignedWith`] turns it to the other's heading without moving it,
 /// [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
-/// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
+/// [`Kind::InFrontOf`] sets it on the other's forward, [`Kind::Behind`] on the other's backward,
+/// [`Kind::LeftOf`] and [`Kind::RightOf`] on the other's own left and right,
+/// and [`Kind::ClearInFront`] moves the intruder
 /// sideways out of the corridor (the door stays where it was hung), [`Kind::VisibleFrom`] moves
 /// the nearest blocker sideways off the sight line (both ends stay), [`Kind::Along`] slides the
 /// piece toward the nearest point of its path, on its own side, [`Kind::Between`] sets it on the
@@ -729,6 +775,35 @@ pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
     }
 }
 
+/// [`check`] on a map's own rows, whose [`Placed::yaw`] is degrees.
+pub fn check_map(placements: &[Placed], relations: &Relations) -> Vec<Outcome> {
+    check(&in_radians(placements), relations)
+}
+
+/// [`solve`] on a map's own rows (yaw in degrees), handing the rows back in degrees. A row whose
+/// yaw the solve did not turn keeps its stored yaw bit for bit, so the degrees → radians → degrees
+/// round trip never reads as an edit of a row nobody moved.
+pub fn solve_map(placements: &[Placed], relations: &Relations) -> Solved {
+    let radians = in_radians(placements);
+    let mut solved = solve(&radians, relations);
+    // `Solved::placements` is in input order, row for row.
+    for ((row, given), stored) in solved.placements.iter_mut().zip(&radians).zip(placements) {
+        row.yaw = if row.yaw == given.yaw { stored.yaw } else { row.yaw.to_degrees() };
+    }
+    solved
+}
+
+/// A map's rows with yaw turned from the degrees they store to the radians [`check`] reads.
+pub(crate) fn in_radians(placements: &[Placed]) -> Vec<Placed> {
+    placements
+        .iter()
+        .map(|p| Placed {
+            yaw: p.yaw.to_radians(),
+            ..p.clone()
+        })
+        .collect()
+}
+
 /// The moves that would mend `r`: which pieces, and where they go. Empty when the piece to move
 /// rests on another, or the relation names a piece the map lacks. Every kind moves one piece but
 /// a sight line, which clears all its blockers at once (one at a time could never lower the count).
@@ -779,6 +854,20 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             let (fx, fz) = forward(b);
             let d = distance(a.at, b.at).clamp(within * 0.1, within * 0.9);
             free(a).then(|| (a.id.clone(), (b.at.0 + fx * d, b.at.1 + fz * d), a.yaw))
+        }
+        Kind::Behind { of, within } => {
+            let b = other(of)?;
+            let (fx, fz) = forward(b);
+            let d = distance(a.at, b.at).clamp(within * 0.1, within * 0.9);
+            free(a).then(|| (a.id.clone(), (b.at.0 - fx * d, b.at.1 - fz * d), a.yaw))
+        }
+        Kind::LeftOf { of, within } | Kind::RightOf { of, within } => {
+            let b = other(of)?;
+            // The other's left, as `local` measures sideways: (fz, -fx).
+            let (fx, fz) = forward(b);
+            let sign = if matches!(r.kind, Kind::LeftOf { .. }) { 1.0 } else { -1.0 };
+            let d = sign * distance(a.at, b.at).clamp(within * 0.1, within * 0.9);
+            free(a).then(|| (a.id.clone(), (b.at.0 + fz * d, b.at.1 - fx * d), a.yaw))
         }
         Kind::ClearInFront { width, .. } => {
             // The intruder, or the piece it rests on: moving the host carries it out.

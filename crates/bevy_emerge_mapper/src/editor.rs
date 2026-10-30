@@ -7140,7 +7140,7 @@ fn refresh_status(
 /// when every relation holds, else `U unmet, M missing: <the first broken relation>`, and the file's
 /// name when it does not read. The same check `emerge_state.relations` runs (#137).
 fn relations_readout(open: &OpenMap) -> (String, Color) {
-    use bevy_emerge_core::relations::{check, path_for_map, Kind, Outcome, Relations};
+    use bevy_emerge_core::relations::{check_map, path_for_map, Kind, Outcome, Relations};
     let path = path_for_map(&open.map_path);
     let unreadable = || {
         let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
@@ -7157,7 +7157,7 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
     if relations.relations.is_empty() {
         return ("none".to_owned(), DIM);
     }
-    let outcomes = check(&open.map.placements, &relations);
+    let outcomes = check_map(&open.map.placements, &relations);
     let unmet = outcomes.iter().filter(|o| matches!(o, Outcome::Unmet { .. })).count();
     let missing = outcomes.iter().filter(|o| matches!(o, Outcome::Missing { .. })).count();
     if unmet + missing == 0 {
@@ -7179,6 +7179,9 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::Near { to, .. } => format!("{of} near {to}"),
                 Kind::Apart { from, .. } => format!("{of} apart from {from}"),
                 Kind::InFrontOf { of: other, .. } => format!("{of} in front of {other}"),
+                Kind::Behind { of: other, .. } => format!("{of} behind {other}"),
+                Kind::LeftOf { of: other, .. } => format!("{of} left of {other}"),
+                Kind::RightOf { of: other, .. } => format!("{of} right of {other}"),
                 Kind::ClearInFront { .. } => format!("{of} clear in front"),
                 Kind::VisibleFrom { from, .. } => format!("{of} seen from {from}"),
                 Kind::Along { path, .. } => format!("{of} along {}", path.join(" → ")),
