@@ -383,6 +383,11 @@ Every running loop uses Claude Sonnet 5.5. **bmb** joined on 2026-10-29 (owner: 
 
 bmb also needs `brew install git-lfs` and `git lfs install` (found 2026-10-29 starting w7: without it a clone's checkout fails at the first LFS file, and `changelog.py check` refuses on a machine with no `git-lfs`).
 
+**Every loop on big has two template drop-ins** in `~/.config/systemd/user/wiggum@.service.d/` (2026-10-29). Both were added because big has 31 GB of RAM for HomeStill and five or more loops:
+
+- `oom.conf`, `OOMPolicy=continue`: with the default (`stop`), one OOM-killed linker ended the whole pass (w5's passes 5 and 6).
+- `debug.conf`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only`: a Linux link reads every crate's DWARF, and under memory pressure fairy's test link re-read 148 GB from disk over 56 minutes. Changing it rebuilds every dependency once per target dir.
+
 ## Verify a loop is real, not just active
 
 1. supervisor: `systemctl --user is-active wiggum@<name>` → `active`; `launchctl print gui/$(id -u)/…` →
