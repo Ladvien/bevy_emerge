@@ -592,6 +592,101 @@ pub fn solve_block(
     Err(format!("no layout passed validation in {} attempts", rules.attempts))
 }
 
+/// One layout [`options`] offers: the seed that made it, the block, and how far it is from the
+/// nearest other option.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Choice {
+    /// The seed whose collapse this is. [`solve_block`] with it as `seed_base` rebuilds exactly
+    /// this block, since its first attempt is that seed: choosing an option is choosing its seed.
+    pub seed: u64,
+    pub block: Block,
+    /// The cells this layout differs in from its nearest other option; `None` when it is the only one.
+    pub nearest: Option<usize>,
+}
+
+/// What [`options`] found, and where every seed it tried went.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Options {
+    /// The layouts kept, in the order their seeds were tried.
+    pub options: Vec<Choice>,
+    /// Seeds tried: every one is an option, too close or failed.
+    pub tried: usize,
+    /// Seeds whose layout passed but was within `min_differ` cells of an option already kept.
+    pub too_close: usize,
+    /// Seeds whose collapse found no layout, or one that broke the block's rules.
+    pub failed: usize,
+}
+
+/// **Several layouts of one block, each different from the others** (#166, research lens #10,
+/// narrowed: options on request, never automatic variety).
+///
+/// Seeds `seed_base`, `seed_base + 1`, … are collapsed and validated in order, at most
+/// `rules.attempts * count` of them, and a layout is kept when it differs from every option already
+/// kept in at least `min_differ` cells, and in one cell at the least, so no layout is offered twice.
+/// The border and `pins` are the same in every layout, so only free cells can make a difference.
+///
+/// Fewer options than `count` is an answer, not an error: [`Options::too_close`] and
+/// [`Options::failed`] say where the seeds went. The error is [`initial`]'s, for pins that cannot be.
+pub fn options(
+    alphabet: &Alphabet,
+    rules: &BlockRules,
+    pins: &[(usize, usize)],
+    seed_base: u64,
+    count: usize,
+    min_differ: usize,
+) -> Result<Options, String> {
+    let domains = initial(alphabet, rules, pins)?;
+    let budget = u64::from(rules.attempts).saturating_mul(count as u64);
+    let need = min_differ.max(1);
+    let differ = |a: &[usize], b: &[usize]| a.iter().zip(b).filter(|(x, y)| x != y).count();
+    let mut out = Options::default();
+    let mut next = 0u64;
+    while out.options.len() < count && next < budget {
+        let seed = seed_base.wrapping_add(next);
+        next += 1;
+        out.tried += 1;
+        let block = wfc::collapse_grid(
+            rules.size.0 as usize,
+            rules.size.1 as usize,
+            &alphabet.weights,
+            &alphabet.grammar.support,
+            &domains,
+            seed,
+        )
+        .and_then(|grid| validate(alphabet, rules, &grid).map(|rects| Block { grid, rects }));
+        let Some(block) = block else {
+            out.failed += 1;
+            continue;
+        };
+        if out
+            .options
+            .iter()
+            .any(|o| differ(&o.block.grid, &block.grid) < need)
+        {
+            out.too_close += 1;
+            continue;
+        }
+        out.options.push(Choice { seed, block, nearest: None });
+    }
+    let nearest: Vec<Option<usize>> = out
+        .options
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            out.options
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, b)| differ(&a.block.grid, &b.block.grid))
+                .min()
+        })
+        .collect();
+    for (o, n) in out.options.iter_mut().zip(nearest) {
+        o.nearest = n;
+    }
+    Ok(out)
+}
+
 /// The seed of the block a region placement asks for: `rules.seed` offset by a hash of the
 /// region's id, so every region lays out differently and the same one the same way every time.
 pub fn region_seed(rules: &BlockRules, region_id: &str) -> u64 {
