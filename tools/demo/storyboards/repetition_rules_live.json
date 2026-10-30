@@ -1,0 +1,60 @@
+{
+ "name": "repetition_rules_live",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      0,
+      0,
+      8,
+      6
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 4
+  },
+  {
+   "seconds": 4
+  },
+  {
+   "seconds": 4
+  },
+  {
+   "seconds": 4
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    200,
+    650
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "no repetition.ron: REPEATS names the chairs first (chair x4, 1 more)"
+  },
+  {
+   "at": 4.2,
+   "caption": "repetition.ron = (structure: [\"seating\"]): chairs are meant to repeat, the lamps lead"
+  },
+  {
+   "at": 8.2,
+   "caption": "repetition.ron = (radius_m: 0.5): one metre apart is out of sight, REPEATS none"
+  },
+  {
+   "at": 12.2,
+   "caption": "repetition.ron = (radius_m: -1.0): a bad file is named, never read as the defaults"
+  }
+ ]
+}
