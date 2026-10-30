@@ -80,12 +80,13 @@ fn to_text(field: &Heightfield) -> Result<String, Refusal> {
     ron::ser::to_string_pretty(field, ron::ser::PrettyConfig::default()).map_err(|e| Refusal::new(format!("the terrain could not be written: {e}")))
 }
 
-/// **The saved terrain of the open map**, or `None` for flat ground (no file, or one that is not a
-/// heightfield). The map's name is its file name without `.map.ron`, the name `terrain_stroke` takes.
+/// **The saved terrain of the open map**, or `None` for flat ground (no file, or one
+/// [`Heightfield::parse`] refuses: not a heightfield, or heights that do not fill its shape). The
+/// map's name is its file name without `.map.ron`, the name `terrain_stroke` takes.
 pub fn ground_of(project: &crate::project::Project, open: &crate::project::OpenMap) -> Option<Heightfield> {
     let name = open.map_path.file_name()?.to_str()?.strip_suffix(".map.ron")?;
     let text = std::fs::read_to_string(project.emerge_dir.join("terrain").join(format!("{name}.ron"))).ok()?;
-    ron::from_str(&text).ok()
+    Heightfield::parse(&text).ok()
 }
 
 /// **Where every piece of the open map stands, on its terrain and in its caves**: [`bevy_emerge_core::stack::resolve_y_in`]
@@ -104,7 +105,7 @@ impl TerrainStroke {
         let p = Params::parse(params)?;
         let path = path_of(ctx, &p.map)?;
         let mut field: Heightfield = match std::fs::read_to_string(&path) {
-            Ok(text) => ron::from_str(&text).map_err(|e| Refusal::new(format!("{} is not a heightfield: {e}", path.display())))?,
+            Ok(text) => Heightfield::parse(&text).map_err(|e| Refusal::new(format!("{} does not read, so nothing was sculpted: {e}", path.display())))?,
             Err(_) => match &p.create {
                 Some(c) if c.width >= 2 && c.depth >= 2 && c.cell_m > 0.0 => {
                     Heightfield::flat(c.origin, c.cell_m, c.width, c.depth, c.height_m)
