@@ -36,6 +36,9 @@ pub struct Bind {
     /// Only people whose marker is inside this world rectangle `[x0, z0, x1, z1]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub area: Option<[f32; 4]>,
+    /// A request, never saved: the id of a note on the open map whose drawn rectangle becomes `area`.
+    #[serde(default, skip_serializing)]
+    pub note: Option<String>,
 }
 
 /// One trigger.
@@ -196,6 +199,18 @@ pub fn defs_with_triggers(ctx: &Ctx, map: &str, people: &People) -> Result<bevy_
     bevy_society::SocietyDefs::compile(file).map_err(|e| Refusal::new(format!("the society definitions do not compile: {e}")))
 }
 
+/// **The rectangle of a note on the open map**, in metres: where the person drew it.
+fn note_rect(ctx: &Ctx, map: &str, id: &str) -> Result<[f32; 4], Refusal> {
+    let open = ctx.open.as_ref().filter(|o| o.map.name == map).ok_or_else(|| {
+        Refusal::new(format!("`{map}` is not the open map, so its notes cannot be read to bind a trigger. Nothing was changed."))
+    })?;
+    let notes = bevy_emerge_core::notes::Notes::load(&bevy_emerge_core::notes::path_for_map(&open.map_path)).unwrap_or_default();
+    notes
+        .get(id)
+        .and_then(|n| n.frame_rect())
+        .ok_or_else(|| Refusal::new(format!("`{map}` has no note `{id}` with an area, so a trigger cannot be bound to it. Nothing was changed.")))
+}
+
 /// **Set, change or remove one trigger.**
 pub struct TriggerSet;
 
@@ -266,6 +281,9 @@ impl TriggerSet {
                         return Err(Refusal::new("the area is not four finite numbers. Nothing was changed."));
                     }
                     t.bind = b.clone();
+                    if let Some(id) = t.bind.note.take() {
+                        t.bind.area = Some(note_rect(ctx, &p.map, &id)?);
+                    }
                 }
                 let people = crate::ops_people::people_of(project, &p.map);
                 for n in &t.bind.people {
@@ -354,7 +372,8 @@ impl Operation for TriggerSet {
                 "bind": {"type": "object", "additionalProperties": false, "description": "Who the trigger is for; replaces the old binding. Nothing bound means everyone.", "properties": {
                     "people": {"type": "array", "items": {"type": "string"}, "description": "Only these people, by name."},
                     "faction": {"type": "string", "description": "Only members of this faction."},
-                    "area": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4, "description": "Only people whose marker is inside this world rectangle [x0, z0, x1, z1]."}
+                    "area": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4, "description": "Only people whose marker is inside this world rectangle [x0, z0, x1, z1]."},
+                    "note": {"type": "string", "description": "The id of a note on the open map: its drawn rectangle becomes `area`."}
                 }},
                 "remove": {"type": "boolean", "description": "Remove the trigger."},
                 "put_back": {"type": "object", "description": "An undo's put-back. Only an undo sends this."}
