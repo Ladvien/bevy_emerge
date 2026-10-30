@@ -131,6 +131,7 @@ mod headless;
 mod home_frames_the_view;
 mod label_set_is_an_operation;
 mod leaf;
+mod light_map;
 mod live_writes_each_change_through;
 mod no_system_writes_every_frame;
 mod note_claims;

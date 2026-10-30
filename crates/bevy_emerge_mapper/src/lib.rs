@@ -85,6 +85,8 @@ pub mod ops_crowd;
 pub mod ops_destructible;
 pub mod ops_data;
 pub mod ops_family;
+#[cfg(feature = "bevy_light_grid")]
+pub mod ops_light;
 pub mod ops_terrain;
 pub mod ops_water;
 pub mod ops_play;

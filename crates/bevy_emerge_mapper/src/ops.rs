@@ -2371,6 +2371,8 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_family::PlacementSetFamily),
+        #[cfg(feature = "bevy_light_grid")]
+        Box::new(crate::ops_light::LightMap),
         Box::new(crate::ops_terrain::TerrainStroke),
         Box::new(crate::ops_compose::CompositionDefine),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
