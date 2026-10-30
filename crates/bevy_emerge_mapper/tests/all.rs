@@ -179,6 +179,7 @@ mod the_way_back_actually_goes_back;
 mod the_whole_map_is_inside_the_cameras_depth;
 mod two_writers_never_share_a_sequence_number;
 mod water_place_is_an_operation;
+mod water_run_settles_a_pond;
 mod world_gizmos_stay_in_the_world;
 
 /// A file under `tests/` that is not a module here is never compiled, so its tests would silently
