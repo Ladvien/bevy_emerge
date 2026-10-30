@@ -133,9 +133,10 @@ pub const TOOLS: &[ToolDoc] = &[
                        holder, lease_until); pass note=<id> for that note's bundle: text, area and \
                        margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
                        repetition names up to 10 visible repeats (the same piece at one yaw and tip \
-                       within 6 m), the one a player notices first first: descriptor, patched, role \
-                       (clutter or structure), pieces, pairs, score; total counts them all; the radius, \
-                       the structure kinds and their weight come from the project's repetition.ron, \
+                       within 6 m; any yaw for a round kind), the one a player notices first first: \
+                       descriptor, patched, role (clutter or structure), pieces, pairs, score; total \
+                       counts them all; the radius, the structure kinds, their weight and the round \
+                       kinds come from the project's repetition.ron, \
                        re-read on every call, and a bad file is named in error. \
                        relations checks the <map>.relations.ron beside the open map, re-read on \
                        every call: each relation (of, kind) with outcome met, unmet or missing, \
@@ -151,6 +152,12 @@ pub const TOOLS: &[ToolDoc] = &[
                        face tokens, closest {piece, turn, misses [{at, want, found}]} the piece \
                        nearest to meeting it or null, message) that no piece of the kit meets at any quarter turn, \
                        up to 20, with total counting them all. \
+                       stress is the rest of the kit stress test, from the library on every call: \
+                       ring, the loop the kit closes, four {piece, turn in degrees} north-west, \
+                       north-east, south-west, south-east; room, the smallest room with a middle, \
+                       three rows of three {piece, turn} north to south and west to east, the middle \
+                       at [1][1]; each null when the kit cannot build it; declared counts the pieces \
+                       with an edge token, and at 0 the nulls say the kit is unlabelled. \
                        Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \

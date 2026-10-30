@@ -562,7 +562,8 @@ fn editor_state(
         "references": open.as_ref().map(|o| crate::ops_references::state_json(o, project.as_ref().map(|p| p.root.as_path()))),
         // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
         "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
-        // **The repeats a player will notice first** (#136): same piece, yaw and tip, close together,
+        // **The repeats a player will notice first** (#136): same piece, yaw (any yaw for a round
+        // kind, #184) and tip, close together,
         // weighed by role so repeated clutter heads the list above repeated structure. The rules are
         // the project's `repetition.ron` (#139), read on every call so an edit is seen with no restart.
         "repetition": match (open.as_ref(), project.as_ref()) {
@@ -576,6 +577,10 @@ fn editor_state(
         // quarter turn, through the same seam check the map uses, so a socket nothing can close is
         // named before a map runs into it.
         "dead_ends": project.as_ref().map(|p| dead_ends_json(&p.library, p.lattice.face_bands)),
+        // **Whether the kit can loop a hallway back and open it into a room** (#171): the stress
+        // tests after `dead_ends`, `adjacency::ring` (#160) and `adjacency::room` (#162), from the
+        // library on every call, so an edit to a piece's tokens is in the next answer.
+        "stress": project.as_ref().map(|p| stress_json(&p.library, p.lattice.face_bands)),
         // **The intended relations this map breaks** (#137): read from `<map>.relations.ron` on every
         // call, so an edit to that file is seen by the next answer with no restart.
         "relations": open.as_ref().map(|o| relations_json(&o.map.placements, &o.map_path)),
@@ -725,6 +730,36 @@ fn dead_ends_json(library: &bevy_emerge_core::library::Library, divisions: u32) 
         })
         .collect();
     json!({"faces": faces, "total": all.len()})
+}
+
+/// **The kit stress tests that build with the kit** (#171), as `emerge_state` reports them: the loop
+/// `adjacency::ring` closes and the room `adjacency::room` opens, each piece as `{piece, turn}` with
+/// its turn in degrees, or null when the kit cannot build it. `declared` counts the pieces that carry
+/// an edge token; with none there is no declared seam to try, so both are null without a search and
+/// `declared: 0` says the nulls are about an unlabelled kit, not a failing one.
+fn stress_json(library: &bevy_emerge_core::library::Library, divisions: u32) -> Value {
+    use bevy_emerge_core::adjacency::{ring, room};
+    let declared = library
+        .descriptors
+        .iter()
+        .filter(|d| {
+            d.subgrid
+                .as_ref()
+                .is_some_and(|g| g.cells.iter().any(|c| c.edge.is_some()))
+        })
+        .count();
+    if declared == 0 {
+        return json!({"declared": 0, "ring": null, "room": null});
+    }
+    let cell = |(piece, q): &(String, u8)| json!({"piece": piece, "turn": u32::from(*q) * 90});
+    let ring = ring(library, divisions).map(|r| r.pieces.iter().map(cell).collect::<Vec<_>>());
+    let room = room(library, divisions).map(|r| {
+        r.pieces
+            .iter()
+            .map(|row| row.iter().map(cell).collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+    });
+    json!({"declared": declared, "ring": ring, "room": room})
 }
 
 /// **The project's standards, checked against its library**, as `emerge_state` reports them: every
