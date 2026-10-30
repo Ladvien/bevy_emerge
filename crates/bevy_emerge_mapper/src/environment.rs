@@ -164,6 +164,15 @@ pub fn apply_environment(
     apply_cover(&parsed, &mut preview);
 }
 
+/// What [`dress_volume`] keeps between frames: the shared material, the settings text it last read,
+/// and the cover the material wears (none, as `WeatheredExtension::default()` starts).
+#[derive(Default)]
+pub struct Dressing {
+    handle: Option<Handle<WeatheredMaterial>>,
+    seen: Option<String>,
+    worn: Option<SurfaceCover>,
+}
+
 /// **The carved ground wears the game's weathered material** (#101). While the project has a
 /// `family/bevy_elements.ron` and `bevy_elements`' plugins are in the app, every chunk of the carved
 /// ground ([`TerrainView::Volume`](crate::terrain_view::TerrainView::Volume)) is drawn with one
@@ -178,10 +187,10 @@ pub fn dress_volume(
     plain: Query<(Entity, &TerrainView), With<MeshMaterial3d<StandardMaterial>>>,
     dressed: Query<(Entity, &TerrainView), With<MeshMaterial3d<WeatheredMaterial>>>,
     mut commands: Commands,
-    mut state: Local<(Option<Handle<WeatheredMaterial>>, Option<String>)>,
+    mut state: Local<Dressing>,
 ) {
     let Some(mut weathered) = weathered else { return };
-    let (handle, seen) = &mut *state;
+    let Dressing { handle, seen, worn } = &mut *state;
     let Some(text) = settings.text.get(CRATE) else {
         let mut back = None;
         for (e, view) in &dressed {
@@ -198,10 +207,13 @@ pub fn dress_volume(
         .clone();
     if seen.as_ref() != Some(text) {
         *seen = Some(text.clone());
+        // Only a changed cover touches the material: `get_mut` re-prepares it, and a clock edit should not.
         if let Ok(parsed) = ElementsSettings::from_ron(text)
+            && parsed.volume_cover != *worn
             && let Some(mut material) = weathered.get_mut(&handle)
         {
             material.extension.set_cover(parsed.volume_cover);
+            *worn = parsed.volume_cover;
         }
     }
     for (e, view) in &plain {

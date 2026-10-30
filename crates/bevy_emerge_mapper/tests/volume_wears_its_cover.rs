@@ -85,13 +85,24 @@ fn the_carved_ground_wears_the_files_cover_and_follows_an_edit() {
     };
     assert!(until(&mut app, all_wear(wearing(Some(wet)))), "every carved chunk wears the file's wet cover: {:?}", chunks(&mut app));
 
-    // An edit to the file, through the operation a person and an agent both use, reaches the drawn chunks.
+    // An edit to the file, through the operation a person and an agent both use, reaches the drawn
+    // chunks without a remesh: the same entities, wearing the new cover.
+    let ids = |app: &mut App| -> Vec<Entity> {
+        let world = app.world_mut();
+        let mut q = world.query::<(Entity, &TerrainView)>();
+        let mut v: Vec<Entity> = q.iter(world).filter(|(_, t)| **t == TerrainView::Volume).map(|(e, _)| e).collect();
+        v.sort();
+        v
+    };
+    let before = ids(&mut app);
     let snow = SurfaceCover { snow: CoverBand::snow(1.0), ..default() };
     let set = |ctx: &mut Ctx, value: String| done(ops::dispatch(ctx, "family_set", &json!({"crate": "bevy_elements", "field": "volume_cover", "value": value})));
     set(&mut ctx, ron::to_string(&Some(snow)).unwrap());
     assert!(until(&mut app, all_wear(wearing(Some(snow)))), "the snow cover replaces the wet one: {:?}", chunks(&mut app));
+    assert_eq!(ids(&mut app), before, "a cover edit remeshed the carved ground");
     set(&mut ctx, "None".to_owned());
     assert!(until(&mut app, all_wear(wearing(None))), "no cover: the scene's weather decides: {:?}", chunks(&mut app));
+    assert_eq!(ids(&mut app), before, "a cover edit remeshed the carved ground");
 
     // Without the environment file the editor's own plain material is back.
     std::fs::remove_file(&file).unwrap();
