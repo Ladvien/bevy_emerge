@@ -1362,6 +1362,11 @@ struct DataLeafRow {
     path: String,
 }
 
+/// **The Plan panel's list** (E-069): the agent's plan for the open map, one numbered row per step
+/// with its status, under a count of how many are done.
+#[derive(Component, Clone, Copy)]
+struct PlanList;
+
 /// **The Notes panel's list** (#90): a header of two buttons, then one row per note.
 #[derive(Component, Clone, Copy)]
 struct NotesList;
@@ -2418,7 +2423,17 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family, refresh_data, refresh_terrain, refresh_crowd, refresh_data_list, refresh_notes_list),
+                    (
+                        refresh_size,
+                        refresh_family,
+                        refresh_data,
+                        refresh_terrain,
+                        refresh_crowd,
+                        refresh_data_list,
+                        refresh_notes_list,
+                        refresh_scripts_list,
+                        refresh_plan_list,
+                    ),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -2463,6 +2478,7 @@ impl Plugin for EditorPlugin {
             .add_observer(on_terrain_field_click)
             .add_observer(on_crowd_field_click)
             .add_observer(on_data_leaf_click)
+            .add_observer(on_script_row_click)
             .add_observer(on_notes_click);
     }
 }
@@ -3324,6 +3340,24 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 ));
             });
 
+            // **Scripts (#105).** Every trigger of the open map; a row opens the terrain line to edit it.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "SCRIPTS");
+                s.spawn((
+                    ScriptsList,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                ));
+            });
+
             // **Notes (#90).** Every note of the open map, newest first; a row flies to it.
             p.spawn(Node {
                 flex_direction: FlexDirection::Column,
@@ -3334,6 +3368,25 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 crate::chrome::section(s, "NOTES");
                 s.spawn((
                     NotesList,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                ));
+            });
+
+            // **Plan (E-069).** What the agent means to do on this map and how far it has got: the
+            // `.plan.ron` that `plan_set` writes, read like the notes are.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "PLAN");
+                s.spawn((
+                    PlanList,
                     Node {
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(crate::chrome::GAP_TIGHT),
@@ -5243,6 +5296,90 @@ fn on_data_leaf_click(
     state.status.note("Enter writes the value, Esc leaves it alone".to_owned());
 }
 
+/// A row of [`ScriptsList`]: one trigger of the open map, carrying the terrain line that rewrites it.
+#[derive(Component, Clone)]
+struct ScriptRow {
+    line: String,
+}
+
+/// **The Scripts panel's list** (#105): one row per trigger in `scripts/<map>.ron`.
+#[derive(Component, Clone, Copy)]
+struct ScriptsList;
+
+/// A row opens the terrain line with that trigger already typed, so a person edits it and presses Enter
+/// (`trigger_set`, refused with the Rhai line when it does not compile). Global observer: see [`on_size_field_click`].
+fn on_script_row_click(
+    activate: On<Activate>,
+    rows: Query<&ScriptRow>,
+    edit: Option<ResMut<TerrainEdit>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    let (Some(mut edit), Some(mut state)) = (edit, state) else {
+        return;
+    };
+    let Ok(row) = rows.get(activate.entity) else {
+        return;
+    };
+    edit.active = Some(row.line.clone());
+    state.status.note("Enter writes the trigger (`trigger <id> remove` deletes it), Esc leaves it alone".to_owned());
+}
+
+/// Keep [`ScriptsList`] equal to the open map's saved triggers: read twice a second, rows respawned only when they change.
+fn refresh_scripts_list(
+    mut commands: Commands,
+    time: Res<Time>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    lists: Query<Entity, With<ScriptsList>>,
+    mut shown: Local<Option<Vec<crate::ops_scripts::Trigger>>>,
+    mut since: Local<f32>,
+) {
+    *since += time.delta_secs();
+    if shown.is_some() && *since < 0.5 {
+        return;
+    }
+    *since = 0.0;
+    let rows = match (project, open) {
+        (Some(p), Some(o)) => crate::ops_scripts::scripts_of(&p, &o.map.name).triggers,
+        _ => Vec::new(),
+    };
+    if shown.as_ref() == Some(&rows) {
+        return;
+    }
+    for list in &lists {
+        commands.entity(list).despawn_related::<Children>();
+        commands.entity(list).with_children(|p| {
+            if rows.is_empty() {
+                p.spawn((
+                    Text::new("no triggers on this map"),
+                    TextColor(DIM),
+                    crate::chrome::font(crate::chrome::text::LABEL),
+                ));
+            }
+            for t in &rows {
+                crate::chrome::list_row(p, false, ScriptRow { line: crate::ops_scripts::trigger_line(t) })
+                    .with_children(|row| {
+                        let who = if !t.bind.people.is_empty() {
+                            format!(" · {}", t.bind.people.join(", "))
+                        } else if let Some(f) = &t.bind.faction {
+                            format!(" · {f}")
+                        } else if t.bind.area.is_some() {
+                            " · area".to_owned()
+                        } else {
+                            String::new()
+                        };
+                        row.spawn((
+                            Text::new(format!("{} · {}{}", t.id, t.on, who)),
+                            TextColor(TEXT),
+                            crate::chrome::font(crate::chrome::text::BODY),
+                        ));
+                    });
+            }
+        });
+    }
+    *shown = Some(rows);
+}
+
 /// Keep [`DataList`] equal to the registered files' leaves. The files are read twice a second, not
 /// every frame, and the rows are respawned only when what they say changed.
 fn refresh_data_list(
@@ -5391,6 +5528,58 @@ fn on_notes_click(
             Err(why) => state.status.problem(why),
         }
     }
+}
+
+/// Keep [`PlanList`] equal to the open map's plan: a count, then `<n> [<status>] <text>` per step in
+/// the agent's order, or "no plan". Read twice a second, like the notes, so a `plan_set`, its undo
+/// and a hand edit of the file all show; rebuilt only when what it says changed.
+fn refresh_plan_list(
+    mut commands: Commands,
+    time: Res<Time>,
+    open: Option<Res<OpenMap>>,
+    lists: Query<Entity, With<PlanList>>,
+    mut local: Local<(Option<bevy_emerge_core::plan::Plan>, f32)>,
+) {
+    use bevy_emerge_core::plan::{self, Plan, Status};
+    let (shown, since) = &mut *local;
+    *since += time.delta_secs();
+    if shown.is_some() && *since < 0.5 {
+        return;
+    }
+    *since = 0.0;
+    let now = open.and_then(|o| Plan::load(&plan::path_for_map(&o.map_path)).ok()).unwrap_or_default();
+    if shown.as_ref() == Some(&now) {
+        return;
+    }
+    for list in &lists {
+        commands.entity(list).despawn_related::<Children>();
+        commands.entity(list).with_children(|p| {
+            if now.items.is_empty() {
+                p.spawn((Text::new("no plan"), TextColor(DIM), crate::chrome::font(crate::chrome::text::LABEL)));
+                return;
+            }
+            let (_, _, done, _) = now.counts();
+            p.spawn((
+                Text::new(format!("plan: {done} of {} done", now.items.len())),
+                TextColor(DIM),
+                crate::chrome::font(crate::chrome::text::LABEL),
+            ));
+            for (at, item) in now.items.iter().enumerate() {
+                let (status, colour) = match item.status {
+                    Status::Pending => ("pending", TEXT),
+                    Status::Doing => ("doing", ACCENT),
+                    Status::Done => ("done", DIM),
+                    Status::Skipped => ("skipped", DIM),
+                };
+                p.spawn((
+                    Text::new(format!("{} [{status}] {}", at + 1, item.text)),
+                    TextColor(colour),
+                    crate::chrome::font(crate::chrome::text::BODY),
+                ));
+            }
+        });
+    }
+    *shown = Some(now);
 }
 
 /// Keep [`NotesList`] equal to the open map's notes under the current filter: newest first, every
