@@ -13,7 +13,9 @@
 //! than [`RepetitionRules::radius_m`]. Turning or tipping a copy is the cheapest variation an author
 //! has, so it ends the repeat; a copy out of sight of the other is no repeat either. A **round**
 //! piece ([`RepetitionRules::round`]: a barrel, a pot) looks the same at any yaw, so for it only the
-//! tip and the distance count, and [`vary`] never turns it (#184).
+//! tip and the distance count, and [`vary`] never turns it (#184). A piece whose floor is longer one
+//! way than the other (a bench, a cart) is turned only a half turn by [`vary`], the one turn that
+//! keeps it on the cells it covered (#186).
 //!
 //! A piece's **role** is read off its `kind` tokens: any token in [`RepetitionRules::structure`]
 //! makes it [`Role::Structure`], everything else is [`Role::Clutter`]. The score of a descriptor is
@@ -24,6 +26,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::descriptor::tipped_footprint;
 use crate::library::Library;
 use crate::map::Placed;
 use crate::stack::descriptor_of;
@@ -185,10 +188,17 @@ fn role_of(d: &crate::descriptor::Descriptor, rules: &RepetitionRules) -> Role {
     }
 }
 
-/// The turns [`vary`] tries, in order. A half turn first, because it keeps a piece's footprint on
-/// the cells it stood on; then the quarter turns. No other angle: a turn off the grid's right angles
-/// would move a footprint off its cells, and a copy that four turns cannot end is reported instead.
+/// The turns [`vary`] tries, in order. A half turn first, because a placement's `at` is its centre,
+/// so a half turn leaves any footprint on the cells it stood on; then the quarter turns, which do
+/// that only for a square footprint, so a piece whose floor is longer one way than the other is
+/// given the half turn alone (#186). No other angle: a turn off the grid's right angles would move a
+/// footprint off its cells, and a copy the turns it may take cannot end is reported instead.
 pub const TURNS_DEG: [f32; 3] = [180.0, 90.0, 270.0];
+
+/// How far apart, in metres, a floor footprint's width and depth may be for a quarter turn to leave
+/// it on its cells. A centimetre, below anything a player sees as a gap, as an exported mesh is
+/// rarely exact.
+pub const SQUARE_TOLERANCE_M: f32 = 0.01;
 
 /// What [`vary`] would do to a map's placements.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -196,7 +206,7 @@ pub struct Variation {
     /// `(index into placements, the yaw it turns to)`, in placement order.
     pub turned: Vec<(usize, f32)>,
     /// Clutter placements that still have a look-alike in range after the turns: more copies close
-    /// together than [`TURNS_DEG`] has looks, or round copies, which no turn changes.
+    /// together than the turns they may take have looks, or round copies, which no turn changes.
     pub left: usize,
 }
 
@@ -207,18 +217,23 @@ pub struct Variation {
 /// like an earlier one takes the first of [`TURNS_DEG`] that leaves it a look-alike of no other
 /// placement. The first copy of each look keeps its yaw, so an author's chosen facing survives on it.
 /// A round copy ([`RepetitionRules::round`]) is never turned, since no turn changes how it looks; it
-/// is counted in [`Variation::left`] instead.
+/// is counted in [`Variation::left`] instead. A copy whose floor footprint (after its tip) is measured
+/// and not square takes only the half turn, which keeps it on the cells it covered; a quarter turn
+/// would swap its width and depth into the pieces beside it (#186). An unmeasured piece keeps all
+/// three turns, as nothing is known that a turn would break.
 pub fn vary(placements: &[Placed], library: &Library, rules: &RepetitionRules) -> Variation {
     let radius2 = rules.radius_m * rules.radius_m;
-    // (clutter, round) per placement, from one descriptor lookup each.
-    let (clutter, round): (Vec<bool>, Vec<bool>) = placements
+    // (clutter, round, long) per placement, from one descriptor lookup each.
+    let traits: Vec<(bool, bool, bool)> = placements
         .iter()
         .map(|p| {
-            descriptor_of(library, p).map_or((false, false), |d| {
-                (role_of(&d, rules) == Role::Clutter, is_round(&d, rules))
+            descriptor_of(library, p).map_or((false, false, false), |d| {
+                let long = tipped_footprint(&d, p.tip)
+                    .is_some_and(|(w, depth)| (w - depth).abs() > SQUARE_TOLERANCE_M);
+                (role_of(&d, rules) == Role::Clutter, is_round(&d, rules), long)
             })
         })
-        .unzip();
+        .collect();
     // Each look's key once, not once per pair: a patched key formats the whole patch.
     let keys: Vec<String> = placements.iter().map(look_key).collect();
     let mut yaws: Vec<f32> = placements.iter().map(|p| p.yaw).collect();
@@ -232,17 +247,19 @@ pub fn vary(placements: &[Placed], library: &Library, rules: &RepetitionRules) -
             j != i
                 && dx * dx + dz * dz < radius2
                 && p.tip == q.tip
-                && (round[i] || turn.min(360.0 - turn) < YAW_TOLERANCE_DEG)
+                && (traits[i].1 || turn.min(360.0 - turn) < YAW_TOLERANCE_DEG)
                 && keys[j] == keys[i]
         })
     };
     let n = placements.len();
     let mut turned = Vec::new();
     for i in 0..n {
-        if !clutter[i] || round[i] || !alike(&yaws, i, yaws[i], i) {
+        let (clutter, round, long) = traits[i];
+        if !clutter || round || !alike(&yaws, i, yaws[i], i) {
             continue;
         }
-        let found = TURNS_DEG
+        // A long piece stops after the half turn, the first of TURNS_DEG.
+        let found = TURNS_DEG[..if long { 1 } else { TURNS_DEG.len() }]
             .iter()
             .map(|turn| (yaws[i] + turn).rem_euclid(360.0))
             .find(|&yaw| !alike(&yaws, i, yaw, n));
@@ -251,7 +268,7 @@ pub fn vary(placements: &[Placed], library: &Library, rules: &RepetitionRules) -
             turned.push((i, yaw));
         }
     }
-    let left = (0..n).filter(|&i| clutter[i] && alike(&yaws, i, yaws[i], n)).count();
+    let left = (0..n).filter(|&i| traits[i].0 && alike(&yaws, i, yaws[i], n)).count();
     Variation { turned, left }
 }
 
