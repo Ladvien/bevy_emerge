@@ -15,12 +15,14 @@
 mod calibrate;
 mod check;
 mod config;
+mod gate;
 mod transport;
 mod types;
 
 pub use calibrate::{Calibration, Sample, calibrate};
 pub use check::{BUILTIN_CHECKS_RON, Check, PROJECT_CHECKS_FILE, Checks, Evidence, Finding};
 pub use config::Config;
+pub use gate::{Outcome, Report, run_checks};
 pub use transport::{Http, Recorder, Replay, Transport};
 pub use types::{Answer, MAX_IMAGES, MAX_QUESTIONS, Question, Request, Response, Usage};
 

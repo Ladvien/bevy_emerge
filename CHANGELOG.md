@@ -14,6 +14,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **fix-120** `0df31ae` Family settings reload in about 0.2 s instead of up to 1.5 s (flaky gate, #120) *No clip: a latency change, not visible in a clip; proved by family_settings_reload test*
 - **107-heat** `a10b342` Crowd preview heat overlay: the run's trail and queues drawn on the floor, and carried in crowd_preview's outcome *No clip: visible, not yet recorded: the overlay needs a clip of 100 walkers gate to church; proved by crowd_heat tests*
 - **water-place** `385bcbe` Springs, sinks and lakes can be placed on a map and saved beside it, one undo each *No clip: visible, not yet recorded: no display on big*
+- **112-check** `8837aba` tools/decide/check.py: calibrated checks on captures and a clip-vs-title check (#112 slice 1; model calibration left for a live run) *No clip: a loop tool; proved by tests/gate.rs and tools/decide/test_check.py*
 - **94-agent** `f99a11f` Send starts the project's notes agent (agent.ron), and the MCP docs say how any agent works a note *No clip: visible, not yet recorded: no display on big; proved by tests/send_starts_the_notes_agent.rs*
 - **107-crowd-op** `345ddd8` Crowd preview is an operation and a Crowd field: walk N people between two spots and read who arrived and where they queue *No clip: visible, not yet recorded: heat overlay not built yet; proved by crowd_preview_is_an_operation*
 - **99-terrain-import** `40d5d9b` Terrain can start from a 16-bit PNG height map: terrain_import (or 'import file cell_m low high' on the Terrain line), one undo step (#99) *No clip: visible, not yet recorded: no display on big*
@@ -165,7 +166,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **E-022** `3834b0b` The Map opens framed on the map, not on an 18 m close-up of the origin *No clip: visible, not yet recorded (backfill)*
 - **E-017** `8c97677` An agent frames the view: the map, a placement, placements or a rectangle<br><a href="docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif" width="320" alt="clip"></a>
 - **E-016** `63e6631` The inspector names what Cmd+Z and Cmd+Shift+Z will do<br><a href="docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif" width="320" alt="clip"></a>
-- **E-010** `da9b549` Cmd+Z takes back a map-settings change, not only placements *No clip: visible, not yet recorded (backfill)*
+- **E-010** `da9b549` Cmd+Z takes back a map-settings change, not only placements (recorded on the 2026-10-29 build)<br><a href="docs/changelog/media/2026-10-29-E-010.mp4"><img src="docs/changelog/media/2026-10-29-E-010.png" width="320" alt="clip"></a>
 - **E-009** `39ab825` `emerge_undo_operation`: an agent takes its own change back by its id<br><a href="docs/loop/iterations/assets/2026-10-21-556158d/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-556158d/enh-after.gif" width="320" alt="clip"></a>
 
 ## 2026-10-20
