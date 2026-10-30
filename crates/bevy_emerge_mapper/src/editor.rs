@@ -4279,7 +4279,11 @@ fn terrain_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                sculpt_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
+                if raw.trim_start().starts_with("import ") {
+                    import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else {
+                    sculpt_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
+                }
                 return;
             }
             Key::Escape => {
@@ -4332,6 +4336,32 @@ fn sculpt_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
         "create": {"origin": [-32.0, -32.0], "cell_m": 1.0, "width": 65, "depth": 65, "height_m": 0.0},
     });
     match crate::ops::dispatch(&mut ctx, "terrain_stroke", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Import a 16-bit height map through the registry** as `terrain_import`, from the terrain line
+/// `import <file> <cell_m> <low_m> <high_m>`; the field's first cell is the origin.
+fn import_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Option<Vec<f32>> = words.get(2..).filter(|w| w.len() == 3).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
+    let (Some(open), Some(nums)) = (open, nums) else {
+        state.status.problem(format!("`{}` is not `import <file> <cell_m> <low_m> <high_m>`, so nothing was changed", raw.trim()));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = serde_json::json!({"map": open.map.name, "file": words[1], "cell_m": nums[0], "range_m": [nums[1], nums[2]]});
+    match crate::ops::dispatch(&mut ctx, "terrain_import", &params) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
@@ -7741,7 +7771,7 @@ pub(crate) fn spawn_piece(
 /// when the real problem is the shelf it names.
 fn heights(project: &Project,
     open: &OpenMap) -> Result<Vec<f32>, String> {
-    bevy_emerge_core::stack::resolve_y(&open.map, &project.library)
+    crate::ops_terrain::heights_on_ground(project, open)
 }
 
 /// Draw the placements from `first` onward — what a fill or a generate just added.
@@ -13015,7 +13045,7 @@ fn under_cursor_target(
     //
     // A map whose heights do not resolve has a bigger problem than a pick, and answering `None` is
     // the honest thing: the verbs above say "nothing here" rather than acting on a guess.
-    let ys = bevy_emerge_core::stack::resolve_y(&open.map, &project.library).ok()?;
+    let ys = crate::ops_terrain::heights_on_ground(project, open).ok()?;
     let (origin, dir) = crate::view::cursor_ray(pointer.0, cam, cam_tf)?;
     ray_pick(project, open, &ys, origin, dir)
 }
