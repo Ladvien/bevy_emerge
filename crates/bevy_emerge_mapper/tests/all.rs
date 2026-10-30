@@ -150,6 +150,7 @@ mod no_observer_hides_a_resource_in_a_bundle;
 mod no_system_writes_every_frame;
 mod note_auto;
 mod note_claims;
+mod note_cites_reference;
 mod note_fence;
 mod note_undo_work;
 mod notes_are_operations;

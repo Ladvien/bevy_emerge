@@ -695,6 +695,7 @@ impl Talk {
         let p: TalkParams = serde_json::from_value(params.clone())
             .map_err(|e| bad_params(self.name(), "`id`, `agent`, `question`, `answer`, `summary`, `assumptions`, `ops`, `captures`", e))?;
         let source = ctx.source;
+        let refs = ctx.open.as_ref().and_then(|o| bevy_emerge_core::references::References::load(&bevy_emerge_core::references::path_for_map(&o.map_path)).ok()).unwrap_or_default();
         run(ctx, write, |notes, _| {
             let before = notes.notes.clone();
             if let Some(before) = &p.restore {
@@ -726,6 +727,10 @@ impl Talk {
                     if captures.is_empty() && source != crate::ops::Source::Agent {
                         // A person finishing a note by hand has no pictures to name; the record says so.
                         captures = vec!["(none: resolved by a person)".to_owned(); 2];
+                    }
+                    let cited = refs.unknown_citations(p.summary.iter().map(String::as_str).chain(p.assumptions.iter().map(String::as_str)));
+                    if !cited.is_empty() {
+                        return Err(Refusal::new(format!("{} cites {} but this map has no such reference (see `references` in emerge_state). Nothing was changed.", self.name(), cited.join(", "))));
                     }
                     let record = notes::Resolution { summary: need(&p.summary, "summary")?, assumptions: p.assumptions.clone(), ops: p.ops.clone(), captures };
                     notes.resolve_record(id, &by, record, now).map_err(Refusal::new)?;
