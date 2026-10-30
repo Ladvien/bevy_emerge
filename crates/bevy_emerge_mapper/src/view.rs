@@ -176,9 +176,13 @@ impl Plugin for ViewPlugin {
         app.init_resource::<Rig>()
             .init_resource::<Pointer>()
             .add_systems(OnEnter(crate::screen::Screen::Editor), setup)
-            // **Before anything acts on it.** `Phase::Sense` is where this editor decides who owns an
-            // input for the frame — the keyboard already does — so the pointer is read once, there,
-            // and every spatial system downstream sees one answer.
+            // **Before anything acts on it, which means before `Update` starts.** It ran in
+            // `Phase::Sense`, and that ordered it only before the systems in a `Phase` set: the Note
+            // tool, the placement tools and their ghosts are in none, so Bevy was free to run one of
+            // them first, and a click landed where the pointer had been the frame before (#180:
+            // the Note tool's second Shift-click took the first piece back out, 3 runs in 24).
+            // `BeforeFixedMainLoop` is after `PreUpdate`, where the window's cursor and a test's
+            // injected one have moved, and before every `Update` system, whatever its set.
             //
             // **Ungated by screen, and that is a correction.** It ran only in the editor, which was
             // true while `Pointer` served the map's spatial verbs and nothing else. It now feeds
@@ -186,7 +190,10 @@ impl Plugin for ViewPlugin {
             // pointer to `bevy_picking` at all — so leaving it off on the menu meant the menu's rows
             // could be given a click observer and never receive one. Where the pointer is is true on
             // both screens; it was the *readers* that were editor-only.
-            .add_systems(Update, sense_pointer.in_set(keys::Phase::Sense))
+            .add_systems(
+                RunFixedMainLoop,
+                sense_pointer.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+            )
             .add_systems(Update,
                 (drive.in_set(keys::Phase::Act))
                     .run_if(in_state(crate::screen::Screen::Editor)),
