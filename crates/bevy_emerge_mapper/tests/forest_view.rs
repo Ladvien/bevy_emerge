@@ -99,4 +99,12 @@ fn every_tree_in_the_file_is_drawn_where_it_stands_and_follows_the_files() {
     ops::undo(&mut ctx, None).unwrap();
     assert_eq!(forest_of(&project, "m").trees.len(), scattered, "the second undo took the placed tree back");
     until(&mut app, "the undone tree is gone", |w| drawn(w) == scattered && placed_radius(w).is_none());
+
+    // A forest file broken by hand keeps the trees drawn rather than emptying the viewport.
+    std::fs::write(project.emerge_dir.join("forest/m.ron"), "(trees: [(id: 0,").unwrap();
+    for _ in 0..20 {
+        app.update();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(drawn(app.world_mut()), scattered, "a file that does not parse leaves the drawing as it was");
 }

@@ -127,10 +127,22 @@ pub fn sync_forest_view(
     if state.seen.as_ref() == Some(&now) {
         return;
     }
+    // No file is an empty forest. A file that does not parse (broken by hand, or read between a
+    // write's truncate and its bytes) keeps what is drawn; the write's next modification time redraws.
+    let forest: Forest = match std::fs::read_to_string(&forest_path) {
+        Err(_) => Forest::default(),
+        Ok(text) => match ron::from_str(&text) {
+            Ok(forest) => forest,
+            Err(e) => {
+                warn!("forest view: {}: {e}; the trees drawn are kept", forest_path.display());
+                state.seen = Some(now);
+                return;
+            }
+        },
+    };
     for e in state.drawn.drain(..) {
         commands.entity(e).despawn();
     }
-    let forest: Forest = std::fs::read_to_string(&forest_path).ok().and_then(|t| ron::from_str(&t).ok()).unwrap_or_default();
     now.files.clear();
     let mut species: HashMap<&str, Option<(TreeParams, Option<SystemTime>)>> = HashMap::new();
     for tree in &forest.trees {
