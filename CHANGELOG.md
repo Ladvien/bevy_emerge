@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **E-142-1** `dd539fc` A kit names every edge face no piece of it can meet (adjacency::dead_ends) *No clip: an API with no editor surface yet; proved by tests/a_kit_names_every_face_nothing_can_meet.rs*
 - **e088-inspector-relations** `d1264c8` The Map inspector's RELATIONS row names how many intended relations the open map breaks and the first one, live as the file changes *No clip: visible, not yet recorded: no display on big*
 - **E-090** `e8f9edf` A project's repetition.ron decides which kinds are structure and how far a repeat is seen; emerge_state and the REPEATS line follow an edit live *No clip: visible, not yet recorded: no display on big*
 - **E-089-4** `4c4144f` The Meshes pane names the project standards the selected piece breaks, and an edit to standards.ron reaches it live *No clip: visible, not yet recorded: no display on big*
