@@ -89,6 +89,7 @@ pub mod ops_terrain;
 pub mod ops_volume;
 pub mod ops_forest;
 pub mod ops_water;
+pub mod terrain_view;
 pub mod ops_play;
 pub mod ops_notes;
 pub mod ops_runs;
