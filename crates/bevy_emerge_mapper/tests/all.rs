@@ -133,6 +133,7 @@ mod emerge_state_names_the_library;
 mod emerge_state_names_visible_repeats;
 mod emerge_state_reports_broken_relations;
 mod emerge_state_reports_standards_breaches;
+mod emerge_state_says_whether_the_kit_loops_and_opens_into_a_room;
 mod environment_applies;
 mod every_key_has_a_home;
 mod every_list_follows_its_selection;
