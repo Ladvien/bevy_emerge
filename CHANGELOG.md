@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **99-sculpt-clip** `baa506f` Strokes on a map's terrain are drawn in the viewport: two hills raised and a hollow dug by terrain_stroke, saved as the map's heightfield (#99)<br><a href="docs/changelog/media/2026-10-30-terrain-sculpt.mp4"><img src="docs/changelog/media/2026-10-30-terrain-sculpt.png" width="320" alt="clip"></a>
 - **stamp-add** `09d70a1` An agent can stamp a composition onto the map (stamp_add), with undo and redo *No clip: an operation with no new surface; proved by tests/an_agent_can_stamp_a_composition.rs*
 - **106-person-talks** `ad0a4b7` A person holds a conversation: person_set takes one the project's dialogue script defines, an undefined one is refused (#106) *No clip: an API; proved by tests::person_talks*
 - **105-triggers** Triggers: bevy_society Rhai scripts bound to people, a faction or an area, syntax-checked on save, and shown firing in people_run (trigger_set) *No clip: visible, not yet recorded: no display on big; proved by tests/triggers.rs*
