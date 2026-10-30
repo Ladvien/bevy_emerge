@@ -121,11 +121,7 @@ pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules
         match groups.iter_mut().find(|(k, ..)| *k == key) {
             Some((.., rows)) => rows.push(p),
             None => {
-                let role = if d.kind.iter().any(|k| rules.structure.contains(k)) {
-                    Role::Structure
-                } else {
-                    Role::Clutter
-                };
+                let role = role_of(&d, rules);
                 groups.push((key, role, vec![p]));
             }
         }
@@ -171,6 +167,70 @@ pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules
             .then_with(|| a.patch.is_some().cmp(&b.patch.is_some()))
     });
     report
+}
+
+/// The role `rules` gives a descriptor: structure if any of its `kind` tokens says so.
+fn role_of(d: &crate::descriptor::Descriptor, rules: &RepetitionRules) -> Role {
+    if d.kind.iter().any(|k| rules.structure.contains(k)) {
+        Role::Structure
+    } else {
+        Role::Clutter
+    }
+}
+
+/// The turns [`vary`] tries, in order. A half turn first, because it keeps a piece's footprint on
+/// the cells it stood on; then the quarter turns. No other angle: a turn off the grid's right angles
+/// would move a footprint off its cells, and a copy that four turns cannot end is reported instead.
+pub const TURNS_DEG: [f32; 3] = [180.0, 90.0, 270.0];
+
+/// What [`vary`] would do to a map's placements.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Variation {
+    /// `(index into placements, the yaw it turns to)`, in placement order.
+    pub turned: Vec<(usize, f32)>,
+    /// Clutter placements that still have a look-alike in range after the turns: more copies close
+    /// together than [`TURNS_DEG`] has looks.
+    pub left: usize,
+}
+
+/// **Turn the clutter copies a player would see as stamped** (#143), so none looks like another in
+/// range. Structure is never touched: a run of identical wall is the design.
+///
+/// Deterministic, with no seed: placements are walked in map order, and a clutter copy that looks
+/// like an earlier one takes the first of [`TURNS_DEG`] that leaves it a look-alike of no other
+/// placement. The first copy of each look keeps its yaw, so an author's chosen facing survives on it.
+pub fn vary(placements: &[Placed], library: &Library, rules: &RepetitionRules) -> Variation {
+    let radius2 = rules.radius_m * rules.radius_m;
+    let clutter: Vec<bool> = placements
+        .iter()
+        .map(|p| descriptor_of(library, p).is_some_and(|d| role_of(&d, rules) == Role::Clutter))
+        .collect();
+    let mut rows: Vec<Placed> = placements.to_vec();
+    let alike = |rows: &[Placed], i: usize, of: &Placed, upto: usize| {
+        rows[..upto]
+            .iter()
+            .enumerate()
+            .any(|(j, q)| j != i && look_key(q) == look_key(of) && look_alike(of, q, radius2))
+    };
+    let mut turned = Vec::new();
+    for i in 0..rows.len() {
+        if !clutter[i] || !alike(&rows, i, &rows[i], i) {
+            continue;
+        }
+        let n = rows.len();
+        let found = TURNS_DEG.iter().find_map(|turn| {
+            let mut trial = rows[i].clone();
+            trial.yaw = (rows[i].yaw + turn).rem_euclid(360.0);
+            (!alike(&rows, i, &trial, n)).then_some(trial.yaw)
+        });
+        if let Some(yaw) = found {
+            rows[i].yaw = yaw;
+            turned.push((i, yaw));
+        }
+    }
+    let n = rows.len();
+    let left = (0..n).filter(|&i| clutter[i] && alike(&rows, i, &rows[i], n)).count();
+    Variation { turned, left }
 }
 
 /// A descriptor and its patch, as one comparable key.
