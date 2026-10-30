@@ -11,7 +11,9 @@
 //! A **visible repeat** is two placements of the same descriptor (patch included), at the same yaw
 //! within [`YAW_TOLERANCE_DEG`] (a full turn is the same look), with the same tip, closer together
 //! than [`RepetitionRules::radius_m`]. Turning or tipping a copy is the cheapest variation an author
-//! has, so it ends the repeat; a copy out of sight of the other is no repeat either.
+//! has, so it ends the repeat; a copy out of sight of the other is no repeat either. A **round**
+//! piece ([`RepetitionRules::round`]: a barrel, a pot) looks the same at any yaw, so for it only the
+//! tip and the distance count, and [`vary`] never turns it (#184).
 //!
 //! A piece's **role** is read off its `kind` tokens: any token in [`RepetitionRules::structure`]
 //! makes it [`Role::Structure`], everything else is [`Role::Clutter`]. The score of a descriptor is
@@ -42,6 +44,10 @@ pub struct RepetitionRules {
     pub structure: Vec<String>,
     /// What one repeated structure piece weighs against one repeated clutter piece (1.0).
     pub structure_weight: f32,
+    /// `kind` tokens of pieces that look the same at any yaw (#184): a round barrel, a pot, a well.
+    /// Their copies repeat whatever their yaw, and [`vary`] never turns one. Empty by default,
+    /// because whether a piece is round is a fact about its art that only the author can state.
+    pub round: Vec<String>,
 }
 
 impl Default for RepetitionRules {
@@ -52,6 +58,7 @@ impl Default for RepetitionRules {
                 .map(str::to_owned)
                 .to_vec(),
             structure_weight: 0.1,
+            round: Vec::new(),
         }
     }
 }
@@ -112,7 +119,7 @@ pub struct Repeat {
 /// appears in `placements`, so the report is deterministic.
 pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules) -> Vec<Repeat> {
     // Group by the look: descriptor id plus patch, so a patched copy is a different piece.
-    let mut groups: Vec<(String, Role, Vec<&Placed>)> = Vec::new();
+    let mut groups: Vec<(String, Role, bool, Vec<&Placed>)> = Vec::new();
     for p in placements {
         let Some(d) = descriptor_of(library, p) else {
             continue;
@@ -122,7 +129,7 @@ pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules
             Some((.., rows)) => rows.push(p),
             None => {
                 let role = role_of(&d, rules);
-                groups.push((key, role, vec![p]));
+                groups.push((key, role, is_round(&d, rules), vec![p]));
             }
         }
     }
@@ -130,12 +137,12 @@ pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules
     let radius2 = rules.radius_m * rules.radius_m;
     let mut report: Vec<Repeat> = groups
         .into_iter()
-        .filter_map(|(_, role, rows)| {
+        .filter_map(|(_, role, round, rows)| {
             let mut paired = vec![false; rows.len()];
             let mut pairs = 0;
             for i in 0..rows.len() {
                 for j in i + 1..rows.len() {
-                    if look_alike(rows[i], rows[j], radius2) {
+                    if look_alike(rows[i], rows[j], radius2, round) {
                         pairs += 1;
                         paired[i] = true;
                         paired[j] = true;
@@ -189,7 +196,7 @@ pub struct Variation {
     /// `(index into placements, the yaw it turns to)`, in placement order.
     pub turned: Vec<(usize, f32)>,
     /// Clutter placements that still have a look-alike in range after the turns: more copies close
-    /// together than [`TURNS_DEG`] has looks.
+    /// together than [`TURNS_DEG`] has looks, or round copies, which no turn changes.
     pub left: usize,
 }
 
@@ -199,12 +206,19 @@ pub struct Variation {
 /// Deterministic, with no seed: placements are walked in map order, and a clutter copy that looks
 /// like an earlier one takes the first of [`TURNS_DEG`] that leaves it a look-alike of no other
 /// placement. The first copy of each look keeps its yaw, so an author's chosen facing survives on it.
+/// A round copy ([`RepetitionRules::round`]) is never turned, since no turn changes how it looks; it
+/// is counted in [`Variation::left`] instead.
 pub fn vary(placements: &[Placed], library: &Library, rules: &RepetitionRules) -> Variation {
     let radius2 = rules.radius_m * rules.radius_m;
-    let clutter: Vec<bool> = placements
+    // (clutter, round) per placement, from one descriptor lookup each.
+    let (clutter, round): (Vec<bool>, Vec<bool>) = placements
         .iter()
-        .map(|p| descriptor_of(library, p).is_some_and(|d| role_of(&d, rules) == Role::Clutter))
-        .collect();
+        .map(|p| {
+            descriptor_of(library, p).map_or((false, false), |d| {
+                (role_of(&d, rules) == Role::Clutter, is_round(&d, rules))
+            })
+        })
+        .unzip();
     // Each look's key once, not once per pair: a patched key formats the whole patch.
     let keys: Vec<String> = placements.iter().map(look_key).collect();
     let mut yaws: Vec<f32> = placements.iter().map(|p| p.yaw).collect();
@@ -218,14 +232,14 @@ pub fn vary(placements: &[Placed], library: &Library, rules: &RepetitionRules) -
             j != i
                 && dx * dx + dz * dz < radius2
                 && p.tip == q.tip
-                && turn.min(360.0 - turn) < YAW_TOLERANCE_DEG
+                && (round[i] || turn.min(360.0 - turn) < YAW_TOLERANCE_DEG)
                 && keys[j] == keys[i]
         })
     };
     let n = placements.len();
     let mut turned = Vec::new();
     for i in 0..n {
-        if !clutter[i] || !alike(&yaws, i, yaws[i], i) {
+        if !clutter[i] || round[i] || !alike(&yaws, i, yaws[i], i) {
             continue;
         }
         let found = TURNS_DEG
@@ -249,10 +263,16 @@ fn look_key(p: &Placed) -> String {
     }
 }
 
-fn look_alike(a: &Placed, b: &Placed, radius2: f32) -> bool {
+/// Whether `d` is round under `rules`: one of its `kind` tokens is in [`RepetitionRules::round`].
+fn is_round(d: &crate::descriptor::Descriptor, rules: &RepetitionRules) -> bool {
+    d.kind.iter().any(|k| rules.round.contains(k))
+}
+
+/// Two copies of one look, in range, with the same tip, at the same yaw unless the piece is round.
+fn look_alike(a: &Placed, b: &Placed, radius2: f32, round: bool) -> bool {
     let (dx, dz) = (a.at.0 - b.at.0, a.at.1 - b.at.1);
     let turn = (a.yaw - b.yaw).rem_euclid(360.0);
     a.tip == b.tip
         && dx * dx + dz * dz < radius2
-        && turn.min(360.0 - turn) < YAW_TOLERANCE_DEG
+        && (round || turn.min(360.0 - turn) < YAW_TOLERANCE_DEG)
 }
