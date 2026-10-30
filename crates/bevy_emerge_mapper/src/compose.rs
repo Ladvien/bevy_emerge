@@ -2569,6 +2569,7 @@ fn on_comp_row_click(
     activate: On<bevy::ui_widgets::Activate>,
     rows: Query<&CompRow>,
     state: Option<ResMut<ComposeState>>,
+    project: Option<ResMut<Project>>,
 ) {
     // **`Option`, because this is a GLOBAL observer** — it fires for any `Activate` anywhere in
     // the application, and in Bevy 0.19 a missing resource panics at param validation rather
@@ -2580,6 +2581,19 @@ fn on_comp_row_click(
     let Ok(row) = rows.get(activate.entity) else {
         return;
     };
+    // **A second click on the selected group flips its envelope**, through the registry.
+    if state.selected == row.0 && state.focus == Pane::Groups {
+        if let Some(mut project) = project
+            && let Some(c) = project.compositions.compositions.get(row.0)
+        {
+            let (id, to_bounded) = (c.id.clone(), matches!(c.envelope, Envelope::Anchored));
+            match crate::editor::set_envelope(&mut project, &id, to_bounded) {
+                Ok(receipt) => state.status.note(receipt),
+                Err(e) => state.status.problem(format!("NOT CHANGED: {e}")),
+            }
+        }
+        return;
+    }
     select_group(&mut state, row.0);
     // The click hands the arrows to the list it landed in. `select_group` deliberately leaves focus
     // alone, because `step_carousel` has to move the group cursor without disturbing it.

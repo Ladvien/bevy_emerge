@@ -2362,6 +2362,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
+        Box::new(crate::ops_stamp::StampAdd),
         Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
@@ -2375,6 +2376,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_dialogue::DialoguePreview),
         Box::new(crate::ops_terrain::TerrainStroke),
         Box::new(crate::ops_compose::CompositionDefine),
+        Box::new(crate::ops_compose::CompositionSetEnvelope),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
         Box::new(crate::ops_crowd::CrowdPreview),
         #[cfg(feature = "bevy_carnage")]
@@ -2388,6 +2390,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_forest::ForestScatter),
         Box::new(crate::ops_people::PersonSet),
         Box::new(crate::ops_people::PeopleRun),
+        Box::new(crate::ops_scripts::TriggerSet),
         Box::new(crate::ops_water::WaterPlace),
         Box::new(crate::ops_water::WaterRun),
         Box::new(crate::ops_play::Play),
@@ -2395,6 +2398,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_runs::RunAdd),
         Box::new(crate::ops_runs::RunSet),
         Box::new(crate::ops_runs::RunRemove),
+        Box::new(crate::ops_runs::PlacementsToRun),
         Box::new(crate::ops_notes::NoteAdd),
         Box::new(crate::ops_notes::NoteEdit),
         Box::new(crate::ops_notes::NoteRemove),
@@ -2445,6 +2449,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // (E-072). The held set carries no placement ids, which is why the key does not dispatch the
     // operation itself.
     ("composition_define", "keep_as_group("),
+    // **The Compose list's second click**: a click on the already-selected group toggles its
+    // envelope between anchored and bounded through `set_envelope`, which dispatches
+    // `composition_set_envelope` (E-072 slice 3).
+    ("composition_set_envelope", "set_envelope("),
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
     ("placement_set_pin", "set_pin("),
@@ -2459,6 +2467,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The stamp click**, which takes a whole stamp off the map through `delete_stamp`, which
     // dispatches `stamp_remove`. A stamp is removed whole, never by a piece of it.
     ("stamp_remove", "delete_stamp("),
+    // **The stamp click** also puts one on, through `stamp_here`, which asks `ops_stamp::plan_stamp`
+    // exactly as `stamp_add` does, so the id rule, the trial expansion and the refusals are shared.
+    ("stamp_add", "plan_stamp("),
     // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
     // own way of doing what `map_set_settings` does. It dispatches the operation.
     ("map_set_settings", "SizeField(Axis)"),
@@ -2531,6 +2542,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("person_set", "set_person("),
     // `people run [seed] [days]` in the same field dispatches `people_run` (a read: no undo) through `run_people`.
     ("people_run", "run_people("),
+    // **The trigger line (#105)** — `trigger <id> | <on> | <if> | <then> [| people=..] [| faction=..] [| area=..]` and
+    // `trigger <id> remove` in the same field dispatch `trigger_set` through `set_trigger`.
+    ("trigger_set", "set_trigger("),
     // **The destructible line (#108)** — `destructible <piece> on|off` and `hit <piece> <x> <y> <z> <radius_m>` in the
     // terrain field dispatch `destructible_set` and `destructible_hit` through `mark_destructible` and `hit_destructible`.
     #[cfg(feature = "bevy_carnage")]
@@ -2554,6 +2568,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("run_add", "add_run("),
     ("run_set", "set_run("),
     ("run_remove", "remove_run("),
+    // **Convert rows to a run (#115)** — a platform-modifier drag in run mode over standing rows
+    // dispatches `placements_to_run` through `rows_to_run_along`.
+    ("placements_to_run", "rows_to_run_along("),
     ("note_edit", "edit_note("),
     ("note_remove", "remove_note("),
     // **Enter on the Note tool with no box open** sends every draft through `send_notes`, which
