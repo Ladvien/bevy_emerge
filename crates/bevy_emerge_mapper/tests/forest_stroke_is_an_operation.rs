@@ -2,8 +2,12 @@
 //! Needs the `bevy_flora` feature: `cargo test -p bevy_emerge_mapper --features bevy_flora --test editor forest_stroke::`.
 //! Without it the operation refuses and says so.
 
-use bevy_emerge_mapper::ops::{self, Applied, Ctx};
-use bevy_emerge_mapper::ops_forest::{forest_of, under_stroke};
+#[cfg(feature = "bevy_flora")]
+use bevy_emerge_mapper::ops::Applied;
+use bevy_emerge_mapper::ops::{self, Ctx};
+#[cfg(feature = "bevy_flora")]
+use bevy_emerge_mapper::ops_forest::under_stroke;
+use bevy_emerge_mapper::ops_forest::forest_of;
 use bevy_emerge_mapper::project::Project;
 use serde_json::json;
 
