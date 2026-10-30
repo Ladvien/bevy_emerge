@@ -109,14 +109,15 @@ pub fn show_balloon(
         crate::chrome::font(crate::chrome::text::LABEL),
         BackgroundColor(crate::chrome::OVERLAY_BG),
         Node {
+            // PLACES-ITSELF-OK: a balloon is anchored to a piece projected through the camera, not a panel.
             position_type: PositionType::Absolute,
             width: Val::Px(WIDTH),
             left: Val::Px(left),
             bottom: Val::Px(bottom),
-            padding: UiRect::all(Val::Px(8.0)),
+            padding: UiRect::all(Val::Px(crate::chrome::GAP_ROW)),
             ..default()
         },
-        GlobalZIndex(50),
+        GlobalZIndex(crate::chrome::BALLOON_Z),
     ));
 }
 
