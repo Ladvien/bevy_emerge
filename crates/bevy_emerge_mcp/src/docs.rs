@@ -130,6 +130,17 @@ pub const TOOLS: &[ToolDoc] = &[
                        editor. The notes section lists the sent and claimed notes (id, \
                        holder, lease_until); pass note=<id> for that note's bundle: text, area and \
                        margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
+                       repetition names up to 10 visible repeats (the same piece at one yaw and tip \
+                       within 6 m), the one a player notices first first: descriptor, patched, role \
+                       (clutter or structure), pieces, pairs, score; total counts them all. \
+                       relations checks the <map>.relations.ron beside the open map, re-read on \
+                       every call: each relation (of, kind) with outcome met, unmet or missing, \
+                       measured (metres, or degrees off for Faces), by (the piece that breaks it) \
+                       and missing_id; unmet and missing count them; error names a file that does not parse. \
+                       standards checks the project's standards.ron (beside kits.ron), re-read on \
+                       every call: breaches (piece, rule, dim, found metres, why below_min, above_max, \
+                       not_multiple_of or unmeasured, bound) and idle, the rules no piece is covered by; \
+                       error names a file that does not parse. \
                        Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \

@@ -388,6 +388,7 @@ door_state![
     crate::editor::DataEdit,
     crate::editor::TerrainEdit,
     crate::editor::CrowdEdit,
+    crate::balloon::BalloonPreview,
     crate::editor::Folded,
     crate::editor::StampPicture,
     crate::editor::TargetLock,
@@ -605,6 +606,7 @@ pub const OWNERSHIP: &[(&str, Ownership)] = &[
     ("bevy_emerge_mapper::editor::DataEdit", Ownership::Door),
     ("bevy_emerge_mapper::editor::TerrainEdit", Ownership::Door),
     ("bevy_emerge_mapper::editor::CrowdEdit", Ownership::Door),
+    ("bevy_emerge_mapper::balloon::BalloonPreview", Ownership::Door),
     // The game's newest verdict on a reload, read from `.live/game.ron`: true for as long as the app runs.
     ("bevy_emerge_mapper::live::LiveGame", Ownership::Session),
     ("bevy_emerge_mapper::family_host::FamilySettings", Ownership::Session),

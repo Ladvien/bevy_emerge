@@ -562,6 +562,18 @@ fn editor_state(
         "references": open.as_ref().map(|o| crate::ops_references::state_json(o, project.as_ref().map(|p| p.root.as_path()))),
         // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
         "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
+        // **The repeats a player will notice first** (#136): same piece, yaw and tip, close together,
+        // weighed by role so repeated clutter heads the list above repeated structure.
+        "repetition": match (open.as_ref(), project.as_ref()) {
+            (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library),
+            _ => Value::Null,
+        },
+        // **The kit pieces that break the project's standards** (#138): read from `standards.ron`
+        // beside `kits.ron` on every call, so an edit to that file is seen with no restart.
+        "standards": project.as_ref().map(|p| standards_json(&p.library, &p.project_dir)),
+        // **The intended relations this map breaks** (#137): read from `<map>.relations.ron` on every
+        // call, so an edit to that file is seen by the next answer with no restart.
+        "relations": open.as_ref().map(|o| relations_json(&o.map.placements, &o.map_path)),
         "project": project_summary,
         "editor": editor,
         "presentation": presentation,
@@ -579,6 +591,164 @@ fn editor_state(
             crate::screen::Screen::Editor => "editor",
         }),
     }))
+}
+
+/// The most repeats `emerge_state` names; `total` always counts them all.
+const REPEATS_CAP: usize = 10;
+
+/// **The visible repeats of a map, as `emerge_state` reports them**, under the default rules.
+fn repetition_json(
+    placements: &[bevy_emerge_core::map::Placed],
+    library: &bevy_emerge_core::library::Library,
+) -> Value {
+    use bevy_emerge_core::repetition::{repeats, RepetitionRules, Role};
+    let all = repeats(placements, library, &RepetitionRules::default());
+    let rows: Vec<Value> = all
+        .iter()
+        .take(REPEATS_CAP)
+        .map(|r| {
+            json!({
+                "descriptor": r.descriptor,
+                "patched": r.patch.is_some(),
+                "role": match r.role { Role::Structure => "structure", Role::Clutter => "clutter" },
+                "pieces": r.pieces,
+                "pairs": r.pairs,
+                "score": r.score,
+            })
+        })
+        .collect();
+    json!({"repeats": rows, "total": all.len()})
+}
+
+/// **The relations beside a map, checked against its placements**, as `emerge_state` reports them.
+/// No file is no relations and no error; a file that cannot be read or parsed is named in `error`,
+/// never read as an empty list.
+fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::path::Path) -> Value {
+    use bevy_emerge_core::relations::{check, path_for_map, Outcome, Relations};
+    let path = path_for_map(map_path);
+    let loaded = match std::fs::read_to_string(&path) {
+        Ok(text) => Relations::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Relations::default()),
+        Err(e) => Err(e.to_string()),
+    };
+    let relations = match loaded {
+        Ok(r) => r,
+        Err(e) => {
+            return json!({"relations": [], "unmet": 0, "missing": 0, "error": format!("{}: {e}", path.display())})
+        }
+    };
+    let (mut unmet, mut missing) = (0, 0);
+    let rows: Vec<Value> = relations
+        .relations
+        .iter()
+        .zip(check(placements, &relations))
+        .map(|(r, outcome)| {
+            let (word, measured, by, missing_id) = match outcome {
+                Outcome::Met { measured } => ("met", Some(measured), None, None),
+                Outcome::Unmet { measured, by } => {
+                    unmet += 1;
+                    ("unmet", Some(measured), by, None)
+                }
+                Outcome::Missing { id } => {
+                    missing += 1;
+                    ("missing", None, None, Some(id))
+                }
+            };
+            json!({
+                "of": r.of,
+                "kind": serde_json::to_value(&r.kind).unwrap_or(Value::Null),
+                "outcome": word,
+                "measured": measured,
+                "by": by,
+                "missing_id": missing_id,
+            })
+        })
+        .collect();
+    json!({"relations": rows, "unmet": unmet, "missing": missing, "error": null})
+}
+
+/// **The project's standards, checked against its library**, as `emerge_state` reports them: every
+/// breach, and every rule that covers no piece. No file is no rules and no error; a file that cannot
+/// be read or parsed is named in `error`, never read as an empty list.
+fn standards_json(library: &bevy_emerge_core::library::Library, project_dir: &std::path::Path) -> Value {
+    use bevy_emerge_core::standards::{check, idle};
+    let standards = match load_standards(project_dir) {
+        Ok(s) => s,
+        Err(e) => return json!({"breaches": [], "idle": [], "error": e}),
+    };
+    let rows: Vec<Value> = check(library, &standards).iter().map(breach_json).collect();
+    json!({"breaches": rows, "idle": idle(library, &standards), "error": null})
+}
+
+/// **One piece's breaches of the project's standards** (#138 slice 3), as `piece_import` reports
+/// them on admission: `{breaches, error}`, the same rows `emerge_state` gives, for that piece alone.
+/// The second value names each broken rule once, in file order, for a summary; empty when it breaks
+/// none or the file could not be read.
+pub(crate) fn piece_standards_json(
+    piece: &bevy_emerge_core::descriptor::Descriptor,
+    project_dir: &std::path::Path,
+) -> (Value, Vec<String>) {
+    let breaches = match piece_breaches(piece, project_dir) {
+        Ok(b) => b,
+        Err(e) => return (json!({"breaches": [], "error": e}), Vec::new()),
+    };
+    let mut rules: Vec<String> = Vec::new();
+    for b in &breaches {
+        if !rules.contains(&b.rule) {
+            rules.push(b.rule.clone());
+        }
+    }
+    let rows: Vec<Value> = breaches.iter().map(breach_json).collect();
+    (json!({"breaches": rows, "error": null}), rules)
+}
+
+/// **One piece's breaches of `<project_dir>/standards.ron`**, in file order, or the file's error.
+/// Shared by `piece_import`'s answer and the Meshes pane (#138), so the two cannot disagree.
+pub(crate) fn piece_breaches(
+    piece: &bevy_emerge_core::descriptor::Descriptor,
+    project_dir: &std::path::Path,
+) -> Result<Vec<bevy_emerge_core::standards::Breach>, String> {
+    use bevy_emerge_core::library::Library;
+    let standards = load_standards(project_dir)?;
+    let one = Library {
+        version: bevy_emerge_core::library::LIBRARY_VERSION,
+        note: None,
+        descriptors: vec![piece.clone()],
+    };
+    Ok(bevy_emerge_core::standards::check(&one, &standards))
+}
+
+/// `<project_dir>/standards.ron`, or no rules when there is no such file; any other failure to read
+/// or parse it is the error, naming the file.
+pub(crate) fn load_standards(
+    project_dir: &std::path::Path,
+) -> Result<bevy_emerge_core::standards::Standards, String> {
+    use bevy_emerge_core::standards::{Standards, FILE};
+    let path = project_dir.join(FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Standards::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Standards::default()),
+        Err(e) => Err(e.to_string()),
+    }
+    .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn breach_json(b: &bevy_emerge_core::standards::Breach) -> Value {
+    use bevy_emerge_core::standards::{Dim, Why};
+    let (why, bound) = match b.why {
+        Why::Unmeasured => ("unmeasured", None),
+        Why::BelowMin(v) => ("below_min", Some(v)),
+        Why::AboveMax(v) => ("above_max", Some(v)),
+        Why::NotMultipleOf(v) => ("not_multiple_of", Some(v)),
+    };
+    json!({
+        "piece": b.piece,
+        "rule": b.rule,
+        "dim": match b.dim { Dim::Width => "width", Dim::Depth => "depth", Dim::Height => "height" },
+        "found": b.found,
+        "why": why,
+        "bound": bound,
+    })
 }
 
 /// **The parameters of `emerge/pieces`.** Every filter is optional, and they combine: a piece is

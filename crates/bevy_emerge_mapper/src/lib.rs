@@ -81,6 +81,7 @@ pub mod ops_brp;
 pub mod ops_compose;
 pub mod ops_stamp;
 pub mod ops_plan;
+pub mod ops_relations;
 #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
 pub mod ops_crowd;
 #[cfg(feature = "bevy_carnage")]
@@ -89,6 +90,7 @@ pub mod ops_data;
 pub mod ops_label_vlm;
 #[cfg(feature = "bevy_speech_bubbles")]
 pub mod ops_dialogue;
+pub mod balloon;
 pub mod ops_family;
 pub mod ops_terrain;
 pub mod ops_volume;

@@ -263,8 +263,8 @@ impl RowDelta {
     ///    recorded against a map that has since shrunk is still answerable: the row goes at the end
     ///    rather than vanishing.
     ///
-    /// An added id that is already on the map is refused: two rows with one id is a map the editor
-    /// cannot address, and nothing downstream would say so.
+    /// An added id that is already on the map, and that this delta does not remove, is refused: two
+    /// rows with one id is a map the editor cannot address, and nothing downstream would say so.
     pub fn apply(&self, map: &mut bevy_emerge_core::map::Map) -> Result<RowDelta, Refusal> {
         // 1 — find, and refuse before touching anything.
         let mut doomed_placements: Vec<(usize, bevy_emerge_core::map::Placed)> = Vec::new();
@@ -295,13 +295,17 @@ impl RowDelta {
                 })?;
             doomed_stamps.push((at, map.stamps[at].clone()));
         }
+        // **A row this delta removes may come back changed** (a replaced row, as a relations solve
+        // moves one): only an id that stays on the map is a second row with one id.
         for add in &self.add_placements {
-            if map.placements.iter().any(|p| p.id == add.row.id) {
+            if !self.remove_placements.contains(&add.row.id)
+                && map.placements.iter().any(|p| p.id == add.row.id)
+            {
                 return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
             }
         }
         for add in &self.add_stamps {
-            if map.stamps.iter().any(|s| s.id == add.row.id) {
+            if !self.remove_stamps.contains(&add.row.id) && map.stamps.iter().any(|s| s.id == add.row.id) {
                 return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
             }
         }
@@ -2292,8 +2296,24 @@ pub mod piece_import {
             let mut trial = project.measured.clone();
             trial.descriptors.push(descriptor);
             crate::tiles::commit_measured(project, trial).map_err(Refusal::new)?;
+            // **The new piece's breaches of the project's standards** (#138 slice 3), read from the
+            // policy-applied library a placement uses, and from `standards.ron` as it is now. Reported,
+            // not refused: the piece is admitted either way, and the summary says what it breaks.
+            let (standards, broken) = match project.library.get(&imported) {
+                Some(d) => crate::ops_brp::piece_standards_json(d, &project.project_dir),
+                None => (json!({"breaches": [], "error": null}), Vec::new()),
+            };
+            let summary = if broken.is_empty() {
+                format!("added `{imported}` — it is in the palette now")
+            } else {
+                format!(
+                    "added `{imported}` — it is in the palette now, and it breaks the project's \
+                     standards: {}",
+                    broken.join(", ")
+                )
+            };
             Ok(Outcome {
-                summary: format!("added `{imported}` — it is in the palette now"),
+                summary,
                 affected: 1,
                 saved: true,
                 inverse: Some(json!({"remove": imported})),
@@ -2301,6 +2321,7 @@ pub mod piece_import {
                     "id": plan["id"],
                     "kit": plan["kit"],
                     "mesh": rel,
+                    "standards": standards,
                 })),
             })
         }
@@ -2364,6 +2385,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(stamp_remove::StampRemove),
         Box::new(crate::ops_stamp::StampAdd),
         Box::new(crate::ops_plan::PlanSet),
+        Box::new(crate::ops_relations::RelationsSolve),
         Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
@@ -2611,6 +2633,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // `clear_plan`, so a person can empty an agent's plan the way an agent replaces it. The checklist
     // panel that shows it is owed (it needs a display to verify).
     ("plan_set", "clear_plan("),
+    // **The Terrain field's `relations solve` line (#137)** dispatches `relations_solve` through
+    // `solve_relations`, the same mend an agent's `apply` makes, with one undo.
+    ("relations_solve", "solve_relations("),
 ];
 
 /// **Apply an operation, and record what happened.**

@@ -1652,6 +1652,11 @@ enum Field {
     /// state the map is in — it does not happen once and stop being true, so putting it on
     /// [`Self::Last`] would let the next action erase it.
     Edges,
+    /// **The repeat a player will notice first** (#136), from `bevy_emerge_core::repetition` under
+    /// its default rules: the worst repeat's piece and how many pieces it has, then how many other
+    /// looks repeat. The same answer `emerge_state.repetition` gives an agent, so a person reads it
+    /// too. A standing readout, like [`Self::Edges`], because it is a state the map is in.
+    Repeats,
 }
 
 impl Field {
@@ -1678,6 +1683,7 @@ impl Field {
             Field::Undo => "UNDO",
             Field::Redo => "REDO",
             Field::Last => "LAST",
+            Field::Repeats => "REPEATS",
         }
     }
 }
@@ -2161,6 +2167,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<DataEdit>()
             .init_resource::<TerrainEdit>()
             .init_resource::<CrowdEdit>()
+            .init_resource::<crate::balloon::BalloonPreview>()
             .init_resource::<Folded>()
             .init_resource::<EdgeFaults>()
             // Shared by both tabs' lists, so it is registered once here rather than by whichever
@@ -2312,7 +2319,7 @@ impl Plugin for EditorPlugin {
                         // goes down, rather than one where it is invisible and still eating keys.
                         leaving_a_tab_puts_the_name_prompt_down.in_set(keys::Phase::Sense),
                     ),
-                    (size_edit_keys, family_edit_keys, data_edit_keys, terrain_edit_keys, crowd_edit_keys).in_set(keys::Phase::Text),
+                    (size_edit_keys, family_edit_keys, data_edit_keys, terrain_edit_keys, crowd_edit_keys, drop_reference).in_set(keys::Phase::Text),
                     // No `not_typing`, no `in_map_mode`: `keys::just_pressed` now refuses on both
                     // counts, and a run condition repeating it would be a second census. Dropping
                     // `in_map_mode` also makes `Cmd+S` and `Cmd+Z` work from every tab, which is what
@@ -2444,7 +2451,7 @@ impl Plugin for EditorPlugin {
                             .run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
                     ),
                     check_edges.run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
-                    (draw_edge_faults, draw_crowd_heat).run_if(in_map_mode),
+                    (draw_edge_faults, draw_crowd_heat, crate::balloon::show_balloon).run_if(in_map_mode),
                 ),)
                     .run_if(in_state(crate::screen::Screen::Editor))
                     .run_if(crate::tiles::Door::map_door_is_open),
@@ -3131,6 +3138,8 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Undo,
                     Field::Redo,
                     Field::Edges,
+                    // **Under EDGES**: both are standing readouts of the map as a whole.
+                    Field::Repeats,
                 ] {
                     // **The history list sits under REDO and above EDGES (E-018).** Its rows are
                     // fixed in number, so the block keeps one height whatever the history holds.
@@ -4373,6 +4382,7 @@ fn family_edit_keys(
     project: Option<ResMut<Project>>,
     mut open: Option<ResMut<OpenMap>>,
     mut state: ResMut<EditorState>,
+    mut balloon: ResMut<crate::balloon::BalloonPreview>,
 ) {
     if edit.active.is_none() {
         return;
@@ -4385,7 +4395,7 @@ fn family_edit_keys(
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
                 if raw.trim_start().starts_with("dialogue ") {
-                    preview_dialogue(project.as_deref(), &mut state, &raw);
+                    preview_dialogue(project.as_deref(), open.as_deref().map(|o| &o.map), &mut state, &mut balloon, &raw);
                 } else if raw.trim_start().starts_with('@') {
                     set_piece_family(project.as_deref(), open.as_deref_mut(), &mut state, &raw);
                 } else {
@@ -4445,7 +4455,13 @@ fn set_family_field(project: Option<&Project>, state: &mut EditorState, raw: &st
 /// **Walk a conversation through the registry** as `dialogue_preview`: `dialogue <conversation> [option numbers]`,
 /// and say its lines in the status line.
 #[cfg(feature = "bevy_speech_bubbles")]
-fn preview_dialogue(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+fn preview_dialogue(
+    project: Option<&Project>,
+    map: Option<&bevy_emerge_core::map::Map>,
+    state: &mut EditorState,
+    balloon: &mut crate::balloon::BalloonPreview,
+    raw: &str,
+) {
     let mut words = raw.split_whitespace().skip(1);
     let Some(name) = words.next() else {
         state.status.problem("`dialogue` needs a conversation name: `dialogue <conversation> [option numbers]`".to_owned());
@@ -4463,6 +4479,9 @@ fn preview_dialogue(project: Option<&Project>, state: &mut EditorState, raw: &st
     };
     match crate::ops::dispatch(&mut ctx, "dialogue_preview", &serde_json::json!({"conversation": name, "choices": choices})) {
         Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            if let Some(after) = outcome.after.as_ref() {
+                *balloon = crate::balloon::BalloonPreview::from_after(after, map, name);
+            }
             let said = outcome.after.as_ref().and_then(|a| a["lines"].as_array()).map(|l| {
                 l.iter().map(|x| format!("{}: {}", x["speaker"].as_str().unwrap_or(""), x["text"].as_str().unwrap_or(""))).collect::<Vec<_>>().join(" / ")
             });
@@ -4473,7 +4492,13 @@ fn preview_dialogue(project: Option<&Project>, state: &mut EditorState, raw: &st
 }
 
 #[cfg(not(feature = "bevy_speech_bubbles"))]
-fn preview_dialogue(_project: Option<&Project>, state: &mut EditorState, _raw: &str) {
+fn preview_dialogue(
+    _project: Option<&Project>,
+    _map: Option<&bevy_emerge_core::map::Map>,
+    state: &mut EditorState,
+    _balloon: &mut crate::balloon::BalloonPreview,
+    _raw: &str,
+) {
     state.status.problem("this editor was built without bevy_speech_bubbles, so there is no dialogue to preview".to_owned());
 }
 
@@ -4567,8 +4592,9 @@ fn terrain_edit_keys(
     mut events: MessageReader<KeyboardInput>,
     mut edit: ResMut<TerrainEdit>,
     project: Option<ResMut<Project>>,
-    open: Option<Res<OpenMap>>,
+    mut open: Option<ResMut<OpenMap>>,
     mut state: ResMut<EditorState>,
+    due: Option<ResMut<crate::watch::Due>>,
 ) {
     if edit.active.is_none() {
         return;
@@ -4598,6 +4624,8 @@ fn terrain_edit_keys(
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim() == "plan clear" {
                     clear_plan(project.as_deref(), open.as_deref(), &mut state);
+                } else if raw.trim() == "relations solve" {
+                    solve_relations(project.as_deref(), open.as_mut(), due, &mut state);
                 } else if raw.trim_start().starts_with("people run") {
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("trigger ") {
@@ -4684,6 +4712,10 @@ fn set_reference(project: Option<&Project>, open: Option<&OpenMap>, state: &mut 
     } else {
         serde_json::json!({"path": first, "caption": words[2..].join(" ")})
     };
+    dispatch_reference(project, open, state, &params);
+}
+
+fn dispatch_reference(project: Option<&Project>, open: &OpenMap, state: &mut EditorState, params: &serde_json::Value) {
     let mut ctx = crate::ops::Ctx {
         project: project.cloned(),
         open: Some(open.clone()),
@@ -4691,13 +4723,70 @@ fn set_reference(project: Option<&Project>, open: Option<&OpenMap>, state: &mut 
         session: crate::ops::session_id(),
         ..crate::ops::Ctx::default()
     };
-    match crate::ops::dispatch(&mut ctx, "reference_set", &params) {
+    match crate::ops::dispatch(&mut ctx, "reference_set", params) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
     }
+}
+
+/// **An image dropped on the window becomes a reference of the open map** (#124, E-075), through
+/// the same `reference_set` as the `ref` line and an agent's `apply`: one log line, one undo.
+///
+/// A file already inside the project is referenced where it is. One from outside is copied into the
+/// project's `references/` first, because a reference is project data and must travel with it; a
+/// different file already holding that name is refused by name rather than overwritten. Undo takes
+/// the reference back and leaves the copied file, which is the person's file now.
+fn drop_reference(
+    mut drops: MessageReader<bevy::window::FileDragAndDrop>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    mut state: ResMut<EditorState>,
+) {
+    for drop in drops.read() {
+        let bevy::window::FileDragAndDrop::DroppedFile { path_buf, .. } = drop else {
+            continue;
+        };
+        let (Some(project), Some(open)) = (project.as_deref(), open.as_deref()) else {
+            state.status.problem(format!("{} was dropped with no map open, so it is not a reference", path_buf.display()));
+            continue;
+        };
+        match reference_path_for_drop(&project.root, path_buf) {
+            Ok(rel) => dispatch_reference(Some(project), open, &mut state, &serde_json::json!({"path": rel})),
+            Err(e) => state.status.problem(e),
+        }
+    }
+}
+
+/// **The project-relative path a dropped image is referenced by**, copying it into `references/`
+/// when it lies outside the project.
+fn reference_path_for_drop(root: &std::path::Path, dropped: &std::path::Path) -> Result<String, String> {
+    let shown = dropped.display();
+    let ext = dropped.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif") {
+        return Err(format!("{shown} is not a png, jpg, jpeg, webp or gif image, so it is not a reference"));
+    }
+    let canon_root = root.canonicalize().map_err(|e| format!("the project folder {} cannot be read ({e}), so {shown} is not a reference", root.display()))?;
+    let canon = dropped.canonicalize().map_err(|e| format!("{shown} cannot be read ({e}), so it is not a reference"))?;
+    let relative = |p: &std::path::Path| p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
+    if let Ok(inside) = canon.strip_prefix(&canon_root) {
+        return Ok(relative(inside));
+    }
+    let name = canon.file_name().ok_or_else(|| format!("{shown} has no file name, so it is not a reference"))?;
+    let into = std::path::Path::new("references").join(name);
+    let dest = canon_root.join(&into);
+    let bytes = std::fs::read(&canon).map_err(|e| format!("{shown} cannot be read ({e}), so it is not a reference"))?;
+    match std::fs::read(&dest) {
+        Ok(there) if there == bytes => {}
+        Ok(_) => return Err(format!("{} already holds a different picture, so {shown} was not copied over it", into.display())),
+        Err(_) => {
+            std::fs::create_dir_all(canon_root.join("references")).map_err(|e| format!("references/ cannot be made ({e}), so {shown} is not a reference"))?;
+            std::fs::write(&dest, &bytes).map_err(|e| format!("{shown} cannot be copied into {} ({e}), so it is not a reference", into.display()))?;
+        }
+    }
+    Ok(relative(&into))
 }
 
 fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
@@ -5082,6 +5171,50 @@ fn clear_plan(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edi
     match crate::ops::dispatch(&mut ctx, "plan_set", &serde_json::json!({"items": []})) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Mend the open map's broken relations** through the registry as `relations_solve`, from the
+/// terrain line `relations solve` (#137). The moved rows are redrawn, and one Cmd+Z puts them back.
+fn solve_relations(
+    project: Option<&Project>,
+    open: Option<&mut ResMut<OpenMap>>,
+    due: Option<ResMut<crate::watch::Due>>,
+    state: &mut EditorState,
+) {
+    let (Some(project), Some(open)) = (project, open) else {
+        state.status.problem("no map is open, so there are no relations to mend".to_owned());
+        return;
+    };
+    // **A refusal or a solve with nothing to mend is not an edit**, so the map goes in and out of the
+    // operation without change detection, and is marked changed only when rows moved.
+    let held = open.bypass_change_detection();
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(held, OpenMap::new(bevy_emerge_core::map::Map::default(), std::path::PathBuf::new()))),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let outcome = crate::ops::dispatch(&mut ctx, "relations_solve", &serde_json::json!({}));
+    if let Some(fresh) = ctx.open.take() {
+        *held = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            if !outcome.saved {
+                return;
+            }
+            // **The moved pieces are drawn where the map now has them**, by the same full redraw a
+            // map replaced from disk gets.
+            open.set_changed();
+            if let Some(mut due) = due {
+                due.map_replaced = true;
+            }
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
@@ -6824,6 +6957,15 @@ fn refresh_status(
         {
             continue;
         }
+        // **The repeats are read only when the map or the library changed**: a pairwise pass over
+        // every placement is too much to spend on a frame that changed nothing.
+        if *field == Field::Repeats
+            && !text.0.is_empty()
+            && !open.is_changed()
+            && !project.is_changed()
+        {
+            continue;
+        }
         let (want, tint) = match field {
             // Silent when the map agrees with itself, which is the common case and the one a standing
             // line must not shout about. `docs/ui.md` §1.2: more information helps, noise does not.
@@ -6927,6 +7069,26 @@ fn refresh_status(
             // in the same grey as `stamped 4 piece(s)`. Refusals go to the block above now, and the
             // write site is what decides, so there is nothing left here to be wrong about.
             Field::Last => (state.status.note_text().to_owned(), DIM),
+            // **The worst repeat first, then how many other looks repeat**, short enough for one line.
+            // Dim when nothing repeats, the EDGES rule: a standing line that is fine stays quiet.
+            Field::Repeats => {
+                use bevy_emerge_core::repetition::{repeats, RepetitionRules};
+                let all = repeats(
+                    &open.map.placements,
+                    &project.library,
+                    &RepetitionRules::default(),
+                );
+                match all.split_first() {
+                    None => ("none".to_owned(), DIM),
+                    Some((worst, rest)) => {
+                        let more = match rest.len() {
+                            0 => String::new(),
+                            n => format!(", {n} more"),
+                        };
+                        (format!("{} \u{d7}{}{more}", worst.descriptor, worst.pieces), TEXT)
+                    }
+                }
+            }
         };
         if text.0 != want {
             text.0 = want;

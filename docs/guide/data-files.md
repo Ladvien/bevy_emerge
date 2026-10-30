@@ -70,6 +70,17 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 | Read by | The game's loader, which checks it against the bound library, and the editor. |
 | Format version | 1 |
 
+## standards.ron
+
+| | |
+|---|---|
+| Where | `assets/emerge/standards.ron`. Optional: an absent file means no standards. |
+| What it holds | The project's kit standards: rules on a piece's width, depth or height (`min`, `max`, `multiple_of`), each for the pieces whose `kind` holds a token, or every piece. |
+| Written by | Hand. |
+| Live reload | Yes. The Meshes pane's `standards` row names the rules the selected piece breaks; `emerge_state.standards` lists every breach and every rule that covers no piece; `piece_import` reports a new piece's breaches. A breach is reported, not refused. |
+| Read by | The editor. |
+| Format version | 1 |
+
 ## rigs.ron
 
 | | |
