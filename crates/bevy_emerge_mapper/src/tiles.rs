@@ -3381,31 +3381,6 @@ pub(crate) fn changed_ids(
         .collect()
 }
 
-/// **Flip a composition between anchored and bounded through the operation registry**, so the
-/// COMPOSE tab's envelope chip validates, writes and logs the way an agent's
-/// `composition_set_envelope` does. A bounded group is fitted to its members. Returns the receipt,
-/// or the refusal.
-pub fn set_envelope(project: &mut Project, id: &str, bounded: bool) -> Result<String, String> {
-    let mut ctx = crate::ops::Ctx {
-        project: Some(project.clone()),
-        open: None,
-        source: crate::ops::Source::Human,
-        root: None,
-        session: crate::ops::session_id(),
-        proposal: None,
-    };
-    let params = serde_json::json!({"id": id, "envelope": if bounded { "bounded" } else { "anchored" }});
-    match crate::ops::dispatch(&mut ctx, "composition_set_envelope", &params) {
-        Ok(crate::ops::Applied::Done { outcome, .. }) => {
-            if let Some(fresh) = ctx.project {
-                project.compositions = fresh.compositions;
-            }
-            Ok(outcome.summary)
-        }
-        Ok(crate::ops::Applied::Refused(e)) | Err(e) => Err(e.0),
-    }
-}
-
 #[cfg(test)]
 mod changed_ids_tests {
     use super::*;

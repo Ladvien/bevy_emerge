@@ -214,9 +214,6 @@ enum Line {
     Prose(String, Color),
     /// A composition row: filled when selected, starred when armed, clickable.
     Comp { ix: usize, text: String, selected: bool, armed: bool },
-    /// **The envelope chip** of the selected group: its envelope, and a click that flips it through
-    /// `composition_set_envelope` (E-072 slice 3).
-    Envelope { id: String, bounded: bool },
     /// A member row: filled when the seating cursor is on it, clickable.
     Member { ix: usize, text: String, at: bool },
     /// **A derived face**, as a fixed label column and a band beside it — the shape every other tab
@@ -232,10 +229,6 @@ enum Line {
 /// index is re-derived every rebuild and cannot go stale between clicks.
 #[derive(Component, Clone, Copy)]
 struct CompRow(usize);
-
-/// The envelope chip, carrying the id of the group it flips.
-#[derive(Component, Clone)]
-struct EnvelopeChip(String);
 
 /// A clickable member row, carrying its index into the selected composition's members.
 #[derive(Component, Clone, Copy)]
@@ -337,7 +330,6 @@ impl Plugin for ComposePlugin {
             // door ever spawns, so the screen is already implied by the entity.
             .add_observer(on_comp_row_click)
             .add_observer(on_member_row_click)
-            .add_observer(on_envelope_click)
             // **The Map door's picker**, and its observer. The observer is global for the same
             // reason the two above are: a click on a `Button` anywhere must not panic the
             // application, and a missing `Res<Project>` on the menu screen would.
@@ -2468,7 +2460,6 @@ fn rebuild(input: ComposeInput<'_, '_>) {
     }
 
     if let Some(c) = comps.get(state.selected) {
-        lines.push(Line::Envelope { id: c.id.clone(), bounded: matches!(c.envelope, Envelope::Bounded { .. }) });
         // **The affordance is drawn only when the arrows have something to walk.** An empty group can
         // hold the focus (`cycle_focus` argues why) and this heading still read `<- arrows`, so the
         // pane advertised a live key that answered nothing. The guidance under it is the same shape
@@ -2528,14 +2519,6 @@ fn rebuild(input: ComposeInput<'_, '_>) {
                             }
                         },
                     );
-                }
-                Line::Envelope { id, bounded } => {
-                    let label = if bounded {
-                        "envelope: bounded — click to make it anchored"
-                    } else {
-                        "envelope: anchored — click to fit a bounded tile to its members"
-                    };
-                    crate::chrome::button(p, (EnvelopeChip(id), ComposeLine), label, crate::chrome::Severity::Plain);
                 }
                 Line::Member { ix, text, at } => {
                     crate::chrome::list_row(p, at, (MemberRow(ix), ComposeLine)).with_children(
@@ -2601,33 +2584,6 @@ fn on_comp_row_click(
     // The click hands the arrows to the list it landed in. `select_group` deliberately leaves focus
     // alone, because `step_carousel` has to move the group cursor without disturbing it.
     state.focus = Pane::Groups;
-}
-
-/// **The envelope chip flips the selected group's envelope** through `tiles::set_envelope`, so the
-/// click is the operation an agent calls, with its refusals (a member left outside a bounded tile).
-fn on_envelope_click(
-    activate: On<bevy::ui_widgets::Activate>,
-    chips: Query<&EnvelopeChip>,
-    state: Option<ResMut<ComposeState>>,
-    project: Option<ResMut<Project>>,
-) {
-    // **`Option`, because this is a GLOBAL observer**; see [`on_comp_row_click`].
-    let (Some(mut state), Some(mut project)) = (state, project) else {
-        return;
-    };
-    let Ok(chip) = chips.get(activate.entity) else {
-        return;
-    };
-    let bounded_now = project
-        .compositions
-        .compositions
-        .iter()
-        .find(|c| c.id == chip.0)
-        .is_some_and(|c| matches!(c.envelope, Envelope::Bounded { .. }));
-    match crate::tiles::set_envelope(&mut project, &chip.0, !bounded_now) {
-        Ok(receipt) => state.status.note(receipt),
-        Err(e) => state.status.problem(format!("NOT CHANGED: {e}")),
-    }
 }
 
 /// A click puts the seating cursor on a member and hands the arrows to the member list.
