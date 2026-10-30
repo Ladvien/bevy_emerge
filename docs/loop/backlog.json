@@ -64,9 +64,9 @@
       "id": "E-019",
       "kind": "enhancement",
       "area": "sanctuary",
-      "status": "open",
+      "status": "shipped",
       "title": "Sanctuary lifts its roads in code (town.rs:60 ROAD_LIFT = 0.15), so the editor cannot know the game's draw order from data",
-      "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only)."
+      "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only). | 2026-10-30 w3 (#133): obsolete, closed with no editor change. Sanctuary c6da877 has no ROAD_LIFT: town.rs:1262-1266 'The roads are the ground's own' (bevy_elements PathNetwork wears them into the terrain), so the game draws no road over any flat piece. In its town.map.ron no town/road footprint overlaps a town/field footprint (15 roads, 4 fields, 0 overlapping pairs by rectangle test), so there is no order for Placed::paint to author; the editor's draw_order (authored paint first, then area) already honours a paint if one is ever written. Assumed decision: close as obsolete rather than author paint values the game would not read."
     },
     {
       "id": "E-023",
