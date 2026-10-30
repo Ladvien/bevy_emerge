@@ -51,6 +51,7 @@ mod a_note_on_picked_pieces_is_saved;
 mod a_palette_click_arms_the_piece;
 mod a_person_removes_a_box_and_undoes_it;
 mod a_person_removes_a_piece_and_undoes_it;
+mod a_person_shift_clicks_two_pieces_into_one_note;
 mod a_person_snips_an_area_of_the_editor;
 mod a_persons_turn_is_one_undo_step;
 mod a_piece_lands_where_the_pointer_is;
