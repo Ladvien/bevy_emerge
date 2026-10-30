@@ -60,6 +60,7 @@ pub mod plot;
 pub mod policy;
 pub mod project_data;
 pub mod range;
+pub mod references;
 pub mod rig_check;
 pub mod rigs;
 pub mod rigs_edit;

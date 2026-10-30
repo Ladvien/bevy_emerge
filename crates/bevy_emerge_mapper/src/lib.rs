@@ -98,6 +98,7 @@ pub mod ops_water;
 pub mod terrain_view;
 pub mod ops_play;
 pub mod ops_notes;
+pub mod ops_references;
 pub mod ops_people;
 pub mod ops_scripts;
 pub mod ops_runs;
