@@ -1689,6 +1689,9 @@ pub struct NoteDraft {
     /// Placement ids Shift-clicked as the note's subject. When any, the note is about these pieces
     /// and `area` is only the cells they span.
     pub pieces: Vec<String>,
+    /// Tab in the box: "decide these yourself". The note is saved with `auto` (E-070), so its holder
+    /// states what it assumed instead of asking about an open choice.
+    pub auto: bool,
 }
 
 /// **The Note tool's state**: the corner a drag started at, and the box once the button comes up.
@@ -1751,6 +1754,7 @@ fn drive_note(
                 editing: None,
                 text: String::new(),
                 pieces: Vec::new(),
+                auto: false,
             });
             if let Some(k) = draft.pieces.iter().position(|p| *p == id) {
                 draft.pieces.remove(k);
@@ -1806,13 +1810,14 @@ fn drive_note(
                 editing: Some(n.id.clone()),
                 text: n.text.clone(),
                 pieces: Vec::new(),
+                auto: n.auto,
             });
             state.status.note(format!("note {}: edit, Enter saves, an emptied note is removed, Esc leaves it", n.id));
             return;
         }
     }
     let area = [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)];
-    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new(), pieces: Vec::new() });
+    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new(), pieces: Vec::new(), auto: false });
     state.status.note(format!(
         "note on {}x{} cells: type it, Enter saves, Shift+Enter is a new line, Esc cancels",
         area[2] - area[0] + 1,
@@ -1937,14 +1942,29 @@ fn type_note(
             Key::Backspace => {
                 draft.text.pop();
             }
+            Key::Tab if draft.editing.is_none() => draft.auto = !draft.auto,
             Key::Space => draft.text.push(' '),
             Key::Character(s) => draft.text.push_str(s),
             _ => {}
         }
         if let Some(d) = note_box.draft.as_ref() {
-            state.status.note(format!("note: {}\u{258f} — Enter saves, Esc cancels", d.text));
+            let auto = if d.auto { " [auto: decides for itself]" } else { "" };
+            state.status.note(format!("note: {}\u{258f}{auto} — Tab toggles auto, Enter saves, Esc cancels", d.text));
         }
     }
+}
+
+/// **The `note_add` arguments a note box's draft stands for.** `auto` is sent only when Tab turned it on.
+pub fn note_add_params(draft: &NoteDraft, pose: Option<[f32; 5]>) -> serde_json::Value {
+    let mut params = if draft.pieces.is_empty() {
+        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose})
+    } else {
+        serde_json::json!({"pieces": draft.pieces, "text": draft.text, "camera": pose})
+    };
+    if draft.auto {
+        params["auto"] = serde_json::json!(true);
+    }
+    params
 }
 
 /// **Leave a note through the registry**, as an agent's `note_add` does. A refusal is a problem,
@@ -1956,17 +1976,12 @@ fn add_note(
     draft: &NoteDraft,
     pose: Option<[f32; 5]>,
 ) {
-    let params = if draft.pieces.is_empty() {
-        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose})
-    } else {
-        serde_json::json!({"pieces": draft.pieces, "text": draft.text, "camera": pose})
-    };
     dispatch_note(
         project,
         open,
         state,
         "note_add",
-        params,
+        note_add_params(draft, pose),
         "leave a note",
     );
 }
