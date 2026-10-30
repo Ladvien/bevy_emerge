@@ -4,11 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
-<<<<<<< HEAD
-- **105-triggers** `686d4a0` people_run reports which Rhai triggers fired, and for whom, optionally only inside an area (#105 slice 1) *No clip: visible, not yet recorded: no display on big; proved by people_ties::triggers*
-=======
 - **105-triggers** Triggers: bevy_society Rhai scripts bound to people, a faction or an area, syntax-checked on save, and shown firing in people_run (trigger_set) *No clip: visible, not yet recorded: no display on big; proved by tests/triggers.rs*
->>>>>>> ad0a4b77e3515604dcebf5d5434f35f1153d30a9
 - **dialogue-barks** `d3785bc` Barks: a piece can carry a list of the crate's own Bark lines, refused with the crate's message when malformed (#106 slice 4) *No clip: visible, not yet recorded: no display on big; proved by family_dialogue::barks_attached_to_a_piece_are_the_crates_own_bark_list_and_a_malformed_one_is_refused*
 - **104-ties** People can have ties to each other (person_set tie, terrain line tie=Odo:0.3:0.8); a people run starts from them and reports each person's bonds (#104 slice 4) *No clip: visible, not yet recorded: no display on big; proved by people_ties tests*
 - **101-draw** `e8dc64c` A carve in the ground is drawn: the viewport shows the volume's isomesh chunks in place of the heightfield mesh (#101 slice 6) *No clip: visible, not yet recorded: no display on big; proved by carved_ground_is_drawn*
