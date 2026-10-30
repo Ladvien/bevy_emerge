@@ -12,7 +12,7 @@
         "evidence": "The registry has one operation (map_set_settings) and 128 actions are on the unmigrated allowlist. The brief asks for one workflow first, with the allowlist shrinking."
       },
       "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/tests/operations_have_two_front_ends.rs::the_allowlist_of_unmigrated_actions_only_shrinks",
+      "evidence": "crates/bevy_emerge_mapper/tests/operations_have_two_front_ends.rs::the_allowlist_of_unmigrated_actions_only_shrinks | 2026-10-30 #129 slice 1 (a97b657): ComposeArm and ArmComposition dispatch composition_arm; UNMIGRATED_MAX 113 -> 111; proved by tests/composition_arm_is_an_operation.rs.",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
