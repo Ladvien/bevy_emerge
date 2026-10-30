@@ -714,7 +714,7 @@ pub(crate) fn encode_png(image: &Image) -> Result<Vec<u8>, String> {
 /// Everything the prompt says about the subject, off the CURRENT descriptor plus the library's
 /// in-use room/group names (so the model converges on existing free text instead of coining
 /// synonyms).
-fn prompt_ctx(
+pub(crate) fn prompt_ctx(
     d: &bevy_emerge_core::descriptor::Descriptor,
     mesh: &str,
     project: &Project,
