@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **152-clockscrub-door** `a17d0ea` With bevy_elements on, the Environment panel's held hour is released when the door changes, and the feature's tests are green *No clip: a resource classification; proved by every_resource_says_what_a_door_does_to_it with --features bevy_elements*
 - **gooey-skin** `fe2d94f` A project's family/bevy_gooey.ron is the running UI skin: a partial file restyles bevy_gooey widgets live, and a bad file or a WCAG failure is a status-line problem (#147) *No clip: visible, not yet recorded: no display on big; proved by family_gooey_skin*
 - **relations-along** `e8b7fe0` A relation keeps a piece beside a path through other pieces: Along names how far off it stands, and relations solve brings it back<br><a href="docs/changelog/media/2026-10-30-relations-along.mp4"><img src="docs/changelog/media/2026-10-30-relations-along.png" width="320" alt="clip"></a>
 - **dead-end-closest** `d29b77c` A kit's dead end names the piece nearest to closing it and the cells it gets wrong *No clip: visible, not yet recorded: no display on big*
