@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **e002-composition-rename** `7828e55` composition_rename: an agent renames a composition, every stamping map follows, and undo puts it back; the COMPOSE tab's I field dispatches it *No clip: an operation for an existing verb, no visible change; proved by tests/composition_rename_is_an_operation.rs*
 - **release-publishable-set** `5cd5fbc` The game-facing crates (solver, core, snip, bevy_emerge, anim) package for crates.io; the editor and MCP server are marked unpublished *No clip: build metadata; proved by cargo publish -p bevy_emerge_solver --dry-run and cargo package --list*
 - **e002-composition-arm** `a97b657` composition_arm: an agent arms a composition through the operation the picker and COMPOSE Enter now dispatch *No clip: an operation for an existing verb, no visible change; proved by tests/composition_arm_is_an_operation.rs*
 - **153-options** `8c44207` An agent asked for options gets distinct layouts, each with the seed that lays it (layout_propose options) *No clip: an MCP operation parameter; proved by tests/a_proposal_offers_options.rs*
