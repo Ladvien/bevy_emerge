@@ -33,6 +33,7 @@ mod a_height_map_becomes_terrain;
 mod forest_place;
 mod forest_season;
 mod forest_stroke_is_an_operation;
+mod forest_view;
 mod a_hint_shares_the_receipts_slot;
 mod a_history_jump_is_one_undo_group;
 mod a_kit_edited_on_disk_reaches_the_screen;
