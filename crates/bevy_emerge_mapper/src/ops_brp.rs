@@ -651,7 +651,7 @@ pub(crate) fn load_repetition(
 /// No file is no relations and no error; a file that cannot be read or parsed is named in `error`,
 /// never read as an empty list.
 fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::path::Path) -> Value {
-    use bevy_emerge_core::relations::{check, path_for_map, Outcome, Relations};
+    use bevy_emerge_core::relations::{check_map, path_for_map, Outcome, Relations};
     let path = path_for_map(map_path);
     let loaded = match std::fs::read_to_string(&path) {
         Ok(text) => Relations::parse(&text),
@@ -668,7 +668,7 @@ fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::
     let rows: Vec<Value> = relations
         .relations
         .iter()
-        .zip(check(placements, &relations))
+        .zip(check_map(placements, &relations))
         .map(|(r, outcome)| {
             let (word, measured, by, missing_id) = match outcome {
                 Outcome::Met { measured } => ("met", Some(measured), None, None),
