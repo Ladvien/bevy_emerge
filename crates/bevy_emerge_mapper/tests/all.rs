@@ -146,6 +146,7 @@ mod label_set_is_an_operation;
 mod leaf;
 mod live_writes_each_change_through;
 mod no_system_writes_every_frame;
+mod note_auto;
 mod note_claims;
 mod note_fence;
 mod note_undo_work;

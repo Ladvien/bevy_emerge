@@ -80,6 +80,11 @@ pub struct Note {
     /// What happened to this note, oldest first. Append-only: an edit keeps the text it replaced.
     #[serde(default)]
     pub history: Vec<Event>,
+    /// The person said "decide these yourself": the holder may not ask about open choices (a wall
+    /// height, a colour), it states what it assumed in its resolution. The fence is unchanged, so a
+    /// change that would need the person's answer is refused rather than asked about (E-070).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto: bool,
 }
 
 /// One thing that happened to a note.
@@ -466,6 +471,7 @@ impl Notes {
             state: State::Open,
             site: None,
             history: Vec::new(),
+            auto: false,
         });
         self.get_mut(&id)?.log(What::Written);
         Ok(id)
@@ -567,6 +573,17 @@ impl Notes {
         }
         let old = std::mem::replace(&mut note.text, text.to_owned());
         note.log(What::Edited { old });
+        Ok(())
+    }
+
+    /// Says whether the holder decides open choices itself instead of asking (E-070). Only on a
+    /// note that still stands; a resolved note is a record.
+    pub fn set_auto(&mut self, id: &str, auto: bool) -> Result<(), String> {
+        let note = self.get_mut(id)?;
+        if !note.stands() {
+            return Err(format!("notes: {id} is resolved; reopen it to change it"));
+        }
+        note.auto = auto;
         Ok(())
     }
 
@@ -714,6 +731,11 @@ impl Notes {
         }
         let note = self.get_mut(id)?;
         note.require_holder(id, by, "asked")?;
+        if note.auto {
+            return Err(format!(
+                "notes: {id} is auto: the person asked you to decide open choices yourself, so do not ask. State what you assumed when you resolve it"
+            ));
+        }
         if note.pending_question().is_some() {
             return Err(format!("notes: {id} already has a question waiting for the person's answer"));
         }
@@ -798,6 +820,12 @@ impl Notes {
         }
         if why.is_empty() || note.answered_since_claim() {
             return Ok(());
+        }
+        if note.auto {
+            return Err(format!(
+                "notes: {id} is auto, so it cannot ask, and {}; narrow the change or release the note for the person; nothing was changed",
+                why.join("; ")
+            ));
         }
         let waiting = if note.pending_question().is_some() { " (a question is waiting for the person)" } else { "" };
         Err(format!(
