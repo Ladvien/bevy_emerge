@@ -7717,40 +7717,8 @@ fn drive_clone(
         snap_point(&project, sum.1 / n, SnapLevel::Tile),
     );
 
-    let mut pieces = Vec::with_capacity(caught.len());
-    let (mut bx0, mut bz0, mut bx1, mut bz1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-    for &i in &caught {
-        let p = &open.map.placements[i];
-        let on = match &p.on {
-            None => CloneHost::Layer,
-            Some(host) => caught
-                .iter()
-                .position(|&j| open.map.placements[j].id == *host)
-                .map(CloneHost::InSet)
-                .unwrap_or(CloneHost::Outside),
-        };
-        let offset = (p.at.0 - anchor.0, p.at.1 - anchor.1);
-        // Bounds from the real footprints, so the marker claims what the stamp will occupy.
-        let (w, depth) = descriptor_of(&project.library, p)
-            .map(|d| crate::fill::cell_extents(&d, p.yaw, p.tip))
-            .unwrap_or((crate::fill::MIN_CELL, crate::fill::MIN_CELL));
-        bx0 = bx0.min(offset.0 - w * 0.5);
-        bz0 = bz0.min(offset.1 - depth * 0.5);
-        bx1 = bx1.max(offset.0 + w * 0.5);
-        bz1 = bz1.max(offset.1 + depth * 0.5);
-        pieces.push(ClonePiece {
-            descriptor: p.descriptor.clone(),
-            offset,
-            yaw: p.yaw,
-            tip: p.tip,
-            lift: p.lift,
-            note: p.note.clone(),
-            owned: p.owned,
-            owned_because: p.owned_because.clone(),
-            patch: p.patch.clone(),
-            on,
-        });
-    }
+    let (pieces, [mut bx0, mut bz0, mut bx1, mut bz1]) =
+        capture_pieces(&project, &open.map, &caught, anchor);
     // The stamps, carried whole. Their bounds come from the rows the picture already knows about,
     // so the marker claims what the stamp actually covers rather than a point at its anchor.
     let mut stamps = Vec::with_capacity(caught_stamps.len());
@@ -11559,6 +11527,95 @@ fn redraw_edited(
             .status
             .problem(format!("a library edit did not reach the map: {e}")),
     }
+}
+
+/// **The pieces of a capture**: each placement in `caught` (indices into `map.placements`) as a
+/// [`ClonePiece`] offset from `anchor`, with a host inside the set resolved to its index and any
+/// other host marked [`CloneHost::Outside`], and the bounds `[x0, z0, x1, z1]` of their real
+/// footprints. One function for the box capture and for [`set_of_placements`], so a group an agent
+/// names and a group a person draws a box round are the same group.
+fn capture_pieces(
+    project: &Project,
+    map: &bevy_emerge_core::map::Map,
+    caught: &[usize],
+    anchor: (f32, f32),
+) -> (Vec<ClonePiece>, [f32; 4]) {
+    let mut pieces = Vec::with_capacity(caught.len());
+    let (mut bx0, mut bz0, mut bx1, mut bz1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for &i in caught {
+        let p = &map.placements[i];
+        let on = match &p.on {
+            None => CloneHost::Layer,
+            Some(host) => caught
+                .iter()
+                .position(|&j| map.placements[j].id == *host)
+                .map(CloneHost::InSet)
+                .unwrap_or(CloneHost::Outside),
+        };
+        let offset = (p.at.0 - anchor.0, p.at.1 - anchor.1);
+        // Bounds from the real footprints, so the marker claims what the stamp will occupy.
+        let (w, depth) = descriptor_of(&project.library, p)
+            .map(|d| crate::fill::cell_extents(&d, p.yaw, p.tip))
+            .unwrap_or((crate::fill::MIN_CELL, crate::fill::MIN_CELL));
+        bx0 = bx0.min(offset.0 - w * 0.5);
+        bz0 = bz0.min(offset.1 - depth * 0.5);
+        bx1 = bx1.max(offset.0 + w * 0.5);
+        bz1 = bz1.max(offset.1 + depth * 0.5);
+        pieces.push(ClonePiece {
+            descriptor: p.descriptor.clone(),
+            offset,
+            yaw: p.yaw,
+            tip: p.tip,
+            lift: p.lift,
+            note: p.note.clone(),
+            owned: p.owned,
+            owned_because: p.owned_because.clone(),
+            patch: p.patch.clone(),
+            on,
+        });
+    }
+    (pieces, [bx0, bz0, bx1, bz1])
+}
+
+/// **The placements an agent names, as a set in hand** — what the box capture builds from a
+/// rectangle, built from ids. Anchored on the tile-snapped centroid like the box. Refuses an id the
+/// map does not hold, naming it, and a repeated one.
+pub fn set_of_placements(
+    project: &Project,
+    map: &bevy_emerge_core::map::Map,
+    ids: &[String],
+) -> Result<CloneSet, String> {
+    if ids.is_empty() {
+        return Err("name the placements to group: `from` is empty".to_owned());
+    }
+    let mut caught: Vec<usize> = Vec::with_capacity(ids.len());
+    for id in ids {
+        let i = map
+            .placements
+            .iter()
+            .position(|p| p.id == *id)
+            .ok_or_else(|| format!("the open map has no placement `{id}`"))?;
+        if caught.contains(&i) {
+            return Err(format!("`{id}` is named twice"));
+        }
+        caught.push(i);
+    }
+    let n = caught.len() as f32;
+    let sum = caught.iter().fold((0.0f32, 0.0f32), |s, &i| {
+        (s.0 + map.placements[i].at.0, s.1 + map.placements[i].at.1)
+    });
+    let anchor = (
+        snap_point(project, sum.0 / n, SnapLevel::Tile),
+        snap_point(project, sum.1 / n, SnapLevel::Tile),
+    );
+    let (pieces, [bx0, bz0, bx1, bz1]) = capture_pieces(project, map, &caught, anchor);
+    Ok(CloneSet {
+        pieces,
+        stamps: Vec::new(),
+        centre_off: ((bx0 + bx1) * 0.5, (bz0 + bz1) * 0.5),
+        half: ((bx1 - bx0) * 0.5, (bz1 - bz0) * 0.5),
+        yaw: 0.0,
+    })
 }
 
 /// **A set in hand becomes a reusable group.**

@@ -2371,6 +2371,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_terrain::TerrainStroke),
+        Box::new(crate::ops_compose::CompositionDefine),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
         Box::new(crate::ops_crowd::CrowdPreview),
         Box::new(crate::ops_terrain::TerrainImport),
@@ -2424,6 +2425,12 @@ pub const CHOOSER_ENTRY_POINTS: &[(&str, &str)] = &[
 /// of source the editor, screen, chooser or tiles module must contain for that entry point to be
 /// there. Read by the parity test (E-086).
 pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
+    // **The keep-as-group key** (Shift+B's box, then the group key) and `composition_define` are two
+    // fronts of one function, `keep_as_group`: the key hands it the set in hand, the operation hands
+    // it the placements an agent named, so the refusals, the replace rule and the write are shared
+    // (E-072). The held set carries no placement ids, which is why the key does not dispatch the
+    // operation itself.
+    ("composition_define", "keep_as_group("),
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
     ("placement_set_pin", "set_pin("),
