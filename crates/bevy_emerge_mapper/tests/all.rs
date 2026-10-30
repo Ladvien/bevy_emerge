@@ -159,6 +159,7 @@ mod runs_are_edited_through_operations;
 mod send_starts_the_notes_agent;
 mod stamp_remove;
 mod terrain_stroke_is_an_operation;
+mod terrain_view_draws_water;
 mod the_arm_crosses_the_door;
 mod the_arm_survives_the_door_change;
 mod the_door_switch_crosses;
