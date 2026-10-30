@@ -25,6 +25,9 @@
 //! gate on the pump, for one feature. So the cache is gone and there is one path — a proposal
 //! applies when it lands. Noted while removing it, and deliberately not acted on here:
 //! [`Entry::fingerprint`] was the cache's staleness key and now has no reader left.
+//!
+//! The one file this module still writes is the vocabulary-token review list
+//! ([`PROPOSALS_PATH`]): a record for a person to read, which nothing in the editor loads back.
 
 use std::collections::BTreeMap;
 
@@ -711,7 +714,7 @@ pub(crate) fn encode_png(image: &Image) -> Result<Vec<u8>, String> {
 /// Everything the prompt says about the subject, off the CURRENT descriptor plus the library's
 /// in-use room/group names (so the model converges on existing free text instead of coining
 /// synonyms).
-fn prompt_ctx(
+pub(crate) fn prompt_ctx(
     d: &bevy_emerge_core::descriptor::Descriptor,
     mesh: &str,
     project: &Project,

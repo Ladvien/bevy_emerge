@@ -47,8 +47,8 @@
 //! **The paging keys the design wanted are therefore not built either**, and that is the better
 //! outcome rather than a consolation. Every list here is walked with the arrows, and
 //! `chrome::Follow` scrolls the selection into view — so `PageUp`/`PageDown`/`Home`/`End` would be
-//! four more rows against a **hard twelve-row ceiling**
-//! (`no_context_carries_more_than_a_learnable_vocabulary`), buying a second way to do what the
+//! four more rows in every context's list (`no_context_gains_a_key` ratchets the count), buying a
+//! second way to do what the
 //! arrows already do. `docs/ui.md` §3.5's own finding is that a fast path beside a slow one does not
 //! work on its own; a fast path beside an *equivalent* one is worse.
 //!
@@ -73,9 +73,9 @@ pub enum Context {
     /// **The Tiles tab** — assembling a cell-sized tile out of meshes.
     ///
     /// This was `Build`, a second context on the mesh tab reached by a mode key. It is a tab of its
-    /// own now (FVS-R-21): every other level of the kit hierarchy had one, and the twelve-row cap
-    /// each context gets is what made two of them affordable in the first place —
-    /// `no_context_carries_more_than_a_learnable_vocabulary` is not a limit to route around, since
+    /// own now (FVS-R-21): every other level of the kit hierarchy had one, and the per-context key
+    /// budget (`no_context_gains_a_key` ratchets it) is what made two of them affordable in the first
+    /// place — not a limit to route around, since
     /// Liapis names *"too many options"* as a cause of the user fatigue this is all shaped to avoid.
     Tiles,
     /// A text field is taking raw keys. Overlaps everything, and suppresses everything.
@@ -165,7 +165,7 @@ pub enum Stance {
     ///
     /// Modelling it as a stance rather than as a flag is what made the door affordable: the four
     /// region-fills are `Idle`, so their row leaves the list while a proposal is up and the door's row
-    /// takes its place. The Map context stays at twelve either way, and an author cannot start a
+    /// takes its place. The Map context's row count is the same either way, and an author cannot start a
     /// second generate on top of an answer they have not looked at yet.
     Proposed,
     /// **The Tiles page is live** — the arrows walk the tiles already authored, not the meshes.
@@ -515,7 +515,7 @@ enumerated! {
     pub enum Action {
     /// Jump to this door's first, second or third panel. **Three, because the widest door holds
     /// three** — Kit is Meshes/Tiles/Compose. A fourth would be a fourth row here and a fourth in
-    /// every context's list, which is what the twelve-row cap is for.
+    /// every context's list, and `no_context_gains_a_key` ratchets those counts.
     TabSlot1,
     TabSlot2,
     TabSlot3,
@@ -1097,8 +1097,8 @@ pub const REMOVE_NAME: &str = "Del";
 /// name a `KeyCode` for an action.
 pub const BINDINGS: &[Binding] = &[
     // **One row for three keys**, because jumping to a panel is one idea — the same collapse
-    // `T F G H` gets. Three separate rows put `Context::Global` over the twelve-row ceiling
-    // `no_context_carries_more_than_a_learnable_vocabulary` enforces, and a Global row costs every
+    // `T F G H` gets. Three separate rows cost every context three keys of the budget
+    // `no_context_gains_a_key` ratchets, and a Global row costs every
     // context.
     //
     // **The digits follow the strip, and the strip is `Door::tabs`** — so `1` means this door's
@@ -1131,21 +1131,7 @@ pub const BINDINGS: &[Binding] = &[
         "panel 1 / 2 / 3 of this door",
     )
     .at(Home::Control(ControlId::DoorStrip)),
-    // **The modified tab key: go there, and take this with you.**
-    //
-    // Beside `2` because it is the same destination with a subject — `Cmd+2` reads as "the Tiles tab,
-    // about this piece", and an author who knows `2` has most of it already. It is a legal pair with
-    // the bare `2` on the same rule `S`/`Cmd+S` and `Z`/`Cmd+Z` follow: `just_pressed` refuses a bare
-    // binding while the modifier is down and a modified one while it is not.
-    //
-    // `Global` rather than `Map` because the Map context is at its twelve-row ceiling and this is a
-    // navigation verb, which is what the rest of this block is. On the other two tabs there is simply
-    // nothing under the cursor to send, and it says so.
-    // **"this tile" named nothing an author could point at.** The row read `Cmd+2  edit this tile`,
-    // in the Global block, which on the Map tab renders below eleven map rows inside an overlay you
-    // have to hold `K` to see — so the verb was reported missing by someone looking straight at it.
-    // Every other row in this census names its subject; this one said "this" and left the reader to
-    // guess whether it meant the armed brush, the selected row, or what the mouse was over.
+    // **`Cmd`+remove, not `Cmd`+a tab key.**
     // **`Cmd`+remove opens the piece under the cursor for editing.** It was `Cmd`+the tab key, on the
     // argument that one key could carry both "the Tiles tab" and "the Tiles tab, about this piece".
     // That was tidy and it was not what an author reached for: asked what should happen when they
@@ -1328,7 +1314,7 @@ pub const BINDINGS: &[Binding] = &[
     // modifier check above keeps `Cmd+Z` (undo) and `Z` (aim) apart rather than letting the chord
     // shadow the letter.
     // One ROW, deliberately: a shared `does` collapses the pair the way `W, A, S, D` collapses, and
-    // the Map context is at its twelve-row ceiling (see the vocabulary test) with the removal mode's
+    // the Map context's key count is ratcheted (`no_context_gains_a_key`) with the removal mode's
     // `Esc` now in it. The label carries the direction so nothing is lost by sharing the line.
     // **`H` picks WHICH piece of a stack the piece-verbs mean.** A floor tile, a wall and its
     // header legally share a cell (different layers), and "the placement under the cursor" cannot
@@ -1420,7 +1406,7 @@ pub const BINDINGS: &[Binding] = &[
     // **One row, four chords, reading left to right on the keyboard**: `R T` yaw the piece the way
     // they always did, `Y U` tip it over — a quarter turn about X and about Z per press
     // (`Placed::tip`). Sharing a `does` collapses them the way `W, A, S, D` collapses, which is what
-    // buys the lift row below inside the twelve-row ceiling.
+    // buys the lift row below inside the Map context's key budget.
     b(
         Action::TurnPieceLeft,
         KeyCode::KeyR,
@@ -1536,7 +1522,7 @@ pub const BINDINGS: &[Binding] = &[
     // which is legal and is exactly the case `Context` exists to model: the two tabs are never live
     // together.
     //
-    // **The Map context is at its twelve-row ceiling.** There is no headroom left; the next verb
+    // **The Map context's key count is ratcheted (`no_context_gains_a_key`).** There is little headroom; the next verb
     // here has to share a `does` with a neighbour or take something else's key — which is exactly
     // what the clone tool does: the Cmd+Z shape, one key, the shifted form for the sibling verb.
     bs(
@@ -1563,7 +1549,7 @@ pub const BINDINGS: &[Binding] = &[
     //
     // `Cmd+B` arms the run tool: drag a line and the armed piece repeats along it, at its own
     // pitch. It shares the family's `does`, so `rows()` still collapses the four into one line —
-    // the Map context is AT its twelve-row ceiling and this costs **no row**.
+    // the Map context's key budget is tight and this costs **no row**.
     //
     // **The modifier, not another letter.** `B` is the last free key under the left hand (the
     // row above says why), the cluster is full, and the run needs the *command* modifier anyway
@@ -1583,8 +1569,8 @@ pub const BINDINGS: &[Binding] = &[
     // **A third verb on a state that already exists.** `Shift+B` drags a box and leaves a set in
     // hand; this keeps that set as a reusable group instead of stamping it. Declared adjacent to the
     // pair above and sharing their `does`, so `rows()` collapses all three into one line — the Map
-    // context is AT its twelve-row ceiling and `no_context_carries_more_than_a_learnable_vocabulary`
-    // enforces it. `M` for module; it is one of four letters this context has left.
+    // context's key count is ratcheted by `no_context_gains_a_key`. `M` for module; it is one of four
+    // letters this context has left.
     b(
         Action::GroupFromSet,
         KeyCode::KeyM,
@@ -1638,7 +1624,7 @@ pub const BINDINGS: &[Binding] = &[
     // *"continue the layout: from the map, the kit's tokens, or its compositions"* — three chords,
     // three sources, and **no way to tell which chord took which source**. That is the collapse rule
     // being used to buy row count with vagueness rather than to state one idea, and it is exactly
-    // what `no_context_carries_more_than_a_learnable_vocabulary` was measuring instead of key count.
+    // what a row-count ceiling would have measured instead of key count.
     //
     // These four *are* one idea at the altitude that matters — take a region, fill it — and they
     // differ only in where the content comes from: the armed brush, or a grammar learned from the
@@ -1649,7 +1635,7 @@ pub const BINDINGS: &[Binding] = &[
     // them buys rows the Map context has not got.
     // **All four are `Stance::Idle`**, so the row leaves the list while a proposal is waiting — see
     // [`Stance::Proposed`]. That is not decoration: it is what stops a second generate landing on top
-    // of an answer nobody has looked at, and it is what buys the door's row inside the twelve.
+    // of an answer nobody has looked at, and it is what buys the door's row inside the Map key budget.
     bp(
         Action::Fill,
         KeyCode::KeyF,
@@ -1790,8 +1776,7 @@ pub const BINDINGS: &[Binding] = &[
     .at(Home::Legend),
     // **One row for the whole arrow cluster** — up/down walk, left/right switch which list, and
     // holding Shift jumps five at a time. Four bindings sharing one `does` collapse the way
-    // `W, A, S, D` collapses, which is what bought the copy row below inside the twelve-row
-    // ceiling.
+    // `W, A, S, D` collapses, which is what bought the copy row below inside the key budget.
     b(
         Action::PrevCandidate,
         KeyCode::ArrowUp,
@@ -1918,7 +1903,7 @@ pub const BINDINGS: &[Binding] = &[
     // **One row, one idea: what this list offers.** `R` looks at the folders again; `Shift+R` says
     // a folder is not what this kit is built from. The shifted form for the wider act, the same
     // shape `L`/`Shift+L` uses one row down — and sharing the row is what keeps the Meshes tab
-    // inside its twelve, which `no_context_carries_more_than_a_learnable_vocabulary` polices.
+    // inside its key budget, which `no_context_gains_a_key` polices.
     bs(
         Action::Rescan,
         KeyCode::KeyR,
@@ -1980,7 +1965,7 @@ pub const BINDINGS: &[Binding] = &[
         "undo / redo",
     )
     .at(Home::Control(ControlId::Detail)),
-    // **The lattice, by keyboard.** Two rows, which is what the twelve-row ceiling leaves once the
+    // **The lattice, by keyboard.** Two rows, which is what the key budget leaves once the
     // seven above and the labels row are counted — the cursor and the layer share one row (they are
     // one idea: where in the lattice), each reading its chords in order, the `W, A, S, D  pan` shape.
     //
@@ -2626,8 +2611,8 @@ pub const BINDINGS: &[Binding] = &[
     // was their only writer. `docs/ui.md` §4.2 is the rule that makes that a defect rather than a
     // preference: everything reachable by mouse is reachable by keyboard and vice versa.
     //
-    // **A row this context pays for, deliberately.** `no_context_carries_more_than_a_learnable_
-    // vocabulary` is the ceiling and it is not one to route around — but the alternative was leaving
+    // **A row this context pays for, deliberately.** `no_context_gains_a_key` is a ratchet and
+    // not one to route around — but the alternative was leaving
     // the largest control in the pane keyboard-unreachable, which is a worse answer than one more
     // chord. `/` because it is what "search here" has meant for forty years, and because Meshes has
     // no symbol keys at all: `[`/`]` walk layers and nothing else in this context is punctuation.
@@ -2807,7 +2792,7 @@ pub const BINDINGS: &[Binding] = &[
     //
     // `O`/`P` are adjacent and free — `Context::Compose` overlaps nothing but `Global` (see
     // `Context::overlaps`), so the Map's own `O` is no obstacle. After this row,
-    // `no_context_carries_more_than_a_learnable_vocabulary` is AT its ceiling for this context: a new
+    // `no_context_gains_a_key` pins this context's count: a new
     // Compose verb now costs a merge or a removal, not an addition.
     b(
         Action::CarouselPrev,

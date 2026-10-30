@@ -33,22 +33,6 @@
       "first_seen": "2026-10-21"
     },
     {
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": ""
-      },
-      "last_failure": "",
-      "first_seen": "2026-10-21",
-      "id": "E-012",
-      "kind": "enhancement",
-      "area": "tests",
-      "status": "shipped",
-      "title": "Signature-reading ratchets cannot see resources inside #[derive(SystemParam)] bundles",
-      "evidence": "B-005 introduced 32 bundles; the_sweep_is_finished and every_resource_says_what_a_door_does_to_it read fn signatures, so a bare Res in a bundle used by an on_* observer would pass. on_shelf_click was kept unbundled for this reason; the ratchets should resolve bundle fields. Done 2026-10-30: tests/no_observer_hides_a_resource_in_a_bundle.rs resolves bundle fields (nested) for every add_observer-registered fn; real tree is clean (history_row_clicked is an entity observer, out of scope)."
-    },
-    {
       "last_failure": "",
       "first_seen": "2026-10-21",
       "id": "E-015",
@@ -57,16 +41,6 @@
       "status": "deferred",
       "title": "An action search palette over keys::Action::ALL (renzora's command palette)",
       "evidence": "From the renzora/engine survey (crates/renzora_command_palette/src/modal.rs). User problem: an action is reachable only by knowing its chord; frequency: high (128+ actions); saving: two keystrokes instead of a chord hunt; risk: the palette must refuse what the current keys::Context refuses, through Status::problem. Cycle 2 (99c764c): not built (budget); depends on E-025 open-key migration; next cycle. Cycle 3 (52d7f84): deferred, not built. Its open key has no honest migration to pay for it under E-025, and UNMIGRATED_MAX (125) was not raised to make room."
-    },
-    {
-      "last_failure": "",
-      "first_seen": "2026-10-21",
-      "id": "E-019",
-      "kind": "enhancement",
-      "area": "sanctuary",
-      "status": "open",
-      "title": "Sanctuary lifts its roads in code (town.rs:60 ROAD_LIFT = 0.15), so the editor cannot know the game's draw order from data",
-      "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only)."
     },
     {
       "id": "E-023",
@@ -147,62 +121,12 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-043",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "label_suggest and label_apply: VLM labelling over MCP, fixture-backed",
-      "status": "open",
-      "evidence": "Cycle 8 enhancement notes; needs VLM fixture. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
-      "id": "E-045",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "Log kit writes so they can be undone (depends on E-004)",
-      "status": "open",
-      "evidence": "Cycle 8 notes. Depends on E-004. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
-      "id": "E-047",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "Review gaps 14 and 16 (confidence wording, duplicate confidence_word)",
-      "status": "shipped",
-      "evidence": "Gap 15 fixed in bfc538b: the only copy of the pieces_from wording in crates/bevy_emerge_mcp/src is docs.rs:279 (counted in the filtered list; 0 is the first match). Gap 16 open: crates/bevy_emerge_mapper/src/ops_brp.rs:462 fn confidence_word (cycle 8 cited :451; the line moved). Gap 14 open: confidence and at describe the record, not what is unchecked (local://c8-review.md, not in repo). Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md | Shipped: Confidence::FromStr in core replaces ops_brp confidence_word (test a_confidence_word_parses_back); emerge_list_pieces description says confidence/at report the record, not whether labels were checked.",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
-      "id": "E-052",
-      "kind": "enhancement",
-      "area": "mcp",
-      "title": "by_model reads as model-only but also matches agent-written axes (review gap 13)",
-      "status": "shipped",
-      "evidence": "Every MCP description except gap 7's already says by_model matches agent-written axes, so this is naming only. Later alias: unconfirmed. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
       "id": "E-053",
       "kind": "enhancement",
       "area": "harness",
       "title": "bevy_debugger_mcp's input tool cannot type text, so no field can be filled over BRP",
       "status": "open",
       "evidence": "bevy_debugger_bevy/src/commands.rs has no text/logical-key path; typing letters into the new-map NAME field and the shelf filter did nothing (2026-10-23 live tutorial run and cycle 6/9 agents). Fix belongs in the bevy_debugger_mcp repo.",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
-      "id": "E-055",
-      "kind": "enhancement",
-      "area": "docs",
-      "title": "Stale code comments the docs rewrite found",
-      "status": "open",
-      "evidence": "[vlm.rs header fixed 2026-10-27; mcp main.rs already says fourteen] keys.rs comments describe a Cmd+2 row and Compose lattice keys that no longer exist and a retired twelve-row ceiling; bevy_emerge_mcp main.rs module doc says eleven tools (there are twelve); tiles.rs ~6428 calls an agent's label_set a person's decision; labels.rs writes proposals to a file nothing loads.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -225,70 +149,6 @@
       "evidence": "2026-10-23 round: agent-drives shipped as the README hero. build-a-map failed on caption sync and small pieces; label-a-kit waits on B-047; generate-a-layout waits on B-046. Storyboards and attempts in /tmp/gifs/ (not committed).",
       "last_failure": "",
       "first_seen": "2026-10-23"
-    },
-    {
-      "id": "E-069",
-      "kind": "enhancement",
-      "area": "collaboration",
-      "title": "The agent cannot show its plan, so the person cannot see what it intends before it acts",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "The brief's step 2 says the agent reads state and acts in small steps; a person watching has no list of what it means to do. Mixar renders the agent's plan as a checklist with a status per item."
-      },
-      "status": "open",
-      "evidence": "mixar@39b9d27:ui/properties/chat_slot_types.py (MixieChatTodoItem). Slice 1 shipped: plan_set (ops_plan.rs; core plan.rs; the plan is the .plan.ron beside the .map.ron, in emerge_state under `plan`, one undo step restores the previous plan; person-side `plan clear` in the Terrain field); test tests/an_agent_can_show_its_plan.rs. Still open: the checklist panel that shows the plan beside the map (needs a display to verify).",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
-      "id": "E-070",
-      "kind": "enhancement",
-      "area": "collaboration",
-      "title": "Every open choice becomes a question, so an agent asked for a courtyard stops to ask about a wall height",
-      "must_fix": {
-        "blocks": false,
-        "common": true,
-        "no_workaround": false,
-        "evidence": "Open-ended requests produce 2-3 alternatives as the brief asks, but there is no way for the person to say 'decide these yourself this turn'. Mixar carries an `auto_mode` on the turn, and omitting the field IS false."
-      },
-      "status": "open",
-      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Still open: an Auto toggle in the Note tool UI (needs a display).",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
-      "id": "E-075",
-      "kind": "enhancement",
-      "area": "collaboration",
-      "title": "Reference images are not project data, so an agent cannot cite the picture it worked from",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "A person can drop a reference and say 'like this'; nothing stores it as project data or lets the agent name it back. Mixar keeps a moodboard the agent reads and cites."
-      },
-      "status": "open",
-      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py. Slice 1 shipped: core references.rs (References beside the map as <map>.references.ron; add/remove/cite/missing, ids never reused, paths inside the project); tests/references.rs. Still open: an operation + MCP tool (reference_add/list/remove through generic apply), the UI drop, and a note summary citing an id.",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
-      "id": "E-083",
-      "kind": "enhancement",
-      "area": "kits",
-      "title": "Sanctuary's compositions are all Anchored, so the composed source and its variety measurement cannot run there",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": false,
-        "evidence": "`compositions.ron` holds `Bounded: 0, Anchored: 16`. `grammar::from_compositions` skips an anchored group by definition (\"it presents no edge to match\"), so `layout_propose {source: composed}` is refused there with \"nothing has been placed yet\" and no composed layout can be measured. `learned` works but derives no wall interfaces, so E-080's measurement answers `null` on the only real project in this repo. Found live while proving E-080; the metric itself is proved on the crate's own fixture."
-      },
-      "status": "open",
-      "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip)",
-      "last_failure": "",
-      "first_seen": "2026-10-26"
     },
     {
       "id": "S-003",
