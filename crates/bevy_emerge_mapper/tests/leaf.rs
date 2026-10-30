@@ -72,6 +72,10 @@ const ALLOWED: &[(&str, &str)] = &[
          build and a game that lists no family crate pay nothing",
     ),
     (
+        "bevy_carnage",
+        "the owner's fracture, wound and blood crate, hosted by the family layer (#108, #96) — OPTIONAL, reached only by `--features bevy_carnage` (without its render features) and pinned by git rev, so an ordinary build and a game that lists no family crate pay nothing",
+    ),
+    (
         "bevy_lights",
         "the owner's fires, torches and budgeted light pool crate, hosted by the family layer (#103) — \
          OPTIONAL, reached only by `--features bevy_lights` and pinned by git rev, so an ordinary \
