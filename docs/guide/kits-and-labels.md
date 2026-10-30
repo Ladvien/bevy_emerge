@@ -147,6 +147,12 @@ Goal: know the other two panels well enough to find your way.
 3. Press `I` to rename the composition.
 4. Press `Enter` to arm the composition for the map. A click on the map places it.
 
+## Find the faces nothing in the kit can meet
+
+Goal: know which sockets of a kit no piece can close before a map runs into them.
+
+A face whose edge tokens no piece of the kit presents back, at any quarter turn, is a dead end: a jamb with no partner, a hallway that cannot be capped. Select a piece on the Meshes panel; its `dead ends` row names each such side and what the face presents, for example `E: jamb_l jamb_r, nothing meets it`. A piece with no dead face has no row. An agent reads the whole kit's list in `emerge_state.dead_ends`. Add a piece that presents the face back and the row goes away.
+
 ## Undo on the kit door
 
 Goal: take back the newest change to a piece.
