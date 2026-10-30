@@ -77,21 +77,6 @@ impl Armed {
     pub fn is(&self, id: &str) -> bool {
         self.0.as_deref() == Some(id)
     }
-
-    /// **Arm this composition, or disarm it if it was already armed.**
-    ///
-    /// One writer, because the two doors' pickers and the COMPOSE tab's own row must agree: a
-    /// second writer is a second answer to "what is armed", and the crate spends its refusals on
-    /// exactly that shape.
-    pub fn toggle(&mut self, id: &str) -> bool {
-        if self.is(id) {
-            self.0 = None;
-            false
-        } else {
-            self.0 = Some(id.to_owned());
-            true
-        }
-    }
 }
 
 /// **Where the Compose tab stands the group it is editing.**
@@ -905,18 +890,19 @@ fn arm(
 ///
 /// **The arm itself is [`Armed`], not this state** — see that type for the measurement that moved
 /// it. What is left here is *which* composition the COMPOSE tab's own cursor is on, and the receipt
-/// the author reads.
+/// the author reads. **The arm is the `composition_arm` operation** (E-002), through
+/// [`crate::editor::arm_composition`], the same one an agent calls.
 pub fn toggle_arm(state: &mut ComposeState, armed: &mut Armed, project: &Project) {
     let Some(c) = project.compositions.compositions.get(state.selected) else {
         state.status.note("no composition to arm");
         return;
     };
-    if armed.toggle(&c.id) {
-        state
+    match crate::editor::arm_composition(project, armed, &c.id) {
+        Ok(()) if armed.is(&c.id) => state
             .status
-            .note(format!("`{}` armed — the map stamps it", c.id));
-    } else {
-        state.status.note(format!("`{}` disarmed", c.id));
+            .note(format!("`{}` armed — the map stamps it", c.id)),
+        Ok(()) => state.status.note(format!("`{}` disarmed", c.id)),
+        Err(why) => state.status.problem(why),
     }
 }
 
@@ -2782,10 +2768,10 @@ pub mod picker {
 
     /// **Arm the composition this row names**, or disarm it if it was already armed.
     ///
-    /// **One writer**, and it is [`Armed::toggle`] — the same call the COMPOSE tab's `Enter` makes
-    /// and the same call the devshot driver makes. Three ways to arm and one writer is the point:
-    /// two writers would be two answers to "what is armed", and the crate spends its refusals on
-    /// exactly that shape.
+    /// **One path**, and it is the `composition_arm` operation through
+    /// [`crate::editor::arm_composition`] — the same one the COMPOSE tab's `Enter`, the devshot
+    /// driver and an agent reach. Several ways to arm and one writer is the point: two writers would
+    /// be two answers to "what is armed".
     ///
     /// The receipt goes to the **Map's own status line**, not to a panel of its own: the picker is
     /// a block in the INSPECTOR panel, and the panel's status block is where the Map says anything.
@@ -2799,10 +2785,12 @@ pub mod picker {
             status.note("no composition to arm");
             return;
         };
-        if armed.toggle(&c.id) {
-            status.note(format!("`{}` armed — the next click stamps it", c.id));
-        } else {
-            status.note(format!("`{}` disarmed", c.id));
+        match crate::editor::arm_composition(project, armed, &c.id) {
+            Ok(()) if armed.is(&c.id) => {
+                status.note(format!("`{}` armed — the next click stamps it", c.id))
+            }
+            Ok(()) => status.note(format!("`{}` disarmed", c.id)),
+            Err(why) => status.problem(why),
         }
     }
 
