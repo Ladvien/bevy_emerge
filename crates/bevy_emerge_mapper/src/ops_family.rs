@@ -189,13 +189,18 @@ impl PlacementSetFamily {
     }
 }
 
-/// **A conversation attached to a piece must be one the project's dialogue script defines** (#106): the
-/// row carries the conversation's name as a RON string, and the crate's own `DialogueScript` says which exist.
+/// **What a piece carries for `bevy_speech_bubbles`** (#106): a conversation's name (a RON string), which the
+/// project's `DialogueScript` must define, or a list of the crate's own `Bark`s (a RON list), which it must read.
 #[cfg(feature = "bevy_speech_bubbles")]
 fn check_conversation(script: &std::path::Path, p: &PieceParams) -> Result<(), Refusal> {
     let (true, Some(v)) = (p.krate == "bevy_speech_bubbles", p.value.as_deref()) else {
         return Ok(());
     };
+    if v.trim_start().starts_with('[') {
+        return ron::from_str::<Vec<bevy_speech_bubbles::Bark>>(v)
+            .map(|_| ())
+            .map_err(|e| Refusal::new(format!("`{v}` is not a list of barks (speaker, kind, emotion, text): {e}. Nothing was set.")));
+    }
     let name: String = ron::from_str(v)
         .map_err(|e| Refusal::new(format!("`{v}` is not a conversation name (a quoted string such as \"hello\"): {e}. Nothing was set.")))?;
     let text = std::fs::read_to_string(script)
