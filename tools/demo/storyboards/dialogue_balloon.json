@@ -1,0 +1,22 @@
+{
+ "name": "dialogue_balloon",
+ "fps": 10,
+ "scale": 2,
+ "width": 960,
+ "crop": [0, 0, 1280, 703],
+ "setup": [
+  {"mcp": "emerge_frame_view", "args": {"target": {"placements": ["stall_0", "notice_board_market"]}}}
+ ],
+ "chunks": [
+  {"seconds": 9}
+ ],
+ "steps": [
+  {"at": 0.2, "caption": "the stall carries the conversation \"market\": a line, a choice, two answers"},
+  {"at": 1.2, "click": [147, 279]},
+  {"at": 1.8, "type": "dialogue market 0"},
+  {"at": 2.0, "caption": "person: dialogue market 0 (take option 0, Yes)"},
+  {"at": 4.0, "key": "Enter"},
+  {"at": 4.6, "clear_cursor": true},
+  {"at": 4.8, "caption": "the lines it says, in a balloon over the speaker"}
+ ]
+}
