@@ -4,6 +4,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **165-degrees** `df938a1` Relations read a map's yaw in degrees: a piece in front of a turned door is in front of it, and relations solve writes degrees back *No clip: a fix to what relations measure and write on a turned piece; proved by bevy_emerge_mapper/tests/relations_read_a_turned_piece_in_degrees.rs*
+- **163-beside** `ab5a504` Relations: LeftOf and RightOf keep a piece beside another (a lamp left of the door), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_beside_another.rs*
 - **161-behind** `93d1c20` Relations: Behind keeps a piece behind another (a chest behind the counter), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_behind_another.rs*
 - **160-ring** `eb75d90` A kit says whether it can loop a hallway back: adjacency::ring builds the smallest closed loop of four pieces, or says there is none *No clip: a core API; proved by a_kit_says_whether_it_can_loop_a_hallway_back*
 - **159-between** `7523243` A relation keeps a piece between two others (a table between two chairs), and relations solve sets it there *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_kept_between_two_others.rs*
