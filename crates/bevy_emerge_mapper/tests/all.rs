@@ -146,6 +146,7 @@ mod home_frames_the_view;
 mod label_set_is_an_operation;
 mod leaf;
 mod light_map;
+mod light_pool;
 mod live_writes_each_change_through;
 mod no_observer_hides_a_resource_in_a_bundle;
 mod no_system_writes_every_frame;
