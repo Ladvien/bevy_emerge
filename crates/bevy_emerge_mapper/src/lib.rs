@@ -94,6 +94,8 @@ pub mod ops_dialogue;
 pub mod balloon;
 pub mod ops_family;
 #[cfg(feature = "bevy_light_grid")]
+pub mod light_overlay;
+#[cfg(feature = "bevy_light_grid")]
 pub mod ops_light;
 #[cfg(feature = "bevy_lights")]
 pub mod ops_pool;

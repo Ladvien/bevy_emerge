@@ -31,6 +31,13 @@ pub struct Params {
     pub at: Vec<(f32, f32)>,
 }
 
+impl Default for Params {
+    /// The operation's own defaults, so the viewport overlay bakes what a bare `light_map` reads.
+    fn default() -> Self {
+        Params { cell_m: one(), range_m: six(), reference: thousand(), at: Vec::new() }
+    }
+}
+
 fn one() -> f32 {
     1.0
 }
