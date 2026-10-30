@@ -2370,6 +2370,8 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(label_set::LabelSet),
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
+        Box::new(crate::ops_play::Play),
+        Box::new(crate::ops_play::PlayStop),
         Box::new(crate::ops_runs::RunAdd),
         Box::new(crate::ops_runs::RunSet),
         Box::new(crate::ops_runs::RunRemove),
@@ -2473,6 +2475,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The family settings field (#96)** — Enter on `<crate> <field> <value>` dispatches
     // `family_set` through `set_family_field`, the same write an agent's `apply` makes.
     ("family_set", "set_family_field("),
+    // **The Play / Stop buttons (#97)** — dispatch `play` and `play_stop` through `play_game` and
+    // `stop_game`, the same start and stop an agent's `apply` makes.
+    ("play", "play_game("),
+    ("play_stop", "stop_game("),
     // **The Data field (#86)** — Enter on `<file> <path> <value>` dispatches `data_set` through
     // `set_data_leaf`, the same write an agent's `apply` makes.
     ("data_set", "set_data_leaf("),
