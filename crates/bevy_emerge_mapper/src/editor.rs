@@ -4468,6 +4468,8 @@ fn terrain_edit_keys(
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("people run") {
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("trigger ") {
+                    set_trigger(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("person ") {
                     set_person(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
@@ -4534,7 +4536,7 @@ fn sculpt_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
 }
 
 /// **Author a person through the registry** as `person_set`, from the terrain line
-/// `person <name> remove`, or `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>]`.
+/// `person <name> remove`, or `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>] [tie=<name>[:<affinity>[:<trust>]]]`.
 fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
     let words: Vec<&str> = raw.split_whitespace().collect();
     let (Some(open), Some(name)) = (open, words.get(1)) else {
@@ -4556,6 +4558,20 @@ fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edi
     for w in rest {
         match w.split_once('=') {
             Some((k @ ("home" | "work" | "faction"), v)) => params[k] = (*v).into(),
+            Some(("tie", v)) => {
+                let mut f = v.split(':');
+                let with = f.next().unwrap_or_default();
+                let rest: Vec<&str> = f.collect();
+                let nums: Vec<Option<f32>> = rest.iter().map(|n| n.parse().ok()).collect();
+                params["tie"] = if rest == ["remove"] {
+                    serde_json::json!({"with": with, "remove": true})
+                } else if rest.len() <= 2 && nums.iter().all(Option::is_some) {
+                    serde_json::json!({"with": with, "affinity": nums.first().copied().flatten(), "trust": nums.get(1).copied().flatten()})
+                } else {
+                    state.status.problem(format!("`{w}` is not `tie=<name>[:<affinity>[:<trust>]]` or `tie=<name>:remove`, so nothing was changed"));
+                    return;
+                };
+            }
             _ => {
                 state.status.problem(format!("`{w}` is not a person setting (home=<id>, work=<id>, faction=<id>), so nothing was changed"));
                 return;
@@ -4776,6 +4792,72 @@ fn run_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edit
         ..crate::ops::Ctx::default()
     };
     match crate::ops::dispatch(&mut ctx, "water_run", &serde_json::json!({"map": open.map.name})) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Author a trigger through the registry** as `trigger_set`, from the terrain line
+/// `trigger <id> remove`, or `trigger <id> | <on> | <if> | <then> [| people=<a,b>] [| faction=<id>] [| area=<x0,z0,x1,z1>]`
+/// (`<on>` is a bevy_society event as RON, `<if>` may be empty). A script that does not compile is refused with its line.
+fn set_trigger(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is nowhere to keep a trigger".to_owned());
+        return;
+    };
+    let mut parts = raw.trim_start().trim_start_matches("trigger").split(" | ").map(str::trim);
+    let head = parts.next().unwrap_or_default();
+    let mut params = serde_json::json!({"map": open.map.name});
+    if let Some(id) = head.strip_suffix(" remove") {
+        params["id"] = id.trim().into();
+        params["remove"] = true.into();
+    } else {
+        let (Some(on), Some(cond), Some(then)) = (parts.next(), parts.next(), parts.next()) else {
+            state.status.problem("`trigger <id> | <on> | <if> | <then>` has four parts, so nothing was changed".to_owned());
+            return;
+        };
+        params["id"] = head.into();
+        params["on"] = on.into();
+        params["if"] = cond.into();
+        params["then"] = then.into();
+        let mut bind = serde_json::Map::new();
+        for w in parts {
+            match w.split_once('=') {
+                Some(("people", v)) => {
+                    bind.insert("people".into(), v.split(',').map(str::trim).collect::<Vec<_>>().into());
+                }
+                Some(("faction", v)) => {
+                    bind.insert("faction".into(), v.into());
+                }
+                Some(("area", v)) => {
+                    let n: Vec<f32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    if n.len() != 4 {
+                        state.status.problem(format!("`{w}` is not `area=<x0,z0,x1,z1>`, so nothing was changed"));
+                        return;
+                    }
+                    bind.insert("area".into(), n.into());
+                }
+                _ => {
+                    state.status.problem(format!("`{w}` is not a binding (people=, faction=, area=), so nothing was changed"));
+                    return;
+                }
+            }
+        }
+        if !bind.is_empty() {
+            params["bind"] = bind.into();
+        }
+    }
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "trigger_set", &params) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });

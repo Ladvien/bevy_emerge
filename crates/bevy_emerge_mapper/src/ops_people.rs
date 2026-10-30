@@ -31,6 +31,25 @@ pub struct Person {
     /// The id of the placement they work in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<String>,
+    /// Ties this person starts with, to other people on the map (`bevy_society`'s `TieSpec`, by name).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ties: Vec<Tie>,
+    /// The name of the conversation they hold when talked to: one the project's `bevy_speech_bubbles`
+    /// `DialogueScript` defines (#106).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+}
+
+/// A directed starting tie from one person to another.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tie {
+    /// The other person's name.
+    pub with: String,
+    /// Liking in `[-1, 1]`.
+    pub affinity: f32,
+    /// Reliance in `[0, 1]`.
+    pub trust: f32,
 }
 
 /// A map's people: `<emerge_dir>/people/<map>.ron`.
@@ -44,6 +63,22 @@ pub struct People {
 #[serde(deny_unknown_fields)]
 pub struct PutBack {
     pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TieParams {
+    /// The other person's name; they must be on the map.
+    pub with: String,
+    /// Liking in `[-1, 1]`; 0 when left out on a new tie, unchanged on a standing one.
+    #[serde(default)]
+    pub affinity: Option<f32>,
+    /// Reliance in `[0, 1]`; 0.5 when left out on a new tie, unchanged on a standing one.
+    #[serde(default)]
+    pub trust: Option<f32>,
+    /// End the tie.
+    #[serde(default)]
+    pub remove: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -63,9 +98,15 @@ pub struct Params {
     pub home: Option<String>,
     #[serde(default)]
     pub work: Option<String>,
+    /// A conversation name from the project's dialogue script; `""` clears it (#106).
+    #[serde(default)]
+    pub conversation: Option<String>,
     /// Take the person off the map.
     #[serde(default)]
     pub remove: bool,
+    /// Set the tie from this person to another person, or end it with `remove`.
+    #[serde(default)]
+    pub tie: Option<TieParams>,
     #[serde(default)]
     pub put_back: Option<PutBack>,
 }
@@ -113,6 +154,28 @@ fn check_faction(_ctx: &Ctx, _faction: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// **A conversation a person holds must be one the dialogue script defines** (#106). A project without the
+/// script, or a build without the crate, has nothing to check it against.
+#[cfg(feature = "bevy_speech_bubbles")]
+fn check_conversation(ctx: &Ctx, name: &str) -> Result<(), Refusal> {
+    let path = crate::ops_family::settings_path(ctx, "bevy_speech_bubbles")
+        .map_err(|_| Refusal::new("this project does not use bevy_speech_bubbles, so there is no dialogue script to hold a conversation. Nothing was changed."))?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| Refusal::new(format!("{} cannot be read, so no conversation can be attached: {e}. Nothing was changed.", path.display())))?;
+    let script: bevy_speech_bubbles::DialogueScript =
+        ron::from_str(&text).map_err(|e| Refusal::new(format!("the project's dialogue script is not readable: {e}. Nothing was changed.")))?;
+    if script.conversations.contains_key(name) {
+        return Ok(());
+    }
+    let known: Vec<&str> = script.conversations.keys().map(String::as_str).collect();
+    Err(Refusal::new(format!("the dialogue script has no conversation `{name}` (it has: {}). Nothing was changed.", known.join(", "))))
+}
+
+#[cfg(not(feature = "bevy_speech_bubbles"))]
+fn check_conversation(_ctx: &Ctx, _name: &str) -> Result<(), Refusal> {
+    Ok(())
+}
+
 fn building(ctx: &Ctx, what: &str, id: &str) -> Result<(), Refusal> {
     let Some(open) = ctx.open.as_ref() else {
         return Err(Refusal::new("no map is open, so there is no building to name."));
@@ -130,7 +193,7 @@ pub struct PersonSet;
 impl PersonSet {
     fn apply(ctx: &Ctx, raw: &serde_json::Value, write: bool) -> Result<Outcome, Refusal> {
         let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
-            Refusal::new(format!("this is not a person: {e}. The fields are `map`, `name`, `at`, `faction`, `home`, `work` and `remove`."))
+            Refusal::new(format!("this is not a person: {e}. The fields are `map`, `name`, `at`, `faction`, `home`, `work`, `tie` and `remove`."))
         })?;
         let Some(project) = ctx.project.as_ref() else {
             return Err(Refusal::new("no project is open, so there is nobody to place."));
@@ -152,12 +215,15 @@ impl PersonSet {
                     return Err(Refusal::new(format!("nobody on `{}` is called `{name}`. Nothing was changed.", p.map)));
                 };
                 people.people.remove(i);
+                for q in &mut people.people {
+                    q.ties.retain(|t| t.with != name);
+                }
                 format!("{name} left {}", p.map)
             } else {
                 let mut person = match at_row {
                     Some(i) => people.people[i].clone(),
                     None => match p.at {
-                        Some(at) => Person { name: name.to_owned(), at, faction: None, home: None, work: None },
+                        Some(at) => Person { name: name.to_owned(), at, faction: None, home: None, work: None, ties: Vec::new(), conversation: None },
                         None => return Err(Refusal::new(format!("`{name}` is new, so they need an `at` (x, z). Nothing was changed."))),
                     },
                 };
@@ -172,6 +238,14 @@ impl PersonSet {
                         person.faction = Some(f.clone());
                     }
                 }
+                match p.conversation.as_deref() {
+                    Some("") => person.conversation = None,
+                    Some(c) => {
+                        check_conversation(ctx, c)?;
+                        person.conversation = Some(c.to_owned());
+                    }
+                    None => {}
+                }
                 for (slot, what, value) in [(&mut person.home, "home", &p.home), (&mut person.work, "workplace", &p.work)] {
                     match value.as_deref() {
                         Some("") => *slot = None,
@@ -180,6 +254,36 @@ impl PersonSet {
                             *slot = Some(id.to_owned());
                         }
                         None => {}
+                    }
+                }
+                if let Some(t) = &p.tie {
+                    if t.with == name {
+                        return Err(Refusal::new(format!("{name} cannot have a tie to themselves. Nothing was changed.")));
+                    }
+                    if !people.people.iter().any(|q| q.name == t.with) {
+                        return Err(Refusal::new(format!("nobody on `{}` is called `{}`, so {name} cannot have a tie to them. Nothing was changed.", p.map, t.with)));
+                    }
+                    for (v, lo, hi, what) in [(t.affinity, -1.0, 1.0, "affinity"), (t.trust, 0.0, 1.0, "trust")] {
+                        if let Some(v) = v
+                            && !(v.is_finite() && (lo..=hi).contains(&v))
+                        {
+                            return Err(Refusal::new(format!("the tie's {what} is {v}; it is between {lo} and {hi}. Nothing was changed.")));
+                        }
+                    }
+                    let row = person.ties.iter().position(|x| x.with == t.with);
+                    if t.remove {
+                        let Some(i) = row else {
+                            return Err(Refusal::new(format!("{name} has no tie to {}. Nothing was changed.", t.with)));
+                        };
+                        person.ties.remove(i);
+                    } else {
+                        match row {
+                            Some(i) => {
+                                person.ties[i].affinity = t.affinity.unwrap_or(person.ties[i].affinity);
+                                person.ties[i].trust = t.trust.unwrap_or(person.ties[i].trust);
+                            }
+                            None => person.ties.push(Tie { with: t.with.clone(), affinity: t.affinity.unwrap_or(0.0), trust: t.trust.unwrap_or(0.5) }),
+                        }
                     }
                 }
                 let summary = format!("{} {name}", if at_row.is_some() { "changed" } else { "added" });
@@ -234,6 +338,12 @@ impl Operation for PersonSet {
                 "faction": {"type": "string", "description": "A faction the project's society definitions declare; \"\" leaves it."},
                 "home": {"type": "string", "description": "The id of the placement they live in; \"\" clears it. That placement cannot be removed while they live there."},
                 "work": {"type": "string", "description": "The id of the placement they work in; \"\" clears it."},
+                "tie": {"type": "object", "additionalProperties": false, "required": ["with"], "description": "A starting tie from this person to another person on the map; the run begins with it. `remove` ends it.", "properties": {
+                    "with": {"type": "string"},
+                    "affinity": {"type": "number", "minimum": -1, "maximum": 1},
+                    "trust": {"type": "number", "minimum": 0, "maximum": 1},
+                    "remove": {"type": "boolean"}
+                }},
                 "remove": {"type": "boolean", "description": "Take the named person off the map."},
                 "put_back": {"type": "object", "description": "An undo's put-back. Only an undo sends this."}
             }
@@ -260,6 +370,8 @@ pub struct Stood {
     pub name: String,
     pub at: (f32, f32),
     pub ties: usize,
+    /// Each tie as `(other person, affinity, trust)` after the run.
+    pub bonds: Vec<(String, f32, f32)>,
 }
 
 /// **The society after `days` game-days**: who stands where and how many ties each has, with one hash of
@@ -271,7 +383,21 @@ pub struct RunReport {
     pub days: f32,
     pub ticks: usize,
     pub people: Vec<Stood>,
+    /// Every time a saved trigger ran for someone, in the order they ran (#105).
+    pub fired: Vec<Fired>,
+    /// Scripts that failed while the society ran: `owner: message`.
+    pub script_errors: Vec<String>,
     pub hash: u64,
+}
+
+/// One trigger running, for one person.
+#[cfg(feature = "bevy_society")]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Fired {
+    pub trigger: String,
+    /// The person the event was about, `""` for an event about nobody (a tick, an hour).
+    pub person: String,
+    pub tick: usize,
 }
 
 /// Game-day length in seconds the preview runs at; one society tick is 1/64 s, so a day is 4096 ticks.
@@ -355,9 +481,45 @@ pub fn run_forward(
         }
     }
 
+    let named: std::collections::BTreeMap<String, Entity> = {
+        let mut q = app.world_mut().query_filtered::<(Entity, &Name), With<Person>>();
+        q.iter(app.world()).map(|(e, n)| (n.as_str().to_owned(), e)).collect()
+    };
+    let by_name = |n: &str| named.get(n).copied();
+    for p in people.people.iter().filter(|p| !p.ties.is_empty()) {
+        let owner = by_name(&p.name).expect("spawned above");
+        let mut ties = Ties::default();
+        for t in &p.ties {
+            let Some(target) = by_name(&t.with) else {
+                return Err(Refusal::new(format!("{} has a tie to `{}`, who is not on the map.", p.name, t.with)));
+            };
+            ties.entry_with(target, t.affinity).trust = t.trust;
+        }
+        app.world_mut().entity_mut(owner).insert(ties);
+    }
+
     let ticks = (days * SECONDS_PER_DAY * TICK_HZ) as usize + 1;
-    for _ in 0..ticks {
+    let mut fired = Vec::new();
+    let mut script_errors = Vec::new();
+    let mut events = bevy::ecs::message::MessageCursor::<bevy_society::ScriptEvent>::default();
+    let mut errors = bevy::ecs::message::MessageCursor::<bevy_society::ScriptError>::default();
+    for tick in 0..ticks {
         app.update();
+        let w = app.world();
+        for e in events.read(w.resource::<bevy::ecs::message::Messages<bevy_society::ScriptEvent>>()) {
+            if e.name != crate::ops_scripts::FIRED {
+                continue;
+            }
+            let trigger = e.data.iter().find_map(|(k, v)| match (k.as_str(), v) {
+                ("trigger", bevy_society::ScriptValue::Text(t)) => Some(t.clone()),
+                _ => None,
+            });
+            let person = e.actor.and_then(|a| w.get::<Name>(a)).map(|n| n.as_str().to_owned()).unwrap_or_default();
+            fired.push(Fired { trigger: trigger.unwrap_or_default(), person, tick });
+        }
+        for e in errors.read(w.resource::<bevy::ecs::message::Messages<bevy_society::ScriptError>>()) {
+            script_errors.push(format!("{}: {}", e.owner, e.message));
+        }
     }
 
     let ids: Vec<(bevy_society::PersonId, Entity)> = app.world().resource::<PersonIndex>().sorted.clone();
@@ -377,9 +539,17 @@ pub fn run_forward(
         mix(u64::from(t.x.to_bits()));
         mix(u64::from(t.z.to_bits()));
         mix(ties as u64);
-        out.push(Stood { name: w.get::<Name>(e).map(|n| n.as_str().to_owned()).unwrap_or_default(), at: (t.x, t.z), ties });
+        let bonds = w
+            .get::<Ties>(e)
+            .map(|ts| {
+                ts.0.iter()
+                    .map(|t| (w.get::<Name>(t.target).map(|n| n.as_str().to_owned()).unwrap_or_default(), t.affinity, t.trust))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(Stood { name: w.get::<Name>(e).map(|n| n.as_str().to_owned()).unwrap_or_default(), at: (t.x, t.z), ties, bonds });
     }
-    Ok(RunReport { seed, days, ticks, people: out, hash })
+    Ok(RunReport { seed, days, ticks, people: out, fired, script_errors, hash })
 }
 
 #[cfg(feature = "bevy_society")]
@@ -411,10 +581,7 @@ impl PeopleRun {
         if people.people.is_empty() {
             return Err(Refusal::new(format!("nobody lives on `{}`; author someone with person_set first.", p.map)));
         }
-        let defs = match crate::ops_family::settings_path(ctx, "bevy_society").ok().and_then(|f| std::fs::read_to_string(f).ok()) {
-            Some(text) => bevy_society::SocietyDefs::from_ron(&text).map_err(|e| Refusal::new(format!("the society definitions do not compile: {e}")))?,
-            None => bevy_society::SocietyDefs::starter().map_err(|e| Refusal::new(format!("the starter pack does not compile: {e}")))?,
-        };
+        let defs = crate::ops_scripts::defs_with_triggers(ctx, &p.map, &people)?;
         let at: Vec<(String, (f32, f32))> = open.map.placements.iter().map(|q| (q.id.clone(), q.at)).collect();
         let n = people.people.len();
         run_forward(defs, &at, &people, p.seed.unwrap_or(0), p.days.unwrap_or(1.0)).map(|r| (r, n))
