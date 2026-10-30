@@ -545,8 +545,8 @@ enumerated! {
     /// **Arm the composition the picker is on** — the Map door's half of the arm.
     ///
     /// The same verb as [`Action::ComposeArm`] and a different action, because the census allows one
-    /// binding per action and the two doors' contexts never overlap. One writer underneath:
-    /// `Armed::toggle`.
+    /// binding per action and the two doors' contexts never overlap. One operation underneath:
+    /// `composition_arm`.
     ArmComposition,
     /// **Cross to the other door** — the Kit door and the Map door, without the menu.
     ///
@@ -896,6 +896,7 @@ impl Action {
             Action::OwnToggle => Some("placement_set_pin"),
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
+            Action::ArmComposition | Action::ComposeArm => Some("composition_arm"),
             Action::RenameMap => Some("map_rename"),
             Action::NoteTool => Some("note_add"),
             Action::SetRule => Some("rules_set"),
@@ -1696,8 +1697,8 @@ pub const BINDINGS: &[Binding] = &[
     //
     // The COMPOSE tab's arm is `Action::ComposeArm` on `Enter` in `Context::Compose`. This is the
     // **same verb on the Map door**, and it is a *different action* because the census allows one
-    // binding per action and the two contexts never overlap. Two actions, one meaning, one writer:
-    // both call `Armed::toggle`, so there is one answer to "what is armed".
+    // binding per action and the two contexts never overlap. Two actions, one meaning, one
+    // operation: both dispatch `composition_arm`, so there is one answer to "what is armed".
     //
     // **`Enter` is free here**, and it is free *because of the stance*: `AcceptProposal` holds `Enter`
     // at `Stance::Proposed` and the picker holds it at `Stance::Picking`, and those two stances
