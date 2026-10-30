@@ -146,6 +146,7 @@ mod out_of_area_compares_before_and_after;
 mod pieces_stand_on_sculpted_ground;
 mod piece_select_is_an_operation;
 mod play_starts_and_stops_the_game;
+mod play_stop_ends_the_whole_game;
 mod placement_remove;
 mod placement_set_yaw;
 mod placement_undo_without_id;
