@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **158-created-file** `b0e7a8f` A project file written for the first time while the editor is open (repetition.ron, standards.ron, rules.ron, compositions.ron) is read at once, not after a second edit (#158) *No clip: a watcher fix, seen in the E-090 clip's second step; proved by tests/a_project_file_created_while_open_is_read.rs*
+- **162-room** `273b5b0` A kit says whether it can open a hallway out into a room: adjacency::room builds the smallest room with a middle, nine pieces with every inner seam declared, or says there is none *No clip: a core API; proved by a_kit_says_whether_it_can_open_into_a_room*
 - **161-behind** `93d1c20` Relations: Behind keeps a piece behind another (a chest behind the counter), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_behind_another.rs*
 - **160-ring** `eb75d90` A kit says whether it can loop a hallway back: adjacency::ring builds the smallest closed loop of four pieces, or says there is none *No clip: a core API; proved by a_kit_says_whether_it_can_loop_a_hallway_back*
 - **159-between** `7523243` A relation keeps a piece between two others (a table between two chairs), and relations solve sets it there *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_kept_between_two_others.rs*
