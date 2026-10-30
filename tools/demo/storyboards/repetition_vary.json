@@ -1,0 +1,54 @@
+{
+ "name": "repetition_vary",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      0,
+      1,
+      10,
+      7
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 3
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "repetition_vary",
+    "parameters": {}
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    200,
+    650
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "four chairs side by side at one yaw: a repeat a player notices"
+  },
+  {
+   "at": 3.2,
+   "caption": "agent: repetition_vary"
+  },
+  {
+   "at": 4.5,
+   "caption": "the copies turn out of the repeat; the first chair and the table keep theirs"
+  }
+ ]
+}
