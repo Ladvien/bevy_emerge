@@ -7,7 +7,6 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/Ladvien/bevy_emerge"
 keywords = ["sat", "solver", "deterministic", "reproducible", "cnf"]
 categories = ["algorithms", "science"]
-publish = false
 
 # **Explicit versions, not `workspace = true`.** This crate is a leaf and is meant to be the thing
 # other crates depend on without inheriting anything, so its manifest has to stand on its own — the

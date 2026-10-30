@@ -2313,7 +2313,7 @@ impl Plugin for EditorPlugin {
                         // goes down, rather than one where it is invisible and still eating keys.
                         leaving_a_tab_puts_the_name_prompt_down.in_set(keys::Phase::Sense),
                     ),
-                    (size_edit_keys, family_edit_keys, data_edit_keys, terrain_edit_keys, crowd_edit_keys).in_set(keys::Phase::Text),
+                    (size_edit_keys, family_edit_keys, data_edit_keys, terrain_edit_keys, crowd_edit_keys, drop_reference).in_set(keys::Phase::Text),
                     // No `not_typing`, no `in_map_mode`: `keys::just_pressed` now refuses on both
                     // counts, and a run condition repeating it would be a second census. Dropping
                     // `in_map_mode` also makes `Cmd+S` and `Cmd+Z` work from every tab, which is what
@@ -4660,6 +4660,10 @@ fn set_reference(project: Option<&Project>, open: Option<&OpenMap>, state: &mut 
     } else {
         serde_json::json!({"path": first, "caption": words[2..].join(" ")})
     };
+    dispatch_reference(project, open, state, &params);
+}
+
+fn dispatch_reference(project: Option<&Project>, open: &OpenMap, state: &mut EditorState, params: &serde_json::Value) {
     let mut ctx = crate::ops::Ctx {
         project: project.cloned(),
         open: Some(open.clone()),
@@ -4667,13 +4671,70 @@ fn set_reference(project: Option<&Project>, open: Option<&OpenMap>, state: &mut 
         session: crate::ops::session_id(),
         ..crate::ops::Ctx::default()
     };
-    match crate::ops::dispatch(&mut ctx, "reference_set", &params) {
+    match crate::ops::dispatch(&mut ctx, "reference_set", params) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
         }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
     }
+}
+
+/// **An image dropped on the window becomes a reference of the open map** (#124, E-075), through
+/// the same `reference_set` as the `ref` line and an agent's `apply`: one log line, one undo.
+///
+/// A file already inside the project is referenced where it is. One from outside is copied into the
+/// project's `references/` first, because a reference is project data and must travel with it; a
+/// different file already holding that name is refused by name rather than overwritten. Undo takes
+/// the reference back and leaves the copied file, which is the person's file now.
+fn drop_reference(
+    mut drops: MessageReader<bevy::window::FileDragAndDrop>,
+    project: Option<Res<Project>>,
+    open: Option<Res<OpenMap>>,
+    mut state: ResMut<EditorState>,
+) {
+    for drop in drops.read() {
+        let bevy::window::FileDragAndDrop::DroppedFile { path_buf, .. } = drop else {
+            continue;
+        };
+        let (Some(project), Some(open)) = (project.as_deref(), open.as_deref()) else {
+            state.status.problem(format!("{} was dropped with no map open, so it is not a reference", path_buf.display()));
+            continue;
+        };
+        match reference_path_for_drop(&project.root, path_buf) {
+            Ok(rel) => dispatch_reference(Some(project), open, &mut state, &serde_json::json!({"path": rel})),
+            Err(e) => state.status.problem(e),
+        }
+    }
+}
+
+/// **The project-relative path a dropped image is referenced by**, copying it into `references/`
+/// when it lies outside the project.
+fn reference_path_for_drop(root: &std::path::Path, dropped: &std::path::Path) -> Result<String, String> {
+    let shown = dropped.display();
+    let ext = dropped.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif") {
+        return Err(format!("{shown} is not a png, jpg, jpeg, webp or gif image, so it is not a reference"));
+    }
+    let canon_root = root.canonicalize().map_err(|e| format!("the project folder {} cannot be read ({e}), so {shown} is not a reference", root.display()))?;
+    let canon = dropped.canonicalize().map_err(|e| format!("{shown} cannot be read ({e}), so it is not a reference"))?;
+    let relative = |p: &std::path::Path| p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
+    if let Ok(inside) = canon.strip_prefix(&canon_root) {
+        return Ok(relative(inside));
+    }
+    let name = canon.file_name().ok_or_else(|| format!("{shown} has no file name, so it is not a reference"))?;
+    let into = std::path::Path::new("references").join(name);
+    let dest = canon_root.join(&into);
+    let bytes = std::fs::read(&canon).map_err(|e| format!("{shown} cannot be read ({e}), so it is not a reference"))?;
+    match std::fs::read(&dest) {
+        Ok(there) if there == bytes => {}
+        Ok(_) => return Err(format!("{} already holds a different picture, so {shown} was not copied over it", into.display())),
+        Err(_) => {
+            std::fs::create_dir_all(canon_root.join("references")).map_err(|e| format!("references/ cannot be made ({e}), so {shown} is not a reference"))?;
+            std::fs::write(&dest, &bytes).map_err(|e| format!("{shown} cannot be copied into {} ({e}), so it is not a reference", into.display()))?;
+        }
+    }
+    Ok(relative(&into))
 }
 
 fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {

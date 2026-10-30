@@ -269,8 +269,8 @@
         "no_workaround": true,
         "evidence": "A person can drop a reference and say 'like this'; nothing stores it as project data or lets the agent name it back. Mixar keeps a moodboard the agent reads and cites."
       },
-      "status": "open",
-      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py. Slice 1 shipped: core references.rs (References beside the map as <map>.references.ron; add/remove/cite/missing, ids never reused, paths inside the project); tests/references.rs. Slice 2: reference_set op + emerge_state references. Slice 3: note_resolve refuses a cited reference id the map lacks. Still open: the UI drop (needs a display).",
+      "status": "shipped",
+      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py. Slice 1 shipped: core references.rs (References beside the map as <map>.references.ron; add/remove/cite/missing, ids never reused, paths inside the project); tests/references.rs. Slice 2: reference_set op + emerge_state references. Slice 3: note_resolve refuses a cited reference id the map lacks. Still open: the UI drop (needs a display). Slice 4 (2026-10-30, w5, 4417f4d): the UI drop, drop_reference reading FileDragAndDrop and dispatching reference_set; an outside picture is copied into references/ (assumed decision on #124); tests/a_dropped_image_becomes_a_reference.rs. Clip owed.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
@@ -414,7 +414,7 @@
       "first_seen": "2026-10-30",
       "last_failure": "",
       "title": "Role-weighted repetition: a map cannot say which repeated pieces a player will notice (#136)",
-      "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Owes: the report in emerge_state and the Inspector."
+      "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Slice 2 shipped 0b4323b: emerge_state.repetition (up to 10 rows + total), tests/emerge_state_names_visible_repeats.rs. Owes: a line in the Inspector (display-checked slice)."
     }
   ]
 }
