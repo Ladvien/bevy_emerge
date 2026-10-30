@@ -37,3 +37,8 @@ opt-level = 3
 # overridden, so every dependency keeps the build it already has.
 [profile.dev.package.bevy_emerge_mapper]
 strip = "symbols"
+
+# One isomesh for the whole build: `bevy_elements`' `isomesh` feature asks the registry for 0.0.11, and a
+# second copy would make our `Sdf` impls a different trait from the one its `SnowyField` wants (#101).
+[patch.crates-io]
+isomesh = { git = "https://github.com/Ladvien/isomesh", rev = "d3dc6c0fb6b43b899e534643f51f76a856d2d9ee" }
