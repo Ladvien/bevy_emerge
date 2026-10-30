@@ -231,3 +231,169 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
         }
     }
 }
+
+/// What [`solve`] did to a map's placements.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Solved {
+    /// Every placement, moved where the solver moved it; the rest unchanged and in input order.
+    pub placements: Vec<Placed>,
+    /// The ids the solver placed, first move first. A piece carried on a moved host is not listed.
+    pub moved: Vec<String>,
+    /// [`Outcome::Unmet`] relations before and after. Missing ones are neither and never moved for.
+    pub unmet_before: usize,
+    pub unmet_after: usize,
+}
+
+/// How many passes over the relations [`solve`] makes before it gives up on the rest.
+const SOLVE_ROUNDS: usize = 8;
+
+/// **Nudge the pieces of every broken relation until it holds**, greedily and never for the worse.
+///
+/// For each [`Outcome::Unmet`] relation the solver proposes one move: [`Kind::Faces`] turns the
+/// piece to its target, [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
+/// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
+/// sideways out of the corridor (the door stays where it was hung). A move is kept only when it lowers
+/// the map's unmet count, so a relation is never mended by breaking another, and contradictory ones
+/// end with as many met as one move each allows.
+///
+/// The moved piece is the relation's subject, or for a corridor the intruder; a piece resting on
+/// another ([`Placed::on`]) is not pulled off it — an intruder on a host moves its host — and
+/// whatever rests on a moved piece goes with it, turned about it.
+pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
+    let unmet = |ps: &[Placed]| {
+        check(ps, relations)
+            .iter()
+            .filter(|o| matches!(o, Outcome::Unmet { .. }))
+            .count()
+    };
+    let mut current = placements.to_vec();
+    let unmet_before = unmet(&current);
+    let mut count = unmet_before;
+    let mut moved: Vec<String> = Vec::new();
+    for _ in 0..SOLVE_ROUNDS {
+        let mut progressed = false;
+        for r in &relations.relations {
+            let Outcome::Unmet { by, .. } = check_one(&current, r) else {
+                continue;
+            };
+            let Some((id, at, yaw)) = propose(&current, r, by.as_deref()) else {
+                continue;
+            };
+            let mut trial = current.clone();
+            let depth = trial.len();
+            move_piece(&mut trial, &id, at, yaw, depth);
+            let trial_count = unmet(&trial);
+            if trial_count < count {
+                current = trial;
+                count = trial_count;
+                progressed = true;
+                if !moved.contains(&id) {
+                    moved.push(id);
+                }
+            }
+        }
+        if !progressed || count == 0 {
+            break;
+        }
+    }
+    Solved {
+        placements: current,
+        moved,
+        unmet_before,
+        unmet_after: count,
+    }
+}
+
+/// The one move that would mend `r`: which piece, and where it goes. `None` when the piece to move
+/// rests on another, or the relation names a piece the map lacks.
+fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Option<(String, (f32, f32), f32)> {
+    let a = find(placements, &r.of).ok()?;
+    let other = |id: &str| find(placements, id).ok();
+    let free = |p: &Placed| p.on.is_none();
+    // `toward` from `from`, unit length; `fallback` when the two stand on one spot.
+    let unit = |from: (f32, f32), to: (f32, f32), fallback: (f32, f32)| {
+        let d = distance(from, to);
+        if d > 1e-4 {
+            ((to.0 - from.0) / d, (to.1 - from.1) / d)
+        } else {
+            fallback
+        }
+    };
+    let forward = |p: &Placed| (p.yaw.sin(), p.yaw.cos());
+    match &r.kind {
+        Kind::Faces(to) => {
+            let b = other(to)?;
+            let (dx, dz) = (b.at.0 - a.at.0, b.at.1 - a.at.1);
+            free(a).then(|| (a.id.clone(), a.at, dx.atan2(dz)))
+        }
+        Kind::Near { to, within } => {
+            let b = other(to)?;
+            let (ux, uz) = unit(b.at, a.at, forward(b));
+            let d = within * 0.9;
+            free(a).then(|| (a.id.clone(), (b.at.0 + ux * d, b.at.1 + uz * d), a.yaw))
+        }
+        Kind::Apart { from, at_least } => {
+            let b = other(from)?;
+            let back = forward(a);
+            let (ux, uz) = unit(b.at, a.at, (-back.0, -back.1));
+            let d = at_least * 1.1 + 0.05;
+            free(a).then(|| (a.id.clone(), (b.at.0 + ux * d, b.at.1 + uz * d), a.yaw))
+        }
+        Kind::InFrontOf { of, within } => {
+            let b = other(of)?;
+            let (fx, fz) = forward(b);
+            let d = distance(a.at, b.at).clamp(within * 0.1, within * 0.9);
+            free(a).then(|| (a.id.clone(), (b.at.0 + fx * d, b.at.1 + fz * d), a.yaw))
+        }
+        Kind::ClearInFront { width, .. } => {
+            // The intruder, or the piece it rests on: moving the host carries it out.
+            // A malformed file could chain `on` in a circle; a chain is never longer than the map.
+            let mut intruder = other(by?)?;
+            for _ in 0..placements.len() {
+                let Some(host) = intruder.on.as_deref().and_then(other) else {
+                    break;
+                };
+                intruder = host;
+            }
+            let (ahead, side) = local(a, intruder.at);
+            let sign = if side < 0.0 { -1.0 } else { 1.0 };
+            let side = sign * (width / 2.0 * 1.1 + 0.05);
+            // Back from `a`'s frame: forward (fx, fz), sideways (fz, -fx), as `local` measures.
+            let (fx, fz) = forward(a);
+            let to = (
+                a.at.0 + fx * ahead + fz * side,
+                a.at.1 + fz * ahead - fx * side,
+            );
+            Some((intruder.id.clone(), to, intruder.yaw))
+        }
+    }
+}
+
+/// Put `id` at `at` turned to `yaw`, carrying everything resting on it (and on that, and so on):
+/// riders keep their offset in the host's frame, so they turn with it.
+/// `depth` bounds the walk, so an `on` cycle in a malformed file ends.
+fn move_piece(placements: &mut [Placed], id: &str, at: (f32, f32), yaw: f32, depth: usize) {
+    if depth == 0 {
+        return;
+    }
+    let Some(host) = placements.iter().position(|p| p.id == id) else {
+        return;
+    };
+    let (from, turn) = (placements[host].at, yaw - placements[host].yaw);
+    let (s, c) = turn.sin_cos();
+    placements[host].at = at;
+    placements[host].yaw = yaw;
+    let riders: Vec<(String, (f32, f32), f32)> = placements
+        .iter()
+        .filter(|p| p.on.as_deref() == Some(id))
+        .map(|p| {
+            let (dx, dz) = (p.at.0 - from.0, p.at.1 - from.1);
+            // Turning by `turn` about +y in this forward convention: (sin, cos) of yaw + turn.
+            let (rx, rz) = (dx * c + dz * s, -dx * s + dz * c);
+            (p.id.clone(), (at.0 + rx, at.1 + rz), p.yaw + turn)
+        })
+        .collect();
+    for (rider, to, rider_yaw) in riders {
+        move_piece(placements, &rider, to, rider_yaw, depth - 1);
+    }
+}

@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **E-089-s2** `a23ba4b` emerge_state names the kit pieces that break the project's standards.ron, and the rules that cover no piece (#138 slice 2) *No clip: an MCP read, no editor surface changed; proved by crates/bevy_emerge_mapper/tests/emerge_state_reports_standards_breaches.rs*
+- **137-solve** `4353041` relations::solve nudges pieces until a map's intended relations hold, never breaking one to mend another *No clip: an engine-free API; proved by crates/bevy_emerge_core/tests/a_solver_mends_broken_relations.rs*
 - **E-089-s1** `3abf44f` Kit standards: a project's standards.ron says which pieces break its module, door opening or storey height (#138 slice 1) *No clip: an engine-free core API; proved by crates/bevy_emerge_core/tests/a_kit_says_which_pieces_break_its_standards.rs*
 - **e088-relations-state** `4f79e81` emerge_state names the intended relations the open map breaks, read live from <map>.relations.ron *No clip: an MCP read (emerge_state.relations); proved by crates/bevy_emerge_mapper/tests/emerge_state_reports_broken_relations.rs*
 - **E-087-inspector** `50e9fa6` The Map inspector's REPEATS row names the repeat a player will notice first, and how many other looks repeat *No clip: visible, not yet recorded: no display on big*
