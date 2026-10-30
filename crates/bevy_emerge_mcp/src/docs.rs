@@ -57,7 +57,9 @@ pub const TOOLS: &[ToolDoc] = &[
                       JSON schema and how it is undone. Call this before emerge_apply_operation so the \
                       parameters are the ones the operation actually takes. Returns the list; it does not \
                       change anything. The undo column names the strategy an operation declares; \
-                      emerge_undo_operation performs it.",
+                      emerge_undo_operation performs it. Pass query (words such as \"carve\" or \"note\") \
+                      to get only the operations whose name or parameters match, best first, and total, \
+                      the number of operations there are.",
         read_only: true,
         destructive: false,
         idempotent: true,
@@ -130,6 +132,23 @@ pub const TOOLS: &[ToolDoc] = &[
                        editor. The notes section lists the sent and claimed notes (id, \
                        holder, lease_until); pass note=<id> for that note's bundle: text, area and \
                        margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
+                       repetition names up to 10 visible repeats (the same piece at one yaw and tip \
+                       within 6 m), the one a player notices first first: descriptor, patched, role \
+                       (clutter or structure), pieces, pairs, score; total counts them all; the radius, \
+                       the structure kinds and their weight come from the project's repetition.ron, \
+                       re-read on every call, and a bad file is named in error. \
+                       relations checks the <map>.relations.ron beside the open map, re-read on \
+                       every call: each relation (of, kind) with outcome met, unmet or missing, \
+                       measured (metres, or degrees off for Faces), by (the piece that breaks it) \
+                       and missing_id; unmet and missing count them; error names a file that does not parse. \
+                       standards checks the project's standards.ron (beside kits.ron), re-read on \
+                       every call: breaches (piece, rule, dim, found metres, why below_min, above_max, \
+                       not_multiple_of or unmeasured, bound) and idle, the rules no piece is covered by; \
+                       error names a file that does not parse. \
+                       dead_ends is the kit stress test: every declared face (piece, dir N/E/S/W, \
+                       face tokens, closest {piece, turn, misses [{at, want, found}]} the piece \
+                       nearest to meeting it or null, message) that no piece of the kit meets at any quarter turn, \
+                       up to 20, with total counting them all. \
                        Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
@@ -392,7 +411,13 @@ pub fn schemas() -> Value {
                 "operation_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
-        "emerge_list_operations": {"type": "object", "additionalProperties": false},
+        "emerge_list_operations": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "query": {"type": "string", "description": "Words to search for, such as carve or note. With them, only the operations whose name or parameters match, best first, and total. Without them, every operation."},
+            },
+        },
         "emerge_preview_operation": {
             "type": "object",
             "additionalProperties": false,

@@ -276,7 +276,9 @@ fn apply_paint(
                 handle
             }
         };
-        commands.entity(entity).insert(MeshMaterial3d(biased));
+        // `try_insert`: a piece despawned in the frame its materials arrive (a brush ghost following
+        // the cursor) is gone by the time this applies, and the swap is cosmetic (#140).
+        commands.entity(entity).try_insert(MeshMaterial3d(biased));
     }
 }
 
