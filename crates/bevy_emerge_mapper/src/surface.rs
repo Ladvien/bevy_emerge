@@ -691,7 +691,7 @@ fn inject_clicks(
 /// `Hovered`. `sense_pointer` deliberately never writes the window's own cursor, because that would
 /// move the physical mouse, so until now an agent's pointer was invisible to picking.
 ///
-/// One frame of latency, because `sense_pointer` runs in `Update` and this runs in `PreUpdate`. At
+/// One frame of latency, because `sense_pointer` runs after `PreUpdate` and this runs in it. At
 /// 60 Hz that is below the threshold of a hover reading late, and the alternative is a second place
 /// deciding where the cursor is.
 fn retarget_pointer(
