@@ -217,6 +217,7 @@ mod the_meshes_pane_names_modules_that_do_not_nest;
 mod the_meshes_pane_names_the_standards_a_piece_breaks;
 mod the_meshes_pane_says_how_sure_the_labels_are;
 mod the_next_undo_is_named;
+mod the_note_box_is_on_screen_while_typed;
 mod the_plan_panel_lists_the_agents_steps;
 mod the_refusal_is_on_screen;
 mod the_run_receipt_names_the_triggers_that_fired;
