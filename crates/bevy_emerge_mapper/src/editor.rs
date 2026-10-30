@@ -2062,6 +2062,27 @@ fn dispatch_note(
     }
 }
 
+/// **Flip a group's envelope through the registry** as `composition_set_envelope`: anchored becomes
+/// bounded (fitted to its members), bounded becomes anchored. Returns the receipt, or the refusal.
+pub fn set_envelope(project: &mut Project, id: &str, to_bounded: bool) -> Result<String, String> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = serde_json::json!({"id": id, "envelope": if to_bounded { "bounded" } else { "anchored" }});
+    match crate::ops::dispatch(&mut ctx, "composition_set_envelope", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            if let Some(fresh) = ctx.project {
+                project.compositions = fresh.compositions;
+            }
+            Ok(outcome.summary)
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => Err(e.0),
+    }
+}
+
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
