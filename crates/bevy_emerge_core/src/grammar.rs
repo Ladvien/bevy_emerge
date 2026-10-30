@@ -120,6 +120,99 @@ fn dimensions(map: &Map, cell: f32) -> (usize, usize) {
     )
 }
 
+/// **The part of a map a solve may change** (#192, research lens #6: graybox first).
+///
+/// A rectangle in map metres, its corners in either order. A cell is in it when the cell's centre
+/// is, edges included. A solve given one lays only those cells and returns no row outside it; the
+/// cells around it keep what stands in them and are pinned to it, so what is laid joins the map it
+/// lands in rather than the empty field a whole-map solve imagines.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Area {
+    pub from: (f32, f32),
+    pub to: (f32, f32),
+}
+
+/// The cells one solve works on: the area, and the ring of cells around it that it must join.
+///
+/// Map cell coordinates, `[x0, x1) × [z0, z1)`. `grid` is the rectangle the solver collapses (the
+/// area plus its ring, cut to the map); `area` is the part of it that is laid.
+struct Window {
+    grid: (usize, usize, usize, usize),
+    area: (usize, usize, usize, usize),
+}
+
+impl Window {
+    fn width(&self) -> usize {
+        self.grid.2 - self.grid.0
+    }
+    fn height(&self) -> usize {
+        self.grid.3 - self.grid.1
+    }
+    /// The local index of map cell `c`, when it is in the grid.
+    fn local(&self, c: (i64, i64)) -> Option<usize> {
+        let (x0, z0, x1, z1) = self.grid;
+        let (x, z) = (usize::try_from(c.0).ok()?, usize::try_from(c.1).ok()?);
+        (x >= x0 && x < x1 && z >= z0 && z < z1).then(|| (z - z0) * self.width() + (x - x0))
+    }
+    /// Is the local cell `(x, z)` one the solve lays?
+    fn lays(&self, x: usize, z: usize) -> bool {
+        let (x, z) = (x + self.grid.0, z + self.grid.1);
+        let (x0, z0, x1, z1) = self.area;
+        x >= x0 && x < x1 && z >= z0 && z < z1
+    }
+    /// Does the local cell `(x, z)` share a row or a column with the area? A ring cell that does
+    /// not is a corner, which touches no cell the solve lays.
+    fn beside(&self, x: usize, z: usize) -> bool {
+        let (x, z) = (x + self.grid.0, z + self.grid.1);
+        let (x0, z0, x1, z1) = self.area;
+        (x >= x0 && x < x1) || (z >= z0 && z < z1)
+    }
+}
+
+/// The window a solve over `area` works on; the whole map, with no ring, when there is none.
+fn window(map: &Map, cell: f32, area: Option<&Area>) -> Result<Window, String> {
+    let (w, h) = dimensions(map, cell);
+    let Some(a) = area else {
+        return Ok(Window {
+            grid: (0, 0, w, h),
+            area: (0, 0, w, h),
+        });
+    };
+    let (min_x, min_z, max_x, max_z) = map.floor_rect();
+    let corners = [a.from.0, a.from.1, a.to.0, a.to.1];
+    if !corners.iter().all(|v| v.is_finite()) {
+        return Err(format!(
+            "grammar: the area from {:?} to {:?} is not a place on the map",
+            a.from, a.to
+        ));
+    }
+    // The cells whose centre `min + (i + 0.5) * cell` lies in `[lo, hi]`, as `[first, past)`.
+    let span = |lo: f32, hi: f32, min: f32, n: usize| -> (usize, usize) {
+        let (lo, hi) = (lo.min(hi), lo.max(hi));
+        let first = ((lo - min) / cell - 0.5 - CELL_EPSILON).ceil().max(0.0) as usize;
+        let past = (((hi - min) / cell - 0.5 + CELL_EPSILON).floor() + 1.0).clamp(0.0, n as f32);
+        (first.min(n), past as usize)
+    };
+    let (x0, x1) = span(a.from.0, a.to.0, min_x, w);
+    let (z0, z1) = span(a.from.1, a.to.1, min_z, h);
+    if x0 >= x1 || z0 >= z1 {
+        return Err(format!(
+            "grammar: the area from {:?} to {:?} holds no cell of the map, whose floor runs from \
+             ({min_x}, {min_z}) to ({max_x}, {max_z}); give an area over the floor",
+            a.from, a.to
+        ));
+    }
+    Ok(Window {
+        grid: (
+            x0.saturating_sub(1),
+            z0.saturating_sub(1),
+            (x1 + 1).min(w),
+            (z1 + 1).min(h),
+        ),
+        area: (x0, z0, x1, z1),
+    })
+}
+
 /// **Read the author's arrangement as a grammar.**
 ///
 /// Every placement lands in a cell; every orthogonally adjacent pair of cells teaches one rule in each
@@ -274,6 +367,32 @@ pub fn solve(
     grammar: &Grammar,
     cell: f32,
     seed: u64,
+    next_id: impl FnMut() -> String,
+) -> Result<Solved, String> {
+    solve_window(map, grammar, cell, None, seed, next_id)
+}
+
+/// **[`solve`], laying only the cells in `area`** (#192). The cells around it are pinned to what
+/// stands in them ([`pinned_domains`]), so the area's edge joins its neighbours by the grammar's
+/// own rules; nothing outside the area is returned, and [`Solved::grid`] is the area and that ring.
+/// An area that holds no cell of the map is refused, naming it.
+pub fn solve_in(
+    map: &Map,
+    grammar: &Grammar,
+    cell: f32,
+    area: Area,
+    seed: u64,
+    next_id: impl FnMut() -> String,
+) -> Result<Solved, String> {
+    solve_window(map, grammar, cell, Some(&area), seed, next_id)
+}
+
+fn solve_window(
+    map: &Map,
+    grammar: &Grammar,
+    cell: f32,
+    area: Option<&Area>,
+    seed: u64,
     mut next_id: impl FnMut() -> String,
 ) -> Result<Solved, String> {
     if grammar.len() < 2 {
@@ -283,13 +402,14 @@ pub fn solve(
                 .to_owned(),
         );
     }
-    let (w, h) = dimensions(map, cell);
+    let win = window(map, cell, area)?;
+    let (w, h) = (win.width(), win.height());
     let full: u32 = if grammar.len() == 32 {
         u32::MAX
     } else {
         (1u32 << grammar.len()) - 1
     };
-    let (initial, owned_cells) = pinned_domains(map, grammar, cell, w, h, full)?;
+    let (initial, owned_cells) = pinned_domains(map, grammar, cell, &win, full)?;
 
     let chosen = wfc::collapse_grid(w, h, &grammar.weights, &grammar.support, &initial, seed)
         .ok_or_else(|| {
@@ -300,7 +420,7 @@ pub fn solve(
         })?;
 
     let (placements, stamps, free_cells) =
-        harvest(map, grammar, cell, &chosen, &initial, w, h, &mut next_id);
+        harvest(map, grammar, cell, &chosen, &initial, &win, &mut next_id);
 
     Ok(Solved {
         placements,
@@ -356,6 +476,36 @@ pub fn solve_constrained(
     wishes: &Wishes,
     cell: f32,
     seed: u64,
+    next_id: impl FnMut() -> String,
+) -> Result<Solved, String> {
+    solve_constrained_window(map, grammar, faces, wishes, cell, None, seed, next_id)
+}
+
+/// **[`solve_constrained`], laying only the cells in `area`** (#192), as [`solve_in`] does for
+/// [`solve`]. The enclosure wish is over the area and the ring around it.
+#[allow(clippy::too_many_arguments)]
+pub fn solve_constrained_in(
+    map: &Map,
+    grammar: &Grammar,
+    faces: &[Option<Interface>],
+    wishes: &Wishes,
+    cell: f32,
+    area: Area,
+    seed: u64,
+    next_id: impl FnMut() -> String,
+) -> Result<Solved, String> {
+    solve_constrained_window(map, grammar, faces, wishes, cell, Some(&area), seed, next_id)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn solve_constrained_window(
+    map: &Map,
+    grammar: &Grammar,
+    faces: &[Option<Interface>],
+    wishes: &Wishes,
+    cell: f32,
+    area: Option<&Area>,
+    seed: u64,
     mut next_id: impl FnMut() -> String,
 ) -> Result<Solved, String> {
     if grammar.len() < 2 {
@@ -373,13 +523,14 @@ pub fn solve_constrained(
             grammar.len()
         ));
     }
-    let (w, h) = dimensions(map, cell);
+    let win = window(map, cell, area)?;
+    let (w, h) = (win.width(), win.height());
     let full: u32 = if grammar.len() == 32 {
         u32::MAX
     } else {
         (1u32 << grammar.len()) - 1
     };
-    let (initial, owned_cells) = pinned_domains(map, grammar, cell, w, h, full)?;
+    let (initial, owned_cells) = pinned_domains(map, grammar, cell, &win, full)?;
 
     let mut gp = crate::constraints::GridProblem::encode(
         &grammar.support,
@@ -408,7 +559,7 @@ pub fn solve_constrained(
     let solution = gp.problem.solve(SOLVE_BUDGET)?;
     let chosen = gp.read(&solution)?;
     let (placements, stamps, free_cells) =
-        harvest(map, grammar, cell, &chosen, &initial, w, h, &mut next_id);
+        harvest(map, grammar, cell, &chosen, &initial, &win, &mut next_id);
 
     Ok(Solved {
         placements,
@@ -444,65 +595,131 @@ pub fn interfaces(faces: &[Option<crate::composition::Interface>]) -> crate::ran
 const WALL_TOKEN: &str = "wall";
 const WALKABLE_GAP: f32 = 0.5;
 
-/// The author's pinned cells as a per-cell domain mask, and how many there were.
+/// The author's pinned cells as a per-cell domain mask over `win`, and how many there were.
 ///
 /// **One definition, two solvers.** An owned placement narrows its cell to a single prototype — the
 /// unary constraint `wfc::boundary_initial` uses, and the one `constraints::domain_rules` takes. A
 /// second copy of this loop would eventually disagree with the first about exactly the cells the
 /// author cared enough about to pin, which is the worst possible place for two answers.
+///
+/// **The ring around an area is pinned to what stands in it** (#192): the first placement in the
+/// cell, as [`learn`] reads a cell, else a stamp centred in it, as the prototype the grammar knows
+/// it by; empty when nothing stands there. A cell holding something the grammar does not know is
+/// left open, so the area's edge is not held to a neighbour the rules cannot read, and so are the
+/// ring's four corners, which touch no cell of the area. The ring is never laid ([`harvest`]), so
+/// leaving a cell open changes nothing outside the area.
 fn pinned_domains(
     map: &Map,
     grammar: &Grammar,
     cell: f32,
-    w: usize,
-    h: usize,
+    win: &Window,
     full: u32,
 ) -> Result<(Vec<u32>, usize), String> {
-    let mut initial = vec![full; w * h];
+    let w = win.width();
+    let mut initial = vec![full; w * win.height()];
     let mut owned_cells = 0usize;
+    let quarter = |yaw: f32| (yaw / 15.0).round() * 15.0;
+    let known = |p: &Prototype| grammar.prototypes.iter().position(|q| q == p);
+
+    let mut ring: HashMap<usize, Option<usize>> = HashMap::new();
+    let mut stands = |i: usize, proto: Prototype| {
+        let ix = known(&proto);
+        match ring.get_mut(&i) {
+            None => {
+                ring.insert(i, ix);
+            }
+            Some(slot @ None) => *slot = ix,
+            Some(Some(_)) => {}
+        }
+    };
+    for p in &map.placements {
+        if let Some(i) = win.local(to_cell(map, cell, p.at))
+            && !win.lays(i % w, i / w)
+        {
+            stands(
+                i,
+                Prototype::Piece {
+                    descriptor: p.descriptor.clone(),
+                    yaw: quarter(p.yaw),
+                },
+            );
+        }
+    }
+    for s in &map.stamps {
+        if let Some(i) = win.local(to_cell(map, cell, s.at))
+            && !win.lays(i % w, i / w)
+        {
+            stands(
+                i,
+                Prototype::Composed {
+                    composition: s.of.clone(),
+                    yaw: quarter(s.yaw),
+                },
+            );
+        }
+    }
+    for (i, mask) in initial.iter_mut().enumerate() {
+        let (x, z) = (i % w, i / w);
+        // A corner of the ring touches no cell the solve lays, so pinning it could only refuse an
+        // area over two old pieces the grammar would not set side by side.
+        if win.lays(x, z) || !win.beside(x, z) {
+            continue;
+        }
+        *mask = match ring.get(&i) {
+            None => 1 << 0, // nothing stands here: `Prototype::Empty`, always index 0
+            Some(Some(ix)) => 1 << ix,
+            Some(None) => full,
+        };
+    }
+
     for p in map.placements.iter().filter(|p| p.owned) {
-        let c = to_cell(map, cell, p.at);
-        if c.0 < 0 || c.1 < 0 || c.0 as usize >= w || c.1 as usize >= h {
+        let Some(i) = win.local(to_cell(map, cell, p.at)) else {
+            continue;
+        };
+        if !win.lays(i % w, i / w) {
             continue;
         }
         let proto = Prototype::Piece {
             descriptor: p.descriptor.clone(),
-            yaw: (p.yaw / 15.0).round() * 15.0,
+            yaw: quarter(p.yaw),
         };
-        let Some(ix) = grammar.prototypes.iter().position(|q| *q == proto) else {
+        let Some(ix) = known(&proto) else {
             return Err(format!(
                 "grammar: owned placement `{}` is a `{}` at {}deg, which is not in the learned \
                  grammar — re-learn from a map that contains it.",
                 p.id, p.descriptor, p.yaw
             ));
         };
-        initial[c.1 as usize * w + c.0 as usize] = 1 << ix;
+        initial[i] = 1 << ix;
         owned_cells += 1;
     }
     Ok((initial, owned_cells))
 }
 
-/// A solved grid as the rows a caller can write back, skipping the cells the author pinned.
+/// A solved grid as the rows a caller can write back: the cells `win` lays, skipping the ones the
+/// author pinned.
 ///
 /// Shared for the same reason as [`pinned_domains`]: which cells are new is a function of `initial`,
 /// and a caller re-deriving it would differ on the pinned ones.
-#[allow(clippy::too_many_arguments)]
 fn harvest(
     map: &Map,
     grammar: &Grammar,
     cell: f32,
     chosen: &[usize],
     initial: &[u32],
-    w: usize,
-    h: usize,
+    win: &Window,
     next_id: &mut impl FnMut() -> String,
 ) -> (Vec<Placed>, Vec<Stamped>, usize) {
     let mut placements = Vec::new();
     let mut stamps = Vec::new();
     let mut free_cells = 0usize;
-    for y in 0..h {
+    let w = win.width();
+    for y in 0..win.height() {
         for x in 0..w {
-            let c = (x as i64, y as i64);
+            if !win.lays(x, y) {
+                continue; // the ring around an area keeps what stands in it
+            }
+            let c = ((x + win.grid.0) as i64, (y + win.grid.1) as i64);
             let (Some(&ix), Some(&mask)) = (chosen.get(y * w + x), initial.get(y * w + x)) else {
                 continue;
             };
