@@ -28,8 +28,7 @@ fn a_set_of_anchored_groups_is_refused_with_each_reason() {
         group("town/yard", Envelope::Bounded { size: (2.0, 1.0, 2.0) }),
     ];
     let err = from_compositions(&comps, &Library::default(), 1, 1.0, |_, _, _| true)
-        .err()
-        .expect("a set with no tile has nothing to solve with, so it is refused");
+        .expect_err("a set with no tile has nothing to solve with, so it is refused");
 
     for id in ["town/house_cottage", "town/house_hall", "town/yard"] {
         assert!(err.contains(id), "the refusal names `{id}`: {err}");
@@ -47,8 +46,7 @@ fn many_reasons_are_counted_rather_than_listed_without_end() {
     let comps: Vec<Composition> =
         (0..16).map(|i| group(&format!("house_{i:02}"), Envelope::Anchored)).collect();
     let err = from_compositions(&comps, &Library::default(), 1, 1.0, |_, _, _| true)
-        .err()
-        .expect("sixteen anchored groups are no tile");
+        .expect_err("sixteen anchored groups are no tile");
     assert!(err.contains("none of the 16"), "the total is said: {err}");
     assert!(err.contains("house_00") && err.contains("house_04"), "the first five are named: {err}");
     assert!(!err.contains("house_05"), "the sixth is counted, not named: {err}");
@@ -58,7 +56,6 @@ fn many_reasons_are_counted_rather_than_listed_without_end() {
 #[test]
 fn a_project_with_no_compositions_is_refused_too() {
     let err = from_compositions(&[], &Library::default(), 1, 1.0, |_, _, _| true)
-        .err()
-        .expect("no compositions, no tile");
+        .expect_err("no compositions, no tile");
     assert!(err.contains("no compositions"), "{err}");
 }
