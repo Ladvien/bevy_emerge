@@ -221,6 +221,19 @@ impl std::fmt::Display for Confidence {
     }
 }
 
+/// **The inverse of `Display`**: the three words, exactly as written. The one place a word is read.
+impl std::str::FromStr for Confidence {
+    type Err = String;
+    fn from_str(word: &str) -> Result<Self, String> {
+        match word {
+            "high" => Ok(Self::High),
+            "medium" => Ok(Self::Medium),
+            "low" => Ok(Self::Low),
+            other => Err(format!("confidence is high, medium or low, not \"{other}\"")),
+        }
+    }
+}
+
 impl LabelOrigin {
     /// **A fresh record naming the model that is about to write**, with no axis claimed yet.
     ///
