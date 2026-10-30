@@ -153,6 +153,8 @@ Goal: know which sockets of a kit no piece can close before a map runs into them
 
 A face whose edge tokens no piece of the kit presents back, at any quarter turn, is a dead end: a jamb with no partner, a hallway that cannot be capped. Select a piece on the Meshes panel; its `dead ends` row names each such side and what the face presents, for example `E: jamb_l jamb_r, nothing meets it`. A piece with no dead face has no row. An agent reads the whole kit's list in `emerge_state.dead_ends`. Add a piece that presents the face back and the row goes away.
 
+When some piece comes near, the line says which and how far off: `E: jamb_l jamb_r, nothing meets it; closest b_near at 0°, 1 off` means `b_near`, unturned, agrees with the face in every cell but one. `emerge_state.dead_ends` rows carry the same as `closest`: the piece, its turn in degrees, and each cell it gets wrong (`at`, `want`, `found`). Ties go to the fewest wrong cells, then the piece id, then the turn.
+
 ## Undo on the kit door
 
 Goal: take back the newest change to a piece.
