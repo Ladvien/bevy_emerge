@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **108-carnage-f0** `HEAD` bevy_carnage is a hosted family crate: its CarnageSettings dials are saved in family/bevy_carnage.ron and set with family_set (#108 slice 1) *No clip: a cargo feature and a settings host, nothing drawn; proved by family_carnage_settings::a_violence_dial_is_set_through_family_set_and_reads_back_as_the_crates_own_type*
 - **E-072a** `cbb2ac5` An agent can define a composition from placements on the map (composition_define), replace it on request, and undo it *No clip: an operation over MCP; proved by tests/an_agent_can_define_a_composition.rs*
 - **fix-120** `0df31ae` Family settings reload in about 0.2 s instead of up to 1.5 s (flaky gate, #120) *No clip: a latency change, not visible in a clip; proved by family_settings_reload test*
 - **107-heat** `a10b342` Crowd preview heat overlay: the run's trail and queues drawn on the floor, and carried in crowd_preview's outcome *No clip: visible, not yet recorded: the overlay needs a clip of 100 walkers gate to church; proved by crowd_heat tests*
