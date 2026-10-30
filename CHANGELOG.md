@@ -9,6 +9,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **E-142-2** `6665972` The Meshes pane and emerge_state name every kit face no piece can meet (dead ends) *No clip: visible, not yet recorded: no display on big*
 - **143-repetition-vary** `2fad900` repetition_vary and the Terrain line `repeats vary` turn the clutter copies that repeat visibly, never structure, with one undo *No clip: visible, not yet recorded: no display on big*
 - **E-142-1** `dd539fc` A kit names every edge face no piece of it can meet (adjacency::dead_ends) *No clip: an API with no editor surface yet; proved by tests/a_kit_names_every_face_nothing_can_meet.rs*
+- **B-140** `92b2dc0` A piece despawned in the frame its materials arrive no longer panics the editor (#140) *No clip: a crash fix; proved by crates/bevy_emerge/tests/paint_on_a_despawned_piece.rs*
 - **e088-inspector-relations** `d1264c8` The Map inspector's RELATIONS row names how many intended relations the open map breaks and the first one, live as the file changes *No clip: visible, not yet recorded: no display on big*
 - **E-091** `1dfe893` emerge_list_operations takes a query: an agent finds an operation by searching, best first, instead of reading all 64+ *No clip: an MCP/BRP API; proved by tests/an_agent_can_search_the_operations.rs*
 - **E-090** `e8f9edf` A project's repetition.ron decides which kinds are structure and how far a repeat is seen; emerge_state and the REPEATS line follow an edit live *No clip: visible, not yet recorded: no display on big*

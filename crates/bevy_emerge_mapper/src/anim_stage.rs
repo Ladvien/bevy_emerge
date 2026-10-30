@@ -433,7 +433,8 @@ fn tint_ghost_scene(
             stack.extend(kids.iter());
         }
         if meshes.get(e).is_ok() {
-            commands.entity(e).insert(MeshMaterial3d(tint.0.clone()));
+            // `try_insert`: the instance may be despawned before this applies (#140).
+            commands.entity(e).try_insert(MeshMaterial3d(tint.0.clone()));
         }
     }
 }
