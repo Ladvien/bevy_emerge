@@ -136,6 +136,8 @@ bevy_emerge_core has three ways to fill a map. None of them needs the engine.
 
 A map can hold a run as itself. `Map::runs` stores each run as one `RunPlaced` (an id and a `Run`), and `Map::expanded()` lays it into rows named `<run id>/<n>`, so a fence is one entry and moving its end is one edit. The operations `run_add`, `run_set` and `run_remove` edit runs and each is undone by its `operation_id`. `placements_to_run` turns rows that `run::lay` would produce into the run that lays exactly them, and refuses, naming the first row, when one is off the pitch. In the editor, Shift-drag in run mode lays a run, dragging a run's end moves it, and Cmd-drag over rows turns them into a run.
 
+A block laid out under `rules.ron` can be offered more than one way, on request. `rules::options(alphabet, rules, pins, seed_base, count, min_differ)` tries seeds in order, at most `attempts * count` of them, and keeps up to `count` layouts that each differ from every other kept one in at least `min_differ` cells. Each `Choice` carries the seed that made it, so `rules::solve_block` with that seed rebuilds the layout the developer picked, and `nearest` says how many cells it differs from the closest other option. Fewer than `count` is an answer, not an error: `Options::too_close` and `Options::failed` say where the seeds went.
+
 Two supporting tools sit beside these:
 
 - `range` measures a solved grid of cells, reporting how enclosed and how open it is.
