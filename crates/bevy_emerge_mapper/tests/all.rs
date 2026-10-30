@@ -124,6 +124,7 @@ mod dialogue_preview;
 mod dialogue_runtime;
 mod people;
 mod people_ties;
+mod person_talks;
 mod family_dialogue;
 mod family_host;
 mod family_lights_settings;

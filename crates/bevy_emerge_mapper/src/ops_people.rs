@@ -34,6 +34,10 @@ pub struct Person {
     /// Ties this person starts with, to other people on the map (`bevy_society`'s `TieSpec`, by name).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ties: Vec<Tie>,
+    /// The name of the conversation they hold when talked to: one the project's `bevy_speech_bubbles`
+    /// `DialogueScript` defines (#106).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
 }
 
 /// A directed starting tie from one person to another.
@@ -94,6 +98,9 @@ pub struct Params {
     pub home: Option<String>,
     #[serde(default)]
     pub work: Option<String>,
+    /// A conversation name from the project's dialogue script; `""` clears it (#106).
+    #[serde(default)]
+    pub conversation: Option<String>,
     /// Take the person off the map.
     #[serde(default)]
     pub remove: bool,
@@ -147,6 +154,28 @@ fn check_faction(_ctx: &Ctx, _faction: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// **A conversation a person holds must be one the dialogue script defines** (#106). A project without the
+/// script, or a build without the crate, has nothing to check it against.
+#[cfg(feature = "bevy_speech_bubbles")]
+fn check_conversation(ctx: &Ctx, name: &str) -> Result<(), Refusal> {
+    let path = crate::ops_family::settings_path(ctx, "bevy_speech_bubbles")
+        .map_err(|_| Refusal::new("this project does not use bevy_speech_bubbles, so there is no dialogue script to hold a conversation. Nothing was changed."))?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| Refusal::new(format!("{} cannot be read, so no conversation can be attached: {e}. Nothing was changed.", path.display())))?;
+    let script: bevy_speech_bubbles::DialogueScript =
+        ron::from_str(&text).map_err(|e| Refusal::new(format!("the project's dialogue script is not readable: {e}. Nothing was changed.")))?;
+    if script.conversations.contains_key(name) {
+        return Ok(());
+    }
+    let known: Vec<&str> = script.conversations.keys().map(String::as_str).collect();
+    Err(Refusal::new(format!("the dialogue script has no conversation `{name}` (it has: {}). Nothing was changed.", known.join(", "))))
+}
+
+#[cfg(not(feature = "bevy_speech_bubbles"))]
+fn check_conversation(_ctx: &Ctx, _name: &str) -> Result<(), Refusal> {
+    Ok(())
+}
+
 fn building(ctx: &Ctx, what: &str, id: &str) -> Result<(), Refusal> {
     let Some(open) = ctx.open.as_ref() else {
         return Err(Refusal::new("no map is open, so there is no building to name."));
@@ -194,7 +223,7 @@ impl PersonSet {
                 let mut person = match at_row {
                     Some(i) => people.people[i].clone(),
                     None => match p.at {
-                        Some(at) => Person { name: name.to_owned(), at, faction: None, home: None, work: None, ties: Vec::new() },
+                        Some(at) => Person { name: name.to_owned(), at, faction: None, home: None, work: None, ties: Vec::new(), conversation: None },
                         None => return Err(Refusal::new(format!("`{name}` is new, so they need an `at` (x, z). Nothing was changed."))),
                     },
                 };
@@ -208,6 +237,14 @@ impl PersonSet {
                         check_faction(ctx, f)?;
                         person.faction = Some(f.clone());
                     }
+                }
+                match p.conversation.as_deref() {
+                    Some("") => person.conversation = None,
+                    Some(c) => {
+                        check_conversation(ctx, c)?;
+                        person.conversation = Some(c.to_owned());
+                    }
+                    None => {}
                 }
                 for (slot, what, value) in [(&mut person.home, "home", &p.home), (&mut person.work, "workplace", &p.work)] {
                     match value.as_deref() {
