@@ -5,7 +5,8 @@
 //! #139); this ends the clutter ones a turn can end. `bevy_emerge_core::repetition::vary` turns each
 //! clutter copy that looks like an earlier one in range, under the project's `repetition.ron`, and
 //! the turned rows are written as a [`RowDelta`], so one undo puts every one back. Structure is never
-//! turned, and neither is a round piece (#184), which looks the same at any yaw. A
+//! turned, and neither is a round piece (#184), which looks the same at any yaw; a long piece (a
+//! bench, a cart) takes only the half turn, the one that keeps it on its cells (#186). A
 //! preview is the same plan with nothing written.
 
 use bevy_emerge_core::map::Placed;
@@ -94,7 +95,7 @@ fn rows_of(open: &OpenMap, ids: &[String]) -> serde_json::Value {
 fn summary(p: &Plan) -> String {
     let left = match p.left {
         0 => String::new(),
-        n => format!("; {n} clutter piece(s) still have a look-alike in range (more copies close together than four turns can tell apart, or round pieces no turn changes)"),
+        n => format!("; {n} clutter piece(s) still have a look-alike in range (more copies close together than their turns can tell apart: four for a square piece, two for a long one, which only a half turn keeps on its cells; or round pieces no turn changes)"),
     };
     if p.turned.is_empty() {
         return format!("nothing to turn: no clutter copy can be turned out of a repeat{left}");

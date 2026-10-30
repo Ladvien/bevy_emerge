@@ -202,11 +202,11 @@ impl WaterRun {
                 return Err(Refusal::new(format!("map `{}` has no springs, sinks or lakes to run.", p.map)));
             }
             let ground_path = ctx.project.as_ref().expect("path_of needs a project").emerge_dir.join("terrain").join(format!("{}.ron", p.map));
-            let ground: bevy_emerge_core::heightfield::Heightfield = ron::from_str(
+            let ground = bevy_emerge_core::heightfield::Heightfield::parse(
                 &std::fs::read_to_string(&ground_path)
                     .map_err(|_| Refusal::new(format!("map `{}` has no terrain for the water to run on. Sculpt one with `terrain_stroke`.", p.map)))?,
             )
-            .map_err(|e| Refusal::new(format!("{} is not a heightfield: {e}", ground_path.display())))?;
+            .map_err(|e| Refusal::new(format!("{} does not read, so no water was run: {e}", ground_path.display())))?;
             let mut settings = RunSettings::default();
             if let Some(s) = p.pour_s {
                 if !s.is_finite() || s < 0.0 {

@@ -924,7 +924,8 @@ pub mod layout_propose {
                 what.to_owned(),
                 (at.0 * 1000.0).round() as i64,
                 (at.1 * 1000.0).round() as i64,
-                (yaw.to_degrees().rem_euclid(360.0).round() as i64) % 360,
+                // A row's yaw is already degrees (`Placed::yaw`, `Stamped::yaw`), #189.
+                (yaw.rem_euclid(360.0).round() as i64) % 360,
             )
         };
         let mut out: Vec<_> = p
