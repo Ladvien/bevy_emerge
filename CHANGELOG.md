@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **103-overlay** `1768ce8` The light map is drawn over the open map: a LIGHT MAP button shows bevy_light_grid's field, blue where dark and amber where lit, and it follows the map as torches are lit (#103) *No clip: visible, not yet recorded: owed with #103's night clip (a street at night, two torches, the light map changes); proved by tests/light_overlay.rs*
 - **103-pool** `e6da84e` light_pool operation: which placed fixtures are real lights from a viewer position, read from bevy_lights' own pool budget (#103) *No clip: an operation's numbers; proved by tests/light_pool.rs*
 - **relations-along** `e8b7fe0` A relation keeps a piece beside a path through other pieces: Along names how far off it stands, and relations solve brings it back *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_kept_beside_a_path.rs*
 - **dead-end-closest** `d29b77c` A kit's dead end names the piece nearest to closing it and the cells it gets wrong *No clip: visible, not yet recorded: no display on big*
