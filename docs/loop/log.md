@@ -1887,3 +1887,4 @@ Top 5 remaining:
 - 2026-10-30 loop (bevy_emerge_w3, big): no code. Re-read issues: every open issue is claimed by another worker, a decide/display item, or waits on Ladvien/bevy_elements#49 (still open; #101 wetness). #124 owes only drag-drop UI (display). 54 'not yet recorded' clips need a Mac. No worktrees, no release.
 - 2026-10-30 bevy_emerge_w5: #130 E-055 stale comments fixed (keys.rs ceiling/Cmd+2, tiles.rs, labels.rs); comment-only, cargo check green; #131 (E-043) untouched this pass.
 - 2026-10-30 loop (bevy_emerge_w3, big): no code. Issues re-read: all claimed by others, decide/display (#112-114, #124 UI, #95), or #101 waiting on bevy_elements#49 (still OPEN). No worktrees, no release.
+- 2026-10-30 loop (bevy_emerge_w3, big): released #132 and #133 (need Sanctuary's project files, absent on big; a Mac worker should take them). No code, no worktrees, no release.
