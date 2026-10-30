@@ -26,7 +26,7 @@ pub struct Params {
     /// Where the anchor goes, floor plan metres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<[f32; 2]>,
-    /// Turn about the anchor, radians.
+    /// Turn about the anchor, degrees, as every yaw on the map and in every other operation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub yaw: Option<f32>,
     /// Name the stamp. Minted as `<composition>@<n>` when absent.
@@ -56,7 +56,7 @@ impl Params {
             "properties": {
                 "of": {"type": "string", "description": "The composition to stamp, by id (see composition_define)."},
                 "at": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2, "description": "Where the anchor goes, [x, z] in metres."},
-                "yaw": {"type": "number", "description": "Turn about the anchor, radians. Default 0."},
+                "yaw": {"type": "number", "description": "Turn about the anchor, in degrees (90 is a quarter turn). Default 0."},
                 "id": {"type": "string", "description": "A name for the stamp, unique on the map. Minted as `<composition>@<n>` when absent."}
             }
         })
