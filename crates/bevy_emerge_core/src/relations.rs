@@ -140,10 +140,12 @@ pub enum Kind {
     Along { path: Vec<String>, within: f32 },
     /// Reachable from a placement: a walker who keeps `clearance` metres from every other
     /// placement's centre can walk from that one's centre to this one's, around whatever stands
-    /// between (a chest behind a ring of crates, a door a row of barrels walls off). What rests on
-    /// either end is part of that end. Measures the walk's length on a grid of `clearance / 2`
-    /// cells, 8-connected; when unmet, `by` names the piece whose removal opens a walk and
-    /// `measured` is that walk's length (0 when no single piece does).
+    /// between (a chest behind a ring of crates, a door a row of barrels walls off). Each end's
+    /// whole stack (what it rests on, and what rests on that) is part of that end. Measures the
+    /// walk's length on a grid of `clearance / 2` cells, 8-connected (coarser on a map too large
+    /// for that, where a near miss counts as in the way, so coarse never reads as open); when
+    /// unmet, `by` names the piece whose removal opens a walk and `measured` is that walk's length
+    /// (0 when none of the [`OPENER_TRIES`] pieces nearest the straight line does).
     ReachableFrom { from: String, clearance: f32 },
 }
 
@@ -412,20 +414,21 @@ fn clear_sight(placements: &[Placed], a: &Placed, b: &Placed, clearance: f32) ->
 }
 
 /// The most cells [`walk`] lays over a map; a larger map walks on coarser cells.
-const WALK_CELLS: f32 = 250_000.0;
+const WALK_CELLS: f32 = 160_000.0;
 
 /// The length of the shortest walk from `from`'s centre to `to`'s keeping `clearance` from every
-/// other placement's centre, or `None` when there is none. `skip` leaves that piece, and what
-/// rests on it, out of the way. The walk is on a grid over every placement, padded by twice the
-/// clearance so the way round the outside counts; 8-connected, never cutting a blocked corner.
+/// other placement's centre, or `None` when there is none. Each end's whole stack is that end;
+/// `skip` leaves that piece, and what rests on it, out of the way. The walk is on a grid over
+/// every placement, padded by twice the clearance so the way round the outside counts, and cut to
+/// a window round the ends; 8-connected, never cutting a blocked corner.
 fn walk(placements: &[Placed], from: &Placed, to: &Placed, clearance: f32, skip: Option<&str>) -> Option<f32> {
     if clearance <= 0.0 {
         return Some(distance(from.at, to.at));
     }
+    let ends = [&bottom(placements, from).id, &bottom(placements, to).id];
     let obstacles: Vec<(f32, f32)> = placements
         .iter()
-        .filter(|p| p.id != from.id && p.id != to.id)
-        .filter(|p| !rests_on(placements, p, &from.id) && !rests_on(placements, p, &to.id))
+        .filter(|p| !ends.contains(&&bottom(placements, p).id))
         .filter(|p| skip.is_none_or(|s| p.id != s && !rests_on(placements, p, s)))
         .map(|p| p.at)
         .collect();
@@ -435,9 +438,28 @@ fn walk(placements: &[Placed], from: &Placed, to: &Placed, clearance: f32, skip:
         lo = (lo.0.min(p.at.0), lo.1.min(p.at.1));
         hi = (hi.0.max(p.at.0), hi.1.max(p.at.1));
     }
-    let (lo, hi) = ((lo.0 - pad, lo.1 - pad), (hi.0 + pad, hi.1 + pad));
+    // The map padded, cut to a window round the two ends as wide again as the walk is long: a
+    // detour past the window reads as none, never the other way, and a far piece does not
+    // coarsen a near walk.
+    let reach_out = distance(from.at, to.at).max(2.0 * pad);
+    let lo = (
+        (lo.0 - pad).max(from.at.0.min(to.at.0) - reach_out),
+        (lo.1 - pad).max(from.at.1.min(to.at.1) - reach_out),
+    );
+    let hi = (
+        (hi.0 + pad).min(from.at.0.max(to.at.0) + reach_out),
+        (hi.1 + pad).min(from.at.1.max(to.at.1) + reach_out),
+    );
     let area = (hi.0 - lo.0) * (hi.1 - lo.1);
     let cell = (clearance / 2.0).max((area / WALK_CELLS).sqrt());
+    // On a coarse grid an obstacle can stand between cell centres and block none; widen it by
+    // half a cell's diagonal there, so a coarse walk errs toward blocked.
+    let coarse = cell > clearance / 2.0;
+    let radius = if coarse {
+        clearance + cell * std::f32::consts::FRAC_1_SQRT_2
+    } else {
+        clearance
+    };
     let (nx, nz) = (((hi.0 - lo.0) / cell).ceil() as usize + 1, ((hi.1 - lo.1) / cell).ceil() as usize + 1);
     let index = |p: (f32, f32)| {
         let i = (((p.0 - lo.0) / cell).round() as usize).min(nx - 1);
@@ -445,22 +467,25 @@ fn walk(placements: &[Placed], from: &Placed, to: &Placed, clearance: f32, skip:
         k * nx + i
     };
     let mut blocked = vec![false; nx * nz];
-    let reach = (clearance / cell).ceil() as isize;
+    let reach = (radius / cell).ceil() as isize;
     for o in &obstacles {
         let centre = index(*o);
         let (ci, ck) = ((centre % nx) as isize, (centre / nx) as isize);
         for k in (ck - reach).max(0)..=(ck + reach).min(nz as isize - 1) {
             for i in (ci - reach).max(0)..=(ci + reach).min(nx as isize - 1) {
                 let c = (lo.0 + i as f32 * cell, lo.1 + k as f32 * cell);
-                if distance(c, *o) < clearance {
+                if distance(c, *o) < radius {
                     blocked[k as usize * nx + i as usize] = true;
                 }
             }
         }
     }
     let (start, goal) = (index(from.at), index(to.at));
-    blocked[start] = false;
-    blocked[goal] = false;
+    // A fine cell holding an end's centre is the end's; a coarse one may hold a blocker too.
+    if !coarse {
+        blocked[start] = false;
+        blocked[goal] = false;
+    }
     // Dijkstra on whole steps: 1000 straight, 1414 diagonal.
     let mut best = vec![u32::MAX; nx * nz];
     let mut queue = std::collections::BinaryHeap::new();
@@ -494,7 +519,7 @@ fn walk(placements: &[Placed], from: &Placed, to: &Placed, clearance: f32, skip:
 }
 
 /// How many of the pieces nearest the straight line [`opener`] tries taking away.
-const OPENER_TRIES: usize = 32;
+pub const OPENER_TRIES: usize = 16;
 
 /// The bottom host whose removal (with its riders) opens a walk from `from` to `to`, nearest the
 /// straight line between them first, and that walk's length.
@@ -512,10 +537,11 @@ fn opener<'a>(placements: &'a [Placed], from: &Placed, to: &Placed, clearance: f
         }
         None => distance(p, from.at),
     };
+    let ends = [&bottom(placements, from).id, &bottom(placements, to).id];
     let mut hosts: Vec<&Placed> = Vec::new();
-    for p in placements.iter().filter(|p| p.id != from.id && p.id != to.id) {
+    for p in placements {
         let host = bottom(placements, p);
-        if host.id != from.id && host.id != to.id && !hosts.iter().any(|h| h.id == host.id) {
+        if !ends.contains(&&host.id) && !hosts.iter().any(|h| h.id == host.id) {
             hosts.push(host);
         }
     }

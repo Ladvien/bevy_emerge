@@ -114,6 +114,31 @@ fn what_rests_on_an_end_never_walls_it_off() {
 }
 
 #[test]
+fn an_end_resting_on_a_host_is_not_walled_in_by_it() {
+    // The chest stands on a table; the table is the chest's end, not a piece in the way.
+    let mut chest = at("chest", 0.0, 0.0);
+    chest.on = Some("table".into());
+    let map = vec![at("table", 0.0, 0.0), chest, at("gate", 8.0, 0.0)];
+    let o = check(&map, &chest_from_gate(0.6)).remove(0);
+    assert!(matches!(o, Outcome::Met { .. }), "{o:?}");
+}
+
+#[test]
+fn a_sealed_ring_stays_sealed_on_a_map_too_large_for_fine_cells() {
+    // The gate 2 km off makes the walk's window kilometres wide, so it runs on coarse cells; a
+    // coarse grid may read a ring as closed when it is open, never as open when it is sealed.
+    let mut map = ringed();
+    map[1] = at("gate", 2000.0, 0.0);
+    let o = check(&map, &chest_from_gate(0.6)).remove(0);
+    assert!(matches!(o, Outcome::Unmet { .. }), "{o:?}");
+    // And a far piece elsewhere does not coarsen a near walk: the thin walker still slips through.
+    let mut map = ringed();
+    map.push(at("far", 2000.0, 2000.0));
+    assert!(matches!(check(&map, &chest_from_gate(0.4)).remove(0), Outcome::Met { .. }));
+    assert!(matches!(check(&map, &chest_from_gate(0.6)).remove(0), Outcome::Unmet { .. }));
+}
+
+#[test]
 fn a_missing_end_is_missing() {
     let map = vec![at("chest", 0.0, 0.0)];
     assert_eq!(check(&map, &chest_from_gate(0.6)), vec![Outcome::Missing { id: "gate".into() }]);
