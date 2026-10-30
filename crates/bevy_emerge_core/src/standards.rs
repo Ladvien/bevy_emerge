@@ -140,7 +140,8 @@ impl Rule {
         Ok(())
     }
 
-    fn covers(&self, d: &Descriptor) -> bool {
+    /// Whether this rule covers `d`: it names no `kind`, or `d` carries the token it names.
+    pub fn covers(&self, d: &Descriptor) -> bool {
         self.kind.as_ref().is_none_or(|k| d.kind.contains(k))
     }
 }
