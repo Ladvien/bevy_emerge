@@ -4,10 +4,17 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+<<<<<<< HEAD
 - **terrain-water-draw** `db5f919` The sculpted ground and the kept water are drawn in the editor viewport, following terrain_stroke and water_run (#99, #100) *No clip: visible, not yet recorded: no clip yet, drawn from files the editor polls; proved by terrain_view_draws_water*
+=======
+- **101-volume-edit** `51d0e09` Volume edit list: add and carve sphere, box and capsule primitives, one undo each, saved beside the map *No clip: an operation and a data type, not yet drawn (isomesh meshing owed); proved by volume_edit_is_an_operation*
+- **104-society-host** `2b3486f` bevy_society is a hosted family crate: family_set refuses a society definition the crate cannot compile *No clip: an API; proved by family_society tests*
+>>>>>>> dbfd4b4371514d94334c066987d758613d75cccc
 
 ## 2026-10-29
 
+- **102-forest-scatter** `d7a0d7c` forest_scatter: a stroke plants bevy_flora's own scatter under the brush, on the terrain, one undo step (typed 'forest' line and apply) *No clip: an operation and a typed line, no viewport drawing yet; proved by tests/forest_stroke_is_an_operation.rs*
+- **102-flora-host** `033523f` bevy_flora is a hosted family crate: a project lists it in family.ron and its settings change through family_set *No clip: an API and cargo feature; proved by flora_family tests*
 - **play-stop-group** `2f2603d` Stop ends the game Play started even when it runs through a launcher such as cargo run *No clip: a process-lifecycle fix; proved by play_stop_ends_the_whole_game*
 - **f4-cover-settings** Snow, wetness, rock scatter and blown sand are settings in bevy_elements' own types, set through family_set, one undo each, and drive the preview (#100) *No clip: visible, not yet recorded: no display on big; proved by environment_applies::snow_rocks_and_sand_are_set_in_the_crates_own_types_and_an_old_file_still_loads*
 - **water-run** `316cd58` Springs and lakes run over the sculpted ground until the water settles, and the result is kept as the map's water in one undo *No clip: visible, not yet recorded: no display on big*
