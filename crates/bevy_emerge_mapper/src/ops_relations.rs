@@ -59,12 +59,14 @@ fn load(open: &OpenMap) -> Result<Relations, Refusal> {
 }
 
 /// **What a solve would do to the open map**: the delta that moves the changed rows, the ids the
-/// solver moved, and the unmet count before and after.
+/// solver moved, the unmet count before and after, and the relations it left unmet (their piece,
+/// and whether each is hard).
 struct Mend {
     delta: RowDelta,
     moved: Vec<String>,
     unmet_before: usize,
     unmet_after: usize,
+    unsatisfied: Vec<(String, bool)>,
 }
 
 fn mend(open: &OpenMap) -> Result<Mend, Refusal> {
@@ -80,6 +82,11 @@ fn mend(open: &OpenMap) -> Result<Mend, Refusal> {
         .filter(|(_, (new, old))| new != *old)
         .map(|(index, (row, _))| Indexed { index, row })
         .collect();
+    let unsatisfied = solved
+        .unsatisfied
+        .iter()
+        .map(|&i| (relations.relations[i].of.clone(), relations.relations[i].hard))
+        .collect();
     Ok(Mend {
         delta: RowDelta {
             remove_placements: add_placements.iter().map(|a| a.row.id.clone()).collect(),
@@ -89,6 +96,7 @@ fn mend(open: &OpenMap) -> Result<Mend, Refusal> {
         moved: solved.moved,
         unmet_before: solved.unmet_before,
         unmet_after: solved.unmet_after,
+        unsatisfied,
     })
 }
 
@@ -101,16 +109,34 @@ fn rows_of(open: &OpenMap, ids: &[String]) -> serde_json::Value {
     json!({"map": open.map.name, "ids": ids, "rows": rows})
 }
 
+/// The relations a solve left unmet, as `"; still unmet: door (hard), lamp"`, or nothing.
+fn still_unmet(m: &Mend) -> String {
+    if m.unsatisfied.is_empty() {
+        return String::new();
+    }
+    let names: Vec<String> = m
+        .unsatisfied
+        .iter()
+        .map(|(of, hard)| if *hard { format!("{of} (hard)") } else { of.clone() })
+        .collect();
+    format!("; still unmet: {}", names.join(", "))
+}
+
 fn summary(m: &Mend) -> String {
     if m.delta.add_placements.is_empty() {
-        return format!("nothing to mend: {} relation(s) unmet, and no move mends one", m.unmet_before);
+        return format!(
+            "nothing to mend: {} relation(s) unmet, and no move mends one{}",
+            m.unmet_before,
+            still_unmet(m)
+        );
     }
     format!(
-        "moved {} ({}): unmet relations {} -> {}",
+        "moved {} ({}): unmet relations {} -> {}{}",
         m.moved.len(),
         m.moved.join(", "),
         m.unmet_before,
-        m.unmet_after
+        m.unmet_after,
+        still_unmet(m)
     )
 }
 
@@ -164,6 +190,7 @@ impl Operation for RelationsSolve {
             "would_move": m.moved,
             "unmet_before": m.unmet_before,
             "unmet_after": m.unmet_after,
+            "unsatisfied": m.unsatisfied.iter().map(|(of, hard)| json!({"of": of, "hard": hard})).collect::<Vec<_>>(),
         }))
     }
 

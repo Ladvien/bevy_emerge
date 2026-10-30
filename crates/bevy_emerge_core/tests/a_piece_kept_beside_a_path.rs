@@ -30,6 +30,7 @@ fn lamp_along_road() -> Relations {
                 path: vec!["gate".into(), "well".into(), "hall".into()],
                 within: 1.0,
             },
+            hard: false,
         }],
     }
 }

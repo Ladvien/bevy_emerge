@@ -110,6 +110,15 @@ pub struct Relation {
     /// The placement id this relation is about.
     pub of: String,
     pub kind: Kind,
+    /// **Must hold** (#151): [`solve`] never breaks a hard relation to mend soft ones, and mends a
+    /// hard one even when that breaks soft ones. Soft by default, and a soft relation is written
+    /// without the field, so a file from before it reads and writes unchanged.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hard: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 /// What a relation asks of [`Relation::of`].
@@ -594,6 +603,9 @@ pub struct Solved {
     /// [`Outcome::Unmet`] relations before and after. Missing ones are neither and never moved for.
     pub unmet_before: usize,
     pub unmet_after: usize,
+    /// The relations still [`Outcome::Unmet`] after the solve, by index into
+    /// [`Relations::relations`], in order: what the solver could not satisfy.
+    pub unsatisfied: Vec<usize>,
 }
 
 /// How many passes over the relations [`solve`] makes before it gives up on the rest.
@@ -608,22 +620,27 @@ const SOLVE_ROUNDS: usize = 8;
 /// the nearest blocker sideways off the sight line (both ends stay), [`Kind::Along`] slides the
 /// piece toward the nearest point of its path, on its own side, and [`Kind::ReachableFrom`] slides
 /// the piece whose removal opens a walk just far enough that one opens (both ends stay). A move
-/// is kept only when it lowers the map's unmet count, so a relation is never mended by breaking
-/// another, and contradictory ones end with as many met as one move each allows.
+/// is kept only when it lowers the map's (hard unmet, soft unmet) pair, compared hard first
+/// ([`Relation::hard`]): so a hard relation is never broken to mend soft ones, a hard one is
+/// mended even at the cost of soft ones, no relation is mended by breaking another of its own
+/// weight, and contradictory ones end with as many met as one move each allows.
 ///
 /// The moved piece is the relation's subject, or for a corridor the intruder; a piece resting on
 /// another ([`Placed::on`]) is not pulled off it — an intruder on a host moves its host — and
 /// whatever rests on a moved piece goes with it, turned about it.
 pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
+    // (hard unmet, soft unmet): tuples compare hard first.
     let unmet = |ps: &[Placed]| {
         check(ps, relations)
             .iter()
-            .filter(|o| matches!(o, Outcome::Unmet { .. }))
-            .count()
+            .zip(&relations.relations)
+            .filter(|(o, _)| matches!(o, Outcome::Unmet { .. }))
+            .fold((0, 0), |(hard, soft), (_, r)| if r.hard { (hard + 1, soft) } else { (hard, soft + 1) })
     };
+    let total = |(hard, soft): (usize, usize)| hard + soft;
     let mut current = placements.to_vec();
-    let unmet_before = unmet(&current);
-    let mut count = unmet_before;
+    let unmet_before = total(unmet(&current));
+    let mut count = unmet(&current);
     let mut moved: Vec<String> = Vec::new();
     for _ in 0..SOLVE_ROUNDS {
         let mut progressed = false;
@@ -652,15 +669,22 @@ pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
                 }
             }
         }
-        if !progressed || count == 0 {
+        if !progressed || count == (0, 0) {
             break;
         }
     }
+    let unsatisfied = check(&current, relations)
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| matches!(o, Outcome::Unmet { .. }))
+        .map(|(i, _)| i)
+        .collect();
     Solved {
         placements: current,
         moved,
         unmet_before,
-        unmet_after: count,
+        unmet_after: total(count),
+        unsatisfied,
     }
 }
 
