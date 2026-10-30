@@ -562,7 +562,8 @@ fn editor_state(
         "references": open.as_ref().map(|o| crate::ops_references::state_json(o, project.as_ref().map(|p| p.root.as_path()))),
         // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
         "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
-        // **The repeats a player will notice first** (#136): same piece, yaw and tip, close together,
+        // **The repeats a player will notice first** (#136): same piece, yaw (any yaw for a round
+        // kind, #184) and tip, close together,
         // weighed by role so repeated clutter heads the list above repeated structure. The rules are
         // the project's `repetition.ron` (#139), read on every call so an edit is seen with no restart.
         "repetition": match (open.as_ref(), project.as_ref()) {
