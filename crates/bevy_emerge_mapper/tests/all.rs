@@ -100,6 +100,7 @@ mod an_agents_edit_owes_checks_a_persons_does_not;
 mod an_agents_steps_are_on_screen;
 mod an_agents_turn_is_one_undo_step;
 mod an_agents_undo_can_be_redone_by_the_person;
+mod an_imported_piece_names_the_standards_it_breaks;
 mod an_undo_across_a_rename_names_the_rename;
 mod an_unsaved_edit_survives_the_watcher;
 mod b027_the_pin_reason_names_its_piece;

@@ -671,37 +671,74 @@ fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::
 /// breach, and every rule that covers no piece. No file is no rules and no error; a file that cannot
 /// be read or parsed is named in `error`, never read as an empty list.
 fn standards_json(library: &bevy_emerge_core::library::Library, project_dir: &std::path::Path) -> Value {
-    use bevy_emerge_core::standards::{check, idle, Dim, Standards, Why, FILE};
+    use bevy_emerge_core::standards::{check, idle};
+    let standards = match load_standards(project_dir) {
+        Ok(s) => s,
+        Err(e) => return json!({"breaches": [], "idle": [], "error": e}),
+    };
+    let rows: Vec<Value> = check(library, &standards).iter().map(breach_json).collect();
+    json!({"breaches": rows, "idle": idle(library, &standards), "error": null})
+}
+
+/// **One piece's breaches of the project's standards** (#138 slice 3), as `piece_import` reports
+/// them on admission: `{breaches, error}`, the same rows `emerge_state` gives, for that piece alone.
+/// The second value names each broken rule once, in file order, for a summary; empty when it breaks
+/// none or the file could not be read.
+pub(crate) fn piece_standards_json(
+    piece: &bevy_emerge_core::descriptor::Descriptor,
+    project_dir: &std::path::Path,
+) -> (Value, Vec<String>) {
+    use bevy_emerge_core::library::Library;
+    use bevy_emerge_core::standards::check;
+    let standards = match load_standards(project_dir) {
+        Ok(s) => s,
+        Err(e) => return (json!({"breaches": [], "error": e}), Vec::new()),
+    };
+    let one = Library {
+        version: bevy_emerge_core::library::LIBRARY_VERSION,
+        note: None,
+        descriptors: vec![piece.clone()],
+    };
+    let breaches = check(&one, &standards);
+    let mut rules: Vec<String> = Vec::new();
+    for b in &breaches {
+        if !rules.contains(&b.rule) {
+            rules.push(b.rule.clone());
+        }
+    }
+    let rows: Vec<Value> = breaches.iter().map(breach_json).collect();
+    (json!({"breaches": rows, "error": null}), rules)
+}
+
+/// `<project_dir>/standards.ron`, or no rules when there is no such file; any other failure to read
+/// or parse it is the error, naming the file.
+fn load_standards(project_dir: &std::path::Path) -> Result<bevy_emerge_core::standards::Standards, String> {
+    use bevy_emerge_core::standards::{Standards, FILE};
     let path = project_dir.join(FILE);
-    let loaded = match std::fs::read_to_string(&path) {
+    match std::fs::read_to_string(&path) {
         Ok(text) => Standards::parse(&text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Standards::default()),
         Err(e) => Err(e.to_string()),
+    }
+    .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn breach_json(b: &bevy_emerge_core::standards::Breach) -> Value {
+    use bevy_emerge_core::standards::{Dim, Why};
+    let (why, bound) = match b.why {
+        Why::Unmeasured => ("unmeasured", None),
+        Why::BelowMin(v) => ("below_min", Some(v)),
+        Why::AboveMax(v) => ("above_max", Some(v)),
+        Why::NotMultipleOf(v) => ("not_multiple_of", Some(v)),
     };
-    let standards = match loaded {
-        Ok(s) => s,
-        Err(e) => return json!({"breaches": [], "idle": [], "error": format!("{}: {e}", path.display())}),
-    };
-    let rows: Vec<Value> = check(library, &standards)
-        .into_iter()
-        .map(|b| {
-            let (why, bound) = match b.why {
-                Why::Unmeasured => ("unmeasured", None),
-                Why::BelowMin(v) => ("below_min", Some(v)),
-                Why::AboveMax(v) => ("above_max", Some(v)),
-                Why::NotMultipleOf(v) => ("not_multiple_of", Some(v)),
-            };
-            json!({
-                "piece": b.piece,
-                "rule": b.rule,
-                "dim": match b.dim { Dim::Width => "width", Dim::Depth => "depth", Dim::Height => "height" },
-                "found": b.found,
-                "why": why,
-                "bound": bound,
-            })
-        })
-        .collect();
-    json!({"breaches": rows, "idle": idle(library, &standards), "error": null})
+    json!({
+        "piece": b.piece,
+        "rule": b.rule,
+        "dim": match b.dim { Dim::Width => "width", Dim::Depth => "depth", Dim::Height => "height" },
+        "found": b.found,
+        "why": why,
+        "bound": bound,
+    })
 }
 
 /// **The parameters of `emerge/pieces`.** Every filter is optional, and they combine: a piece is
