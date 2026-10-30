@@ -5,9 +5,9 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **relations-along** `e8b7fe0` A relation keeps a piece beside a path through other pieces: Along names how far off it stands, and relations solve brings it back<br><a href="docs/changelog/media/2026-10-30-relations-along.mp4"><img src="docs/changelog/media/2026-10-30-relations-along.png" width="320" alt="clip"></a>
-- **dead-end-closest** `d29b77c` A kit's dead end names the piece nearest to closing it and the cells it gets wrong *No clip: visible, not yet recorded: no display on big*
+- **dead-end-closest** `d29b77c` A kit's dead end names the piece nearest to closing it and the cells it gets wrong<br><a href="docs/changelog/media/2026-10-30-dead-end-closest.mp4"><img src="docs/changelog/media/2026-10-30-dead-end-closest.png" width="320" alt="clip"></a>
 - **relations-visible-from** `96d335e` A relation keeps a sight line clear: VisibleFrom names the piece in the way, and relations solve moves it off<br><a href="docs/changelog/media/2026-10-30-relations-visible-from.mp4"><img src="docs/changelog/media/2026-10-30-relations-visible-from.png" width="320" alt="clip"></a>
-- **E-142-2** `6665972` The Meshes pane and emerge_state name every kit face no piece can meet (dead ends) *No clip: visible, not yet recorded: no display on big*
+- **E-142-2** `6665972` The Meshes pane and emerge_state name every kit face no piece can meet (dead ends)<br><a href="docs/changelog/media/2026-10-30-dead-end-closest.mp4"><img src="docs/changelog/media/2026-10-30-dead-end-closest.png" width="320" alt="clip"></a>
 - **143-repetition-vary** `2fad900` repetition_vary and the Terrain line `repeats vary` turn the clutter copies that repeat visibly, never structure, with one undo *No clip: visible, not yet recorded: no display on big*
 - **E-142-1** `dd539fc` A kit names every edge face no piece of it can meet (adjacency::dead_ends) *No clip: an API with no editor surface yet; proved by tests/a_kit_names_every_face_nothing_can_meet.rs*
 - **B-140** `92b2dc0` A piece despawned in the frame its materials arrive no longer panics the editor (#140) *No clip: a crash fix; proved by crates/bevy_emerge/tests/paint_on_a_despawned_piece.rs*
