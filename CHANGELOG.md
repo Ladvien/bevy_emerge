@@ -4,6 +4,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **99-terrain-stroke** terrain_stroke: a sculpt stroke on a map's saved heightfield is one registered operation and one undo, from the Terrain field or an agent's apply (#99 slice 2) *No clip: visible, not yet recorded: the Terrain field has no viewport drawing yet and big has no display; proved by tests/terrain_stroke_is_an_operation.rs*
+- **99a** Heightfield for sculpted ground: raise, lower, smooth, flatten and noise strokes, ground query, 16-bit height-map import (#99 slice 1, engine-free) *No clip: an API in bevy_emerge_core, no editor surface yet; proved by bevy_emerge_core/tests/heightfield.rs*
 - **97-play-stop** `1875d5f` Play and Stop: the project's game starts on the open map at the editor camera (play.ron), and stops by pid (#97 slice 1) *No clip: visible, not yet recorded: the Play button was proved headless, not on screen; proved by play_starts_and_stops_the_game*
 - **98-panel-season-climate** `0ffc53a` Environment panel: season and climate preset buttons, each one undo step (#98, slice 5) *No clip: visible, not yet recorded: no clip pass on this machine yet; proved by tests/environment_applies.rs the_panels_season_and_climate_buttons_are_one_undo_step_each*
 - **98-launch** `e7866f0` Family settings already in the project at launch apply at once, so the environment preview is dressed without an edit *No clip: a launch-time bug fix; proved by tests/family_settings_at_launch.rs*

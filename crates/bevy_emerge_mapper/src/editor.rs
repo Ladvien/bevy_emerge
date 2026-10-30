@@ -1331,6 +1331,15 @@ struct DataField;
 #[derive(Component, Clone, Copy)]
 struct DataReadout;
 
+/// **The terrain field** (#99): one line, `<brush> <x> <z> <radius_m> <strength>`, whose Enter
+/// dispatches `terrain_stroke` through [`sculpt_terrain`].
+#[derive(Component, Clone, Copy)]
+struct TerrainField;
+
+/// The text of the terrain field, refreshed as it is typed into.
+#[derive(Component, Clone, Copy)]
+struct TerrainReadout;
+
 /// **The Data panel's list** (#86): one row per leaf of every registered file. Rebuilt by
 /// [`refresh_data_list`] when the leaves change on disk or by an edit.
 #[derive(Component, Clone, Copy)]
@@ -1377,6 +1386,8 @@ type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool
 struct NoteReview {
     lines: Vec<String>,
     ops: Vec<String>,
+    /// The before and after capture paths, drawn as pictures when the files decode.
+    pictures: Vec<String>,
 }
 
 /// An operation a done note ran: clicking it frames the pieces that operation changed (#93).
@@ -1392,6 +1403,12 @@ pub struct NotesFilter(Option<&'static str>);
 /// The data field's buffer while it is being typed into; its own resource for [`FamilyEdit`]'s reason.
 #[derive(Resource, Default)]
 pub struct DataEdit {
+    active: Option<String>,
+}
+
+/// The terrain field's buffer while it is being typed into; its own resource for [`FamilyEdit`]'s reason.
+#[derive(Resource, Default)]
+pub struct TerrainEdit {
     active: Option<String>,
 }
 
@@ -2031,6 +2048,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<SizeEdit>()
             .init_resource::<FamilyEdit>()
             .init_resource::<DataEdit>()
+            .init_resource::<TerrainEdit>()
             .init_resource::<Folded>()
             .init_resource::<EdgeFaults>()
             // Shared by both tabs' lists, so it is registered once here rather than by whichever
@@ -2182,7 +2200,7 @@ impl Plugin for EditorPlugin {
                         // goes down, rather than one where it is invisible and still eating keys.
                         leaving_a_tab_puts_the_name_prompt_down.in_set(keys::Phase::Sense),
                     ),
-                    (size_edit_keys, family_edit_keys, data_edit_keys).in_set(keys::Phase::Text),
+                    (size_edit_keys, family_edit_keys, data_edit_keys, terrain_edit_keys).in_set(keys::Phase::Text),
                     // No `not_typing`, no `in_map_mode`: `keys::just_pressed` now refuses on both
                     // counts, and a run condition repeating it would be a second census. Dropping
                     // `in_map_mode` also makes `Cmd+S` and `Cmd+Z` work from every tab, which is what
@@ -2292,7 +2310,7 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family, refresh_data, refresh_data_list, refresh_notes_list),
+                    (refresh_size, refresh_family, refresh_data, refresh_terrain, refresh_data_list, refresh_notes_list),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -2333,6 +2351,7 @@ impl Plugin for EditorPlugin {
             .add_observer(on_size_field_click)
             .add_observer(on_family_field_click)
             .add_observer(on_data_field_click)
+            .add_observer(on_terrain_field_click)
             .add_observer(on_data_leaf_click)
             .add_observer(on_notes_click);
     }
@@ -3128,6 +3147,25 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 ..default()
             })
             .with_children(crate::environment::spawn_section);
+
+            // **Terrain (#99).** One line: `<brush> <x> <z> <radius_m> <strength>`, e.g.
+            // `raise 12 8 6 2`. Enter sculpts the open map's ground through `terrain_stroke`.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "TERRAIN");
+                crate::chrome::text_field(
+                    s,
+                    Val::Percent(100.0),
+                    TerrainField,
+                    crate::chrome::text::BODY,
+                    ("brush x z radius strength".to_owned(), TEXT),
+                    TerrainReadout,
+                );
+            });
 
             // **Data files (#86).** One line: `<file> <path> <value>`, e.g. `tuning/mob speed 2.5`.
             // Enter writes it through `data_set`.
@@ -4205,6 +4243,147 @@ fn refresh_family(
     }
 }
 
+fn on_terrain_field_click(
+    activate: On<Activate>,
+    fields: Query<&TerrainField>,
+    edit: Option<ResMut<TerrainEdit>>,
+    state: Option<ResMut<EditorState>>,
+) {
+    // `Option`, because this is a GLOBAL observer: see [`on_size_field_click`].
+    let (Some(mut edit), Some(mut state)) = (edit, state) else {
+        return;
+    };
+    if fields.get(activate.entity).is_err() {
+        return;
+    }
+    edit.active = Some(String::new());
+    state.status.note(
+        "terrain stroke: `<raise|lower|smooth|flatten:H|noise:SEED:SCALE> <x> <z> <radius_m> <strength>`, Enter to sculpt, Esc to leave it".to_owned(),
+    );
+}
+
+fn terrain_edit_keys(
+    mut events: MessageReader<KeyboardInput>,
+    mut edit: ResMut<TerrainEdit>,
+    project: Option<ResMut<Project>>,
+    open: Option<Res<OpenMap>>,
+    mut state: ResMut<EditorState>,
+) {
+    if edit.active.is_none() {
+        return;
+    }
+    for event in events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        match &event.logical_key {
+            Key::Enter => {
+                let raw = edit.active.take().unwrap_or_default();
+                sculpt_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
+                return;
+            }
+            Key::Escape => {
+                edit.active = None;
+                state.status.note("terrain unchanged".to_owned());
+                return;
+            }
+            Key::Backspace => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.pop();
+                }
+            }
+            Key::Space => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.push(' ');
+                }
+            }
+            Key::Character(c) => {
+                if let Some(raw) = edit.active.as_mut() {
+                    raw.push_str(c);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// **Commit the typed line through the registry** as `terrain_stroke`: a brush, one point, a radius and
+/// a strength. A map with no terrain gets a flat 64 m field centred on the origin first.
+fn sculpt_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Option<Vec<f32>> = words.get(1..).filter(|w| w.len() == 4).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
+    let (Some(open), Some(nums), Some(brush)) = (open, nums, words.first().and_then(|b| terrain_brush(b))) else {
+        state.status.problem(format!(
+            "`{}` is not `<brush> <x> <z> <radius_m> <strength>` with a brush of raise, lower, smooth, flatten:H or noise:SEED:SCALE, so nothing was changed",
+            raw.trim()
+        ));
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = serde_json::json!({
+        "map": open.map.name,
+        "stroke": {"brush": brush, "radius_m": nums[2], "strength": nums[3], "points": [[nums[0], nums[1]]]},
+        "create": {"origin": [-32.0, -32.0], "cell_m": 1.0, "width": 65, "depth": 65, "height_m": 0.0},
+    });
+    match crate::ops::dispatch(&mut ctx, "terrain_stroke", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// A brush word as the stroke's JSON spells it.
+fn terrain_brush(word: &str) -> Option<serde_json::Value> {
+    let mut parts = word.split(':');
+    Some(match (parts.next()?, parts.next(), parts.next()) {
+        ("raise", None, _) => serde_json::json!("Raise"),
+        ("lower", None, _) => serde_json::json!("Lower"),
+        ("smooth", None, _) => serde_json::json!("Smooth"),
+        ("flatten", Some(h), None) => serde_json::json!({"Flatten": h.parse::<f32>().ok()?}),
+        ("noise", Some(seed), Some(scale)) => {
+            serde_json::json!({"Noise": {"seed": seed.parse::<u32>().ok()?, "scale_m": scale.parse::<f32>().ok()?}})
+        }
+        _ => return None,
+    })
+}
+
+fn refresh_terrain(
+    edit: Res<TerrainEdit>,
+    mut readouts: Query<(&mut Text, &mut TextColor), With<TerrainReadout>>,
+    mut fields: Query<(&Hovered, &mut BackgroundColor), With<TerrainField>>,
+) {
+    for (mut text, mut colour) in &mut readouts {
+        let (want, want_colour) =
+            crate::chrome::field_text(edit.active.as_deref(), ("brush x z radius strength".to_owned(), TEXT));
+        if text.0 != want {
+            text.0 = want;
+        }
+        if colour.0 != want_colour {
+            colour.0 = want_colour;
+        }
+    }
+    for (hovered, mut bg) in &mut fields {
+        let want = if edit.active.is_some() {
+            FOCUS_BG
+        } else if hovered.0 {
+            ROW_HOVER
+        } else {
+            ROW_BG
+        };
+        if bg.0 != want {
+            bg.0 = want;
+        }
+    }
+}
+
 fn on_data_field_click(
     activate: On<Activate>,
     fields: Query<&DataField>,
@@ -4399,9 +4578,10 @@ fn refresh_notes_list(
     open: Option<Res<OpenMap>>,
     filter: Res<NotesFilter>,
     lists: Query<Entity, With<NotesList>>,
-    mut shown: Local<Option<NotesShown>>,
-    mut since: Local<f32>,
+    mut local: Local<(Option<NotesShown>, f32)>,
+    mut images: ResMut<Assets<Image>>,
 ) {
+    let (shown, since) = &mut *local;
     *since += time.delta_secs();
     if shown.is_some() && *since < 0.5 && !filter.is_changed() {
         return;
@@ -4428,7 +4608,8 @@ fn refresh_notes_list(
                         lines.push(format!("before: {before}"));
                         lines.push(format!("after: {after}"));
                     }
-                    NoteReview { lines, ops: ops.clone() }
+                    let pictures = if captures.len() == 2 { captures.clone() } else { Vec::new() };
+                    NoteReview { lines, ops: ops.clone(), pictures }
                 }
                 _ => NoteReview::default(),
             };
@@ -4469,6 +4650,31 @@ fn refresh_notes_list(
                 });
                 for line in &review.lines {
                     p.spawn((Text::new(line.clone()), TextColor(DIM), crate::chrome::font(crate::chrome::text::LABEL)));
+                }
+                let loaded: Vec<Handle<Image>> = review
+                    .pictures
+                    .iter()
+                    .filter_map(|path| {
+                        let bytes = std::fs::read(path).ok()?;
+                        let image = Image::from_buffer(
+                            &bytes,
+                            bevy::image::ImageType::Extension("png"),
+                            bevy::image::CompressedImageFormats::NONE,
+                            true,
+                            bevy::image::ImageSampler::default(),
+                            bevy::asset::RenderAssetUsages::default(),
+                        )
+                        .ok()?;
+                        Some(images.add(image))
+                    })
+                    .collect();
+                if !loaded.is_empty() {
+                    p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), ..default() }).with_children(|h| {
+                        for handle in loaded {
+                            // CHROME-OK: a fixed 4:3 review thumbnail, not spacing
+                            h.spawn((Node { width: Val::Px(160.0), height: Val::Px(120.0), ..default() }, ImageNode::new(handle)));
+                        }
+                    });
                 }
                 if !review.ops.is_empty() {
                     p.spawn(Node { column_gap: Val::Px(crate::chrome::GAP_TIGHT), flex_wrap: FlexWrap::Wrap, ..default() }).with_children(|h| {
@@ -5702,6 +5908,8 @@ pub struct Fields<'w> {
     pub family: Res<'w, FamilyEdit>,
     /// **The data field (#86).**
     pub data: Res<'w, DataEdit>,
+    /// **The terrain field (#99).**
+    pub terrain: Res<'w, TerrainEdit>,
     pub import: Res<'w, crate::tiles::ImportState>,
     pub cell: Res<'w, crate::tiles::CellEdit>,
     pub note: Res<'w, crate::tiles::NoteEdit>,
@@ -5755,6 +5963,7 @@ impl Fields<'_> {
             || self.size.active.is_some()
             || self.family.active.is_some()
             || self.data.active.is_some()
+            || self.terrain.active.is_some()
             || self.import.renaming.is_some()
             || self.cell.typing()
             || self.note.typing()
