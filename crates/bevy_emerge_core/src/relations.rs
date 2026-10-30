@@ -84,6 +84,23 @@ impl Relations {
                 | Kind::Between { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } | Kind::Inside { width, depth, .. } => [*depth, *width],
+                Kind::Balances { with, within, .. } => {
+                    // An empty group is `Near`; a piece in its own group is counted twice, and the
+                    // solve's landing point would be wrong.
+                    if with.is_empty() {
+                        return Err(format!(
+                            "relations: relation {i} (of {:?}) balances with no other placement; `with` names one or more",
+                            rel.of
+                        ));
+                    }
+                    if with.contains(&rel.of) {
+                        return Err(format!(
+                            "relations: relation {i} (of {:?}) names {:?} in its own `with`; the placement is in its group already",
+                            rel.of, rel.of
+                        ));
+                    }
+                    [*within, 0.0]
+                }
                 Kind::VisibleFrom { clearance, .. } | Kind::ReachableFrom { clearance, .. } => [*clearance, 0.0],
                 Kind::Along { path, within } => {
                     if path.len() < 2 {
@@ -210,6 +227,14 @@ pub enum Kind {
     /// across its left and right, `depth` along its forward), so turning the other turns the area.
     /// Headings are free. Measures the distance from the centre to the rectangle, 0 inside.
     Inside { of: String, width: f32, depth: f32 },
+    /// Balanced with a group about a placement (stalls about the well, pews about the aisle, tables
+    /// about the hall's centre; Merrell et al.'s visual balance, "the mean of the distribution of
+    /// visual weight at the center of the composition", on the ground plane): the mean of this
+    /// placement's centre and every `with` placement's centre stands within `within` metres of
+    /// `about`'s centre. Every placement weighs the same. `with` names one or more placements, not
+    /// this one; `about` may be one of them. Headings are free. Measures the distance from the
+    /// mean to `about`'s centre.
+    Balances { with: Vec<String>, about: String, within: f32 },
 }
 
 /// What [`check`] found for one relation.
@@ -438,6 +463,23 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
             }
             (Err(m), _) | (_, Err(m)) => m,
         },
+        Kind::Balances { with, about, within } => {
+            let mut sum = a.at;
+            for id in with {
+                match other(id) {
+                    Ok(p) => sum = (sum.0 + p.at.0, sum.1 + p.at.1),
+                    Err(m) => return m,
+                }
+            }
+            match other(about) {
+                Ok(c) => {
+                    let n = (with.len() + 1) as f32;
+                    let d = distance((sum.0 / n, sum.1 / n), c.at);
+                    verdict(d <= *within, d)
+                }
+                Err(m) => m,
+            }
+        }
     }
 }
 
@@ -776,8 +818,10 @@ const SOLVE_ROUNDS: usize = 8;
 /// other's mirror point (the axis and the other stay), [`Kind::BacksOnto`] turns it straight out
 /// from the other's face and sets it just inside `within` off it, on its own side and where it
 /// stood along it, [`Kind::Inside`] sets it just inside the other's area across whichever edges
-/// it stood past, on its own side and keeping its heading, and [`Kind::ReachableFrom`] slides
-/// the piece whose removal opens a walk just far enough that one opens (both ends stay). A move
+/// it stood past, on its own side and keeping its heading, [`Kind::Balances`] sets it where the
+/// group's mean lands on the centre (the group and the centre stay), keeping its heading, and
+/// [`Kind::ReachableFrom`] slides the piece whose removal opens a walk just far enough that one
+/// opens (both ends stay). A move
 /// is kept only when it lowers the map's (hard unmet, soft unmet) pair, compared hard first
 /// ([`Relation::hard`]): so a hard relation is never broken to mend soft ones, a hard one is
 /// mended even at the cost of soft ones, no relation is mended by breaking another of its own
@@ -1006,6 +1050,17 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             // Back from `b`'s frame: forward (fx, fz), left (fz, -fx), as `local` measures.
             let (fx, fz) = forward(b);
             let to = (b.at.0 + fx * ahead + fz * left, b.at.1 + fz * ahead - fx * left);
+            free(a).then(|| (a.id.clone(), to, a.yaw))
+        }
+        Kind::Balances { with, about, .. } => {
+            // The mean of n centres is c when this one stands at n·c minus the others' sum.
+            let c = other(about)?.at;
+            let n = (with.len() + 1) as f32;
+            let mut to = (n * c.0, n * c.1);
+            for id in with {
+                let p = other(id)?.at;
+                to = (to.0 - p.0, to.1 - p.1);
+            }
             free(a).then(|| (a.id.clone(), to, a.yaw))
         }
         Kind::ReachableFrom { from, clearance } => {
