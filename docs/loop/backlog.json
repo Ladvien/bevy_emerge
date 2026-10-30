@@ -414,7 +414,7 @@
       "first_seen": "2026-10-30",
       "last_failure": "",
       "title": "Role-weighted repetition: a map cannot say which repeated pieces a player will notice (#136)",
-      "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Owes: the report in emerge_state and the Inspector."
+      "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Slice 2 shipped 0b4323b: emerge_state.repetition (up to 10 rows + total), tests/emerge_state_names_visible_repeats.rs. Owes: a line in the Inspector (display-checked slice)."
     },
     {
       "id": "E-088",

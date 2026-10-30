@@ -562,6 +562,12 @@ fn editor_state(
         "references": open.as_ref().map(|o| crate::ops_references::state_json(o, project.as_ref().map(|p| p.root.as_path()))),
         // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
         "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
+        // **The repeats a player will notice first** (#136): same piece, yaw and tip, close together,
+        // weighed by role so repeated clutter heads the list above repeated structure.
+        "repetition": match (open.as_ref(), project.as_ref()) {
+            (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library),
+            _ => Value::Null,
+        },
         "project": project_summary,
         "editor": editor,
         "presentation": presentation,
@@ -579,6 +585,33 @@ fn editor_state(
             crate::screen::Screen::Editor => "editor",
         }),
     }))
+}
+
+/// The most repeats `emerge_state` names; `total` always counts them all.
+const REPEATS_CAP: usize = 10;
+
+/// **The visible repeats of a map, as `emerge_state` reports them**, under the default rules.
+fn repetition_json(
+    placements: &[bevy_emerge_core::map::Placed],
+    library: &bevy_emerge_core::library::Library,
+) -> Value {
+    use bevy_emerge_core::repetition::{repeats, RepetitionRules, Role};
+    let all = repeats(placements, library, &RepetitionRules::default());
+    let rows: Vec<Value> = all
+        .iter()
+        .take(REPEATS_CAP)
+        .map(|r| {
+            json!({
+                "descriptor": r.descriptor,
+                "patched": r.patch.is_some(),
+                "role": match r.role { Role::Structure => "structure", Role::Clutter => "clutter" },
+                "pieces": r.pieces,
+                "pairs": r.pairs,
+                "score": r.score,
+            })
+        })
+        .collect();
+    json!({"repeats": rows, "total": all.len()})
 }
 
 /// **The parameters of `emerge/pieces`.** Every filter is optional, and they combine: a piece is

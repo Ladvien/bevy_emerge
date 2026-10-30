@@ -615,6 +615,9 @@ impl Emerge {
                        editor. The notes section lists the sent and claimed notes (id, \
                        holder, lease_until); pass note=<id> for that note's bundle: text, area and \
                        margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
+                       repetition names up to 10 visible repeats (the same piece at one yaw and tip \
+                       within 6 m), the one a player notices first first: descriptor, patched, role \
+                       (clutter or structure), pieces, pairs, score; total counts them all. \
                        Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
