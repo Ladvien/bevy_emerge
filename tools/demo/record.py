@@ -30,6 +30,9 @@ Storyboard format (JSON):
       {"at": 4.0, "type": "44"},
       {"at": 5.0, "mcp": "emerge_frame_view", "args": {...}, "caption": "agent: frames the walls"},
       {"at": 6.0, "caption": "person: ..."}
+      {"at": 7.0, "write": {"path": "assets/emerge/standards.ron", "text": "..."}}
+                                                a person saving a project file (path under --project),
+                                                for a live reload; the editor reads it, nothing is injected
     ]
   }
 Step times are seconds from the start of the chunk that covers them (see chunk_of), and each step runs
@@ -317,6 +320,13 @@ def do_step(step, timeline, inj, agent):
         t = timeline.now()
         answer = agent.json_call(step["mcp"], step.get("args", {}))
         timeline.add(t=t, type="agent", tool=step["mcp"], result=json.dumps(answer)[:200])
+    elif kind == "write":
+        # A person saving a file the editor watches. Stamped before the write, like an agent call:
+        # the frames after it are the ones that show the editor reading it.
+        t = timeline.now()
+        with open(step["_path"], "w") as fh:
+            fh.write(step["write"]["text"])
+        timeline.add(t=t, type="file", path=step["write"]["path"])
     elif kind == "caption":
         timeline.add(t=timeline.now(), type="caption", text=step["caption"])
     else:
@@ -326,7 +336,7 @@ def do_step(step, timeline, inj, agent):
 
 
 def kind_of(step):
-    for k in ("cursor", "clear_cursor", "click", "drag", "key", "hold", "type", "wheel", "mcp", "caption"):
+    for k in ("cursor", "clear_cursor", "click", "drag", "key", "hold", "type", "wheel", "mcp", "write", "caption"):
         if k in step:
             return k
     raise ValueError(f"step has no action: {step}")
@@ -350,6 +360,11 @@ def main():
         s["_kind"] = kind_of(s)
         if s["at"] > total:
             sys.exit(f"step at {s['at']} s is after the last chunk ends at {total} s: {s}")
+        if s["_kind"] == "write":
+            rel = s["write"]["path"]
+            if os.path.isabs(rel) or ".." in rel.split("/"):
+                sys.exit(f"a write step's path is relative to --project and stays inside it: {rel}")
+            s["_path"] = os.path.join(args.project, rel)
 
     out_dir = os.path.join(args.project, "target/loop/demo", sb["name"])
     os.makedirs(out_dir, exist_ok=True)

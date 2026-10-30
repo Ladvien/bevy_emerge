@@ -43,7 +43,7 @@
 //! the poll is the dominant term in it. The editor's own `anim_watch` polls at one second, which
 //! is right for a mesh bench and too slow for a text file the author is watching.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -79,6 +79,13 @@ pub struct Watched {
     /// the watcher's memory is dropped when the project changes, and the new project's files are
     /// sighted afresh.
     project: Option<PathBuf>,
+    /// **The watched paths that had no file at the last tick** (#158).
+    ///
+    /// `repetition.ron`, `standards.ron`, `rules.ron` and `compositions.ron` are optional, so the
+    /// first edit an author makes to one is creating it. A file with no earlier stamp is only a
+    /// first sighting when the watcher has never looked at its path; one it saw missing and now
+    /// finds is a file written while the editor was open, and that is a change.
+    absent: HashSet<PathBuf>,
 }
 
 impl Watched {
@@ -197,6 +204,7 @@ pub fn tick_watch(
     // that has not changed is not seen as changed**, which is what the first sighting is for.
     if watched.project.as_deref() != Some(project.root.as_path()) {
         watched.files.clear();
+        watched.absent.clear();
         watched.project = Some(project.root.clone());
     }
 
@@ -205,11 +213,16 @@ pub fn tick_watch(
     // project.
     let files = Watched::files_of(project, open.as_deref());
     let mut seen: HashMap<PathBuf, Stamp> = HashMap::with_capacity(files.len());
+    let mut absent = HashSet::new();
     for path in files {
         let stamp = stamp_of(&path);
         // **A file that is not there is not a change.** A map that has never been saved has no
-        // file, and the watcher must not report a deletion the author did not make.
-        let Some(stamp) = stamp else { continue };
+        // file, and the watcher must not report a deletion the author did not make. Its absence is
+        // remembered, so its creation is seen.
+        let Some(stamp) = stamp else {
+            absent.insert(path);
+            continue;
+        };
         seen.insert(path.clone(), stamp.clone());
         let previous = watched.files.get(&path);
         if previous == Some(&stamp) {
@@ -218,13 +231,14 @@ pub fn tick_watch(
         //
         // **The first sighting is not a change either** — it is the editor noticing what was
         // already there, and treating it as an edit would reload the project the moment it
-        // opened.
-        if previous.is_none() {
+        // opened. A path last seen with no file is not a first sighting: the file was created.
+        if previous.is_none() && !watched.absent.contains(&path) {
             continue;
         }
         due.changed.push(path);
     }
     watched.files = seen;
+    watched.absent = absent;
 }
 
 /// **Adopt what the tick found, if there is anything.**
