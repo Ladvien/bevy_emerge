@@ -650,6 +650,12 @@ impl Emerge {
                        face tokens, closest {piece, turn, misses [{at, want, found}]} the piece \
                        nearest to meeting it or null, message) that no piece of the kit meets at any quarter turn, \
                        up to 20, with total counting them all. \
+                       stress is the rest of the kit stress test, from the library on every call: \
+                       ring, the loop the kit closes, four {piece, turn in degrees} north-west, \
+                       north-east, south-west, south-east; room, the smallest room with a middle, \
+                       three rows of three {piece, turn} north to south and west to east, the middle \
+                       at [1][1]; each null when the kit cannot build it; declared counts the pieces \
+                       with an edge token, and at 0 the nulls say the kit is unlabelled. \
                        Returns that summary \
                        as JSON, and changes nothing. \
                        Call it before a change to know what you are changing, and after one to check \
