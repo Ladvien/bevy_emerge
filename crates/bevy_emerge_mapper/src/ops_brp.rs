@@ -558,6 +558,8 @@ fn editor_state(
             params.note.as_deref(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
         )),
+        // **The reference images beside this map** (#124), each with its id to cite and whether its file is there.
+        "references": open.as_ref().map(|o| crate::ops_references::state_json(o, project.as_ref().map(|p| p.root.as_path()))),
         // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
         "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
         "project": project_summary,
