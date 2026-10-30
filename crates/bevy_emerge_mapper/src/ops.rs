@@ -2446,6 +2446,100 @@ pub fn find(name: &str) -> Option<Box<dyn Operation>> {
     registry().into_iter().find(|op| op.name() == name)
 }
 
+/// **The operations a query names, best first** (#141).
+///
+/// **A capability search, not a page of every schema.** The registry is past sixty operations, and
+/// an agent choosing among that many by reading them all chooses worse. Each query word (two
+/// letters or more, case ignored) matches a word of the operation's name or of its parameter
+/// schema (property names, descriptions, enum values) that starts with it, or that shares with it
+/// a stem: a common start of four letters or more, missing at most the word's last letter and at
+/// most three of the query word's, so `carving` finds `Carve`, `notes` finds `note`, and
+/// `additionalProperties` does not find `additional`. A
+/// name hit scores 3 and a schema hit 1, per query word; an operation that scores nothing is left
+/// out, and ties keep the registry's order. An empty query names nothing.
+pub fn search(query: &str) -> Vec<Box<dyn Operation>> {
+    let terms = words(query);
+    let mut scored: Vec<(u32, Box<dyn Operation>)> = registry()
+        .into_iter()
+        .filter_map(|op| {
+            let name = words(op.name());
+            let mut schema = Vec::new();
+            schema_words(&op.schema(), &mut schema);
+            let hits = |list: &[String], term: &str| list.iter().any(|w| same_word(w, term));
+            let score: u32 = terms
+                .iter()
+                .map(|t| {
+                    if hits(&name, t) {
+                        3
+                    } else if hits(&schema, t) {
+                        1
+                    } else {
+                        0
+                    }
+                })
+                .sum();
+            (score > 0).then_some((score, op))
+        })
+        .collect();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored.into_iter().map(|(_, op)| op).collect()
+}
+
+/// **The lowercase words of a text**, split on anything not a letter or digit, shorter than two
+/// letters dropped.
+fn words(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 2)
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// **Whether a word of an operation matches a query word**, by the rule `search` states. Bytes, not
+/// chars, are compared, which only makes a non-ASCII stem stricter.
+fn same_word(word: &str, term: &str) -> bool {
+    if word.starts_with(term) {
+        return true;
+    }
+    let common = word.bytes().zip(term.bytes()).take_while(|(a, b)| a == b).count();
+    common >= 4 && common + 1 >= word.len() && term.len() - common <= 3
+}
+
+/// **Every word a schema says about its operation**: its property names, descriptions, titles and
+/// enum values, at any depth. JSON Schema's own keywords (`type`, `object`, `string`) are left out,
+/// so they match nothing.
+fn schema_words(schema: &serde_json::Value, out: &mut Vec<String>) {
+    use serde_json::Value;
+    let Value::Object(map) = schema else {
+        if let Value::Array(list) = schema {
+            list.iter().for_each(|v| schema_words(v, out));
+        }
+        return;
+    };
+    for (key, value) in map {
+        match (key.as_str(), value) {
+            ("properties", Value::Object(props)) => {
+                for (name, sub) in props {
+                    out.extend(words(name));
+                    schema_words(sub, out);
+                }
+            }
+            ("description" | "title", Value::String(s)) => out.extend(words(s)),
+            ("enum" | "const" | "examples", v) => strings(v, out),
+            (_, v @ (Value::Object(_) | Value::Array(_))) => schema_words(v, out),
+            _ => {}
+        }
+    }
+}
+
+/// **The words of every string in a value**, for an `enum` or `const`.
+fn strings(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) => out.extend(words(s)),
+        serde_json::Value::Array(list) => list.iter().for_each(|v| strings(v, out)),
+        _ => {}
+    }
+}
+
 /// **The operations that have a UI entry point.**
 ///
 /// **A map's settings are set from the Map door's own settings panel**, and the panel's verbs are

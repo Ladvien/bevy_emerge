@@ -14,7 +14,7 @@
 //!
 //! | tool | what it does |
 //! |---|---|
-//! | `emerge_list_operations` | every operation, its parameters' schema, and how it is undone |
+//! | `emerge_list_operations` | every operation, its parameters' schema, and how it is undone; `query` searches them |
 //! | `emerge_preview_operation` | what an operation would change; nothing changes |
 //! | `emerge_apply_operation` | run one, and record it in the operation log |
 //! | `emerge_undo_operation` | take one change back by its id, as a new log line |
@@ -58,6 +58,17 @@ use serde_json::{Value, json};
 use bevy_emerge_mcp::{brp, docs};
 
 use brp::Brp;
+
+/// **The parameters of `emerge_list_operations`** (#141).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListParams {
+    /// **Words to search for**, such as `carve` or `note`. With them, only the operations whose
+    /// name or parameters match, best first, and `total`, the number of operations there are.
+    /// Without them, every operation.
+    #[serde(default)]
+    pub query: Option<String>,
+}
 
 /// **The parameters of `emerge_preview_operation` and `emerge_apply_operation`.**
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -470,7 +481,9 @@ impl Emerge {
                        emerge_apply_operation so the parameters are the ones the operation \
                        actually takes. Returns the list; it does not change anything. The undo \
                        column names the strategy an operation declares; emerge_undo_operation \
-                       performs it.",
+                       performs it. Pass query (words such as \"carve\" or \"note\") to get only \
+                       the operations whose name or parameters match, best first, and total, the \
+                       number of operations there are.",
         annotations(
             title = "List the editor's operations",
             read_only_hint = true,
@@ -479,8 +492,11 @@ impl Emerge {
             open_world_hint = false
         )
     )]
-    async fn list_operations(&self) -> Result<CallToolResult, ErrorData> {
-        match self.editor.call("emerge/operation_list", json!({})).await {
+    async fn list_operations(
+        &self,
+        Parameters(p): Parameters<ListParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self.editor.call("emerge/operation_list", json!({"query": p.query})).await {
             Ok(v) => Ok(CallToolResult::structured(v)),
             Err(e) => Ok(refusal(&e)),
         }
@@ -617,7 +633,9 @@ impl Emerge {
                        margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
                        repetition names up to 10 visible repeats (the same piece at one yaw and tip \
                        within 6 m), the one a player notices first first: descriptor, patched, role \
-                       (clutter or structure), pieces, pairs, score; total counts them all. \
+                       (clutter or structure), pieces, pairs, score; total counts them all; the radius, \
+                       the structure kinds and their weight come from the project's repetition.ron, \
+                       re-read on every call, and a bad file is named in error. \
                        relations checks the <map>.relations.ron beside the open map, re-read on \
                        every call: each relation (of, kind) with outcome met, unmet or missing, \
                        measured (metres, or degrees off for Faces), by (the piece that breaks it) \

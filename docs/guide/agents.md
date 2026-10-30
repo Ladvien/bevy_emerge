@@ -115,6 +115,8 @@ An agent shows what it means to do with the `plan_set` operation: the whole list
 
 What a map is meant to keep true lives beside it in `<map>.relations.ron`: relations between placements by id, such as a chair that `Faces` its table, a lamp `Near` a door, or a door whose `ClearInFront` corridor nothing may stand in. `emerge_state` reports them under `relations`, each with its outcome (`met`, `unmet` or `missing`), what was measured, and what blocks it. The file is re-read on every call. The `relations_solve` operation, or the line `relations solve` in the Terrain field, nudges the pieces of the unmet relations. It keeps a move only when fewer relations are broken after it, and it never moves a relation's target. One undo puts every moved row back. A map with no relations file, or one that does not parse, is refused and nothing moves.
 
+A person sees the same check on the Map inspector's `RELATIONS` row, under `REPEATS`: `2 unmet, 1 missing: chair faces table` names how many relations are broken and the first broken one (with the piece in the way, for a blocked corridor). It reads `N met`, dimmed, when every relation holds, `none` with no file, and `m.relations.ron does not read` when the file does not parse. The row re-reads the file about once a second, so an edit to it shows with no restart.
+
 ## Who did what
 
 Goal: find out who changed a map, and take back only the change you want.

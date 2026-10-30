@@ -563,9 +563,10 @@ fn editor_state(
         // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
         "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
         // **The repeats a player will notice first** (#136): same piece, yaw and tip, close together,
-        // weighed by role so repeated clutter heads the list above repeated structure.
+        // weighed by role so repeated clutter heads the list above repeated structure. The rules are
+        // the project's `repetition.ron` (#139), read on every call so an edit is seen with no restart.
         "repetition": match (open.as_ref(), project.as_ref()) {
-            (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library),
+            (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library, &p.project_dir),
             _ => Value::Null,
         },
         // **The kit pieces that break the project's standards** (#138): read from `standards.ron`
@@ -596,13 +597,19 @@ fn editor_state(
 /// The most repeats `emerge_state` names; `total` always counts them all.
 const REPEATS_CAP: usize = 10;
 
-/// **The visible repeats of a map, as `emerge_state` reports them**, under the default rules.
+/// **The visible repeats of a map, as `emerge_state` reports them**, under the project's rules. A
+/// rules file that cannot be read is named in `error` with no repeats, never read as the defaults.
 fn repetition_json(
     placements: &[bevy_emerge_core::map::Placed],
     library: &bevy_emerge_core::library::Library,
+    project_dir: &std::path::Path,
 ) -> Value {
-    use bevy_emerge_core::repetition::{repeats, RepetitionRules, Role};
-    let all = repeats(placements, library, &RepetitionRules::default());
+    use bevy_emerge_core::repetition::{repeats, Role};
+    let rules = match load_repetition(project_dir) {
+        Ok(r) => r,
+        Err(e) => return json!({"repeats": [], "total": 0, "error": e}),
+    };
+    let all = repeats(placements, library, &rules);
     let rows: Vec<Value> = all
         .iter()
         .take(REPEATS_CAP)
@@ -617,7 +624,23 @@ fn repetition_json(
             })
         })
         .collect();
-    json!({"repeats": rows, "total": all.len()})
+    json!({"repeats": rows, "total": all.len(), "error": null})
+}
+
+/// `<project_dir>/repetition.ron`, or the default rules when there is no such file; any other
+/// failure to read or parse it is the error, naming the file. Shared by `emerge_state` and the
+/// status bar's `REPEATS` line (#139), so the two cannot disagree.
+pub(crate) fn load_repetition(
+    project_dir: &std::path::Path,
+) -> Result<bevy_emerge_core::repetition::RepetitionRules, String> {
+    use bevy_emerge_core::repetition::{RepetitionRules, FILE};
+    let path = project_dir.join(FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => RepetitionRules::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(RepetitionRules::default()),
+        Err(e) => Err(e.to_string()),
+    }
+    .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// **The relations beside a map, checked against its placements**, as `emerge_state` reports them.
@@ -914,23 +937,38 @@ fn capture_sequence_status(
 /// **A discovery tool, not a page of tools.** The MCP server exposes one tool per operation, but
 /// the *BRP* surface is one list, because a BRP caller can ask. **The always-loaded MCP toolset
 /// stays small** and the rare ones are found here.
-fn operation_list(_: In<serde_json::Value>) -> Result<Value, String> {
-    let ops = ops::registry();
-    let list: Vec<Value> = ops
-        .iter()
-        .map(|op| {
-            json!({
-                "operation": op.name(),
-                "undo": match op.undo() {
-                    ops::Undo::None => "none",
-                    ops::Undo::Inverse => "inverse",
-                    ops::Undo::Snapshot => "snapshot",
-                },
-                "parameters": op.schema(),
-            })
+///
+/// **`{"query": "..."}` searches instead of listing** (#141): only the operations `ops::search`
+/// finds, best first, with the query and the registry's `total` beside them, so a caller knows how
+/// much it did not read. No query, or a blank one, lists every operation as before.
+fn operation_list(In(p): In<serde_json::Value>) -> Result<Value, String> {
+    let query = match p.get("query") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(q)) if q.trim().is_empty() => None,
+        Some(Value::String(q)) => Some(q.clone()),
+        Some(other) => return Err(format!("`query` is text to search for, not {other}.")),
+    };
+    let row = |op: &dyn ops::Operation| {
+        json!({
+            "operation": op.name(),
+            "undo": match op.undo() {
+                ops::Undo::None => "none",
+                ops::Undo::Inverse => "inverse",
+                ops::Undo::Snapshot => "snapshot",
+            },
+            "parameters": op.schema(),
         })
-        .collect();
-    Ok(json!({ "operations": list }))
+    };
+    let Some(query) = query else {
+        let list: Vec<Value> = ops::registry().iter().map(|op| row(op.as_ref())).collect();
+        return Ok(json!({ "operations": list }));
+    };
+    let found: Vec<Value> = ops::search(&query).iter().map(|op| row(op.as_ref())).collect();
+    Ok(json!({
+        "query": query,
+        "total": ops::registry().len(),
+        "operations": found,
+    }))
 }
 
 /// **`emerge/operation_preview` — what an operation would change, and nothing changed.**

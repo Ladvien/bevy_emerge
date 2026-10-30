@@ -57,7 +57,9 @@ pub const TOOLS: &[ToolDoc] = &[
                       JSON schema and how it is undone. Call this before emerge_apply_operation so the \
                       parameters are the ones the operation actually takes. Returns the list; it does not \
                       change anything. The undo column names the strategy an operation declares; \
-                      emerge_undo_operation performs it.",
+                      emerge_undo_operation performs it. Pass query (words such as \"carve\" or \"note\") \
+                      to get only the operations whose name or parameters match, best first, and total, \
+                      the number of operations there are.",
         read_only: true,
         destructive: false,
         idempotent: true,
@@ -132,7 +134,9 @@ pub const TOOLS: &[ToolDoc] = &[
                        margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
                        repetition names up to 10 visible repeats (the same piece at one yaw and tip \
                        within 6 m), the one a player notices first first: descriptor, patched, role \
-                       (clutter or structure), pieces, pairs, score; total counts them all. \
+                       (clutter or structure), pieces, pairs, score; total counts them all; the radius, \
+                       the structure kinds and their weight come from the project's repetition.ron, \
+                       re-read on every call, and a bad file is named in error. \
                        relations checks the <map>.relations.ron beside the open map, re-read on \
                        every call: each relation (of, kind) with outcome met, unmet or missing, \
                        measured (metres, or degrees off for Faces), by (the piece that breaks it) \
@@ -403,7 +407,13 @@ pub fn schemas() -> Value {
                 "operation_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
-        "emerge_list_operations": {"type": "object", "additionalProperties": false},
+        "emerge_list_operations": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "query": {"type": "string", "description": "Words to search for, such as carve or note. With them, only the operations whose name or parameters match, best first, and total. Without them, every operation."},
+            },
+        },
         "emerge_preview_operation": {
             "type": "object",
             "additionalProperties": false,

@@ -104,6 +104,9 @@ impl Watched {
             // The project's kit standards (#138): the Meshes pane reads them on each rebuild, so a
             // change only has to reach it.
             project.project_dir.join(bevy_emerge_core::standards::FILE),
+            // The project's repetition rules (#139): the REPEATS line re-reads them when the
+            // project changes, so a change only has to reach it.
+            project.project_dir.join(bevy_emerge_core::repetition::FILE),
         ];
         // **Every bound kit's own files**, because each kit has a library and a policy of its own.
         for kit in project.kits.iter() {
@@ -447,13 +450,20 @@ fn adopt(path: &Path, project: &mut Project) -> Result<(), String> {
     if path.ends_with("vocab.ron") {
         return project.reload_vocab();
     }
-    // **The kit standards are read where they are shown** (the Meshes pane, `emerge_state`,
-    // `piece_import`), so nothing is re-opened: adopting is checking that the file parses, and the
-    // caller's mutable borrow of the project is what tells the pane to rebuild.
-    if path.file_name().and_then(|n| n.to_str()) == Some(bevy_emerge_core::standards::FILE)
-        && path.parent() == Some(project.project_dir.as_path())
-    {
-        return crate::ops_brp::load_standards(&project.project_dir).map(|_| ());
+    // **The kit standards and the repetition rules are read where they are shown** (the Meshes
+    // pane, the REPEATS line, `emerge_state`, `piece_import`), so nothing is re-opened: adopting is
+    // checking that the file parses, and the caller's mutable borrow of the project is what tells
+    // the readers to look again.
+    if path.parent() == Some(project.project_dir.as_path()) {
+        match path.file_name().and_then(|n| n.to_str()) {
+            Some(bevy_emerge_core::standards::FILE) => {
+                return crate::ops_brp::load_standards(&project.project_dir).map(|_| ());
+            }
+            Some(bevy_emerge_core::repetition::FILE) => {
+                return crate::ops_brp::load_repetition(&project.project_dir).map(|_| ());
+            }
+            _ => {}
+        }
     }
     // **Which kit, if any, this file belongs to.** Both of a kit's files are named by the core's
     // own constants, so a kit directory cannot be recognised by a filename pattern that drifts.

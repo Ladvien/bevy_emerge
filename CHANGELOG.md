@@ -5,6 +5,9 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **e002-composition-arm** `a97b657` composition_arm: an agent arms a composition through the operation the picker and COMPOSE Enter now dispatch *No clip: an operation for an existing verb, no visible change; proved by tests/composition_arm_is_an_operation.rs*
+- **e088-inspector-relations** `d1264c8` The Map inspector's RELATIONS row names how many intended relations the open map breaks and the first one, live as the file changes *No clip: visible, not yet recorded: no display on big*
+- **E-091** `1dfe893` emerge_list_operations takes a query: an agent finds an operation by searching, best first, instead of reading all 64+ *No clip: an MCP/BRP API; proved by tests/an_agent_can_search_the_operations.rs*
+- **E-090** `e8f9edf` A project's repetition.ron decides which kinds are structure and how far a repeat is seen; emerge_state and the REPEATS line follow an edit live *No clip: visible, not yet recorded: no display on big*
 - **E-089-4** `4c4144f` The Meshes pane names the project standards the selected piece breaks, and an edit to standards.ron reaches it live *No clip: visible, not yet recorded: no display on big*
 - **137-relations-solve** `009a7e5` relations_solve and the Terrain line `relations solve` move the pieces of a map's broken relations, with one undo *No clip: visible, not yet recorded: no display on big*
 - **106-balloon** `pending` Dialogue preview balloon: the lines a dialogue <name> walk says are drawn as one balloon over the piece that carries the conversation, following the camera (#106 slice 6) *No clip: visible, not yet recorded: needs a Mac with a project holding a speaker piece; proved by balloon::tests::the_balloon_stands_over_the_piece_that_carries_the_conversation (anchor and text only; drawing unobserved)*
