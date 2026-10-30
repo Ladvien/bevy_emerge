@@ -437,7 +437,7 @@ pub fn schemas() -> Value {
                 "pieces_from": {"type": "integer", "minimum": 0, "default": 0, "description": "Where the page starts, counted in the filtered list. 0 is the first match."},
                 "with_mesh": {"type": "boolean", "default": false, "description": "true leaves out the flat pieces that name no mesh."},
                 "unlabelled": {"type": "boolean", "default": false, "description": "true keeps only the pieces no one has labelled."},
-                "by_model": {"type": "boolean", "default": false, "description": "true keeps only the pieces with an axis a model or an agent wrote and no person has confirmed."},
+                "by_model": {"type": "boolean", "default": false, "description": "true keeps only the pieces with an axis a model or an agent wrote and no person has confirmed. Also spelled unconfirmed: it matches agent-written axes too, not only a model's."},
                 "confidence": {"type": ["string", "null"], "enum": ["high", "medium", "low", null], "default": null, "description": "Keeps only the pieces whose label record says this confidence."},
                 "id_contains": {"type": ["string", "null"], "default": null, "description": "Keeps only the pieces whose id contains this text."}
             }

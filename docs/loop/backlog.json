@@ -181,7 +181,7 @@
       "kind": "enhancement",
       "area": "mcp",
       "title": "by_model reads as model-only but also matches agent-written axes (review gap 13)",
-      "status": "open",
+      "status": "done",
       "evidence": "Every MCP description except gap 7's already says by_model matches agent-written axes, so this is naming only. Later alias: unconfirmed. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
       "last_failure": "",
       "first_seen": "2026-10-23"
