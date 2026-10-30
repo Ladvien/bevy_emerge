@@ -32,6 +32,12 @@ pub struct Tree {
     pub scale: f32,
     /// The scatter's draw for the pool variant (taken modulo the pool's variant count).
     pub variant: u32,
+    /// Years grown, for a tree placed by hand (`place`); a scattered tree has none and the game's pool decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age_years: Option<f32>,
+    /// The seed a placed tree was grown from: the same seed and species grow the same tree in the editor and the game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i32>,
 }
 
 /// A map's planted forest: `<emerge_dir>/forest/<map>.ron`.
@@ -68,10 +74,24 @@ pub struct Plant {
     pub scale: Option<(f32, f32)>,
 }
 
+/// One tree placed by hand: a preset name or `.tree.ron` path, at `(x, z)`, with an age and a seed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Place {
+    pub species: String,
+    pub at: (f32, f32),
+    #[serde(default)]
+    pub age_years: f32,
+    #[serde(default)]
+    pub seed: i32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Params {
     pub map: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<Place>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plant: Option<Plant>,
     /// The forest file as it was (`None` inside: there was none). Only an undo sends this.
@@ -93,6 +113,7 @@ impl Params {
             "required": ["map"],
             "properties": {
                 "map": {"type": "string", "description": "The map whose forest is planted."},
+                "place": {"type": "object", "description": "One tree by hand, instead of a stroke: {species, at: [x, z], age_years, seed}. The same species and seed give the same yaw, scale and variant, so the same tree."},
                 "plant": {"type": "object", "description": "One gesture: {points: [[x, z], ...], radius_m, spacing_m, seed, species: [{name, weight}], grove_m, scale: [min, max]}. Trees are planted only within radius_m of the stroke, on the map's terrain, at least spacing_m apart and from trees already there."},
                 "put_back": {"type": "object", "description": "An undo's put-back. Only an undo sends this."}
             }
@@ -102,8 +123,19 @@ impl Params {
     pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
         let p: Params = serde_json::from_value(raw.clone())
             .map_err(|e| Refusal::new(format!("this is not a forest stroke: {e}. The fields are `map` and `plant`, and nothing else.")))?;
-        if p.plant.is_none() && p.put_back.is_none() {
-            return Err(Refusal::new("a forest stroke needs a `plant`. Nothing was changed."));
+        if p.plant.is_none() && p.place.is_none() && p.put_back.is_none() {
+            return Err(Refusal::new("a forest stroke needs a `plant` or a `place`. Nothing was changed."));
+        }
+        if p.plant.is_some() && p.place.is_some() {
+            return Err(Refusal::new("send a `plant` stroke or a `place`d tree, not both. Nothing was changed."));
+        }
+        if let Some(pl) = &p.place {
+            if pl.species.trim().is_empty() {
+                return Err(Refusal::new("a placed tree needs a species (a preset name or a .tree.ron path). Nothing was changed."));
+            }
+            if !(pl.age_years.is_finite() && pl.age_years >= 0.0) {
+                return Err(Refusal::new("`age_years` must be 0 or more. Nothing was changed."));
+            }
         }
         if let Some(pl) = &p.plant {
             if pl.points.is_empty() {
@@ -161,6 +193,33 @@ pub fn under_stroke(p: (f32, f32), points: &[(f32, f32)], radius: f32) -> bool {
     }
 }
 
+/// **Place one tree**: the draws a hand-placed tree's look comes from are a pure function of its species and seed.
+pub fn place(forest: &Forest, at: &Place, ground: Option<&bevy_emerge_core::heightfield::Heightfield>) -> Tree {
+    let mut h = 0xcbf2_9ce4_8422_2325_u64 ^ (at.seed as u32 as u64);
+    for b in at.species.bytes() {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    let mut draw = || {
+        h = h.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = h;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    };
+    let unit = |v: u64| (v >> 40) as f32 / (1u64 << 24) as f32;
+    Tree {
+        id: forest.trees.iter().map(|t| t.id + 1).max().unwrap_or(0),
+        species: at.species.clone(),
+        at: at.at,
+        ground_m: ground.map_or(0.0, |g| g.height_at(at.at.0, at.at.1)),
+        yaw: unit(draw()) * std::f32::consts::TAU,
+        scale: 0.9 + unit(draw()) * 0.2,
+        variant: (draw() >> 32) as u32,
+        age_years: Some(at.age_years),
+        seed: Some(at.seed),
+    }
+}
+
 /// **Plant**: the trees `plant` adds to `forest`, with the next ids, standing on `ground`.
 #[cfg(feature = "bevy_flora")]
 pub fn plant(forest: &Forest, plant: &Plant, ground: Option<&bevy_emerge_core::heightfield::Heightfield>) -> Vec<Tree> {
@@ -195,6 +254,8 @@ pub fn plant(forest: &Forest, plant: &Plant, ground: Option<&bevy_emerge_core::h
             yaw: p.yaw,
             scale: p.scale,
             variant: p.variant,
+            age_years: None,
+            seed: None,
         });
         next += 1;
     }
@@ -220,7 +281,11 @@ impl ForestScatter {
                 std::fs::read_to_string(project.emerge_dir.join("terrain").join(format!("{}.ron", p.map)))
                     .ok()
                     .and_then(|t| ron::from_str(&t).ok());
-            let added = plant(&forest, p.plant.as_ref().expect("parse needs a plant"), ground.as_ref());
+            let added = match (&p.place, &p.plant) {
+                (Some(at), _) => vec![place(&forest, at, ground.as_ref())],
+                (None, Some(stroke)) => plant(&forest, stroke, ground.as_ref()),
+                (None, None) => unreachable!("parse needs a plant or a place"),
+            };
             let n = added.len();
             forest.trees.extend(added);
             let text = ron::ser::to_string_pretty(&forest, ron::ser::PrettyConfig::default())
