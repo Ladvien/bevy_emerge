@@ -7139,10 +7139,12 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
     if unmet + missing == 0 {
         return (format!("{} met", outcomes.len()), DIM);
     }
-    // The first unmet relation, else the first one naming a piece the map does not have.
+    // The first unmet hard relation, else the first unmet one, else the first one naming a piece
+    // the map does not have.
     let pairs = || relations.relations.iter().zip(&outcomes);
     let first = pairs()
-        .find(|(_, o)| matches!(o, Outcome::Unmet { .. }))
+        .find(|(r, o)| r.hard && matches!(o, Outcome::Unmet { .. }))
+        .or_else(|| pairs().find(|(_, o)| matches!(o, Outcome::Unmet { .. })))
         .or_else(|| pairs().find(|(_, o)| matches!(o, Outcome::Missing { .. })));
     let words = match first {
         Some((_, Outcome::Missing { id })) => format!("{id} is not on the map"),
@@ -7158,6 +7160,7 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::Along { path, .. } => format!("{of} along {}", path.join(" → ")),
                 Kind::ReachableFrom { from, .. } => format!("{of} reachable from {from}"),
             };
+            let what = if r.hard { format!("{what} (hard)") } else { what };
             match outcome {
                 Outcome::Unmet { by: Some(by), .. } => format!("{what} ({by} in the way)"),
                 _ => what,

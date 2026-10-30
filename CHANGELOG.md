@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **relations-hard** `15698c2` A relation can be hard: relations solve never breaks it to mend soft ones, and names the relations it left unmet *No clip: visible, not yet recorded: no display on big (inspector row marks a broken hard relation); proved by a_hard_relation_outranks_soft_ones*
 - **relations-reachable-from** `abf6439` Relations: ReachableFrom, a walk from one piece to another round whatever stands between, and solve opens a sealed one *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_reachable_from_another.rs*
 - **gooey-skin** `fe2d94f` A project's family/bevy_gooey.ron is the running UI skin: a partial file restyles bevy_gooey widgets live, and a bad file or a WCAG failure is a status-line problem (#147) *No clip: visible, not yet recorded: no display on big; proved by family_gooey_skin*
 - **relations-along** `e8b7fe0` A relation keeps a piece beside a path through other pieces: Along names how far off it stands, and relations solve brings it back<br><a href="docs/changelog/media/2026-10-30-relations-along.mp4"><img src="docs/changelog/media/2026-10-30-relations-along.png" width="320" alt="clip"></a>
