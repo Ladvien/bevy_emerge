@@ -133,3 +133,23 @@ fn the_panels_season_and_climate_buttons_are_one_undo_step_each() {
     let now = ron::to_string(&read(&file).climate).unwrap();
     assert_eq!(now, ron::to_string(&ClimatePreset::Tropical.climate()).unwrap(), "one undo steps back one climate");
 }
+
+#[test]
+fn snow_rocks_and_sand_are_set_in_the_crates_own_types_and_an_old_file_still_loads() {
+    let (mut ctx, file) = project("cover");
+    set(&mut ctx, "snow.drift", "false");
+    set(&mut ctx, "rocks.talus_cover", "0.5");
+    set(&mut ctx, "wetness.wet_per_mm", "0.9");
+    let s = ElementsSettings::from_ron(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert!(!s.snow.drift);
+    assert_eq!((s.rocks.talus_cover, s.wetness.wet_per_mm), (0.5, 0.9));
+    ops::undo(&mut ctx, None).unwrap();
+    let s = ElementsSettings::from_ron(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(s.wetness.wet_per_mm, bevy_elements::WetnessSettings::default().wet_per_mm, "one undo per change");
+    // A file written before these fields existed takes the crate's defaults.
+    let old = ElementsSettings::defaults().to_ron();
+    let start = old.find("snow:").unwrap();
+    let trimmed = format!("{})", &old[..start]);
+    let s = ElementsSettings::from_ron(&trimmed).unwrap();
+    assert_eq!(s.snow, bevy_elements::SnowSettings::default());
+}

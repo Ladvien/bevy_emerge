@@ -2381,6 +2381,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_destructible::DestructibleHit),
         Box::new(crate::ops_terrain::TerrainImport),
         Box::new(crate::ops_water::WaterPlace),
+        Box::new(crate::ops_water::WaterRun),
         Box::new(crate::ops_play::Play),
         Box::new(crate::ops_play::PlayStop),
         Box::new(crate::ops_runs::RunAdd),
@@ -2518,6 +2519,8 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("destructible_hit", "hit_destructible("),
     // **The water line (#100)** — `water <spring|sink|lake> ...` in the terrain field dispatches `water_place` through `place_water`.
     ("water_place", "place_water("),
+    // `water run` in the same field dispatches `water_run` through `run_water`.
+    ("water_run", "run_water("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).

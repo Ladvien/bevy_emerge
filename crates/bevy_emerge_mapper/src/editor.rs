@@ -4418,6 +4418,8 @@ fn terrain_edit_keys(
                 } else if cfg!(feature = "bevy_carnage") && raw.trim_start().starts_with("hit ") {
                     #[cfg(feature = "bevy_carnage")]
                     hit_destructible(project.as_deref(), &mut state, &raw);
+                } else if raw.trim() == "water run" {
+                    run_water(project.as_deref(), open.as_deref(), &mut state);
                 } else if raw.trim_start().starts_with("water ") {
                     place_water(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("import ") {
@@ -4582,6 +4584,29 @@ fn place_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Ed
         None => serde_json::json!({"map": open.map.name, "clear": true}),
     };
     match crate::ops::dispatch(&mut ctx, "water_place", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Run the map's water and keep it** through the registry as `water_run`, from the terrain line
+/// `water run`. One undo takes the kept water back.
+fn run_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState) {
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is no water to run".to_owned());
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "water_run", &serde_json::json!({"map": open.map.name})) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
