@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **n97-fairy** `7608736` The editor's agent channel is bevy_fairy, pinned by revision; bevy_debugger_mcp is gone (#97) *No clip: a dependency swap and wire-method rename; proved by the mapper (745) and mcp tests building and passing on bevy_fairy*
 - **99-terrain-stroke** terrain_stroke: a sculpt stroke on a map's saved heightfield is one registered operation and one undo, from the Terrain field or an agent's apply (#99 slice 2) *No clip: visible, not yet recorded: the Terrain field has no viewport drawing yet and big has no display; proved by tests/terrain_stroke_is_an_operation.rs*
 - **99a** Heightfield for sculpted ground: raise, lower, smooth, flatten and noise strokes, ground query, 16-bit height-map import (#99 slice 1, engine-free) *No clip: an API in bevy_emerge_core, no editor surface yet; proved by bevy_emerge_core/tests/heightfield.rs*
 - **97-play-stop** `1875d5f` Play and Stop: the project's game starts on the open map at the editor camera (play.ron), and stops by pid (#97 slice 1) *No clip: visible, not yet recorded: the Play button was proved headless, not on screen; proved by play_starts_and_stops_the_game*

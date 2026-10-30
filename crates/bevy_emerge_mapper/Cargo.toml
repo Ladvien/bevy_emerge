@@ -108,11 +108,13 @@ bevy_emerge_decide = { path = "../bevy_emerge_decide" }
 arboard = { version = "3", default-features = false }
 # The debugger's companion plugin. **Optional**, so it is absent from the resolved dependency graph
 # of an ordinary build — `cargo tree -i bevy_debugger_bevy` finds no package without the feature, and
-# neither does `bevy_remote`. A git dependency on its own repo (`Ladvien/bevy_debugger_mcp`, the source
-# of truth since 2026-10-19; this tree's vendored copy is gone), pinned to a rev. The mapper uses the
-# guide, so it keeps the crate's default features. A fix the editor needs is made and pushed there, then
-# the rev here is bumped.
-bevy_debugger_bevy = { git = "https://github.com/Ladvien/bevy_debugger_mcp", rev = "f9dec25cea00e16a1de22502fd12f823d8baf88b", optional = true }
+# neither does `bevy_remote`. A git dependency on `Ladvien/bevy_fairy`, the successor of
+# `bevy_debugger_mcp` (#97), pinned to a rev. The key stays `bevy_debugger_bevy` so the editor's
+# many `use bevy_debugger_bevy::…` lines and tests/leaf.rs's row keep their name; `package` says what
+# it is. The wire methods are `bevy_fairy/*`. Default features are off but the three plugin ones the
+# editor uses (guide overlay, screenshot, cursor) are on: no server, no tokio. A fix the editor needs
+# is made and pushed there, then the rev here is bumped.
+bevy_debugger_bevy = { package = "bevy_fairy", git = "https://github.com/Ladvien/bevy_fairy", rev = "06c9c1805651fabb2474a9d09af84c761be406aa", default-features = false, features = ["plugin", "plugin-guide", "plugin-screenshot"], optional = true }
 
 [[test]]
 name = "editor"
