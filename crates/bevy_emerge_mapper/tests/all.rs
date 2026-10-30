@@ -100,6 +100,7 @@ mod check_view_asks_the_checks_on_demand;
 mod chrome_census;
 mod closeup_frames_the_edit;
 mod compose_is_read_only;
+mod crowd_heat;
 mod crowd_preview_is_an_operation;
 mod crowd_preview_measures;
 mod data_set_is_an_operation;

@@ -26,6 +26,9 @@ use bevy_stigmergy::{CellFrame, ChannelDef, StigGrid};
 /// A floor-standing piece at least this tall, in metres, stops a walker. Knee-high clutter does not.
 pub const SOLID_HEIGHT: f32 = 0.5;
 
+/// A cell this far below its channel's peak is not drawn: the overlay shows where, not everywhere.
+pub const HEAT_FLOOR: f32 = 0.05;
+
 /// Channel indices of [`Preview::fields`].
 pub const TRAIL: usize = 0;
 pub const CONGESTION: usize = 1;
@@ -346,6 +349,25 @@ impl Preview {
 
     pub fn frame(&self) -> &CellFrame {
         &self.frame
+    }
+
+    /// **The heat overlay's data**: every cell where the trail or the congestion reaches
+    /// [`HEAT_FLOOR`] of its own peak, as `(cell centre in map space, trail, congestion)`, each
+    /// normalised to 0..=1 by its channel's peak. The peak cell is exactly 1.0. Row-major, so the
+    /// same run lists the same cells.
+    pub fn heat(&self) -> Vec<(Vec2, f32, f32)> {
+        let [trail, congestion] = self.fields.channels();
+        let peak = |v: &[f32]| v.iter().copied().fold(0.0_f32, f32::max);
+        let (tp, cp) = (peak(trail), peak(congestion));
+        let norm = |v: f32, p: f32| if p > 0.0 { (v / p).clamp(0.0, 1.0) } else { 0.0 };
+        self.frame
+            .cells()
+            .enumerate()
+            .filter_map(|(i, c)| {
+                let (t, g) = (norm(trail[i], tp), norm(congestion[i], cp));
+                (t >= HEAT_FLOOR || g >= HEAT_FLOOR).then(|| (self.frame.cell_centre(c), t, g))
+            })
+            .collect()
     }
 
     pub fn report(&self) -> Report {

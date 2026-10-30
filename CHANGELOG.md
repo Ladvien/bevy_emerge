@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **107-heat** `a10b342` Crowd preview heat overlay: the run's trail and queues drawn on the floor, and carried in crowd_preview's outcome *No clip: visible, not yet recorded: the overlay needs a clip of 100 walkers gate to church; proved by crowd_heat tests*
 - **107-crowd-op** `345ddd8` Crowd preview is an operation and a Crowd field: walk N people between two spots and read who arrived and where they queue *No clip: visible, not yet recorded: heat overlay not built yet; proved by crowd_preview_is_an_operation*
 - **99-terrain-import** `40d5d9b` Terrain can start from a 16-bit PNG height map: terrain_import (or 'import file cell_m low high' on the Terrain line), one undo step (#99) *No clip: visible, not yet recorded: no display on big*
 - **crowd-preview-107** `pending` Crowd preview engine (#107, slice 1): walkers step with bevy_orca avoidance round the map's solid pieces and lay bevy_stigmergy trail and congestion fields; features bevy_orca and bevy_stigmergy *No clip: visible, not yet recorded: the engine has no editor panel or overlay yet; proved by tests/crowd_preview_measures.rs*
