@@ -1754,6 +1754,196 @@
       "evidence": "Cycle 8 review gap 9. Behaviour unchanged in c6016bc. Needs a decision. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md Assumed decision (owner may override): options (a) accept current behaviour, (b) let navigation-only Undo::None ops skip the append. Pick (a): the log is the source of truth, and a door_open line that cannot be recorded means the log has stopped working, so every other write would be refused for the same cause (tests/a_change_whose_log_line_cannot_be_written_is_taken_back.rs pins the take-back). No code change.",
       "last_failure": "",
       "first_seen": "2026-10-23"
+    },
+    {
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": ""
+      },
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-012",
+      "kind": "enhancement",
+      "area": "tests",
+      "status": "shipped",
+      "title": "Signature-reading ratchets cannot see resources inside #[derive(SystemParam)] bundles",
+      "evidence": "B-005 introduced 32 bundles; the_sweep_is_finished and every_resource_says_what_a_door_does_to_it read fn signatures, so a bare Res in a bundle used by an on_* observer would pass. on_shelf_click was kept unbundled for this reason; the ratchets should resolve bundle fields. Done 2026-10-30: tests/no_observer_hides_a_resource_in_a_bundle.rs resolves bundle fields (nested) for every add_observer-registered fn; real tree is clean (history_row_clicked is an entity observer, out of scope)."
+    },
+    {
+      "last_failure": "",
+      "first_seen": "2026-10-21",
+      "id": "E-019",
+      "kind": "enhancement",
+      "area": "sanctuary",
+      "status": "shipped",
+      "title": "Sanctuary lifts its roads in code (town.rs:60 ROAD_LIFT = 0.15), so the editor cannot know the game's draw order from data",
+      "evidence": "Content hard-coded in the consumer. The editor now draws roads over fields by its own rule (smaller footprint on top), which matches for this map. Authoring the order as Placed::paint in the map would make game and editor agree by data. Consumer change: tell Sanctuary's agents via AGENTS_CHAT.md (append only). | 2026-10-30 w3 (#133): obsolete, closed with no editor change. Sanctuary c6da877 has no ROAD_LIFT: town.rs:1262-1266 'The roads are the ground's own' (bevy_elements PathNetwork wears them into the terrain), so the game draws no road over any flat piece. In its town.map.ron no town/road footprint overlaps a town/field footprint (15 roads, 4 fields, 0 overlapping pairs by rectangle test), so there is no order for Placed::paint to author; the editor's draw_order (authored paint first, then area) already honours a paint if one is ever written. Assumed decision: close as obsolete rather than author paint values the game would not read."
+    },
+    {
+      "id": "E-043",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "label_suggest and label_apply: VLM labelling over MCP, fixture-backed",
+      "status": "shipped",
+      "evidence": "Cycle 8 enhancement notes; needs VLM fixture. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md Shipped 3b5e8b0: ops_label_vlm.rs, test a_vlm_label_is_suggested_then_applied.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-045",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "Log kit writes so they can be undone (depends on E-004)",
+      "status": "shipped",
+      "evidence": "Cycle 8 notes. Depends on E-004. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md. Found done 2026-10-30 (w3): every kit write is a logged operation with Undo::Inverse (label_set, piece_import, label_apply in ops.rs/ops_label_vlm.rs; E-004's locked log shipped 2026-10-28), proved by tests/label_set_is_an_operation.rs, a_meshes_undo_takes_back_the_agents_newest_label.rs, an_agent_can_import_a_mesh.rs, a_library_change_does_not_block_another_pieces_undo.rs.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-047",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "Review gaps 14 and 16 (confidence wording, duplicate confidence_word)",
+      "status": "shipped",
+      "evidence": "Gap 15 fixed in bfc538b: the only copy of the pieces_from wording in crates/bevy_emerge_mcp/src is docs.rs:279 (counted in the filtered list; 0 is the first match). Gap 16 open: crates/bevy_emerge_mapper/src/ops_brp.rs:462 fn confidence_word (cycle 8 cited :451; the line moved). Gap 14 open: confidence and at describe the record, not what is unchecked (local://c8-review.md, not in repo). Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md | Shipped: Confidence::FromStr in core replaces ops_brp confidence_word (test a_confidence_word_parses_back); emerge_list_pieces description says confidence/at report the record, not whether labels were checked.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-052",
+      "kind": "enhancement",
+      "area": "mcp",
+      "title": "by_model reads as model-only but also matches agent-written axes (review gap 13)",
+      "status": "shipped",
+      "evidence": "Every MCP description except gap 7's already says by_model matches agent-written axes, so this is naming only. Later alias: unconfirmed. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-055",
+      "kind": "enhancement",
+      "area": "docs",
+      "title": "Stale code comments the docs rewrite found",
+      "status": "shipped",
+      "evidence": "[vlm.rs header fixed 2026-10-27; mcp main.rs already says fourteen] keys.rs comments describe a Cmd+2 row and Compose lattice keys that no longer exist and a retired twelve-row ceiling; bevy_emerge_mcp main.rs module doc says eleven tools (there are twelve); tiles.rs ~6428 calls an agent's label_set a person's decision; labels.rs writes proposals to a file nothing loads. [2026-10-30 w5: keys.rs ceiling/Cmd+2 comments, tiles.rs label_set source, labels.rs proposals file noted; mcp says fifteen tools and lists fifteen]",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
+    },
+    {
+      "id": "E-069",
+      "kind": "enhancement",
+      "area": "collaboration",
+      "title": "The agent cannot show its plan, so the person cannot see what it intends before it acts",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "The brief's step 2 says the agent reads state and acts in small steps; a person watching has no list of what it means to do. Mixar renders the agent's plan as a checklist with a status per item."
+      },
+      "status": "shipped",
+      "evidence": "mixar@39b9d27:ui/properties/chat_slot_types.py (MixieChatTodoItem). Slice 1 shipped: plan_set (ops_plan.rs; core plan.rs; the plan is the .plan.ron beside the .map.ron, in emerge_state under `plan`, one undo step restores the previous plan; person-side `plan clear` in the Terrain field); test tests/an_agent_can_show_its_plan.rs. Slice 2 (#134, w3, 2026-10-30): the PLAN section of the Inspector (editor.rs refresh_plan_list) draws 'plan: k of n done' and '<n> [<status>] <text>' per step, follows the file twice a second, 'no plan' when empty; test tests/the_plan_panel_lists_the_agents_steps.rs (failed before: left [] right [\"no plan\"]). Clip owed (no display on big).",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-070",
+      "kind": "enhancement",
+      "area": "collaboration",
+      "title": "Every open choice becomes a question, so an agent asked for a courtyard stops to ask about a wall height",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": false,
+        "evidence": "Open-ended requests produce 2-3 alternatives as the brief asks, but there is no way for the person to say 'decide these yourself this turn'. Mixar carries an `auto_mode` on the turn, and omitting the field IS false."
+      },
+      "status": "shipped",
+      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Person-side: Tab in the note box toggles auto (tests/a_note_box_can_say_auto.rs); status line shows it. Notes panel: an auto note's row carries an 'auto' chip (tests/notes_panel_shows_the_auto_flag.rs, #135). Clip owed (changelog 'not yet recorded', no display on big).",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-075",
+      "kind": "enhancement",
+      "area": "collaboration",
+      "title": "Reference images are not project data, so an agent cannot cite the picture it worked from",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": true,
+        "evidence": "A person can drop a reference and say 'like this'; nothing stores it as project data or lets the agent name it back. Mixar keeps a moodboard the agent reads and cites."
+      },
+      "status": "shipped",
+      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py. Slice 1 shipped: core references.rs (References beside the map as <map>.references.ron; add/remove/cite/missing, ids never reused, paths inside the project); tests/references.rs. Slice 2: reference_set op + emerge_state references. Slice 3: note_resolve refuses a cited reference id the map lacks. Still open: the UI drop (needs a display). Slice 4 (2026-10-30, w5, 4417f4d): the UI drop, drop_reference reading FileDragAndDrop and dispatching reference_set; an outside picture is copied into references/ (assumed decision on #124); tests/a_dropped_image_becomes_a_reference.rs. Clip owed.",
+      "last_failure": "",
+      "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-083",
+      "kind": "enhancement",
+      "area": "kits",
+      "title": "Sanctuary's compositions are all Anchored, so the composed source and its variety measurement cannot run there",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "`compositions.ron` holds `Bounded: 0, Anchored: 16`. `grammar::from_compositions` skips an anchored group by definition (\"it presents no edge to match\"), so `layout_propose {source: composed}` is refused there with \"nothing has been placed yet\" and no composed layout can be measured. `learned` works but derives no wall interfaces, so E-080's measurement answers `null` on the only real project in this repo. Found live while proving E-080; the metric itself is proved on the crate's own fixture."
+      },
+      "status": "shipped",
+      "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip) | Shipped cc725d4 (#132): from_compositions refuses a tileless set by name (tests/a_tileless_composition_set_says_why.rs). Assumed decision: no slicing of anchored groups (111 distinct cell slices on Sanctuary, over the 32 cap) and no multi-cell prototypes; the game authors Bounded one-cell tiles for the composed source.",
+      "last_failure": "",
+      "first_seen": "2026-10-26"
+    },
+    {
+      "id": "E-087",
+      "kind": "enhancement",
+      "area": "core",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Role-weighted repetition: a map cannot say which repeated pieces a player will notice (#136)",
+      "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Slice 2 shipped 0b4323b: emerge_state.repetition (up to 10 rows + total), tests/emerge_state_names_visible_repeats.rs. Slice 3 shipped 50e9fa6: the Map inspector's REPEATS row, tests/inspector_names_the_worst_repeat.rs (failed before, passes after). Clip owed (no display on big)."
+    },
+    {
+      "id": "E-089",
+      "kind": "enhancement",
+      "area": "core",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Kit standards: a project's dimensions every kit piece must meet, and which pieces break them (#138)",
+      "evidence": "Research lens #4 (kit admission rules). Slice 1 shipped 3abf44f+37385fe (w3, big): core standards::{Standards, Rule, Dim, Why, Breach, check}, standards.ron beside kits.ron; tests/a_kit_says_which_pieces_break_its_standards.rs (failed before: unresolved import; 8 pass after). Slice 2 shipped a23ba4b (w3, big): core standards::idle and emerge_state.standards {breaches, idle, error}, re-read each call; tests/emerge_state_reports_standards_breaches.rs (failed before: standards null; 3 pass after). Slice 3 (d2a3ee9): piece_import's applied answer carries after.standards {breaches, error} for the imported piece and its summary names the broken rules; tests/an_imported_piece_names_the_standards_it_breaks.rs (failed before: after.standards null; 2 pass after). Owes: breaches in the Meshes tab. Assumed decision: rules scoped by kind token; breaches reported, not refused. Slice 4 shipped 4c4144f (w3, big): the Meshes pane's 'standards' row names each breach of the selected piece (rule: dim found, bound), watch.rs watches standards.ron so an edit reaches the pane live; tests/the_meshes_pane_names_the_standards_a_piece_breaks.rs (failed before: no 'huge:' line; 2 pass after). All of #138's slices shipped; clip owed (no display on big)."
+    },
+    {
+      "id": "E-090",
+      "kind": "enhancement",
+      "area": "mapper",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Repetition rules are hard-wired: a project cannot say which kinds are structure (#139)",
+      "evidence": "Shipped e8f9edf (w3, big): <project_dir>/repetition.ron read by emerge_state.repetition (error names a bad file) and the REPEATS status line, watched by watch.rs; tests/a_projects_repetition_rules_decide_what_is_structure.rs failed before (3 of 4), 4 pass after. Clip owed: no display on big."
+    },
+    {
+      "id": "E-088",
+      "kind": "enhancement",
+      "area": "core",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Layout relations: nothing can say which intended relations a map breaks (#137)",
+      "evidence": "Slice 1 shipped 9747292+99dd179 (w5, big): core relations::{Relations, Relation, Kind, check} over placement ids, <map>.relations.ron; tests/a_map_says_which_relations_it_breaks.rs (failed before: unresolved import; 6 pass after). Slice 2 shipped 4f79e81 (w5, big): emerge_state.relations re-reads <map>.relations.ron on every call (live edits seen with no restart) and names each relation's outcome/measured/by/missing_id, unmet/missing counts and a parse error naming the file; tests/emerge_state_reports_broken_relations.rs (failed before: relations null; 3 pass after). Owes: Inspector line for broken relations, then a solver pass for unmet soft relations. Slice 3 shipped 4353041 (w5, big): core relations::solve, greedy, keeps a move only when the unmet count falls, never unseats a resting piece, carries riders; tests/a_solver_mends_broken_relations.rs (failed before: unresolved import; 5 pass after). Next: apply solve through an undoable editor op/MCP (generic apply), then the Inspector line. Slice 4 shipped 009a7e5 (w5, big): registered op relations_solve (ops_relations.rs) over generic apply runs solve on the open map against <map>.relations.ron, writes changed rows as a RowDelta, one undo puts them back, preview writes nothing, missing/bad file refused naming it; Terrain line `relations solve` is its UI front end; RowDelta::apply now allows replacing a row by id. tests/relations_solve_mends_the_open_map.rs (failed before: unknown operation; 4 pass). Owes: Inspector line for broken relations (needs a display). Slice 5 shipped d1264c8 (w5, big): the Map inspector's RELATIONS row ('U unmet, M missing: <first broken>', 'N met', 'none', '<file> does not read'), re-read on map change and ~1 s wall clock; tests/inspector_names_broken_relations.rs (3 pass; hot-reload test failed on the virtual-time first build). Fixes #137. Clip owed (no display on big)."
+    },
+    {
+      "id": "E-091",
+      "kind": "enhancement",
+      "area": "mcp",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "emerge_list_operations cannot search: an agent reads 64+ schemas to find one operation (#141)",
+      "evidence": "Shipped 1dfe893 (w3, big): ops::search + emerge/operation_list {query} (query, total, best first) + MCP ListParams.query; tests/an_agent_can_search_the_operations.rs failed before (2 of 2, query ignored), 2 pass after."
     }
   ]
 }

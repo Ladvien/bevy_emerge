@@ -31,7 +31,7 @@ produces a confusing answer, and `--project` says which project the server *thin
 
 | tool | what it does |
 |---|---|
-| `emerge_list_operations` | every operation the editor knows, with its parameters' schema |
+| `emerge_list_operations` | every operation the editor knows, with its parameters' schema; `query` searches them, best first |
 | `emerge_preview_operation` | what an operation would change; nothing changes |
 | `emerge_apply_operation` | run one, and record it in the operation log |
 | `emerge_read_oplog` | the log, newest last |

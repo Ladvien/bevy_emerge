@@ -263,8 +263,8 @@ impl RowDelta {
     ///    recorded against a map that has since shrunk is still answerable: the row goes at the end
     ///    rather than vanishing.
     ///
-    /// An added id that is already on the map is refused: two rows with one id is a map the editor
-    /// cannot address, and nothing downstream would say so.
+    /// An added id that is already on the map, and that this delta does not remove, is refused: two
+    /// rows with one id is a map the editor cannot address, and nothing downstream would say so.
     pub fn apply(&self, map: &mut bevy_emerge_core::map::Map) -> Result<RowDelta, Refusal> {
         // 1 — find, and refuse before touching anything.
         let mut doomed_placements: Vec<(usize, bevy_emerge_core::map::Placed)> = Vec::new();
@@ -295,13 +295,17 @@ impl RowDelta {
                 })?;
             doomed_stamps.push((at, map.stamps[at].clone()));
         }
+        // **A row this delta removes may come back changed** (a replaced row, as a relations solve
+        // moves one): only an id that stays on the map is a second row with one id.
         for add in &self.add_placements {
-            if map.placements.iter().any(|p| p.id == add.row.id) {
+            if !self.remove_placements.contains(&add.row.id)
+                && map.placements.iter().any(|p| p.id == add.row.id)
+            {
                 return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
             }
         }
         for add in &self.add_stamps {
-            if map.stamps.iter().any(|s| s.id == add.row.id) {
+            if !self.remove_stamps.contains(&add.row.id) && map.stamps.iter().any(|s| s.id == add.row.id) {
                 return Err(Refusal::new(format!("`{}` is already on the map", add.row.id)));
             }
         }
@@ -2381,6 +2385,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(stamp_remove::StampRemove),
         Box::new(crate::ops_stamp::StampAdd),
         Box::new(crate::ops_plan::PlanSet),
+        Box::new(crate::ops_relations::RelationsSolve),
         Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
@@ -2438,6 +2443,100 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
 /// **The operation with this name.**
 pub fn find(name: &str) -> Option<Box<dyn Operation>> {
     registry().into_iter().find(|op| op.name() == name)
+}
+
+/// **The operations a query names, best first** (#141).
+///
+/// **A capability search, not a page of every schema.** The registry is past sixty operations, and
+/// an agent choosing among that many by reading them all chooses worse. Each query word (two
+/// letters or more, case ignored) matches a word of the operation's name or of its parameter
+/// schema (property names, descriptions, enum values) that starts with it, or that shares with it
+/// a stem: a common start of four letters or more, missing at most the word's last letter and at
+/// most three of the query word's, so `carving` finds `Carve`, `notes` finds `note`, and
+/// `additionalProperties` does not find `additional`. A
+/// name hit scores 3 and a schema hit 1, per query word; an operation that scores nothing is left
+/// out, and ties keep the registry's order. An empty query names nothing.
+pub fn search(query: &str) -> Vec<Box<dyn Operation>> {
+    let terms = words(query);
+    let mut scored: Vec<(u32, Box<dyn Operation>)> = registry()
+        .into_iter()
+        .filter_map(|op| {
+            let name = words(op.name());
+            let mut schema = Vec::new();
+            schema_words(&op.schema(), &mut schema);
+            let hits = |list: &[String], term: &str| list.iter().any(|w| same_word(w, term));
+            let score: u32 = terms
+                .iter()
+                .map(|t| {
+                    if hits(&name, t) {
+                        3
+                    } else if hits(&schema, t) {
+                        1
+                    } else {
+                        0
+                    }
+                })
+                .sum();
+            (score > 0).then_some((score, op))
+        })
+        .collect();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored.into_iter().map(|(_, op)| op).collect()
+}
+
+/// **The lowercase words of a text**, split on anything not a letter or digit, shorter than two
+/// letters dropped.
+fn words(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 2)
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// **Whether a word of an operation matches a query word**, by the rule `search` states. Bytes, not
+/// chars, are compared, which only makes a non-ASCII stem stricter.
+fn same_word(word: &str, term: &str) -> bool {
+    if word.starts_with(term) {
+        return true;
+    }
+    let common = word.bytes().zip(term.bytes()).take_while(|(a, b)| a == b).count();
+    common >= 4 && common + 1 >= word.len() && term.len() - common <= 3
+}
+
+/// **Every word a schema says about its operation**: its property names, descriptions, titles and
+/// enum values, at any depth. JSON Schema's own keywords (`type`, `object`, `string`) are left out,
+/// so they match nothing.
+fn schema_words(schema: &serde_json::Value, out: &mut Vec<String>) {
+    use serde_json::Value;
+    let Value::Object(map) = schema else {
+        if let Value::Array(list) = schema {
+            list.iter().for_each(|v| schema_words(v, out));
+        }
+        return;
+    };
+    for (key, value) in map {
+        match (key.as_str(), value) {
+            ("properties", Value::Object(props)) => {
+                for (name, sub) in props {
+                    out.extend(words(name));
+                    schema_words(sub, out);
+                }
+            }
+            ("description" | "title", Value::String(s)) => out.extend(words(s)),
+            ("enum" | "const" | "examples", v) => strings(v, out),
+            (_, v @ (Value::Object(_) | Value::Array(_))) => schema_words(v, out),
+            _ => {}
+        }
+    }
+}
+
+/// **The words of every string in a value**, for an `enum` or `const`.
+fn strings(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) => out.extend(words(s)),
+        serde_json::Value::Array(list) => list.iter().for_each(|v| strings(v, out)),
+        _ => {}
+    }
 }
 
 /// **The operations that have a UI entry point.**
@@ -2624,6 +2723,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // `clear_plan`, so a person can empty an agent's plan the way an agent replaces it. The checklist
     // panel that shows it is owed (it needs a display to verify).
     ("plan_set", "clear_plan("),
+    // **The Terrain field's `relations solve` line (#137)** dispatches `relations_solve` through
+    // `solve_relations`, the same mend an agent's `apply` makes, with one undo.
+    ("relations_solve", "solve_relations("),
 ];
 
 /// **Apply an operation, and record what happened.**
