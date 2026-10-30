@@ -9205,27 +9205,24 @@ fn stamp_here(project: &mut Project,
         return;
     }
     state.next_id += 1;
-    let id = format!("{}@{}", short_id(&of), state.next_id);
-
-    let stamped = bevy_emerge_core::composition::Stamped {
-        id: id.clone(),
-        of: of.clone(),
+    // **The operation's own planning, tried before it is kept**, so a click and `stamp_add` share the
+    // id rule, the trial expansion and the refusals.
+    let stamped = match crate::ops_stamp::plan_stamp(
+        project,
+        &open.map,
+        &of,
         at,
-        yaw: state.brush_yaw,
-        ..Default::default()
+        state.brush_yaw,
+        None,
+        state.next_id,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            state.status.problem(e);
+            return;
+        }
     };
-    // **Tried before it is kept.** A trial map rather than a push-then-pop, so a refusal cannot leave
-    // the real map holding a stamp that does not resolve.
-    let mut trial = open.map.clone();
-    trial.stamps.push(stamped.clone());
-    if let Err(e) =
-        bevy_emerge_core::composition::expand(&trial, &trial.stamps, &comps, &project.library)
-    {
-        state
-            .status
-            .problem(format!("cannot stamp `{of}` here: {e}"));
-        return;
-    }
+    let id = stamped.id.clone();
     open.map.stamps.push(stamped);
     state.record(Undo::Stamped { count: 1 });
     state.status.note(format!("stamped `{of}` as {id}"));
