@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **106-balloon** `pending` Dialogue preview balloon: the lines a dialogue <name> walk says are drawn as one balloon over the piece that carries the conversation, following the camera (#106 slice 6) *No clip: visible, not yet recorded: needs a Mac with a project holding a speaker piece; proved by balloon::tests::the_balloon_stands_over_the_piece_that_carries_the_conversation (anchor and text only; drawing unobserved)*
+- **136-repetition** `bdafe68` Role-weighted repetition: a map reports which repeated pieces a player will notice, clutter above structure *No clip: an engine-free API with no UI yet; proved by tests/repeated_clutter_outranks_repeated_structure.rs*
 - **E-070-chip** `be3b1d7` A note the agent may decide for itself shows an 'auto' chip on its row in the Notes panel (E-070) *No clip: visible, not yet recorded: no display on big; proved by tests/notes_panel_shows_the_auto_flag.rs*
 - **E-083** `cc725d4` Generating from compositions on a project with no tile says which groups were left out and why, instead of 'nothing has been placed yet' *No clip: an error message from the composition grammar; proved by crates/bevy_emerge_core/tests/a_tileless_composition_set_says_why.rs*
 - **e069-plan-panel** `e9d70f9` The Inspector's PLAN section shows the agent's plan: a count and one numbered row per step with its status *No clip: visible, not yet recorded: no display on big; proved by tests/the_plan_panel_lists_the_agents_steps.rs*

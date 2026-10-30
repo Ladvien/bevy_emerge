@@ -61,6 +61,7 @@ pub mod policy;
 pub mod project_data;
 pub mod range;
 pub mod references;
+pub mod repetition;
 pub mod rig_check;
 pub mod rigs;
 pub mod rigs_edit;

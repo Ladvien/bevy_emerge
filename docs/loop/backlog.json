@@ -405,6 +405,16 @@
           "evidence": "2026-10-28: moved to #95 (end to end)."
         }
       ]
+    },
+    {
+      "id": "E-087",
+      "kind": "enhancement",
+      "area": "core",
+      "status": "open",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Role-weighted repetition: a map cannot say which repeated pieces a player will notice (#136)",
+      "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Owes: the report in emerge_state and the Inspector."
     }
   ]
 }
