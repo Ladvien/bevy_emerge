@@ -31,6 +31,7 @@ fn sign_seen_from_gate() -> Relations {
                 from: "gate".into(),
                 clearance: 1.0,
             },
+            hard: false,
         }],
     }
 }

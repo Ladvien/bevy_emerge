@@ -93,6 +93,8 @@ pub mod ops_label_vlm;
 pub mod ops_dialogue;
 pub mod balloon;
 pub mod ops_family;
+#[cfg(feature = "bevy_gooey")]
+pub mod ui_skin;
 pub mod ops_terrain;
 pub mod ops_volume;
 #[cfg(feature = "isomesh")]

@@ -1,0 +1,58 @@
+{
+ "name": "relations_along",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      -9,
+      -7,
+      9,
+      8
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 3
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "relations_solve",
+    "parameters": {}
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    200,
+    650
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "lane.relations.ron: lamp Along gate -> well -> hall, within 1.5 m"
+  },
+  {
+   "at": 1.5,
+   "caption": "the lamp stands 6.5 m off the path: the relation is broken"
+  },
+  {
+   "at": 3.2,
+   "caption": "agent: relations_solve"
+  },
+  {
+   "at": 4.5,
+   "caption": "the lamp slides back beside the path, on its own side; one undo"
+  }
+ ]
+}

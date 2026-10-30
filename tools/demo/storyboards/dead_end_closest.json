@@ -1,0 +1,52 @@
+{
+ "name": "dead_end_closest",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_apply_operation",
+   "args": {
+    "operation": "door_open",
+    "parameters": {
+     "door": "kit"
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 3
+  },
+  {
+   "seconds": 5,
+   "operation": {
+    "name": "piece_select",
+    "parameters": {
+     "id": "jamb"
+    }
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    200,
+    650
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "a kit: jamb's east face is jamb_l jamb_r; b_near's west face is jamb_l jamb_x"
+  },
+  {
+   "at": 3.2,
+   "caption": "agent: piece_select jamb"
+  },
+  {
+   "at": 4.5,
+   "caption": "the dead end names the piece nearest to closing it: b_near, one cell off"
+  }
+ ]
+}

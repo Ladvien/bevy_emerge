@@ -2122,12 +2122,14 @@ impl Plugin for EditorPlugin {
         app.init_resource::<crate::environment::ClockScrub>().add_systems(
             Update,
             (
-                crate::environment::apply_environment.after(crate::family_host::reload_settings),
+                crate::environment::apply_environment.after(crate::family_host::Reloaded),
                 crate::environment::scrub_clock.after(crate::environment::apply_environment),
             ),
         );
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
+        #[cfg(feature = "bevy_gooey")]
+        crate::ui_skin::build(app);
         app.add_observer(on_play_click);
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
@@ -2135,7 +2137,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<NoteBox>()
             .init_resource::<NotesFilter>()
             .init_resource::<crate::family_host::FamilySettings>()
-            .add_systems(Update, (crate::family_host::report_problems, crate::family_host::reload_settings))
+            .add_systems(Update, (crate::family_host::report_problems, crate::family_host::reload_settings.in_set(crate::family_host::Reloaded)))
             // Registered in the same commit as `drive_move` and `keys` read it — a missing `ResMut`
             // panics its system in Bevy 0.19 rather than skipping it (`CLAUDE.md`).
             .init_resource::<MoveDrag>()
@@ -7178,10 +7180,12 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
     if unmet + missing == 0 {
         return (format!("{} met", outcomes.len()), DIM);
     }
-    // The first unmet relation, else the first one naming a piece the map does not have.
+    // The first unmet hard relation, else the first unmet one, else the first one naming a piece
+    // the map does not have.
     let pairs = || relations.relations.iter().zip(&outcomes);
     let first = pairs()
-        .find(|(_, o)| matches!(o, Outcome::Unmet { .. }))
+        .find(|(r, o)| r.hard && matches!(o, Outcome::Unmet { .. }))
+        .or_else(|| pairs().find(|(_, o)| matches!(o, Outcome::Unmet { .. })))
         .or_else(|| pairs().find(|(_, o)| matches!(o, Outcome::Missing { .. })));
     let words = match first {
         Some((_, Outcome::Missing { id })) => format!("{id} is not on the map"),
@@ -7195,7 +7199,9 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::ClearInFront { .. } => format!("{of} clear in front"),
                 Kind::VisibleFrom { from, .. } => format!("{of} seen from {from}"),
                 Kind::Along { path, .. } => format!("{of} along {}", path.join(" → ")),
+                Kind::ReachableFrom { from, .. } => format!("{of} reachable from {from}"),
             };
+            let what = if r.hard { format!("{what} (hard)") } else { what };
             match outcome {
                 Outcome::Unmet { by: Some(by), .. } => format!("{what} ({by} in the way)"),
                 _ => what,
