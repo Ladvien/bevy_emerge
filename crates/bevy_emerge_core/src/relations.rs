@@ -71,7 +71,10 @@ impl Relations {
             // Faces and AlignedWith have no distance; 0.0 stands in for "nothing to check".
             let metres: [f32; 2] = match &rel.kind {
                 Kind::Faces(_) | Kind::AlignedWith(_) => [0.0, 0.0],
-                Kind::Near { within, .. } | Kind::InFrontOf { within, .. } | Kind::Between { within, .. } => [*within, 0.0],
+                Kind::Near { within, .. }
+                | Kind::InFrontOf { within, .. }
+                | Kind::Behind { within, .. }
+                | Kind::Between { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
                 Kind::VisibleFrom { clearance, .. } | Kind::ReachableFrom { clearance, .. } => [*clearance, 0.0],
@@ -134,6 +137,10 @@ pub enum Kind {
     /// Stands in front of a placement: ahead of its forward, inside a 45° half-cone, and no more than
     /// `within` metres along it. Measures the distance along the other's forward.
     InFrontOf { of: String, within: f32 },
+    /// Stands behind a placement: against its forward, inside a 45° half-cone, and no more than
+    /// `within` metres back along it (a chest behind the counter, a guard behind the throne).
+    /// Measures the distance along the other's backward; a piece in front measures negative.
+    Behind { of: String, within: f32 },
     /// No other placement's centre stands in the `width` × `depth` corridor in front of this one (a
     /// door's swing, a counter's working side). Measures how far in the nearest intruder stands, or
     /// `depth` when clear.
@@ -257,6 +264,14 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
                     ahead > 0.0 && ahead <= *within && side.abs() <= ahead,
                     ahead,
                 )
+            }
+            Err(m) => m,
+        },
+        Kind::Behind { of, within } => match other(of) {
+            Ok(b) => {
+                let (ahead, side) = local(b, a.at);
+                let back = -ahead;
+                verdict(back > 0.0 && back <= *within && side.abs() <= back, back)
             }
             Err(m) => m,
         },
@@ -655,7 +670,8 @@ const SOLVE_ROUNDS: usize = 8;
 /// For each [`Outcome::Unmet`] relation the solver proposes one move: [`Kind::Faces`] turns the
 /// piece to its target, [`Kind::AlignedWith`] turns it to the other's heading without moving it,
 /// [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
-/// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
+/// [`Kind::InFrontOf`] sets it on the other's forward, [`Kind::Behind`] on the other's backward,
+/// and [`Kind::ClearInFront`] moves the intruder
 /// sideways out of the corridor (the door stays where it was hung), [`Kind::VisibleFrom`] moves
 /// the nearest blocker sideways off the sight line (both ends stay), [`Kind::Along`] slides the
 /// piece toward the nearest point of its path, on its own side, [`Kind::Between`] sets it on the
@@ -779,6 +795,12 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             let (fx, fz) = forward(b);
             let d = distance(a.at, b.at).clamp(within * 0.1, within * 0.9);
             free(a).then(|| (a.id.clone(), (b.at.0 + fx * d, b.at.1 + fz * d), a.yaw))
+        }
+        Kind::Behind { of, within } => {
+            let b = other(of)?;
+            let (fx, fz) = forward(b);
+            let d = distance(a.at, b.at).clamp(within * 0.1, within * 0.9);
+            free(a).then(|| (a.id.clone(), (b.at.0 - fx * d, b.at.1 - fz * d), a.yaw))
         }
         Kind::ClearInFront { width, .. } => {
             // The intruder, or the piece it rests on: moving the host carries it out.
