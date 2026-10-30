@@ -1689,6 +1689,9 @@ pub struct NoteDraft {
     /// Placement ids Shift-clicked as the note's subject. When any, the note is about these pieces
     /// and `area` is only the cells they span.
     pub pieces: Vec<String>,
+    /// Tab in the box: "decide these yourself". The note is saved with `auto` (E-070), so its holder
+    /// states what it assumed instead of asking about an open choice.
+    pub auto: bool,
 }
 
 /// **The Note tool's state**: the corner a drag started at, and the box once the button comes up.
@@ -1751,6 +1754,7 @@ fn drive_note(
                 editing: None,
                 text: String::new(),
                 pieces: Vec::new(),
+                auto: false,
             });
             if let Some(k) = draft.pieces.iter().position(|p| *p == id) {
                 draft.pieces.remove(k);
@@ -1806,13 +1810,14 @@ fn drive_note(
                 editing: Some(n.id.clone()),
                 text: n.text.clone(),
                 pieces: Vec::new(),
+                auto: n.auto,
             });
             state.status.note(format!("note {}: edit, Enter saves, an emptied note is removed, Esc leaves it", n.id));
             return;
         }
     }
     let area = [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)];
-    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new(), pieces: Vec::new() });
+    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new(), pieces: Vec::new(), auto: false });
     state.status.note(format!(
         "note on {}x{} cells: type it, Enter saves, Shift+Enter is a new line, Esc cancels",
         area[2] - area[0] + 1,
@@ -1937,14 +1942,29 @@ fn type_note(
             Key::Backspace => {
                 draft.text.pop();
             }
+            Key::Tab if draft.editing.is_none() => draft.auto = !draft.auto,
             Key::Space => draft.text.push(' '),
             Key::Character(s) => draft.text.push_str(s),
             _ => {}
         }
         if let Some(d) = note_box.draft.as_ref() {
-            state.status.note(format!("note: {}\u{258f} — Enter saves, Esc cancels", d.text));
+            let auto = if d.auto { " [auto: decides for itself]" } else { "" };
+            state.status.note(format!("note: {}\u{258f}{auto} — Tab toggles auto, Enter saves, Esc cancels", d.text));
         }
     }
+}
+
+/// **The `note_add` arguments a note box's draft stands for.** `auto` is sent only when Tab turned it on.
+pub fn note_add_params(draft: &NoteDraft, pose: Option<[f32; 5]>) -> serde_json::Value {
+    let mut params = if draft.pieces.is_empty() {
+        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose})
+    } else {
+        serde_json::json!({"pieces": draft.pieces, "text": draft.text, "camera": pose})
+    };
+    if draft.auto {
+        params["auto"] = serde_json::json!(true);
+    }
+    params
 }
 
 /// **Leave a note through the registry**, as an agent's `note_add` does. A refusal is a problem,
@@ -1956,17 +1976,12 @@ fn add_note(
     draft: &NoteDraft,
     pose: Option<[f32; 5]>,
 ) {
-    let params = if draft.pieces.is_empty() {
-        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose})
-    } else {
-        serde_json::json!({"pieces": draft.pieces, "text": draft.text, "camera": pose})
-    };
     dispatch_note(
         project,
         open,
         state,
         "note_add",
-        params,
+        note_add_params(draft, pose),
         "leave a note",
     );
 }
@@ -4493,6 +4508,8 @@ fn terrain_edit_keys(
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("trigger ") {
                     set_trigger(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("ref ") {
+                    set_reference(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("person ") {
                     set_person(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
@@ -4560,6 +4577,35 @@ fn sculpt_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
 
 /// **Author a person through the registry** as `person_set`, from the terrain line
 /// `person <name> remove`, or `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>] [tie=<name>[:<affinity>[:<trust>]]]`.
+/// **Add or remove a reference image through the registry** as `reference_set`, from the terrain line
+/// `ref <path> [caption]` or `ref <id> remove`.
+fn set_reference(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let (Some(open), Some(first)) = (open, words.get(1)) else {
+        state.status.problem(format!("`{}` is not `ref <path> [caption]` or `ref <id> remove`, so nothing was changed", raw.trim()));
+        return;
+    };
+    let params = if words.get(2) == Some(&"remove") && words.len() == 3 {
+        serde_json::json!({"remove": first})
+    } else {
+        serde_json::json!({"path": first, "caption": words[2..].join(" ")})
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "reference_set", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
 fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
     let words: Vec<&str> = raw.split_whitespace().collect();
     let (Some(open), Some(name)) = (open, words.get(1)) else {

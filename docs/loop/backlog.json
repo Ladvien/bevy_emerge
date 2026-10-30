@@ -44,9 +44,9 @@
       "id": "E-012",
       "kind": "enhancement",
       "area": "tests",
-      "status": "open",
+      "status": "shipped",
       "title": "Signature-reading ratchets cannot see resources inside #[derive(SystemParam)] bundles",
-      "evidence": "B-005 introduced 32 bundles; the_sweep_is_finished and every_resource_says_what_a_door_does_to_it read fn signatures, so a bare Res in a bundle used by an on_* observer would pass. on_shelf_click was kept unbundled for this reason; the ratchets should resolve bundle fields."
+      "evidence": "B-005 introduced 32 bundles; the_sweep_is_finished and every_resource_says_what_a_door_does_to_it read fn signatures, so a bare Res in a bundle used by an on_* observer would pass. on_shelf_click was kept unbundled for this reason; the ratchets should resolve bundle fields. Done 2026-10-30: tests/no_observer_hides_a_resource_in_a_bundle.rs resolves bundle fields (nested) for every add_observer-registered fn; real tree is clean (history_row_clicked is an entity observer, out of scope)."
     },
     {
       "last_failure": "",
@@ -171,8 +171,8 @@
       "kind": "enhancement",
       "area": "mcp",
       "title": "Review gaps 14 and 16 (confidence wording, duplicate confidence_word)",
-      "status": "open",
-      "evidence": "Gap 15 fixed in bfc538b: the only copy of the pieces_from wording in crates/bevy_emerge_mcp/src is docs.rs:279 (counted in the filtered list; 0 is the first match). Gap 16 open: crates/bevy_emerge_mapper/src/ops_brp.rs:462 fn confidence_word (cycle 8 cited :451; the line moved). Gap 14 open: confidence and at describe the record, not what is unchecked (local://c8-review.md, not in repo). Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md",
+      "status": "shipped",
+      "evidence": "Gap 15 fixed in bfc538b: the only copy of the pieces_from wording in crates/bevy_emerge_mcp/src is docs.rs:279 (counted in the filtered list; 0 is the first match). Gap 16 open: crates/bevy_emerge_mapper/src/ops_brp.rs:462 fn confidence_word (cycle 8 cited :451; the line moved). Gap 14 open: confidence and at describe the record, not what is unchecked (local://c8-review.md, not in repo). Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md | Shipped: Confidence::FromStr in core replaces ops_brp confidence_word (test a_confidence_word_parses_back); emerge_list_pieces description says confidence/at report the record, not whether labels were checked.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -254,7 +254,7 @@
         "evidence": "Open-ended requests produce 2-3 alternatives as the brief asks, but there is no way for the person to say 'decide these yourself this turn'. Mixar carries an `auto_mode` on the turn, and omitting the field IS false."
       },
       "status": "open",
-      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Still open: an Auto toggle in the Note tool UI (needs a display).",
+      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Person-side: Tab in the note box toggles auto (tests/a_note_box_can_say_auto.rs); status line shows it. Still open: a clip, and a visible Auto chip in the Notes panel.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
@@ -270,7 +270,7 @@
         "evidence": "A person can drop a reference and say 'like this'; nothing stores it as project data or lets the agent name it back. Mixar keeps a moodboard the agent reads and cites."
       },
       "status": "open",
-      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py",
+      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py. Slice 1 shipped: core references.rs (References beside the map as <map>.references.ron; add/remove/cite/missing, ids never reused, paths inside the project); tests/references.rs. Slice 2: reference_set op + emerge_state references. Slice 3: note_resolve refuses a cited reference id the map lacks. Still open: the UI drop (needs a display).",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
