@@ -44,9 +44,9 @@
       "id": "E-012",
       "kind": "enhancement",
       "area": "tests",
-      "status": "open",
+      "status": "done",
       "title": "Signature-reading ratchets cannot see resources inside #[derive(SystemParam)] bundles",
-      "evidence": "B-005 introduced 32 bundles; the_sweep_is_finished and every_resource_says_what_a_door_does_to_it read fn signatures, so a bare Res in a bundle used by an on_* observer would pass. on_shelf_click was kept unbundled for this reason; the ratchets should resolve bundle fields."
+      "evidence": "B-005 introduced 32 bundles; the_sweep_is_finished and every_resource_says_what_a_door_does_to_it read fn signatures, so a bare Res in a bundle used by an on_* observer would pass. on_shelf_click was kept unbundled for this reason; the ratchets should resolve bundle fields. Done 2026-10-30: tests/no_observer_hides_a_resource_in_a_bundle.rs resolves bundle fields (nested) for every add_observer-registered fn; real tree is clean (history_row_clicked is an entity observer, out of scope)."
     },
     {
       "last_failure": "",
