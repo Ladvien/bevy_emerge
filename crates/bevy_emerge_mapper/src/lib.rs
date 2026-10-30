@@ -84,6 +84,8 @@ pub mod ops_crowd;
 #[cfg(feature = "bevy_carnage")]
 pub mod ops_destructible;
 pub mod ops_data;
+#[cfg(feature = "bevy_speech_bubbles")]
+pub mod ops_dialogue;
 pub mod ops_family;
 pub mod ops_terrain;
 pub mod ops_volume;
