@@ -109,10 +109,10 @@ impl Params {
             if pl.points.is_empty() {
                 return Err(Refusal::new("a forest stroke needs at least one point. Nothing was changed."));
             }
-            if !(pl.radius_m > 0.0 && pl.spacing_m > 0.0) {
+            if pl.radius_m <= 0.0 || pl.spacing_m <= 0.0 {
                 return Err(Refusal::new("`radius_m` and `spacing_m` must be positive. Nothing was changed."));
             }
-            if pl.species.is_empty() || pl.species.iter().all(|s| !(s.weight > 0.0)) {
+            if pl.species.is_empty() || pl.species.iter().all(|s| s.weight <= 0.0) {
                 return Err(Refusal::new("a forest needs a species with a weight above 0. Nothing was changed."));
             }
         }
