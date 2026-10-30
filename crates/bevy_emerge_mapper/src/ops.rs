@@ -2362,6 +2362,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
+        Box::new(crate::ops_stamp::StampAdd),
         Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
@@ -2460,6 +2461,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The stamp click**, which takes a whole stamp off the map through `delete_stamp`, which
     // dispatches `stamp_remove`. A stamp is removed whole, never by a piece of it.
     ("stamp_remove", "delete_stamp("),
+    // **The stamp click** also puts one on, through `stamp_here`, which asks `ops_stamp::plan_stamp`
+    // exactly as `stamp_add` does, so the id rule, the trial expansion and the refusals are shared.
+    ("stamp_add", "plan_stamp("),
     // **The Map door's size field**, which edits one axis of the map's bounds and is the editor's
     // own way of doing what `map_set_settings` does. It dispatches the operation.
     ("map_set_settings", "SizeField(Axis)"),

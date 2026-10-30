@@ -78,6 +78,7 @@ mod a_weight_names_the_pieces_it_tunes;
 mod after_edit_checks_say_what_they_found;
 mod after_edit_waits_for_the_picture;
 mod an_agent_can_define_a_composition;
+mod an_agent_can_stamp_a_composition;
 mod an_agent_can_drive_the_editor;
 mod an_agent_can_enter_the_map_it_made;
 mod an_agent_can_fill;
