@@ -4,11 +4,9 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
-<<<<<<< HEAD
 - **forest-season** `c0a2402` Trees follow the map's date: the preview's FloraSeason turns blossom, green, autumn, snow with the month, shifted for the south (#102) *No clip: visible, not yet recorded: no display, the editor does not draw flora yet; proved by forest_season tests*
 - **102-tree-editor** tree_edit: start a tree from a bevy_flora preset and tune any field by path, written as a project .tree.ron the crate's loader reads, one undo per edit; terrain-field line `tree <name> [preset] [field=value]` (#102) *No clip: visible, not yet recorded: no display work this pass; proved by tests/tree_editor.rs*
 - **forest-place** `72be365` Place one tree by hand with an age and a seed (forest_scatter's place); the same seed grows the same tree *No clip: an API; proved by tests/forest_place.rs*
-=======
 - **relations-reachable-from** `abf6439` Relations: ReachableFrom, a walk from one piece to another round whatever stands between, and solve opens a sealed one *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_reachable_from_another.rs*
 - **gooey-skin** `fe2d94f` A project's family/bevy_gooey.ron is the running UI skin: a partial file restyles bevy_gooey widgets live, and a bad file or a WCAG failure is a status-line problem (#147) *No clip: visible, not yet recorded: no display on big; proved by family_gooey_skin*
 - **relations-along** `e8b7fe0` A relation keeps a piece beside a path through other pieces: Along names how far off it stands, and relations solve brings it back<br><a href="docs/changelog/media/2026-10-30-relations-along.mp4"><img src="docs/changelog/media/2026-10-30-relations-along.png" width="320" alt="clip"></a>
@@ -44,7 +42,6 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **E-070-auto-toggle** `99cd8e5` Tab in the note box marks a note auto: the agent decides open choices itself and says what it assumed *No clip: visible, not yet recorded: no display on big*
 - **E-075c** `f328bc5` A note's resolution can cite a reference picture by id; an id the map lacks is refused *No clip: an agent-facing refusal; proved by note_cites_reference::a_resolve_citing_a_reference_the_map_lacks_is_refused*
 - **E-075b** `4c54e46` Reference images are added and removed through the reference_set operation (UI line 'ref <path> [caption]') and listed in emerge_state for the agent to cite *No clip: an operation and state field; proved by tests/references.rs*
->>>>>>> 73343d4c0b4cd4141a03fca2f95dc84b1e30d508
 - **E-047** `238331d` emerge_list_pieces says its confidence describes the record, not a check; one confidence parser *No clip: an API wording and a refactor; proved by a_confidence_word_parses_back*
 - **E-075-refs-core** Reference images are project data: <map>.references.ron holds them with ids an agent can cite (core slice, #124) *No clip: an API, no operation or UI yet; proved by bevy_emerge_core tests/references.rs*
 - **E-012** `a7a7222` Ratchet: a global observer can no longer hide a bare Res inside a SystemParam bundle *No clip: a test ratchet; proved by no_observer_hides_a_resource_in_a_bundle*
