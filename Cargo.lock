@@ -966,6 +966,7 @@ dependencies = [
  "bevy_emerge_decide",
  "bevy_emerge_snip",
  "bevy_fairy",
+ "bevy_flora",
  "bevy_lights",
  "bevy_orca",
  "bevy_speech_bubbles",
@@ -1098,6 +1099,16 @@ dependencies = [
  "bevy_ui_widgets",
  "bevy_window",
  "smol_str",
+]
+
+[[package]]
+name = "bevy_flora"
+version = "0.46.0"
+source = "git+https://github.com/Ladvien/bevy_flora?rev=25e956b3f88ba32a1b6d75957360c6840da6afd9#25e956b3f88ba32a1b6d75957360c6840da6afd9"
+dependencies = [
+ "bevy",
+ "ron",
+ "serde",
 ]
 
 [[package]]
