@@ -4330,7 +4330,9 @@ fn terrain_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                if raw.trim_start().starts_with("import ") {
+                if raw.trim_start().starts_with("water ") {
+                    place_water(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("import ") {
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
                     sculpt_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
@@ -4413,6 +4415,49 @@ fn import_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
     };
     let params = serde_json::json!({"map": open.map.name, "file": words[1], "cell_m": nums[0], "range_m": [nums[1], nums[2]]});
     match crate::ops::dispatch(&mut ctx, "terrain_import", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Place water through the registry** as `water_place`, from the terrain line
+/// `water spring <x> <z> <rate_m3_s> <radius_m>`, `water sink <x> <z> <rate_m3_s> <radius_m>` or
+/// `water lake <x> <z> <radius_m> <level_m>`; `water clear` removes the map's water.
+fn place_water(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let nums: Option<Vec<f32>> = words.get(2..).filter(|w| w.len() == 4).and_then(|w| w.iter().map(|n| n.parse().ok()).collect());
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is no water to place".to_owned());
+        return;
+    };
+    let place = match (words.get(1).copied(), nums) {
+        (Some("clear"), _) if words.len() == 2 => None,
+        (Some("spring"), Some(n)) => Some(serde_json::json!({"Spring": {"x": n[0], "z": n[1], "rate_m3_s": n[2], "radius_m": n[3]}})),
+        (Some("sink"), Some(n)) => Some(serde_json::json!({"Sink": {"x": n[0], "z": n[1], "rate_m3_s": n[2], "radius_m": n[3]}})),
+        (Some("lake"), Some(n)) => Some(serde_json::json!({"Lake": {"x": n[0], "z": n[1], "radius_m": n[2], "level_m": n[3]}})),
+        _ => {
+            state.status.problem(format!(
+                "`{}` is not `water spring|sink <x> <z> <rate_m3_s> <radius_m>`, `water lake <x> <z> <radius_m> <level_m>` or `water clear`, so nothing was changed",
+                raw.trim()
+            ));
+            return;
+        }
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = match place {
+        Some(p) => serde_json::json!({"map": open.map.name, "place": p}),
+        None => serde_json::json!({"map": open.map.name, "clear": true}),
+    };
+    match crate::ops::dispatch(&mut ctx, "water_place", &params) {
         Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
             state.status.note(outcome.summary.clone());
             state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
