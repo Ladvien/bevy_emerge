@@ -54,10 +54,7 @@ debugger = ["bevy/bevy_remote", "dep:bevy_debugger_bevy"]
 bevy_carnage = ["dep:bevy_carnage"]
 bevy_elements = ["dep:bevy_elements"]
 bevy_flora = ["dep:bevy_flora"]
-<<<<<<< HEAD
-=======
 # Not a family crate: the engine-free mesher a carved volume (#101) is sampled through. Off by default.
->>>>>>> 1cab1eb71b6586e50293675c7729e2e98e2c691d
 isomesh = ["dep:isomesh"]
 bevy_lights = ["dep:bevy_lights"]
 bevy_orca = ["dep:bevy_orca"]
@@ -75,7 +72,6 @@ bevy_society = { git = "https://github.com/Ladvien/bevy_society", rev = "d2e3970
 bevy_speech_bubbles = { git = "https://github.com/Ladvien/bevy_speech_bubbles", rev = "00bd902f9d04720e891429c381b6df3ba7d3a3b7", optional = true }
 bevy_stigmergy = { git = "https://github.com/Ladvien/bevy_stigmergy", rev = "6ecee6a3c2ff0bf7f18dab10f376c49b49914c44", optional = true }
 bevy_emerge_core = { path = "../bevy_emerge_core" }
-isomesh = { git = "https://github.com/Ladvien/isomesh", rev = "d3dc6c0fb6b43b899e534643f51f76a856d2d9ee", optional = true }
 bevy_flora = { git = "https://github.com/Ladvien/bevy_flora", rev = "25e956b3f88ba32a1b6d75957360c6840da6afd9", features = ["ron"], optional = true }
 # The runtime half. The editor spawns pieces through `bevy_emerge::spawn_descriptor` rather than its
 # own copy, so a map cannot look one way here and another in the game — the failure `bake.rs` and

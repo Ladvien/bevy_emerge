@@ -4,12 +4,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
-<<<<<<< HEAD
-- **101-mesh** `f495aed` The carved volume meshes through isomesh chunk by chunk with no cracks at the seams (#101 slice 2) *No clip: an API, not yet drawn in the viewport; proved by volume_mesh_seams::a_hollow_carved_across_eight_chunks_is_a_closed_manifold_with_no_seam_holes*
-=======
 - **106-attach** `0ecb31a` A conversation can be attached to a placed piece by name; one the dialogue script lacks is refused *No clip: visible, not yet recorded: no display on big; proved by family_dialogue attach test*
 - **101-s2** `d3f9e8a` Volume: the carved edit list meshes in chunks through isomesh, sealed with no cracks at chunk seams *No clip: an API behind the isomesh feature; proved by volume_meshes_without_cracks*
->>>>>>> 1cab1eb71b6586e50293675c7729e2e98e2c691d
 - **terrain-water-draw** `db5f919` The sculpted ground and the kept water are drawn in the editor viewport, following terrain_stroke and water_run (#99, #100) *No clip: visible, not yet recorded: no clip yet, drawn from files the editor polls; proved by terrain_view_draws_water*
 - **101-volume-edit** `51d0e09` Volume edit list: add and carve sphere, box and capsule primitives, one undo each, saved beside the map *No clip: an operation and a data type, not yet drawn (isomesh meshing owed); proved by volume_edit_is_an_operation*
 - **104-society-host** `2b3486f` bevy_society is a hosted family crate: family_set refuses a society definition the crate cannot compile *No clip: an API; proved by family_society tests*
