@@ -307,8 +307,8 @@ pub struct PiecesParams {
     /// labels none of its axes.
     #[serde(default)]
     pub unlabelled: bool,
-    /// **`true` keeps only the pieces with an axis a model or an agent wrote and no person has confirmed.**
-    #[serde(default)]
+    /// **`true` keeps only the pieces with an axis a model or an agent wrote and no person has confirmed.** Also spelled `unconfirmed`: it matches agent-written axes too, not only a model's.
+    #[serde(default, alias = "unconfirmed")]
     pub by_model: bool,
     /// **Keeps only the pieces whose label record says this confidence**: `high`, `medium` or `low`.
     /// Any other word is refused.
@@ -708,7 +708,7 @@ impl Emerge {
         description = "The library's pieces, a page at a time. Each row carries the piece's id, the \
                        mesh it is drawn with (null for a flat footprint marker), its kind, effects \
                        and looks, and its labels: who labelled each axis (model, agent or human), the \
-                       record's model, date and confidence. Filters combine: with_mesh, unlabelled, \
+                       record's model, date and confidence, which report what the record says, not whether anyone has checked it; by_model finds labels no human has confirmed. Filters combine: with_mesh, unlabelled, \
                        by_model, confidence (high, medium or low), id_contains. total is the true \
                        count after the filters. A page holds 50 rows; past 50, pass pieces_from \
                        (from pieces_next) to read the rest, and how_to_narrow names the filters \
@@ -1557,6 +1557,9 @@ const LANDING_TIMEOUT_S: f32 = 5.0;
 fn sequence_wait(seconds: f32, expected_frames: u32) -> std::time::Duration {
     std::time::Duration::from_secs_f32(seconds + 10.0 + expected_frames as f32 * LANDING_TIMEOUT_S)
 }
+
+#[cfg(test)]
+mod pieces_params_tests;
 
 #[cfg(test)]
 mod capture_label_tests {

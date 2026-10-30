@@ -4,8 +4,18 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+<<<<<<< HEAD
 - **102-tree-editor** tree_edit: start a tree from a bevy_flora preset and tune any field by path, written as a project .tree.ron the crate's loader reads, one undo per edit; terrain-field line `tree <name> [preset] [field=value]` (#102) *No clip: visible, not yet recorded: no display work this pass; proved by tests/tree_editor.rs*
 - **forest-place** `72be365` Place one tree by hand with an age and a seed (forest_scatter's place); the same seed grows the same tree *No clip: an API; proved by tests/forest_place.rs*
+=======
+- **E-047** `238331d` emerge_list_pieces says its confidence describes the record, not a check; one confidence parser *No clip: an API wording and a refactor; proved by a_confidence_word_parses_back*
+- **E-075-refs-core** Reference images are project data: <map>.references.ron holds them with ids an agent can cite (core slice, #124) *No clip: an API, no operation or UI yet; proved by bevy_emerge_core tests/references.rs*
+- **E-012** `a7a7222` Ratchet: a global observer can no longer hide a bare Res inside a SystemParam bundle *No clip: a test ratchet; proved by no_observer_hides_a_resource_in_a_bundle*
+- **E-052** emerge_list_pieces: unconfirmed is another spelling of by_model, which matches agent-written axes too *No clip: an MCP parameter alias; proved by pieces_params_tests::unconfirmed_is_the_by_model_filter*
+- **E-070** `163f508` note_add takes auto: the agent decides open choices itself and cannot ask, the fence still holds *No clip: an API option on a note; proved by note_auto tests*
+- **105-hot** `4ceb657` A trigger script edited on disk fires on the next society run, no restart (#105) *No clip: a test; proved by a_script_edited_on_disk_takes_effect*
+- **E-069-1** `10c4310` An agent can show its plan beside the map (plan_set): a checklist with a status per item, in emerge_state, with undo and redo *No clip: an agent API; proved by an_agent_can_show_its_plan*
+>>>>>>> e0489c1ca16190ddd22df11bfec87dcd346fc3a8
 - **E-072-3** `1286260` An agent can change a composition's envelope (composition_set_envelope); a second click on the selected Compose row flips it *No clip: visible, not yet recorded: no display on big; proved by tests/an_agent_can_set_a_composition_envelope.rs*
 - **99-sculpt-clip** `baa506f` Strokes on a map's terrain are drawn in the viewport: two hills raised and a hollow dug by terrain_stroke, saved as the map's heightfield (#99)<br><a href="docs/changelog/media/2026-10-30-terrain-sculpt.mp4"><img src="docs/changelog/media/2026-10-30-terrain-sculpt.png" width="320" alt="clip"></a>
 - **105-note-bind** `76975de` A trigger can be bound to a note's area: trigger_set bind.note *No clip: an API over MCP; proved by tests/a_trigger_binds_to_a_notes_area.rs*
@@ -14,7 +24,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **105-triggers** Triggers: bevy_society Rhai scripts bound to people, a faction or an area, syntax-checked on save, and shown firing in people_run (trigger_set) *No clip: visible, not yet recorded: no display on big; proved by tests/triggers.rs*
 - **dialogue-barks** `d3785bc` Barks: a piece can carry a list of the crate's own Bark lines, refused with the crate's message when malformed (#106 slice 4) *No clip: visible, not yet recorded: no display on big; proved by family_dialogue::barks_attached_to_a_piece_are_the_crates_own_bark_list_and_a_malformed_one_is_refused*
 - **104-ties** People can have ties to each other (person_set tie, terrain line tie=Odo:0.3:0.8); a people run starts from them and reports each person's bonds (#104 slice 4) *No clip: visible, not yet recorded: no display on big; proved by people_ties tests*
-- **101-draw** `e8dc64c` A carve in the ground is drawn: the viewport shows the volume's isomesh chunks in place of the heightfield mesh (#101 slice 6) *No clip: visible, not yet recorded: no display on big; proved by carved_ground_is_drawn*
+- **101-draw** `e8dc64c` A carve in the ground is drawn: the viewport shows the volume's isomesh chunks in place of the heightfield mesh (#101 slice 6)<br><a href="docs/changelog/media/2026-10-30-carve-the-ground.mp4"><img src="docs/changelog/media/2026-10-30-carve-the-ground.png" width="320" alt="clip"></a>
 - **water-pond-clip** `61c7f57` A spring on a sculpted valley is run until it settles into a pond, drawn in the viewport and kept as the map's water (#100)<br><a href="docs/changelog/media/2026-10-30-water-pond.mp4"><img src="docs/changelog/media/2026-10-30-water-pond.png" width="320" alt="clip"></a>
 - **people-run** `72e9b7c` people_run (and the terrain line 'people run [seed] [days]') runs a map's villagers forward in bevy_society's own app: same seed, same day (#104) *No clip: visible, not yet recorded: no display on big*
 - **106-runtime** `b982f0f` A conversation attached to a piece plays through the crate's own runtime: the talker asks, the chosen option leads to its line *No clip: visible, not yet recorded: no display on big; proved by dialogue_runtime::the_conversation_a_piece_carries_is_walked_by_the_crates_runtime_down_the_chosen_option*
@@ -194,7 +204,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 - **E-024** `885ba4a` One key action moved into the operation registry, so new person actions can follow *No clip: not visible: a registry migration; proved by the tests in its commit*
 - **E-013** `602e1f3` The person's Cmd+Z takes back an agent's change<br><a href="docs/media/agent-removes-then-undo.gif"><img src="docs/media/agent-removes-then-undo.gif" width="320" alt="clip"></a>
 - **E-025** `2109326` How a migrated key action leaves the enum without bypassing the typing guard (a design decision) *No clip: not visible: a design decision; proved by the tests in its commit*
-- **E-022** `3834b0b` The Map opens framed on the map, not on an 18 m close-up of the origin *No clip: visible, not yet recorded (backfill)*
+- **E-022** `3834b0b` The Map opens framed on the map, not on an 18 m close-up of the origin <br><a href="docs/changelog/media/2026-10-30-E-022.mp4"><img src="docs/changelog/media/2026-10-30-E-022.png" width="320" alt="clip"></a>
 - **E-017** `8c97677` An agent frames the view: the map, a placement, placements or a rectangle<br><a href="docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-8c97677/enh-after.gif" width="320" alt="clip"></a>
 - **E-016** `63e6631` The inspector names what Cmd+Z and Cmd+Shift+Z will do<br><a href="docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif"><img src="docs/loop/iterations/assets/2026-10-21-63e6631/enh-after.gif" width="320" alt="clip"></a>
 - **E-010** `da9b549` Cmd+Z takes back a map-settings change, not only placements *No clip: visible, not yet recorded (backfill)*
