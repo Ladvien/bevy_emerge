@@ -1,0 +1,133 @@
+{
+ "name": "sculpt_the_ground",
+ "fps": 10,
+ "scale": 2,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": {
+     "rect": [
+      -34,
+      -34,
+      34,
+      34
+     ]
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 2
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "terrain_stroke",
+    "parameters": {
+     "map": "valley",
+     "stroke": {
+      "brush": "Raise",
+      "radius_m": 9.0,
+      "strength": 6.0,
+      "points": [
+       [
+        -12.0,
+        -10.0
+       ],
+       [
+        -8.0,
+        -6.0
+       ]
+      ]
+     },
+     "create": {
+      "origin": [
+       -30.0,
+       -30.0
+      ],
+      "cell_m": 1.25,
+      "width": 49,
+      "depth": 49,
+      "height_m": 0.0
+     }
+    }
+   }
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "terrain_stroke",
+    "parameters": {
+     "map": "valley",
+     "stroke": {
+      "brush": "Raise",
+      "radius_m": 8.0,
+      "strength": 5.0,
+      "points": [
+       [
+        12.0,
+        10.0
+       ],
+       [
+        16.0,
+        12.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "seconds": 3,
+   "operation": {
+    "name": "terrain_stroke",
+    "parameters": {
+     "map": "valley",
+     "stroke": {
+      "brush": "Lower",
+      "radius_m": 6.0,
+      "strength": 3.0,
+      "points": [
+       [
+        0.0,
+        0.0
+       ],
+       [
+        4.0,
+        -4.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "seconds": 2
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.2,
+   "caption": "a map with no terrain: flat"
+  },
+  {
+   "at": 2.3,
+   "caption": "agent: terrain_stroke Raise, one stroke"
+  },
+  {
+   "at": 5.3,
+   "caption": "a second hill, a second stroke"
+  },
+  {
+   "at": 8.3,
+   "caption": "Lower digs a hollow"
+  },
+  {
+   "at": 11.3,
+   "caption": "saved as terrain/valley.ron; each stroke is one undo"
+  }
+ ]
+}

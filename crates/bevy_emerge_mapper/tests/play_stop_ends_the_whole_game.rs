@@ -49,7 +49,9 @@ fn stop_ends_a_game_started_through_a_launcher() {
     else {
         panic!("play was refused")
     };
-    assert_eq!(outcome.after.unwrap()["ready"], true, "the game behind the launcher answered: {}", outcome.summary);
+    let after = outcome.after.unwrap();
+    let _cleanup = crate::play_starts_and_stops_the_game::KillGroupOnDrop(after["pid"].as_u64().unwrap());
+    assert_eq!(after["ready"], true, "the game behind the launcher answered: {}", outcome.summary);
 
     let Applied::Done { .. } = ops::dispatch(&mut c, "play_stop", &json!({})).unwrap() else { panic!("stop refused") };
     let deadline = Instant::now() + Duration::from_secs(5);
