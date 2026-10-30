@@ -28,7 +28,7 @@
         "evidence": "cargo info for all seven crates says 'could not find ... in registry'. There is no published baseline, so no release can be made and no pre-publish gate has a version to check against."
       },
       "status": "open",
-      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` fails before any decision is reachable \u2014 \"all dependencies must have a version requirement specified when packaging: dependency `bevy_emerge_rng` does not specify a version\" (the `path` spec is dropped and crates.io is consulted). `bevy_emerge_solver` and `bevy_devshot` are also `publish = false`, so the graph has an unpublishable node in the middle. Making the workspace publishable is therefore: add a version to every intra-workspace path dependency (core->rng, core->solver, snip, anim, mapper->core/rng/solver/devshot, mcp->core), decide whether solver/devshot ship at all, then publish in dependency order rng -> solver -> core -> snip -> anim -> devshot -> mapper -> mcp. Until then the README's 'use the crates by path or git' is the only install path that works, and it is accurate. `bevy_elements` is a separate repo and already published (0.5.3, now 0.6.0).",
+      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` fails before any decision is reachable — \"all dependencies must have a version requirement specified when packaging: dependency `bevy_emerge_rng` does not specify a version\" (the `path` spec is dropped and crates.io is consulted). `bevy_emerge_solver` and `bevy_devshot` are also `publish = false`, so the graph has an unpublishable node in the middle. Making the workspace publishable is therefore: add a version to every intra-workspace path dependency (core->rng, core->solver, snip, anim, mapper->core/rng/solver/devshot, mcp->core), decide whether solver/devshot ship at all, then publish in dependency order rng -> solver -> core -> snip -> anim -> devshot -> mapper -> mcp. Until then the README's 'use the crates by path or git' is the only install path that works, and it is accurate. `bevy_elements` is a separate repo and already published (0.5.3, now 0.6.0).",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -285,8 +285,8 @@
         "no_workaround": false,
         "evidence": "`compositions.ron` holds `Bounded: 0, Anchored: 16`. `grammar::from_compositions` skips an anchored group by definition (\"it presents no edge to match\"), so `layout_propose {source: composed}` is refused there with \"nothing has been placed yet\" and no composed layout can be measured. `learned` works but derives no wall interfaces, so E-080's measurement answers `null` on the only real project in this repo. Found live while proving E-080; the metric itself is proved on the crate's own fixture."
       },
-      "status": "open",
-      "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip)",
+      "status": "shipped",
+      "evidence": "~/sanctuary/assets/emerge/compositions.ron (16 Anchored, 0 Bounded); crates/bevy_emerge_core/src/grammar.rs::from_compositions (the anchored skip) | Shipped cc725d4 (#132): from_compositions refuses a tileless set by name (tests/a_tileless_composition_set_says_why.rs). Assumed decision: no slicing of anchored groups (111 distinct cell slices on Sanctuary, over the 32 cap) and no multi-cell prototypes; the game authors Bounded one-cell tiles for the composed source.",
       "last_failure": "",
       "first_seen": "2026-10-26"
     },

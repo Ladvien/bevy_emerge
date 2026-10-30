@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **E-070-chip** `be3b1d7` A note the agent may decide for itself shows an 'auto' chip on its row in the Notes panel (E-070) *No clip: visible, not yet recorded: no display on big; proved by tests/notes_panel_shows_the_auto_flag.rs*
+- **E-083** `cc725d4` Generating from compositions on a project with no tile says which groups were left out and why, instead of 'nothing has been placed yet' *No clip: an error message from the composition grammar; proved by crates/bevy_emerge_core/tests/a_tileless_composition_set_says_why.rs*
 - **e069-plan-panel** `e9d70f9` The Inspector's PLAN section shows the agent's plan: a count and one numbered row per step with its status *No clip: visible, not yet recorded: no display on big; proved by tests/the_plan_panel_lists_the_agents_steps.rs*
 - **105-scripts-panel** Scripts panel: every trigger of the open map is a row in the editor; a row opens the terrain line to edit it (#105) *No clip: visible, not yet recorded: no display on big; proved by tests/the_scripts_panel_lists_the_maps_triggers.rs*
 - **E-043** `3b5e8b0` label_suggest and label_apply: an agent asks the VLM about a piece from its own shots and applies the answer, with undo *No clip: an MCP operation pair; proved by tests/a_vlm_label_is_suggested_then_applied.rs*
