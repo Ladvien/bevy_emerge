@@ -66,6 +66,10 @@ const ALLOWED: &[(&str, &str)] = &[
          what lets an agent press a key in this editor without taking the machine's keyboard",
     ),
     (
+        "bevy_carnage",
+        "the owner's fracture and gore crate, hosted by the family layer (#108) — OPTIONAL, reached only by `--features bevy_carnage` and pinned by git rev, so an ordinary build and a game that lists no family crate pay nothing",
+    ),
+    (
         "bevy_elements",
         "the owner's sky, climate, weather, terrain and water crate, hosted by the family layer (#96) — \
          OPTIONAL, reached only by `--features bevy_elements` and pinned by git rev, so an ordinary \

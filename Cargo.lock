@@ -678,6 +678,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_carnage"
+version = "0.7.0"
+source = "git+https://github.com/Ladvien/bevy_carnage?rev=615c264e28680448b934d3f28b73487dd8b98750#615c264e28680448b934d3f28b73487dd8b98750"
+dependencies = [
+ "bevy",
+ "isomesh",
+ "libm",
+ "serde",
+]
+
+[[package]]
 name = "bevy_clipboard"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -946,6 +957,7 @@ dependencies = [
  "arboard",
  "base64 0.22.1",
  "bevy",
+ "bevy_carnage",
  "bevy_devshot",
  "bevy_elements",
  "bevy_emerge",
@@ -3792,6 +3804,15 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
+name = "isomesh"
+version = "0.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7306d524f42aab4d398c77050d3dd9c71b2d96b56f017042e0e7fdda9ab455a0"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "itertools"
