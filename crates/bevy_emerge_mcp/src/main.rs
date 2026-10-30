@@ -307,8 +307,8 @@ pub struct PiecesParams {
     /// labels none of its axes.
     #[serde(default)]
     pub unlabelled: bool,
-    /// **`true` keeps only the pieces with an axis a model or an agent wrote and no person has confirmed.**
-    #[serde(default)]
+    /// **`true` keeps only the pieces with an axis a model or an agent wrote and no person has confirmed.** Also spelled `unconfirmed`: it matches agent-written axes too, not only a model's.
+    #[serde(default, alias = "unconfirmed")]
     pub by_model: bool,
     /// **Keeps only the pieces whose label record says this confidence**: `high`, `medium` or `low`.
     /// Any other word is refused.
@@ -1557,6 +1557,9 @@ const LANDING_TIMEOUT_S: f32 = 5.0;
 fn sequence_wait(seconds: f32, expected_frames: u32) -> std::time::Duration {
     std::time::Duration::from_secs_f32(seconds + 10.0 + expected_frames as f32 * LANDING_TIMEOUT_S)
 }
+
+#[cfg(test)]
+mod pieces_params_tests;
 
 #[cfg(test)]
 mod capture_label_tests {
