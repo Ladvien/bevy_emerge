@@ -196,7 +196,7 @@ pub struct Variation {
     /// `(index into placements, the yaw it turns to)`, in placement order.
     pub turned: Vec<(usize, f32)>,
     /// Clutter placements that still have a look-alike in range after the turns: more copies close
-    /// together than [`TURNS_DEG`] has looks.
+    /// together than [`TURNS_DEG`] has looks, or round copies, which no turn changes.
     pub left: usize,
 }
 
