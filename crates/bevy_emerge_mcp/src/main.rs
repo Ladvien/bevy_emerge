@@ -708,7 +708,7 @@ impl Emerge {
         description = "The library's pieces, a page at a time. Each row carries the piece's id, the \
                        mesh it is drawn with (null for a flat footprint marker), its kind, effects \
                        and looks, and its labels: who labelled each axis (model, agent or human), the \
-                       record's model, date and confidence. Filters combine: with_mesh, unlabelled, \
+                       record's model, date and confidence, which report what the record says, not whether anyone has checked it; by_model finds labels no human has confirmed. Filters combine: with_mesh, unlabelled, \
                        by_model, confidence (high, medium or low), id_contains. total is the true \
                        count after the filters. A page holds 50 rows; past 50, pass pieces_from \
                        (from pieces_next) to read the rest, and how_to_narrow names the filters \

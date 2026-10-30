@@ -643,16 +643,6 @@ fn provenance(d: &Descriptor) -> (Value, bool, bool) {
     (labels, unlabelled, by_model)
 }
 
-/// The three words a confidence filter accepts, as the label record writes them.
-fn confidence_word(word: &str) -> Result<Confidence, String> {
-    match word {
-        "high" => Ok(Confidence::High),
-        "medium" => Ok(Confidence::Medium),
-        "low" => Ok(Confidence::Low),
-        other => Err(format!("confidence is high, medium or low, not \"{other}\"")),
-    }
-}
-
 /// **`emerge/pieces` — the library's pieces, a page at a time.**
 ///
 /// **A read.** The same paging as `emerge/state`'s `descriptor_ids`: a capped page, the true
@@ -662,7 +652,7 @@ fn confidence_word(word: &str) -> Result<Confidence, String> {
 /// each axis, the record's model, date and confidence.
 fn editor_pieces(In(params): In<PiecesParams>, loaded: Loaded) -> Result<Value, String> {
     const PIECE_CAP: usize = 50;
-    let wanted = params.confidence.as_deref().map(confidence_word).transpose()?;
+    let wanted = params.confidence.as_deref().map(str::parse::<Confidence>).transpose()?;
     // **No project is not an empty library.** An empty page here read as "nothing needs labelling".
     let Some(project) = loaded.project else {
         return Err(
