@@ -87,6 +87,8 @@ pub mod ops_data;
 pub mod ops_family;
 pub mod ops_terrain;
 pub mod ops_volume;
+#[cfg(feature = "isomesh")]
+pub mod volume_mesh;
 pub mod ops_forest;
 pub mod ops_water;
 pub mod terrain_view;

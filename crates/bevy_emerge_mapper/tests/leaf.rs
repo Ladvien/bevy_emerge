@@ -78,6 +78,11 @@ const ALLOWED: &[(&str, &str)] = &[
          build and a game that lists no family crate pay nothing",
     ),
     (
+        "isomesh",
+        "the owner's engine-free isosurface mesher (#101); the carved volume is sampled through it — \
+         OPTIONAL, reached only by `--features isomesh` and pinned by git rev, so an ordinary build pays nothing",
+    ),
+    (
         "bevy_carnage",
         "the owner's fracture, wound and blood crate, hosted by the family layer (#108, #96) — OPTIONAL, reached only by `--features bevy_carnage` (without its render features) and pinned by git rev, so an ordinary build and a game that lists no family crate pay nothing",
     ),
