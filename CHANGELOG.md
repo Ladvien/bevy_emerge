@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **dead-end-closest** `d29b77c` A kit's dead end names the piece nearest to closing it and the cells it gets wrong *No clip: visible, not yet recorded: no display on big*
+- **relations-visible-from** `96d335e` A relation keeps a sight line clear: VisibleFrom names the piece in the way, and relations solve moves it off *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_sight_line_no_piece_may_stand_in.rs*
 - **E-142-2** `6665972` The Meshes pane and emerge_state name every kit face no piece can meet (dead ends) *No clip: visible, not yet recorded: no display on big*
 - **143-repetition-vary** `2fad900` repetition_vary and the Terrain line `repeats vary` turn the clutter copies that repeat visibly, never structure, with one undo *No clip: visible, not yet recorded: no display on big*
 - **E-142-1** `dd539fc` A kit names every edge face no piece of it can meet (adjacency::dead_ends) *No clip: an API with no editor surface yet; proved by tests/a_kit_names_every_face_nothing_can_meet.rs*
