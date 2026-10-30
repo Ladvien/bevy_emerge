@@ -1652,6 +1652,11 @@ enum Field {
     /// state the map is in — it does not happen once and stop being true, so putting it on
     /// [`Self::Last`] would let the next action erase it.
     Edges,
+    /// **The repeat a player will notice first** (#136), from `bevy_emerge_core::repetition` under
+    /// its default rules: the worst repeat's piece and how many pieces it has, then how many other
+    /// looks repeat. The same answer `emerge_state.repetition` gives an agent, so a person reads it
+    /// too. A standing readout, like [`Self::Edges`], because it is a state the map is in.
+    Repeats,
 }
 
 impl Field {
@@ -1678,6 +1683,7 @@ impl Field {
             Field::Undo => "UNDO",
             Field::Redo => "REDO",
             Field::Last => "LAST",
+            Field::Repeats => "REPEATS",
         }
     }
 }
@@ -3131,6 +3137,8 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                     Field::Undo,
                     Field::Redo,
                     Field::Edges,
+                    // **Under EDGES**: both are standing readouts of the map as a whole.
+                    Field::Repeats,
                 ] {
                     // **The history list sits under REDO and above EDGES (E-018).** Its rows are
                     // fixed in number, so the block keeps one height whatever the history holds.
@@ -6844,6 +6852,15 @@ fn refresh_status(
         {
             continue;
         }
+        // **The repeats are read only when the map or the library changed**: a pairwise pass over
+        // every placement is too much to spend on a frame that changed nothing.
+        if *field == Field::Repeats
+            && !text.0.is_empty()
+            && !open.is_changed()
+            && !project.is_changed()
+        {
+            continue;
+        }
         let (want, tint) = match field {
             // Silent when the map agrees with itself, which is the common case and the one a standing
             // line must not shout about. `docs/ui.md` §1.2: more information helps, noise does not.
@@ -6947,6 +6964,26 @@ fn refresh_status(
             // in the same grey as `stamped 4 piece(s)`. Refusals go to the block above now, and the
             // write site is what decides, so there is nothing left here to be wrong about.
             Field::Last => (state.status.note_text().to_owned(), DIM),
+            // **The worst repeat first, then how many other looks repeat**, short enough for one line.
+            // Dim when nothing repeats, the EDGES rule: a standing line that is fine stays quiet.
+            Field::Repeats => {
+                use bevy_emerge_core::repetition::{repeats, RepetitionRules};
+                let all = repeats(
+                    &open.map.placements,
+                    &project.library,
+                    &RepetitionRules::default(),
+                );
+                match all.split_first() {
+                    None => ("none".to_owned(), DIM),
+                    Some((worst, rest)) => {
+                        let more = match rest.len() {
+                            0 => String::new(),
+                            n => format!(", {n} more"),
+                        };
+                        (format!("{} \u{d7}{}{more}", worst.descriptor, worst.pieces), TEXT)
+                    }
+                }
+            }
         };
         if text.0 != want {
             text.0 = want;

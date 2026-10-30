@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **e088-relations-state** `4f79e81` emerge_state names the intended relations the open map breaks, read live from <map>.relations.ron *No clip: an MCP read (emerge_state.relations); proved by crates/bevy_emerge_mapper/tests/emerge_state_reports_broken_relations.rs*
+- **E-087-inspector** `50e9fa6` The Map inspector's REPEATS row names the repeat a player will notice first, and how many other looks repeat *No clip: visible, not yet recorded: no display on big*
 - **E-088** `9747292` Layout relations: a map says which intended relations (faces, near, apart, in front of, clear in front) its placements break, and by what *No clip: a core API, not yet drawn in the editor; proved by crates/bevy_emerge_core/tests/a_map_says_which_relations_it_breaks.rs*
 - **E-087b** `0b4323b` emerge_state names the repeats a player will notice: repeated clutter first, structure after *No clip: an MCP state field; proved by tests/emerge_state_names_visible_repeats.rs*
 - **e075-drop** `4417f4d` Dropping an image on the editor window keeps it as a reference of the open map, copied into the project's references/ *No clip: visible, not yet recorded: no display on big*
