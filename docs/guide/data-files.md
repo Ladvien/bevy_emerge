@@ -77,7 +77,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 | Where | `assets/emerge/standards.ron`. Optional: an absent file means no standards. |
 | What it holds | The project's kit standards: rules on a piece's width, depth or height (`min`, `max`, `multiple_of`), each for the pieces whose `kind` holds a token, or every piece. |
 | Written by | Hand. |
-| Live reload | Yes. The Meshes pane's `standards` row names the rules the selected piece breaks; `emerge_state.standards` lists every breach and every rule that covers no piece; `piece_import` reports a new piece's breaches. A breach is reported, not refused. |
+| Live reload | Yes. The Meshes pane's `standards` row names the rules the selected piece breaks; `emerge_state.standards` lists every breach, every rule that covers no piece, and in `unnested` every pair of rules whose `multiple_of` modules do not nest (neither a whole multiple of the other, so a 2 m wall run and a 1.5 m fence run share a grid line only every 6 m; width and depth compare with each other, height with height), with where they meet again; `piece_import` reports a new piece's breaches. A breach is reported, not refused. |
 | Read by | The editor. |
 | Format version | 1 |
 
