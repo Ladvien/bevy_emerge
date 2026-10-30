@@ -76,6 +76,7 @@ pub mod run;
 /// alias means no caller moved.
 pub use bevy_emerge_rng as rng;
 pub mod ron_surgery;
+pub mod session;
 pub mod smart;
 pub mod stack;
 pub mod standards;
