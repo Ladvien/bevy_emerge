@@ -121,11 +121,7 @@ pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules
         match groups.iter_mut().find(|(k, ..)| *k == key) {
             Some((.., rows)) => rows.push(p),
             None => {
-                let role = if d.kind.iter().any(|k| rules.structure.contains(k)) {
-                    Role::Structure
-                } else {
-                    Role::Clutter
-                };
+                let role = role_of(&d, rules);
                 groups.push((key, role, vec![p]));
             }
         }
@@ -171,6 +167,78 @@ pub fn repeats(placements: &[Placed], library: &Library, rules: &RepetitionRules
             .then_with(|| a.patch.is_some().cmp(&b.patch.is_some()))
     });
     report
+}
+
+/// The role `rules` gives a descriptor: structure if any of its `kind` tokens says so.
+fn role_of(d: &crate::descriptor::Descriptor, rules: &RepetitionRules) -> Role {
+    if d.kind.iter().any(|k| rules.structure.contains(k)) {
+        Role::Structure
+    } else {
+        Role::Clutter
+    }
+}
+
+/// The turns [`vary`] tries, in order. A half turn first, because it keeps a piece's footprint on
+/// the cells it stood on; then the quarter turns. No other angle: a turn off the grid's right angles
+/// would move a footprint off its cells, and a copy that four turns cannot end is reported instead.
+pub const TURNS_DEG: [f32; 3] = [180.0, 90.0, 270.0];
+
+/// What [`vary`] would do to a map's placements.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Variation {
+    /// `(index into placements, the yaw it turns to)`, in placement order.
+    pub turned: Vec<(usize, f32)>,
+    /// Clutter placements that still have a look-alike in range after the turns: more copies close
+    /// together than [`TURNS_DEG`] has looks.
+    pub left: usize,
+}
+
+/// **Turn the clutter copies a player would see as stamped** (#143), so none looks like another in
+/// range. Structure is never touched: a run of identical wall is the design.
+///
+/// Deterministic, with no seed: placements are walked in map order, and a clutter copy that looks
+/// like an earlier one takes the first of [`TURNS_DEG`] that leaves it a look-alike of no other
+/// placement. The first copy of each look keeps its yaw, so an author's chosen facing survives on it.
+pub fn vary(placements: &[Placed], library: &Library, rules: &RepetitionRules) -> Variation {
+    let radius2 = rules.radius_m * rules.radius_m;
+    let clutter: Vec<bool> = placements
+        .iter()
+        .map(|p| descriptor_of(library, p).is_some_and(|d| role_of(&d, rules) == Role::Clutter))
+        .collect();
+    // Each look's key once, not once per pair: a patched key formats the whole patch.
+    let keys: Vec<String> = placements.iter().map(look_key).collect();
+    let mut yaws: Vec<f32> = placements.iter().map(|p| p.yaw).collect();
+    // Whether placement `i`, at `yaw`, looks like any of the first `upto` others at their yaws now.
+    let alike = |yaws: &[f32], i: usize, yaw: f32, upto: usize| {
+        let p = &placements[i];
+        (0..upto).any(|j| {
+            let q = &placements[j];
+            let (dx, dz) = (p.at.0 - q.at.0, p.at.1 - q.at.1);
+            let turn = (yaw - yaws[j]).rem_euclid(360.0);
+            j != i
+                && dx * dx + dz * dz < radius2
+                && p.tip == q.tip
+                && turn.min(360.0 - turn) < YAW_TOLERANCE_DEG
+                && keys[j] == keys[i]
+        })
+    };
+    let n = placements.len();
+    let mut turned = Vec::new();
+    for i in 0..n {
+        if !clutter[i] || !alike(&yaws, i, yaws[i], i) {
+            continue;
+        }
+        let found = TURNS_DEG
+            .iter()
+            .map(|turn| (yaws[i] + turn).rem_euclid(360.0))
+            .find(|&yaw| !alike(&yaws, i, yaw, n));
+        if let Some(yaw) = found {
+            yaws[i] = yaw;
+            turned.push((i, yaw));
+        }
+    }
+    let left = (0..n).filter(|&i| clutter[i] && alike(&yaws, i, yaws[i], n)).count();
+    Variation { turned, left }
 }
 
 /// A descriptor and its patch, as one comparable key.
