@@ -958,48 +958,34 @@ fn rename(
                 let Some(rename) = state.renaming.take() else {
                     return;
                 };
-                // **`to_id`, not `to_snake_case`.** A composition's id may carry a `/`
-                // namespace — *which kit, which piece* — and `to_snake_case` drops every
-                // character that is not a letter or a digit. So `town/house_cottage_brick` typed
-                // into the field came out as `town_house_cottage_brick`: a different id, in a
-                // different namespace, colliding with nothing. `to_id` forces each segment and
-                // keeps the separators.
-                let id = bevy_emerge_core::naming::to_id(&rename.raw);
-                if id.is_empty() {
-                    // **A refusal, so a problem.** The editor could not do what was asked — the
-                    // name was empty — and the rule is that a refusal reaches the toast and the
-                    // journal, not the one dim receipt row a later action erases.
+                // **An empty name is refused at the field**, before the operation, the way the
+                // operation would refuse it: the field names the slip where the author typed it.
+                if bevy_emerge_core::naming::to_id(&rename.raw).is_empty() {
                     state
                         .status
                         .problem("a name cannot be empty; nothing was changed".to_owned());
                     return;
                 }
-                // **The write goes through `project.rs`** — the one module allowed to name the
-                // compositions file. See `tests/compose_is_read_only.rs`: *"project.rs is the only
-                // module that names the file, and every tab reaches it there."*
-                if let Err(e) = crate::project::Project::rename_composition(
+                // **The operation forces the name**, with `to_id`, not `to_snake_case`: a
+                // composition's id may carry a `/` namespace, and `to_snake_case` dropped it, so
+                // `town/house_cottage_brick` came out as `town_house_cottage_brick`. The refusals
+                // (an empty name, a taken one) and the write of the compositions file and every map
+                // that stamps it are `composition_rename`'s, the one an agent calls (E-002, #129).
+                match crate::editor::rename_composition(
                     &mut project,
-                    &rename.of,
-                    &id,
                     open.as_deref_mut(),
+                    &rename.of,
+                    &rename.raw,
                 ) {
-                    // **The refusal reaches the toast and the journal.** The note line still said
-                    // *"type a new name — Enter keeps it"* — advice for a field that is now closed,
-                    // which is worse than no advice: an author reading it would press `I` again.
-                    // The crate's own rule is that *"a problem outlives every note"*, so the
-                    // refusal is safe in the problem slot; filing it in the **note** as well meant
-                    // two rows said one thing, and the note was the one a later action erased.
-                    state.status.problem(format!("NOT RENAMED: {e}"));
-                } else {
-                    // **The receipt says how to get back.** The rename is symmetric by
-                    // construction — the same writer, the same rules, the other direction — and
-                    // a reader who wants to back out should not have to work that out. A receipt
-                    // that only says what happened leaves the author hunting for the way back.
-                    state.status.note(format!(
-                        "`{}` is now `{id}`, and every map that stamped it follows. Rename it \
-                         back to undo.",
-                        rename.of
-                    ));
+                    // **The refusal reaches the toast and the journal.** The crate's own rule is that
+                    // *"a problem outlives every note"*, so a refusal is a problem, not a note a later
+                    // action erases.
+                    Err(e) => state.status.problem(format!("NOT RENAMED: {e}")),
+                    // **The receipt says how to get back.** The rename is symmetric by construction,
+                    // and a reader who wants to back out should not have to work that out.
+                    Ok(summary) => state
+                        .status
+                        .note(format!("{summary}. Rename it back to undo.")),
                 }
             }
             Key::Escape => {

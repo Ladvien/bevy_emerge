@@ -265,3 +265,108 @@ impl Operation for CompositionSetEnvelope {
         Self::go(ctx, params, true)
     }
 }
+
+/// **Rename one composition, and every map that stamps it** (E-002, #129 slice 2):
+/// `composition_rename`.
+///
+/// The COMPOSE tab's `I` field dispatches it through [`crate::editor::rename_composition`], and an
+/// agent calls the same name. The name is forced the way the field forces it
+/// ([`bevy_emerge_core::naming::to_id`], which keeps a `/` namespace). The write is
+/// [`crate::project::Project::rename_composition`]: the compositions file and every map naming the
+/// old id, all or none. Undo renames it back the same way.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameParams {
+    /// The composition's current id.
+    pub composition: String,
+    /// Its new name.
+    pub name: String,
+}
+
+pub struct CompositionRename;
+
+impl CompositionRename {
+    /// **The old id and the new one, or the refusal**, checked against the project before a byte is
+    /// written: the composition exists, the new name is not empty, not the same, and not taken.
+    fn checked(ctx: &Ctx, params: &serde_json::Value) -> Result<(String, String), Refusal> {
+        let p: RenameParams = serde_json::from_value(params.clone()).map_err(|e| {
+            Refusal::new(format!(
+                "this is not a composition rename: {e}. The fields are `composition` and `name`."
+            ))
+        })?;
+        let Some(project) = ctx.project.as_ref() else {
+            return Err(Refusal::new("no project is open, so there is no composition to rename."));
+        };
+        let comps = &project.compositions.compositions;
+        if !comps.iter().any(|c| c.id == p.composition) {
+            let known: Vec<&str> = comps.iter().map(|c| c.id.as_str()).collect();
+            return Err(Refusal::new(if known.is_empty() {
+                format!("`{}` is not a composition, and the project has none, so nothing was renamed.", p.composition)
+            } else {
+                format!(
+                    "`{}` is not a composition, so nothing was renamed. The project has: {}.",
+                    p.composition,
+                    known.join(", ")
+                )
+            }));
+        }
+        let name = bevy_emerge_core::naming::to_id(&p.name);
+        if name.is_empty() {
+            return Err(Refusal::new("a name cannot be empty; nothing was changed."));
+        }
+        if name == p.composition {
+            return Err(Refusal::new(format!("the composition is already `{name}`, so nothing changes.")));
+        }
+        if comps.iter().any(|c| c.id == name) {
+            return Err(Refusal::new(format!(
+                "`{name}` is already a composition, so `{}` cannot take that name; nothing was changed.",
+                p.composition
+            )));
+        }
+        Ok((p.composition, name))
+    }
+}
+
+impl Operation for CompositionRename {
+    fn name(&self) -> &'static str {
+        "composition_rename"
+    }
+    fn undo(&self) -> Undo {
+        Undo::Inverse
+    }
+    fn schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["composition", "name"],
+            "properties": {
+                "composition": {"type": "string", "description": "The id of the composition to rename."},
+                "name": {"type": "string", "description": "Its new name, forced to snake_case per `/` segment (`Town/Big Hall` becomes `town/big_hall`). It must not be empty or another composition's. Every map that stamps the composition follows."}
+            }
+        })
+    }
+    fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+        state_json(ctx, after.get("id")?.as_str()?)
+    }
+    fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let (from, to) = Self::checked(ctx, params)?;
+        Ok(json!({"composition": from, "name": to}))
+    }
+    fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+        let (from, to) = Self::checked(ctx, params)?;
+        let Some(project) = ctx.project.as_mut() else {
+            return Err(Refusal::new("no project is open, so there is no composition to rename."));
+        };
+        project
+            .rename_composition(&from, &to, ctx.open.as_mut())
+            .map_err(Refusal::new)?;
+        let after = state_json(ctx, &to);
+        Ok(Outcome {
+            summary: format!("`{from}` is now `{to}`, and every map that stamped it follows"),
+            affected: 1,
+            saved: true,
+            inverse: Some(json!({"composition": to, "name": from})),
+            after,
+        })
+    }
+}

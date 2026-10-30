@@ -2540,6 +2540,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_terrain::TerrainStroke),
         Box::new(crate::ops_compose::CompositionDefine),
         Box::new(crate::ops_compose::CompositionSetEnvelope),
+        Box::new(crate::ops_compose::CompositionRename),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
         Box::new(crate::ops_crowd::CrowdPreview),
         #[cfg(feature = "bevy_carnage")]
@@ -2737,6 +2738,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The composition arm (E-002)**: the picker's `Enter`, a picker row's click and the COMPOSE
     // tab's `Enter` all reach `arm_composition`, which dispatches `composition_arm`.
     ("composition_arm", "arm_composition("),
+    // **The COMPOSE tab's name field (E-002, #129)**: `I` opens it and Enter reaches
+    // `editor::rename_composition`, which dispatches `composition_rename`.
+    ("composition_rename", "rename_composition("),
     // **The three generate keys and the commit door** (S-001). `G`, `Shift+G` and `Cmd+G` all
     // dispatch `layout_propose` through `propose_layout`; `Enter` dispatches `layout_accept`
     // through `accept_layout`; `Esc` dispatches `layout_discard` through `discard_layout`.
