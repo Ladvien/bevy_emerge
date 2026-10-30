@@ -4,11 +4,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
-<<<<<<< HEAD
 - **106-balloon** `pending` Dialogue preview balloon: the lines a dialogue <name> walk says are drawn as one balloon over the piece that carries the conversation, following the camera (#106 slice 6) *No clip: visible, not yet recorded: needs a Mac with a project holding a speaker piece; proved by balloon::tests::the_balloon_stands_over_the_piece_that_carries_the_conversation (anchor and text only; drawing unobserved)*
-=======
 - **E-043** `3b5e8b0` label_suggest and label_apply: an agent asks the VLM about a piece from its own shots and applies the answer, with undo *No clip: an MCP operation pair; proved by tests/a_vlm_label_is_suggested_then_applied.rs*
->>>>>>> 7bd4e8bdc8f5cae5ebbd8f6c57d400388bce3fb0
 - **105-receipt** `85093ed` The line after 'people run' names the triggers that fired and for whom, and any script error (#105) *No clip: visible, not yet recorded: the viewport draws no people, so only the status line shows it; proved by the_run_receipt_names_the_triggers_that_fired*
 - **E-055** `c177b4d` Stale code comments corrected *No clip: comments only; proved by cargo check*
 - **E-070-auto-toggle** `99cd8e5` Tab in the note box marks a note auto: the agent decides open choices itself and says what it assumed *No clip: visible, not yet recorded: no display on big*
