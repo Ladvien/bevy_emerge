@@ -558,6 +558,8 @@ fn editor_state(
             params.note.as_deref(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
         )),
+        // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
+        "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
         "project": project_summary,
         "editor": editor,
         "presentation": presentation,

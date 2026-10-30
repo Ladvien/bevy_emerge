@@ -2363,6 +2363,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
         Box::new(crate::ops_stamp::StampAdd),
+        Box::new(crate::ops_plan::PlanSet),
         Box::new(rules_set::RulesSet),
         Box::new(map_rename::MapRename),
         Box::new(brush_arm::BrushArm),
@@ -2591,6 +2592,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // through `talk_note`, Undo this note dispatches `note_undo_work` through `undo_note_work`.
     ("note_keep", "talk_note("),
     ("note_undo_work", "undo_note_work("),
+    // **The Terrain field's `plan clear` line (E-069)** dispatches `plan_set` with no items through
+    // `clear_plan`, so a person can empty an agent's plan the way an agent replaces it. The checklist
+    // panel that shows it is owed (it needs a display to verify).
+    ("plan_set", "clear_plan("),
 ];
 
 /// **Apply an operation, and record what happened.**
