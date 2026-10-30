@@ -45,7 +45,7 @@ impl Params {
     }
 }
 
-fn settings_path(ctx: &Ctx, krate: &str) -> Result<std::path::PathBuf, Refusal> {
+pub(crate) fn settings_path(ctx: &Ctx, krate: &str) -> Result<std::path::PathBuf, Refusal> {
     let Some(root) = ctx.root_or_project() else {
         return Err(Refusal::new("no project is open, so there are no family settings to change."));
     };
@@ -184,8 +184,34 @@ impl PlacementSetFamily {
         if let Some(v) = &p.value {
             reads_as(&p.krate, v).map_err(|e| Refusal::new(format!("{e}. Nothing was set.")))?;
         }
+        check_conversation(&settings_path(ctx, &p.krate)?, p)?;
         Ok(())
     }
+}
+
+/// **A conversation attached to a piece must be one the project's dialogue script defines** (#106): the
+/// row carries the conversation's name as a RON string, and the crate's own `DialogueScript` says which exist.
+#[cfg(feature = "bevy_speech_bubbles")]
+fn check_conversation(script: &std::path::Path, p: &PieceParams) -> Result<(), Refusal> {
+    let (true, Some(v)) = (p.krate == "bevy_speech_bubbles", p.value.as_deref()) else {
+        return Ok(());
+    };
+    let name: String = ron::from_str(v)
+        .map_err(|e| Refusal::new(format!("`{v}` is not a conversation name (a quoted string such as \"hello\"): {e}. Nothing was set.")))?;
+    let text = std::fs::read_to_string(script)
+        .map_err(|e| Refusal::new(format!("{} cannot be read, so no conversation can be attached: {e}", script.display())))?;
+    let defined: bevy_speech_bubbles::DialogueScript =
+        ron::from_str(&text).map_err(|e| Refusal::new(format!("the project's dialogue script is not readable: {e}")))?;
+    if defined.conversations.contains_key(&name) {
+        return Ok(());
+    }
+    let known: Vec<&str> = defined.conversations.keys().map(String::as_str).collect();
+    Err(Refusal::new(format!("the dialogue script has no conversation `{name}` (it has: {}). Nothing was set.", known.join(", "))))
+}
+
+#[cfg(not(feature = "bevy_speech_bubbles"))]
+fn check_conversation(_script: &std::path::Path, _p: &PieceParams) -> Result<(), Refusal> {
+    Ok(())
 }
 
 impl Operation for PlacementSetFamily {

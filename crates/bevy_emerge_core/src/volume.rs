@@ -121,6 +121,37 @@ impl Volume {
             }
         })
     }
+
+    /// **The floor a piece rests on inside a cave** (#101): the height of the first solid met going
+    /// down from `from_y` at world `(x, z)`, within `reach_m`. `base` is the distance before any
+    /// edit (the ground's `p.y - height`, or `INFINITY` for empty space). `None` when `from_y` is
+    /// itself inside solid (the start is not in the open) or nothing solid lies within reach. A march
+    /// in 5 cm steps, then bisection, so the answer is exact to well under a millimetre.
+    pub fn floor_below(&self, x: f32, z: f32, from_y: f32, reach_m: f32, base: &dyn Fn([f32; 3]) -> f32) -> Option<f32> {
+        const STEP_M: f32 = 0.05;
+        let d = |y: f32| self.sdf([x, y, z], base([x, y, z]));
+        if !(from_y.is_finite() && reach_m.is_finite()) || d(from_y) <= 0.0 {
+            return None;
+        }
+        let (mut above, mut y) = (from_y, from_y);
+        while from_y - y < reach_m {
+            y = (y - STEP_M).max(from_y - reach_m);
+            if d(y) <= 0.0 {
+                let mut below = y;
+                for _ in 0..30 {
+                    let mid = 0.5 * (above + below);
+                    if d(mid) <= 0.0 {
+                        below = mid;
+                    } else {
+                        above = mid;
+                    }
+                }
+                return Some(above);
+            }
+            above = y;
+        }
+        None
+    }
 }
 
 #[cfg(test)]
