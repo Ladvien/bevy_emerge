@@ -157,13 +157,15 @@ pub enum Kind {
     /// the desk, a guard at the throne's right hand). A piece on its left measures negative.
     RightOf { of: String, within: f32 },
     /// No other placement's centre stands in the `width` × `depth` corridor in front of this one (a
-    /// door's swing, a counter's working side). Measures how far in the nearest intruder stands, or
-    /// `depth` when clear.
+    /// door's swing, a counter's working side). This one's whole stack (what it rests on, and what
+    /// rests on that, such as a jug on the counter) is part of it and never intrudes. Measures how
+    /// far in the nearest intruder stands, or `depth` when clear.
     ClearInFront { depth: f32, width: f32 },
     /// Seen from a placement: no third placement's centre stands within `clearance` metres of the
-    /// line between the two centres (a sign seen from the gate, a door a guard watches). What rests
-    /// on either end ([`Placed::on`], at any depth) is part of that end and never blocks. Measures
-    /// how far off the line the nearest blocker stands, or `clearance` when clear.
+    /// line between the two centres (a sign seen from the gate, a door a guard watches). Each end's
+    /// whole stack (what it rests on, such as the stall a sign hangs on, and what rests on that) is
+    /// part of that end and never blocks. Measures how far off the line the nearest blocker stands,
+    /// or `clearance` when clear.
     VisibleFrom { from: String, clearance: f32 },
     /// Stands beside a path: within `within` metres of the polyline through these placements'
     /// centres, in order (a lamp along the road from the gate past the well to the hall). Two or more
@@ -341,9 +343,10 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
             Err(m) => m,
         },
         Kind::ClearInFront { depth, width } => {
+            let own = &bottom(placements, a).id;
             let intruder = placements
                 .iter()
-                .filter(|p| p.id != a.id)
+                .filter(|p| &bottom(placements, p).id != own)
                 .map(|p| (p, local(a, p.at)))
                 .filter(|(_, (ahead, side))| {
                     *ahead > 0.0 && ahead <= depth && side.abs() <= width / 2.0
@@ -524,19 +527,19 @@ fn on_line(start: (f32, f32), (ux, uz): (f32, f32), p: (f32, f32)) -> (f32, f32)
 }
 
 /// Every placement within `clearance` of the line from `from` to `to` and strictly between its
-/// ends, other than the ends and what rests on them, with its signed distance off the line.
+/// ends, other than each end's whole stack, with its signed distance off the line.
 fn blockers<'a>(placements: &'a [Placed], from: &Placed, to: &Placed, clearance: f32) -> Vec<(&'a Placed, f32)> {
     let Some((start, u, length)) = line(from, to) else {
         return Vec::new();
     };
+    let ends = [&bottom(placements, from).id, &bottom(placements, to).id];
     placements
         .iter()
-        .filter(|p| p.id != from.id && p.id != to.id)
+        .filter(|p| !ends.contains(&&bottom(placements, p).id))
         .filter_map(|p| {
             let (along, side) = on_line(start, u, p.at);
             (along > 0.0 && along < length && side.abs() <= clearance).then_some((p, side))
         })
-        .filter(|(p, _)| !rests_on(placements, p, &from.id) && !rests_on(placements, p, &to.id))
         .collect()
 }
 
