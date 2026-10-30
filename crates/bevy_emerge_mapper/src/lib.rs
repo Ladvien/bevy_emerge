@@ -91,6 +91,8 @@ pub mod ops_dialogue;
 pub mod ops_family;
 #[cfg(feature = "bevy_light_grid")]
 pub mod ops_light;
+#[cfg(feature = "bevy_lights")]
+pub mod ops_pool;
 pub mod ops_terrain;
 pub mod ops_volume;
 #[cfg(feature = "isomesh")]
