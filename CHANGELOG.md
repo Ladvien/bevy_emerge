@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **light-map-op** `a5bf126` light_map operation: bevy_light_grid's illuminance field over the open map, from placed torches, with walls casting shadow (#103, feature bevy_light_grid) *No clip: an API (overlay drawing and clip still owed); proved by tests/light_map.rs*
 - **f4-cover-settings** Snow, wetness, rock scatter and blown sand are settings in bevy_elements' own types, set through family_set, one undo each, and drive the preview (#100) *No clip: visible, not yet recorded: no display on big; proved by environment_applies::snow_rocks_and_sand_are_set_in_the_crates_own_types_and_an_old_file_still_loads*
 - **water-run** `316cd58` Springs and lakes run over the sculpted ground until the water settles, and the result is kept as the map's water in one undo *No clip: visible, not yet recorded: no display on big*
 - **106-s1** `55d25d6` bevy_speech_bubbles is a hosted family crate: a conversation is saved as the crate's own DialogueScript and a graph validate_script rejects is refused *No clip: visible, not yet recorded: no display on big; proved by family_dialogue*
