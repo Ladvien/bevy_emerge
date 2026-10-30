@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **179-busy-poll** `0a370d6` emerge_capture_sequence keeps waiting when the busy editor misses one status poll's 5 s budget, instead of abandoning the clip (#179) *No clip: a fix to the MCP server's capture-sequence poll; proved by bevy_emerge_mcp/tests/a_slow_status_poll.rs*
 - **95-notes-end-to-end** `59193ea` Notes end to end on a game's map: a person leaves three notes (an area, two Shift-clicked pieces, one piece), two agents work them at once inside their fences, a removal waits for the person's answer, and the person keeps two and undoes the third in one step (#95)<br><a href="docs/changelog/media/2026-10-30-95-notes-end-to-end.mp4"><img src="docs/changelog/media/2026-10-30-95-notes-end-to-end.png" width="320" alt="clip"></a>
 - **173-second-shift-click** `59193ea` The Note tool's second Shift-click adds its piece to the open note, so one note can name a group of pieces (#173)<br><a href="docs/changelog/media/2026-10-30-95-notes-end-to-end.mp4"><img src="docs/changelog/media/2026-10-30-95-notes-end-to-end.png" width="320" alt="clip"></a>
 - **95-undo-removal** `d5d5132` Undoing a note whose agent removed a piece puts the piece back in one step, instead of refusing *No clip: a fix to note_undo_work's reading of a removal's undo; proved by notes_end_to_end::two_notes_kept_and_one_undone_leave_the_map_file_with_only_the_kept_work; #95's end-to-end clip will show it*
