@@ -109,7 +109,7 @@ fn a_run_that_cannot_lay_or_collides_refuses() {
 /// written for the empty list; a file numbered above this build is refused.
 #[test]
 fn an_older_map_loads_and_a_newer_one_is_refused() {
-    assert_eq!(MAP_VERSION, 8);
+    assert_eq!(MAP_VERSION, 9);
     let current = ron_of(&map_with(Vec::new()));
     assert!(!current.contains("runs"), "an empty list is not written: {current}");
     let old = current.replace(&format!("version: {MAP_VERSION}"), "version: 7");
