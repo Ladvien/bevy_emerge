@@ -1386,8 +1386,8 @@ struct NotesFilterButton;
 #[derive(Component, Clone, Copy)]
 struct NotesSendAll;
 
-/// What the Notes list last drew: the filter and `(id, status, text)` per row.
-type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool, NoteReview)>);
+/// What the Notes list last drew: the filter and `(id, status, text, waiting, review, auto)` per row.
+type NotesShown = (Option<&'static str>, Vec<(String, &'static str, String, bool, NoteReview, bool)>);
 
 /// What a done note shows for review (#93): its summary, assumptions, the before and after captures
 /// and the operations it ran. Empty for every other status.
@@ -5499,7 +5499,7 @@ fn refresh_notes_list(
     let all = open
         .and_then(|o| bevy_emerge_core::notes::Notes::load(&bevy_emerge_core::notes::path_for_map(&o.map_path)).ok())
         .unwrap_or_default();
-    let rows: Vec<(String, &'static str, String, bool, NoteReview)> = all
+    let rows: Vec<(String, &'static str, String, bool, NoteReview, bool)> = all
         .listing(filter.0)
         .iter()
         .map(|n| {
@@ -5522,7 +5522,7 @@ fn refresh_notes_list(
                 }
                 _ => NoteReview::default(),
             };
-            (n.id.clone(), n.status(), text, waiting.is_some(), review)
+            (n.id.clone(), n.status(), text, waiting.is_some(), review, n.auto)
         })
         .collect();
     let key = (filter.0, rows);
@@ -5549,13 +5549,34 @@ fn refresh_notes_list(
                     crate::chrome::font(crate::chrome::text::LABEL),
                 ));
             }
-            for (id, status, text, waiting, review) in rows {
+            for (id, status, text, waiting, review, auto) in rows {
                 crate::chrome::list_row(p, false, NoteRow { id: id.clone() }).with_children(|row| {
                     row.spawn((
                         Text::new(format!("{id} [{status}] {text}")),
                         TextColor(TEXT),
                         crate::chrome::font(crate::chrome::text::BODY),
                     ));
+                    // **An auto note says so on its row** (E-070): the agent decides its minor
+                    // choices itself instead of asking. A label, not a button: Tab in the note box
+                    // and `note_add`'s `auto` are where it is set.
+                    if *auto {
+                        row.spawn((
+                            Node {
+                                padding: crate::chrome::CHIP_PAD,
+                                border: UiRect::all(Val::Px(crate::chrome::EDGE_W)),
+                                border_radius: BorderRadius::all(Val::Px(crate::chrome::RADIUS_ROW)),
+                                ..default()
+                            },
+                            BorderColor::all(crate::chrome::SUGGEST),
+                        ))
+                        .with_children(|chip| {
+                            chip.spawn((
+                                Text::new("auto"),
+                                TextColor(crate::chrome::SUGGEST),
+                                crate::chrome::font(crate::chrome::text::LABEL),
+                            ));
+                        });
+                    }
                 });
                 for line in &review.lines {
                     p.spawn((Text::new(line.clone()), TextColor(DIM), crate::chrome::font(crate::chrome::text::LABEL)));
