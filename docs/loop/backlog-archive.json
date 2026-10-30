@@ -1944,6 +1944,26 @@
       "last_failure": "",
       "title": "emerge_list_operations cannot search: an agent reads 64+ schemas to find one operation (#141)",
       "evidence": "Shipped 1dfe893 (w3, big): ops::search + emerge/operation_list {query} (query, total, best first) + MCP ListParams.query; tests/an_agent_can_search_the_operations.rs failed before (2 of 2, query ignored), 2 pass after."
+    },
+    {
+      "id": "E-092",
+      "kind": "enhancement",
+      "area": "repetition",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Nothing ends a visible clutter repeat: an agent or a person turns each copy by hand (#143)",
+      "evidence": "Shipped 2fad900 (w3, big): core repetition::vary (180/90/270 turns, structure never, first copy kept, left counted) + registered op repetition_vary (one RowDelta undo, preview, bad rules refused) + Terrain line `repeats vary`. tests vary_turns_clutter_out_of_a_repeat.rs (4) and repetition_vary_turns_the_open_maps_repeats.rs (3) failed before (unresolved import / unknown operation). Assumed decision: turn rather than move or swap. Clip owed (no display on big)."
+    },
+    {
+      "id": "E-093",
+      "kind": "enhancement",
+      "area": "relations",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "A relations file cannot say a piece must stay in view of another: a crate dropped on the sight line goes unnoticed (#144)",
+      "evidence": "Shipped 96d335e (w3, big): core relations Kind::VisibleFrom {from, clearance} (centre-to-segment, riders on either end excluded) in check (Unmet names the nearest blocker, measures its distance off the line) and solve (blocker or its host moved sideways off the line); inspector row 'sign seen from gate'. tests/a_sight_line_no_piece_may_stand_in.rs (6) failed before (no variant VisibleFrom). Assumed decision: centre model over bounds raycast or view cone. Clip owed (no display on big)."
     }
   ]
 }

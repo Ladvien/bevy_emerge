@@ -572,6 +572,10 @@ fn editor_state(
         // **The kit pieces that break the project's standards** (#138): read from `standards.ron`
         // beside `kits.ron` on every call, so an edit to that file is seen with no restart.
         "standards": project.as_ref().map(|p| standards_json(&p.library, &p.project_dir)),
+        // **The kit's dead ends** (#142): every declared face no piece of the kit meets at any
+        // quarter turn, through the same seam check the map uses, so a socket nothing can close is
+        // named before a map runs into it.
+        "dead_ends": project.as_ref().map(|p| dead_ends_json(&p.library, p.lattice.face_bands)),
         // **The intended relations this map breaks** (#137): read from `<map>.relations.ron` on every
         // call, so an edit to that file is seen by the next answer with no restart.
         "relations": open.as_ref().map(|o| relations_json(&o.map.placements, &o.map_path)),
@@ -688,6 +692,29 @@ fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::
         })
         .collect();
     json!({"relations": rows, "unmet": unmet, "missing": missing, "error": null})
+}
+
+/// The most dead-end faces `emerge_state` names; `total` always counts them all.
+const DEAD_ENDS_CAP: usize = 20;
+
+/// **The kit's dead ends** as `emerge_state` reports them (#142 slice 2): the first
+/// [`DEAD_ENDS_CAP`] of `adjacency::dead_ends`, sorted by piece and side, and the full count.
+fn dead_ends_json(library: &bevy_emerge_core::library::Library, divisions: u32) -> Value {
+    use bevy_emerge_core::adjacency::{dead_ends, dir_name};
+    let all = dead_ends(library, divisions);
+    let faces: Vec<Value> = all
+        .iter()
+        .take(DEAD_ENDS_CAP)
+        .map(|d| {
+            json!({
+                "piece": d.piece,
+                "dir": dir_name(d.dir),
+                "face": d.face,
+                "message": d.message,
+            })
+        })
+        .collect();
+    json!({"faces": faces, "total": all.len()})
 }
 
 /// **The project's standards, checked against its library**, as `emerge_state` reports them: every
