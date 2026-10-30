@@ -3,7 +3,7 @@
 Focus: family · Machine: big · Outcome: shipped (slice)
 
 ## Summary
-`bevy_carnage` hosted as an optional feature (pin 615c264). `destructible_set` marks a piece (`destructible.ron`) and bakes its fracture once with `fracture_mesh`, cached at `destructible/<piece>.bake.ron` keyed by mesh bytes + cut settings; `destructible_hit` previews a hit on the cached chunks and audits each with `audit_cell`. Dials are `GorePolicy` in `family/bevy_carnage.ron` via `family_set`. Person route: terrain field lines `destructible <piece> on|off` and `hit <piece> x y z r`.
+`bevy_carnage` hosted as an optional feature (pin 615c264). `destructible_set` marks a piece (`destructible.ron`) and bakes its fracture once with `fracture_mesh`, cached at `destructible/<piece>.bake.ron` keyed by mesh bytes + cut settings; `destructible_hit` previews a hit on the cached chunks and audits each with `audit_cell`. Dials are the crate's own settings (w3's hosting slice) in `family/bevy_carnage.ron` via `family_set`. Person route: terrain field lines `destructible <piece> on|off` and `hit <piece> x y z r`.
 
 ## Proof
 `tests/destructible_marks_bake_once.rs` (bake once, cache survives off/on, hit chunks watertight, unmarked refused), `tests/family_carnage_settings.rs`. Clippy -D warnings with and without the feature; lib 362 pass; leaf 17 pass.
