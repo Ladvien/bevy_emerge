@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **crowd-preview-107** `pending` Crowd preview engine (#107, slice 1): walkers step with bevy_orca avoidance round the map's solid pieces and lay bevy_stigmergy trail and congestion fields; features bevy_orca and bevy_stigmergy *No clip: visible, not yet recorded: the engine has no editor panel or overlay yet; proved by tests/crowd_preview_measures.rs*
 - **n97-fairy** `7608736` The editor's agent channel is bevy_fairy, pinned by revision; bevy_debugger_mcp is gone (#97) *No clip: a dependency swap and wire-method rename; proved by the mapper (745) and mcp tests building and passing on bevy_fairy*
 - **103-lights-f0** `86fec1f` bevy_lights is a hosted family crate: its feature and git pin are in, and family.ron may list it (#103 slice 1) *No clip: an API and a cargo feature; proved by family_lights_settings::a_brazier_flicker_is_set_through_family_set_and_reads_back_as_the_crates_own_type*
 - **99-terrain-stroke** terrain_stroke: a sculpt stroke on a map's saved heightfield is one registered operation and one undo, from the Terrain field or an agent's apply (#99 slice 2) *No clip: visible, not yet recorded: the Terrain field has no viewport drawing yet and big has no display; proved by tests/terrain_stroke_is_an_operation.rs*
