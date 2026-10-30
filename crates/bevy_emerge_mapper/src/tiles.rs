@@ -9461,15 +9461,17 @@ struct DetailInputs<'w, 's> {
 }
 
 /// **What the Meshes pane says about `piece` and the project's standards** (#138 slice 4): one line
-/// per breach, `rule: dim found m, why bound m`, in file order; or one line naming the file when it
-/// does not parse. Empty when the piece breaks no rule or there is no `standards.ron`.
+/// per breach, `rule: dim found m, why bound m`, in file order; then one line per pair of sub-kit
+/// modules that do not nest where a rule covering the piece is one of the two (#168 slice 3), in
+/// `emerge_state`'s words; or one line naming the file when it does not parse. Empty when the piece
+/// breaks no rule, is in no such pair, or there is no `standards.ron`.
 fn standards_lines(piece: &Descriptor, project_dir: &std::path::Path) -> Vec<String> {
     use bevy_emerge_core::standards::{Dim, Why};
-    let breaches = match crate::ops_brp::piece_breaches(piece, project_dir) {
-        Ok(b) => b,
+    let standards = match crate::ops_brp::load_standards(project_dir) {
+        Ok(s) => s,
         Err(e) => return vec![format!("not read: {e}")],
     };
-    breaches
+    let mut lines: Vec<String> = crate::ops_brp::piece_breaches(piece, &standards)
         .iter()
         .map(|b| {
             let dim = match b.dim {
@@ -9489,7 +9491,13 @@ fn standards_lines(piece: &Descriptor, project_dir: &std::path::Path) -> Vec<Str
             };
             format!("{}: {dim}{found}, {why}", b.rule)
         })
-        .collect()
+        .collect();
+    lines.extend(
+        crate::ops_brp::piece_unnested(piece, &standards)
+            .iter()
+            .map(crate::ops_brp::unnested_message),
+    );
+    lines
 }
 
 /// Rebuild the detail for whichever candidate is selected.
@@ -9786,10 +9794,12 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
             });
 
             // **The project standards this piece breaks** (#138 slice 4), one line per breach, under
-            // the size they are about. Off `placed`, the layered piece, because that is what a map
-            // places and what `emerge_state.standards` checks. No breach, no row: a met rule is not
-            // news. Read from `standards.ron` on each rebuild, and `watch` rebuilds the pane when
-            // that file changes; a file that does not parse is named, never read as no rules.
+            // the size they are about, then the sub-kit module pairs it is part of that do not nest
+            // (#168 slice 3): it can meet its own rule while its kit drifts off another's grid. Off
+            // `placed`, the layered piece, because that is what a map places and what
+            // `emerge_state.standards` checks. Nothing to report, no row: a met rule is not news.
+            // Read from `standards.ron` on each rebuild, and `watch` rebuilds the pane when that file
+            // changes; a file that does not parse is named, never read as no rules.
             let standards_lines = standards_lines(placed, &project.project_dir);
             if !standards_lines.is_empty() {
                 p.spawn(Node {
