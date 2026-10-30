@@ -1889,3 +1889,4 @@ Top 5 remaining:
 - 2026-10-30 loop (bevy_emerge_w3, big): no code. Issues re-read: all claimed by others, decide/display (#112-114, #124 UI, #95), or #101 waiting on bevy_elements#49 (still OPEN). No worktrees, no release.
 - 2026-10-30 bevy_emerge_w5 (host big): #131 E-043 shipped 3b5e8b0 — label_suggest/label_apply ops (agent supplies shots; stub-endpoint test, 3 pass; clippy, mcp docs, parity green). Assumed decision: UI parity rows point at request_photos/apply_suggestion. Full workspace gate left to push hook. #105 untouched.
 - 2026-10-30 loop (bevy_emerge_w3, big): released #132 and #133 (need Sanctuary's project files, absent on big; a Mac worker should take them). No code, no worktrees, no release.
+- 2026-10-30 loop (bevy_emerge_w3, big): #124 slices 1-3 already shipped, only UI drop (needs display) left; released claim. Removed stale worker:w3 labels from #132/#133 (need Sanctuary files; Mac worker). No code, no worktrees, no release.
