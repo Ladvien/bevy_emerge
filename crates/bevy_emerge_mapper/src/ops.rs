@@ -2390,6 +2390,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_forest::ForestScatter),
         Box::new(crate::ops_people::PersonSet),
         Box::new(crate::ops_people::PeopleRun),
+        Box::new(crate::ops_scripts::TriggerSet),
         Box::new(crate::ops_water::WaterPlace),
         Box::new(crate::ops_water::WaterRun),
         Box::new(crate::ops_play::Play),
@@ -2533,6 +2534,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("person_set", "set_person("),
     // `people run [seed] [days]` in the same field dispatches `people_run` (a read: no undo) through `run_people`.
     ("people_run", "run_people("),
+    // **The trigger line (#105)** — `trigger <id> | <on> | <if> | <then> [| people=..] [| faction=..] [| area=..]` and
+    // `trigger <id> remove` in the same field dispatch `trigger_set` through `set_trigger`.
+    ("trigger_set", "set_trigger("),
     // **The destructible line (#108)** — `destructible <piece> on|off` and `hit <piece> <x> <y> <z> <radius_m>` in the
     // terrain field dispatch `destructible_set` and `destructible_hit` through `mark_destructible` and `hit_destructible`.
     #[cfg(feature = "bevy_carnage")]
