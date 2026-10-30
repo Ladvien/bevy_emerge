@@ -70,6 +70,27 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 | Read by | The game's loader, which checks it against the bound library, and the editor. |
 | Format version | 1 |
 
+## standards.ron
+
+| | |
+|---|---|
+| Where | `assets/emerge/standards.ron`. Optional: an absent file means no standards. |
+| What it holds | The project's kit standards: rules on a piece's width, depth or height (`min`, `max`, `multiple_of`), each for the pieces whose `kind` holds a token, or every piece. |
+| Written by | Hand. |
+| Live reload | Yes. The Meshes pane's `standards` row names the rules the selected piece breaks; `emerge_state.standards` lists every breach and every rule that covers no piece; `piece_import` reports a new piece's breaches. A breach is reported, not refused. |
+| Read by | The editor. |
+| Format version | 1 |
+
+## repetition.ron
+
+| | |
+|---|---|
+| Where | `assets/emerge/repetition.ron`. Optional: an absent file means the default rules (6 m, structure kinds `building-module`, `fence`, `tile`, `landmark`, `grave`, `door`, weight 0.1). |
+| What it holds | What counts as a visible repeat and what it costs: `radius_m`, the `kind` tokens that make a piece `structure` (meant to repeat), and `structure_weight` against clutter's 1.0. A field left out keeps its default. |
+| Written by | Hand. |
+| Live reload | Yes. `emerge_state.repetition` reads it on every call and names a bad file in its `error`; the status bar's `REPEATS` line re-reads it when it changes. The `repetition_vary` operation (or the Terrain field line `repeats vary`) reads it on every run: it turns each clutter copy that looks like an earlier one in range by a half or quarter turn until none does, never turns structure, keeps the first copy's yaw, and one undo puts every turned row back. A bad file is refused, never replaced by the defaults. |
+| Read by | The editor. |
+
 ## rigs.ron
 
 | | |

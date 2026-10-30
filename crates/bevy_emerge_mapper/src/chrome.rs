@@ -2486,6 +2486,9 @@ pub fn modal_card<'a>(commands: &'a mut Commands, root: impl Bundle) -> EntityCo
 /// **A modal question.** In front of everything, because nothing else on screen is actionable while
 /// one is up.
 pub const MODAL_Z: i32 = 900;
+
+/// A speech balloon over a piece (#106): in front of the viewport, behind every panel and modal.
+pub const BALLOON_Z: i32 = 50;
 /// **The key badges**, which you hold a key to see. Below a modal — a question that has taken the
 /// keyboard is exactly the moment the shortcut layer must not cover its own answer.
 pub const BADGE_Z: i32 = 500;

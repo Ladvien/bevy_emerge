@@ -1713,6 +1713,31 @@ pub fn from_compositions(
         }
     }
 
+    // **No tile is a refusal here, not an empty grammar handed on.** A grammar of `Empty` alone
+    // reached the solver, whose refusal is about placements ("nothing has been placed yet") — the
+    // wrong cause for a composition set, and one an author cannot act on. Measured on Sanctuary's
+    // project (E-083, #132): 16 compositions, all `Anchored`, and the only answer was that one. The
+    // reasons are already collected by name; this says them, and says what a tile is.
+    if prototypes.len() == 1 {
+        const SHOWN: usize = 5;
+        let mut why = skipped.iter().take(SHOWN).cloned().collect::<Vec<_>>().join("; ");
+        if skipped.len() > SHOWN {
+            why.push_str(&format!("; and {} more", skipped.len() - SHOWN));
+        }
+        return Err(if compositions.is_empty() {
+            "composition grammar: the project has no compositions, so there is no tile to solve \
+             with. A tile is a composition with a `Bounded` envelope one grid cell across."
+                .to_owned()
+        } else {
+            format!(
+                "composition grammar: none of the {} composition(s) is a tile, so there is nothing \
+                 to solve with: {why}. A tile is a composition with a `Bounded` envelope {cell:.2} \
+                 m across; an `Anchored` group is placed whole and is never one.",
+                compositions.len()
+            )
+        });
+    }
+
     // **Counted after building, not stopped at the ceiling.** This used to refuse the moment the
     // 33rd prototype appeared, which meant the message could say *"more than 32"* and nothing else —
     // an author over budget was told they were over and not by how much, so "narrow the set" had no

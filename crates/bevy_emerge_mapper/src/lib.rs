@@ -81,14 +81,20 @@ pub mod ops_brp;
 pub mod ops_compose;
 pub mod ops_stamp;
 pub mod ops_plan;
+pub mod ops_relations;
+pub mod ops_repetition;
 #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
 pub mod ops_crowd;
 #[cfg(feature = "bevy_carnage")]
 pub mod ops_destructible;
 pub mod ops_data;
+pub mod ops_label_vlm;
 #[cfg(feature = "bevy_speech_bubbles")]
 pub mod ops_dialogue;
+pub mod balloon;
 pub mod ops_family;
+#[cfg(feature = "bevy_gooey")]
+pub mod ui_skin;
 pub mod ops_terrain;
 pub mod ops_volume;
 #[cfg(feature = "isomesh")]
@@ -101,6 +107,7 @@ pub mod ops_water;
 pub mod terrain_view;
 pub mod ops_play;
 pub mod ops_notes;
+pub mod ops_references;
 pub mod ops_people;
 pub mod ops_scripts;
 pub mod ops_runs;

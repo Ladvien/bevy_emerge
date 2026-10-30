@@ -374,6 +374,37 @@ pub struct Stood {
     pub bonds: Vec<(String, f32, f32)>,
 }
 
+/// What a run's receipt adds about scripts: each trigger that fired with the people it fired for, then any script
+/// that failed. Empty when neither happened, so a society without triggers reads as before.
+#[cfg(feature = "bevy_society")]
+fn trigger_receipt(r: &RunReport) -> String {
+    let mut by_trigger: Vec<(&str, Vec<&str>)> = Vec::new();
+    for f in &r.fired {
+        let i = match by_trigger.iter().position(|(t, _)| *t == f.trigger) {
+            Some(i) => i,
+            None => {
+                by_trigger.push((&f.trigger, Vec::new()));
+                by_trigger.len() - 1
+            }
+        };
+        if !f.person.is_empty() && !by_trigger[i].1.contains(&f.person.as_str()) {
+            by_trigger[i].1.push(&f.person);
+        }
+    }
+    let mut out = String::new();
+    if !by_trigger.is_empty() {
+        let list: Vec<String> = by_trigger
+            .iter()
+            .map(|(t, who)| if who.is_empty() { (*t).to_owned() } else { format!("{t} ({})", who.join(", ")) })
+            .collect();
+        out.push_str(&format!("; fired: {}", list.join(", ")));
+    }
+    if !r.script_errors.is_empty() {
+        out.push_str(&format!("; script errors: {}", r.script_errors.join(" | ")));
+    }
+    out
+}
+
 /// **The society after `days` game-days**: who stands where and how many ties each has, with one hash of
 /// every position and tie so two runs can be compared exactly.
 #[cfg(feature = "bevy_society")]
@@ -629,7 +660,8 @@ impl Operation for PeopleRun {
         #[cfg(feature = "bevy_society")]
         {
             let (r, n) = Self::report(ctx, params)?;
-            let summary = format!("ran {n} people for {} day(s), seed {}: hash {:016x}", r.days, r.seed, r.hash);
+            let mut summary = format!("ran {n} people for {} day(s), seed {}: hash {:016x}", r.days, r.seed, r.hash);
+            summary.push_str(&trigger_receipt(&r));
             Ok(Outcome { summary, affected: 0, saved: false, inverse: None, after: Some(serde_json::to_value(r).expect("report serialises")) })
         }
         #[cfg(not(feature = "bevy_society"))]

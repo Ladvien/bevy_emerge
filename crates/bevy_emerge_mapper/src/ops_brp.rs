@@ -558,8 +558,27 @@ fn editor_state(
             params.note.as_deref(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
         )),
+        // **The reference images beside this map** (#124), each with its id to cite and whether its file is there.
+        "references": open.as_ref().map(|o| crate::ops_references::state_json(o, project.as_ref().map(|p| p.root.as_path()))),
         // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
         "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
+        // **The repeats a player will notice first** (#136): same piece, yaw and tip, close together,
+        // weighed by role so repeated clutter heads the list above repeated structure. The rules are
+        // the project's `repetition.ron` (#139), read on every call so an edit is seen with no restart.
+        "repetition": match (open.as_ref(), project.as_ref()) {
+            (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library, &p.project_dir),
+            _ => Value::Null,
+        },
+        // **The kit pieces that break the project's standards** (#138): read from `standards.ron`
+        // beside `kits.ron` on every call, so an edit to that file is seen with no restart.
+        "standards": project.as_ref().map(|p| standards_json(&p.library, &p.project_dir)),
+        // **The kit's dead ends** (#142): every declared face no piece of the kit meets at any
+        // quarter turn, through the same seam check the map uses, so a socket nothing can close is
+        // named before a map runs into it.
+        "dead_ends": project.as_ref().map(|p| dead_ends_json(&p.library, p.lattice.face_bands)),
+        // **The intended relations this map breaks** (#137): read from `<map>.relations.ron` on every
+        // call, so an edit to that file is seen by the next answer with no restart.
+        "relations": open.as_ref().map(|o| relations_json(&o.map.placements, &o.map_path)),
         "project": project_summary,
         "editor": editor,
         "presentation": presentation,
@@ -577,6 +596,219 @@ fn editor_state(
             crate::screen::Screen::Editor => "editor",
         }),
     }))
+}
+
+/// The most repeats `emerge_state` names; `total` always counts them all.
+const REPEATS_CAP: usize = 10;
+
+/// **The visible repeats of a map, as `emerge_state` reports them**, under the project's rules. A
+/// rules file that cannot be read is named in `error` with no repeats, never read as the defaults.
+fn repetition_json(
+    placements: &[bevy_emerge_core::map::Placed],
+    library: &bevy_emerge_core::library::Library,
+    project_dir: &std::path::Path,
+) -> Value {
+    use bevy_emerge_core::repetition::{repeats, Role};
+    let rules = match load_repetition(project_dir) {
+        Ok(r) => r,
+        Err(e) => return json!({"repeats": [], "total": 0, "error": e}),
+    };
+    let all = repeats(placements, library, &rules);
+    let rows: Vec<Value> = all
+        .iter()
+        .take(REPEATS_CAP)
+        .map(|r| {
+            json!({
+                "descriptor": r.descriptor,
+                "patched": r.patch.is_some(),
+                "role": match r.role { Role::Structure => "structure", Role::Clutter => "clutter" },
+                "pieces": r.pieces,
+                "pairs": r.pairs,
+                "score": r.score,
+            })
+        })
+        .collect();
+    json!({"repeats": rows, "total": all.len(), "error": null})
+}
+
+/// `<project_dir>/repetition.ron`, or the default rules when there is no such file; any other
+/// failure to read or parse it is the error, naming the file. Shared by `emerge_state` and the
+/// status bar's `REPEATS` line (#139), so the two cannot disagree.
+pub(crate) fn load_repetition(
+    project_dir: &std::path::Path,
+) -> Result<bevy_emerge_core::repetition::RepetitionRules, String> {
+    use bevy_emerge_core::repetition::{RepetitionRules, FILE};
+    let path = project_dir.join(FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => RepetitionRules::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(RepetitionRules::default()),
+        Err(e) => Err(e.to_string()),
+    }
+    .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// **The relations beside a map, checked against its placements**, as `emerge_state` reports them.
+/// No file is no relations and no error; a file that cannot be read or parsed is named in `error`,
+/// never read as an empty list.
+fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::path::Path) -> Value {
+    use bevy_emerge_core::relations::{check, path_for_map, Outcome, Relations};
+    let path = path_for_map(map_path);
+    let loaded = match std::fs::read_to_string(&path) {
+        Ok(text) => Relations::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Relations::default()),
+        Err(e) => Err(e.to_string()),
+    };
+    let relations = match loaded {
+        Ok(r) => r,
+        Err(e) => {
+            return json!({"relations": [], "unmet": 0, "missing": 0, "error": format!("{}: {e}", path.display())})
+        }
+    };
+    let (mut unmet, mut missing) = (0, 0);
+    let rows: Vec<Value> = relations
+        .relations
+        .iter()
+        .zip(check(placements, &relations))
+        .map(|(r, outcome)| {
+            let (word, measured, by, missing_id) = match outcome {
+                Outcome::Met { measured } => ("met", Some(measured), None, None),
+                Outcome::Unmet { measured, by } => {
+                    unmet += 1;
+                    ("unmet", Some(measured), by, None)
+                }
+                Outcome::Missing { id } => {
+                    missing += 1;
+                    ("missing", None, None, Some(id))
+                }
+            };
+            json!({
+                "of": r.of,
+                "kind": serde_json::to_value(&r.kind).unwrap_or(Value::Null),
+                "outcome": word,
+                "measured": measured,
+                "by": by,
+                "missing_id": missing_id,
+            })
+        })
+        .collect();
+    json!({"relations": rows, "unmet": unmet, "missing": missing, "error": null})
+}
+
+/// The most dead-end faces `emerge_state` names; `total` always counts them all.
+const DEAD_ENDS_CAP: usize = 20;
+
+/// **The kit's dead ends** as `emerge_state` reports them (#142 slice 2): the first
+/// [`DEAD_ENDS_CAP`] of `adjacency::dead_ends`, sorted by piece and side, and the full count.
+fn dead_ends_json(library: &bevy_emerge_core::library::Library, divisions: u32) -> Value {
+    use bevy_emerge_core::adjacency::{dead_ends, dir_name};
+    let all = dead_ends(library, divisions);
+    let faces: Vec<Value> = all
+        .iter()
+        .take(DEAD_ENDS_CAP)
+        .map(|d| {
+            // The piece nearest to closing it (#145), with the cells that keep it from it.
+            let closest = d.closest.as_ref().map(|c| {
+                let misses: Vec<Value> = c
+                    .misses
+                    .iter()
+                    .map(|m| json!({"at": m.at, "want": m.want, "found": m.found}))
+                    .collect();
+                json!({"piece": c.piece, "turn": u32::from(c.turn) * 90, "misses": misses})
+            });
+            json!({
+                "piece": d.piece,
+                "dir": dir_name(d.dir),
+                "face": d.face,
+                "closest": closest,
+                "message": d.message,
+            })
+        })
+        .collect();
+    json!({"faces": faces, "total": all.len()})
+}
+
+/// **The project's standards, checked against its library**, as `emerge_state` reports them: every
+/// breach, and every rule that covers no piece. No file is no rules and no error; a file that cannot
+/// be read or parsed is named in `error`, never read as an empty list.
+fn standards_json(library: &bevy_emerge_core::library::Library, project_dir: &std::path::Path) -> Value {
+    use bevy_emerge_core::standards::{check, idle};
+    let standards = match load_standards(project_dir) {
+        Ok(s) => s,
+        Err(e) => return json!({"breaches": [], "idle": [], "error": e}),
+    };
+    let rows: Vec<Value> = check(library, &standards).iter().map(breach_json).collect();
+    json!({"breaches": rows, "idle": idle(library, &standards), "error": null})
+}
+
+/// **One piece's breaches of the project's standards** (#138 slice 3), as `piece_import` reports
+/// them on admission: `{breaches, error}`, the same rows `emerge_state` gives, for that piece alone.
+/// The second value names each broken rule once, in file order, for a summary; empty when it breaks
+/// none or the file could not be read.
+pub(crate) fn piece_standards_json(
+    piece: &bevy_emerge_core::descriptor::Descriptor,
+    project_dir: &std::path::Path,
+) -> (Value, Vec<String>) {
+    let breaches = match piece_breaches(piece, project_dir) {
+        Ok(b) => b,
+        Err(e) => return (json!({"breaches": [], "error": e}), Vec::new()),
+    };
+    let mut rules: Vec<String> = Vec::new();
+    for b in &breaches {
+        if !rules.contains(&b.rule) {
+            rules.push(b.rule.clone());
+        }
+    }
+    let rows: Vec<Value> = breaches.iter().map(breach_json).collect();
+    (json!({"breaches": rows, "error": null}), rules)
+}
+
+/// **One piece's breaches of `<project_dir>/standards.ron`**, in file order, or the file's error.
+/// Shared by `piece_import`'s answer and the Meshes pane (#138), so the two cannot disagree.
+pub(crate) fn piece_breaches(
+    piece: &bevy_emerge_core::descriptor::Descriptor,
+    project_dir: &std::path::Path,
+) -> Result<Vec<bevy_emerge_core::standards::Breach>, String> {
+    use bevy_emerge_core::library::Library;
+    let standards = load_standards(project_dir)?;
+    let one = Library {
+        version: bevy_emerge_core::library::LIBRARY_VERSION,
+        note: None,
+        descriptors: vec![piece.clone()],
+    };
+    Ok(bevy_emerge_core::standards::check(&one, &standards))
+}
+
+/// `<project_dir>/standards.ron`, or no rules when there is no such file; any other failure to read
+/// or parse it is the error, naming the file.
+pub(crate) fn load_standards(
+    project_dir: &std::path::Path,
+) -> Result<bevy_emerge_core::standards::Standards, String> {
+    use bevy_emerge_core::standards::{Standards, FILE};
+    let path = project_dir.join(FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Standards::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Standards::default()),
+        Err(e) => Err(e.to_string()),
+    }
+    .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn breach_json(b: &bevy_emerge_core::standards::Breach) -> Value {
+    use bevy_emerge_core::standards::{Dim, Why};
+    let (why, bound) = match b.why {
+        Why::Unmeasured => ("unmeasured", None),
+        Why::BelowMin(v) => ("below_min", Some(v)),
+        Why::AboveMax(v) => ("above_max", Some(v)),
+        Why::NotMultipleOf(v) => ("not_multiple_of", Some(v)),
+    };
+    json!({
+        "piece": b.piece,
+        "rule": b.rule,
+        "dim": match b.dim { Dim::Width => "width", Dim::Depth => "depth", Dim::Height => "height" },
+        "found": b.found,
+        "why": why,
+        "bound": bound,
+    })
 }
 
 /// **The parameters of `emerge/pieces`.** Every filter is optional, and they combine: a piece is
@@ -742,23 +974,38 @@ fn capture_sequence_status(
 /// **A discovery tool, not a page of tools.** The MCP server exposes one tool per operation, but
 /// the *BRP* surface is one list, because a BRP caller can ask. **The always-loaded MCP toolset
 /// stays small** and the rare ones are found here.
-fn operation_list(_: In<serde_json::Value>) -> Result<Value, String> {
-    let ops = ops::registry();
-    let list: Vec<Value> = ops
-        .iter()
-        .map(|op| {
-            json!({
-                "operation": op.name(),
-                "undo": match op.undo() {
-                    ops::Undo::None => "none",
-                    ops::Undo::Inverse => "inverse",
-                    ops::Undo::Snapshot => "snapshot",
-                },
-                "parameters": op.schema(),
-            })
+///
+/// **`{"query": "..."}` searches instead of listing** (#141): only the operations `ops::search`
+/// finds, best first, with the query and the registry's `total` beside them, so a caller knows how
+/// much it did not read. No query, or a blank one, lists every operation as before.
+fn operation_list(In(p): In<serde_json::Value>) -> Result<Value, String> {
+    let query = match p.get("query") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(q)) if q.trim().is_empty() => None,
+        Some(Value::String(q)) => Some(q.clone()),
+        Some(other) => return Err(format!("`query` is text to search for, not {other}.")),
+    };
+    let row = |op: &dyn ops::Operation| {
+        json!({
+            "operation": op.name(),
+            "undo": match op.undo() {
+                ops::Undo::None => "none",
+                ops::Undo::Inverse => "inverse",
+                ops::Undo::Snapshot => "snapshot",
+            },
+            "parameters": op.schema(),
         })
-        .collect();
-    Ok(json!({ "operations": list }))
+    };
+    let Some(query) = query else {
+        let list: Vec<Value> = ops::registry().iter().map(|op| row(op.as_ref())).collect();
+        return Ok(json!({ "operations": list }));
+    };
+    let found: Vec<Value> = ops::search(&query).iter().map(|op| row(op.as_ref())).collect();
+    Ok(json!({
+        "query": query,
+        "total": ops::registry().len(),
+        "operations": found,
+    }))
 }
 
 /// **`emerge/operation_preview` — what an operation would change, and nothing changed.**
