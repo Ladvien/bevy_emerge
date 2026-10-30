@@ -39,7 +39,7 @@ A kit folder must be bound in `kits.ron` before the game can load it. See the da
 
 **Goal:** the game loads one map and spawns its pieces when it starts.
 
-1. Add `bevy`, `bevy_emerge` and `bevy_emerge_core` to your game's `Cargo.toml`. `bevy_emerge` is the runtime crate: `EmergePlugin` and the spawn helpers. `bevy_emerge_core` loads and checks the data, with no engine dependency. A game that uses only the data, and spawns its own entities, can depend on `bevy_emerge_core` alone.
+1. Add `bevy`, `bevy_emerge` and `bevy_emerge_core` to your game's `Cargo.toml`, by path or git to follow this repository's `main`; `bevy_emerge_core = "0.1"` is also on crates.io. `bevy_emerge` is the runtime crate: `EmergePlugin` and the spawn helpers. `bevy_emerge_core` loads and checks the data, with no engine dependency. A game that uses only the data, and spawns its own entities, can depend on `bevy_emerge_core` alone.
 2. Put your data files under `assets/emerge/`, as shown above.
 3. At start-up, call `project_data::load` with the `assets/emerge` path and the names of the maps you need. The path is read from the working directory, so start the game from the game's root.
 4. Take the map out of the loaded project. Build an `EmergeWorld` from the merged library, the map, the vocabulary, the compositions, and the lattice.
