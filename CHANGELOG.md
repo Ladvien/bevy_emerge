@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **105-receipt** `85093ed` The line after 'people run' names the triggers that fired and for whom, and any script error (#105) *No clip: visible, not yet recorded: the viewport draws no people, so only the status line shows it; proved by the_run_receipt_names_the_triggers_that_fired*
+- **E-055** `c177b4d` Stale code comments corrected *No clip: comments only; proved by cargo check*
 - **E-070-auto-toggle** `99cd8e5` Tab in the note box marks a note auto: the agent decides open choices itself and says what it assumed *No clip: visible, not yet recorded: no display on big*
 - **E-075c** `f328bc5` A note's resolution can cite a reference picture by id; an id the map lacks is refused *No clip: an agent-facing refusal; proved by note_cites_reference::a_resolve_citing_a_reference_the_map_lacks_is_refused*
 - **E-075b** `4c54e46` Reference images are added and removed through the reference_set operation (UI line 'ref <path> [caption]') and listed in emerge_state for the agent to cite *No clip: an operation and state field; proved by tests/references.rs*
