@@ -174,6 +174,7 @@ mod note_cites_reference;
 mod note_fence;
 mod note_undo_work;
 mod notes_are_operations;
+mod notes_end_to_end;
 mod notes_history_and_send;
 mod notes_panel_lists_every_note;
 mod notes_panel_shows_the_auto_flag;
