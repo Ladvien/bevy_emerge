@@ -1425,6 +1425,47 @@ pub struct TerrainEdit {
 #[derive(Resource, Default)]
 pub struct CrowdEdit {
     active: Option<String>,
+    /// The last run's heat overlay (#107): cell size in metres and `[x, z, trail, congestion]`
+    /// cells in map space. A measurement kept for drawing; never saved. Empty draws nothing.
+    heat: CrowdHeat,
+}
+
+/// What [`draw_crowd_heat`] draws.
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct CrowdHeat {
+    pub cell: f32,
+    pub cells: Vec<[f32; 4]>,
+}
+
+impl CrowdHeat {
+    /// Read the `cell` and `heat` fields of a `crowd_preview` outcome's `after`.
+    pub fn from_after(after: &serde_json::Value) -> CrowdHeat {
+        let cell = after["cell"].as_f64().unwrap_or(0.0) as f32;
+        let cells = after["heat"]
+            .as_array()
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| {
+                        let v: Vec<f32> = r.as_array()?.iter().filter_map(|n| n.as_f64().map(|n| n as f32)).collect();
+                        <[f32; 4]>::try_from(v).ok()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        CrowdHeat { cell, cells }
+    }
+
+    /// The colour of one cell: congestion runs from amber to red and wins over the trail, which is a
+    /// faint blue, so a queue is never hidden under the path that led to it.
+    pub fn colour(trail: f32, congestion: f32) -> Color {
+        if congestion >= trail {
+            // CHROME-OK: world ink, a heat ramp over the floor like the gizmo palettes, not panel chrome.
+            Color::srgba(1.0, 0.85 - 0.75 * congestion, 0.05, 0.25 + 0.6 * congestion)
+        } else {
+            // CHROME-OK: world ink, the faint trail under the heat.
+            Color::srgba(0.3, 0.6, 1.0, 0.1 + 0.4 * trail)
+        }
+    }
 }
 
 /// The node the palette is rebuilt into, so collapsing a category can redraw it.
@@ -2337,7 +2378,7 @@ impl Plugin for EditorPlugin {
                             .run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
                     ),
                     check_edges.run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
-                    draw_edge_faults.run_if(in_map_mode),
+                    (draw_edge_faults, draw_crowd_heat).run_if(in_map_mode),
                 ),)
                     .run_if(in_state(crate::screen::Screen::Editor))
                     .run_if(crate::tiles::Door::map_door_is_open),
@@ -4456,7 +4497,9 @@ fn crowd_edit_keys(
         match &event.logical_key {
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
-                run_crowd_preview(project.as_deref(), open.as_deref(), &mut state, &raw);
+                if let Some(heat) = run_crowd_preview(project.as_deref(), open.as_deref(), &mut state, &raw) {
+                    edit.heat = heat;
+                }
                 return;
             }
             Key::Escape => {
@@ -4497,10 +4540,10 @@ fn crowd_params(raw: &str) -> Option<serde_json::Value> {
 }
 
 /// **Run the typed line through the registry** as `crowd_preview` and say what it measured.
-fn run_crowd_preview(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+fn run_crowd_preview(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) -> Option<CrowdHeat> {
     let Some(params) = crowd_params(raw) else {
         state.status.problem(format!("`{}` is not `<from_x> <from_z> <to_x> <to_z> <walkers>`, so no crowd was run", raw.trim()));
-        return;
+        return None;
     };
     let mut ctx = crate::ops::Ctx {
         project: project.cloned(),
@@ -4510,8 +4553,36 @@ fn run_crowd_preview(project: Option<&Project>, open: Option<&OpenMap>, state: &
         ..crate::ops::Ctx::default()
     };
     match crate::ops::dispatch(&mut ctx, "crowd_preview", &params) {
-        Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
-        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            state.status.note(outcome.summary);
+            outcome.after.as_ref().map(CrowdHeat::from_after)
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+            None
+        }
+    }
+}
+
+/// **Draw the crowd preview's heat over the floor** (#107): one flat square per cell the run wore a
+/// path through or queued in. Gizmos, like `draw_edge_faults`: it is a statement about the run, not
+/// a thing in the map, and an empty [`CrowdHeat`] draws nothing.
+fn draw_crowd_heat(edit: Res<CrowdEdit>, open: Res<OpenMap>, project: Res<Project>, mut gizmos: Gizmos) {
+    let heat = &edit.heat;
+    if heat.cells.is_empty() || heat.cell <= 0.0 {
+        return;
+    }
+    let y = open.map.origin.1 - ground_drop(&project) + BOUNDS_FILL_CLEARANCE + 0.02;
+    let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    for [x, z, trail, congestion] in &heat.cells {
+        // Nested outlines read as a filled square: gizmos have no fill.
+        for k in [0.9, 0.6, 0.3] {
+            gizmos.rect(
+                Isometry3d::new(Vec3::new(open.map.origin.0 + x, y, open.map.origin.2 + z), flat),
+                Vec2::splat(heat.cell * k),
+                CrowdHeat::colour(*trail, *congestion),
+            );
+        }
     }
 }
 
