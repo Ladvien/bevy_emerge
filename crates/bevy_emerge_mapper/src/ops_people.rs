@@ -346,7 +346,21 @@ pub struct RunReport {
     pub days: f32,
     pub ticks: usize,
     pub people: Vec<Stood>,
+    /// Every time a saved trigger ran for someone, in the order they ran (#105).
+    pub fired: Vec<Fired>,
+    /// Scripts that failed while the society ran: `owner: message`.
+    pub script_errors: Vec<String>,
     pub hash: u64,
+}
+
+/// One trigger running, for one person.
+#[cfg(feature = "bevy_society")]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Fired {
+    pub trigger: String,
+    /// The person the event was about, `""` for an event about nobody (a tick, an hour).
+    pub person: String,
+    pub tick: usize,
 }
 
 /// Game-day length in seconds the preview runs at; one society tick is 1/64 s, so a day is 4096 ticks.
@@ -448,8 +462,27 @@ pub fn run_forward(
     }
 
     let ticks = (days * SECONDS_PER_DAY * TICK_HZ) as usize + 1;
-    for _ in 0..ticks {
+    let mut fired = Vec::new();
+    let mut script_errors = Vec::new();
+    let mut events = bevy::ecs::message::MessageCursor::<bevy_society::ScriptEvent>::default();
+    let mut errors = bevy::ecs::message::MessageCursor::<bevy_society::ScriptError>::default();
+    for tick in 0..ticks {
         app.update();
+        let w = app.world();
+        for e in events.read(w.resource::<bevy::ecs::message::Messages<bevy_society::ScriptEvent>>()) {
+            if e.name != crate::ops_scripts::FIRED {
+                continue;
+            }
+            let trigger = e.data.iter().find_map(|(k, v)| match (k.as_str(), v) {
+                ("trigger", bevy_society::ScriptValue::Text(t)) => Some(t.clone()),
+                _ => None,
+            });
+            let person = e.actor.and_then(|a| w.get::<Name>(a)).map(|n| n.as_str().to_owned()).unwrap_or_default();
+            fired.push(Fired { trigger: trigger.unwrap_or_default(), person, tick });
+        }
+        for e in errors.read(w.resource::<bevy::ecs::message::Messages<bevy_society::ScriptError>>()) {
+            script_errors.push(format!("{}: {}", e.owner, e.message));
+        }
     }
 
     let ids: Vec<(bevy_society::PersonId, Entity)> = app.world().resource::<PersonIndex>().sorted.clone();
@@ -479,7 +512,7 @@ pub fn run_forward(
             .unwrap_or_default();
         out.push(Stood { name: w.get::<Name>(e).map(|n| n.as_str().to_owned()).unwrap_or_default(), at: (t.x, t.z), ties, bonds });
     }
-    Ok(RunReport { seed, days, ticks, people: out, hash })
+    Ok(RunReport { seed, days, ticks, people: out, fired, script_errors, hash })
 }
 
 #[cfg(feature = "bevy_society")]
@@ -511,10 +544,7 @@ impl PeopleRun {
         if people.people.is_empty() {
             return Err(Refusal::new(format!("nobody lives on `{}`; author someone with person_set first.", p.map)));
         }
-        let defs = match crate::ops_family::settings_path(ctx, "bevy_society").ok().and_then(|f| std::fs::read_to_string(f).ok()) {
-            Some(text) => bevy_society::SocietyDefs::from_ron(&text).map_err(|e| Refusal::new(format!("the society definitions do not compile: {e}")))?,
-            None => bevy_society::SocietyDefs::starter().map_err(|e| Refusal::new(format!("the starter pack does not compile: {e}")))?,
-        };
+        let defs = crate::ops_scripts::defs_with_triggers(ctx, &p.map, &people)?;
         let at: Vec<(String, (f32, f32))> = open.map.placements.iter().map(|q| (q.id.clone(), q.at)).collect();
         let n = people.people.len();
         run_forward(defs, &at, &people, p.seed.unwrap_or(0), p.days.unwrap_or(1.0)).map(|r| (r, n))
