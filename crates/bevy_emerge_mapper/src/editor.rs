@@ -2128,6 +2128,21 @@ impl Plugin for EditorPlugin {
         );
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
+        // **The light map (#103):** shown by its button, re-baked when the map changes, drawn over the floor.
+        #[cfg(feature = "bevy_light_grid")]
+        app.init_resource::<crate::light_overlay::LightOverlay>()
+            .add_observer(crate::light_overlay::on_light_map_click)
+            .add_systems(
+                Update,
+                (
+                    crate::light_overlay::refresh_light_overlay,
+                    crate::light_overlay::draw_light_overlay
+                        .after(crate::light_overlay::refresh_light_overlay)
+                        .run_if(in_map_mode)
+                        .run_if(resource_exists::<OpenMap>)
+                        .run_if(resource_exists::<Project>),
+                ),
+            );
         #[cfg(feature = "bevy_gooey")]
         crate::ui_skin::build(app);
         app.add_observer(on_play_click);
@@ -3289,6 +3304,15 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 ..default()
             })
             .with_children(crate::environment::spawn_section);
+
+            // **Light map (#103):** show or hide `bevy_light_grid`'s field over the open map.
+            #[cfg(feature = "bevy_light_grid")]
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(crate::light_overlay::spawn_section);
 
             // **Terrain (#99).** One line: `<brush> <x> <z> <radius_m> <strength>`, e.g.
             // `raise 12 8 6 2`. Enter sculpts the open map's ground through `terrain_stroke`.
