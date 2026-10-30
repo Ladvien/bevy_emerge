@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **101-caves-rest** `cecc860` A floor piece authored inside a carved cave stands on the cave's floor (resolve_y_in, #101) *No clip: visible, not yet recorded: no display on big; proved by tests/pieces_in_caves.rs*
 - **101-cave-floor** `0e40c30` Volume::floor_below: the floor under a point inside a carved cave, for pieces placed in caves (#101) *No clip: an engine-free query; proved by bevy_emerge_core/tests/volume_floor.rs*
 - **terrain-preset** `6114249` terrain_preset: hills, mountains, dunes or plains from bevy_elements baked into the map's saved terrain, one undo *No clip: an operation with no viewport surface yet; proved by tests/terrain_preset_is_an_operation.rs*
 - **106-attach** `0ecb31a` A conversation can be attached to a placed piece by name; one the dialogue script lacks is refused *No clip: visible, not yet recorded: no display on big; proved by family_dialogue attach test*
