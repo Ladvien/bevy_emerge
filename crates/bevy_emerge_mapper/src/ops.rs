@@ -2380,6 +2380,8 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         #[cfg(feature = "bevy_carnage")]
         Box::new(crate::ops_destructible::DestructibleHit),
         Box::new(crate::ops_terrain::TerrainImport),
+        #[cfg(feature = "bevy_elements")]
+        Box::new(crate::ops_terrain::TerrainPreset),
         Box::new(crate::ops_volume::VolumeEdit),
         Box::new(crate::ops_forest::ForestScatter),
         Box::new(crate::ops_water::WaterPlace),
