@@ -35,6 +35,7 @@ mod a_kit_edited_on_disk_reaches_the_screen;
 mod a_kit_save_rereads_only_that_kit;
 mod a_label_and_its_value_are_two_things;
 mod a_label_set_on_effects_settles_as_the_kind_does;
+mod a_vlm_label_is_suggested_then_applied;
 mod a_library_change_does_not_block_another_pieces_undo;
 mod a_made_map_can_be_taken_away_by_undo;
 mod a_map_can_be_renamed_through_the_registry;

@@ -2370,6 +2370,8 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(door_open::DoorOpen),
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
+        Box::new(crate::ops_label_vlm::LabelSuggest),
+        Box::new(crate::ops_label_vlm::LabelApply),
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
         Box::new(crate::ops_family::PlacementSetFamily),
@@ -2507,6 +2509,11 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The label chips (E-042)**, which toggle one token on a library piece's axis through
     // `toggle_tag`, which calls `set_label` and dispatches `label_set` with the person's source.
     ("label_set", "set_label("),
+    // **The labeler's two halves (E-043)** — `L` photographs a piece and asks the model through
+    // `request_photos`, and the answer lands through `apply_suggestion`; `label_suggest` and
+    // `label_apply` are the same two steps for an agent that brings its own shots.
+    ("label_suggest", "request_photos("),
+    ("label_apply", "apply_suggestion("),
     // **The rule seed field (E-081)** — `K` opens a one-number field and Enter dispatches
     // `rules_set` through `set_rule_seed`, so a person tuning a rule and an agent calling the
     // operation are one change with one undo.
@@ -3083,7 +3090,7 @@ fn operation_id_for(seq: u64, session: &str) -> String {
 /// **When it happened, as RFC 3339 UTC.**
 ///
 /// **Computed here, not passed in**, so a caller cannot record a time that is not the time.
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     // **`SystemTime` and a hand-rolled formatter**, because the crate has no date dependency and
     // adding one for a timestamp is not worth it. The format is the RFC 3339 subset that matters:
     // UTC, seconds precision, a `Z` suffix.
