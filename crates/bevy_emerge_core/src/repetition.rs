@@ -205,31 +205,39 @@ pub fn vary(placements: &[Placed], library: &Library, rules: &RepetitionRules) -
         .iter()
         .map(|p| descriptor_of(library, p).is_some_and(|d| role_of(&d, rules) == Role::Clutter))
         .collect();
-    let mut rows: Vec<Placed> = placements.to_vec();
-    let alike = |rows: &[Placed], i: usize, of: &Placed, upto: usize| {
-        rows[..upto]
-            .iter()
-            .enumerate()
-            .any(|(j, q)| j != i && look_key(q) == look_key(of) && look_alike(of, q, radius2))
+    // Each look's key once, not once per pair: a patched key formats the whole patch.
+    let keys: Vec<String> = placements.iter().map(look_key).collect();
+    let mut yaws: Vec<f32> = placements.iter().map(|p| p.yaw).collect();
+    // Whether placement `i`, at `yaw`, looks like any of the first `upto` others at their yaws now.
+    let alike = |yaws: &[f32], i: usize, yaw: f32, upto: usize| {
+        let p = &placements[i];
+        (0..upto).any(|j| {
+            let q = &placements[j];
+            let (dx, dz) = (p.at.0 - q.at.0, p.at.1 - q.at.1);
+            let turn = (yaw - yaws[j]).rem_euclid(360.0);
+            j != i
+                && dx * dx + dz * dz < radius2
+                && p.tip == q.tip
+                && turn.min(360.0 - turn) < YAW_TOLERANCE_DEG
+                && keys[j] == keys[i]
+        })
     };
+    let n = placements.len();
     let mut turned = Vec::new();
-    for i in 0..rows.len() {
-        if !clutter[i] || !alike(&rows, i, &rows[i], i) {
+    for i in 0..n {
+        if !clutter[i] || !alike(&yaws, i, yaws[i], i) {
             continue;
         }
-        let n = rows.len();
-        let found = TURNS_DEG.iter().find_map(|turn| {
-            let mut trial = rows[i].clone();
-            trial.yaw = (rows[i].yaw + turn).rem_euclid(360.0);
-            (!alike(&rows, i, &trial, n)).then_some(trial.yaw)
-        });
+        let found = TURNS_DEG
+            .iter()
+            .map(|turn| (yaws[i] + turn).rem_euclid(360.0))
+            .find(|&yaw| !alike(&yaws, i, yaw, n));
         if let Some(yaw) = found {
-            rows[i].yaw = yaw;
+            yaws[i] = yaw;
             turned.push((i, yaw));
         }
     }
-    let n = rows.len();
-    let left = (0..n).filter(|&i| clutter[i] && alike(&rows, i, &rows[i], n)).count();
+    let left = (0..n).filter(|&i| clutter[i] && alike(&yaws, i, yaws[i], n)).count();
     Variation { turned, left }
 }
 
