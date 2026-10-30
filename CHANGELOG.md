@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **106-s1** `55d25d6` bevy_speech_bubbles is a hosted family crate: a conversation is saved as the crate's own DialogueScript and a graph validate_script rejects is refused *No clip: visible, not yet recorded: no display on big; proved by family_dialogue*
 - **108-s1** `803eed1` bevy_carnage is a hosted family crate: its CarnageSettings are authored through family_set *No clip: an API/feature host; proved by family_carnage_settings*
 - **E-072a** `cbb2ac5` An agent can define a composition from placements on the map (composition_define), replace it on request, and undo it *No clip: an operation over MCP; proved by tests/an_agent_can_define_a_composition.rs*
 - **fix-120** `0df31ae` Family settings reload in about 0.2 s instead of up to 1.5 s (flaky gate, #120) *No clip: a latency change, not visible in a clip; proved by family_settings_reload test*
