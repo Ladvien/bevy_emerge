@@ -248,7 +248,7 @@
         "evidence": "The brief's step 2 says the agent reads state and acts in small steps; a person watching has no list of what it means to do. Mixar renders the agent's plan as a checklist with a status per item."
       },
       "status": "open",
-      "evidence": "mixar@39b9d27:ui/properties/chat_slot_types.py (MixieChatTodoItem)",
+      "evidence": "mixar@39b9d27:ui/properties/chat_slot_types.py (MixieChatTodoItem). Slice 1 shipped: plan_set (ops_plan.rs; core plan.rs; the plan is the .plan.ron beside the .map.ron, in emerge_state under `plan`, one undo step restores the previous plan; person-side `plan clear` in the Terrain field); test tests/an_agent_can_show_its_plan.rs. Still open: the checklist panel that shows the plan beside the map (needs a display to verify).",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },

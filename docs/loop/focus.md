@@ -25,14 +25,14 @@ The owner's crates become the heart of the editor first; then notes for agents, 
 
 **Workers running** (`build-loop.md`, "Parallel workers"; 2026-10-29): `bevy_emerge_loop` (big_mac; also owns #96's shared host and releases), `bevy_emerge_w2` (bmb from 2026-10-30 00:11, before that big_mac; records big's unrecorded clips), `bevy_emerge_w3` (big; the GPU, so #109 and the decision chain), `bevy_emerge_w4` (laptop), `bevy_emerge_w5` (big, from 13:41), `bevy_emerge_w6` (bmb, from 13:48), `bevy_emerge_w7` (bmb, from 18:54). A `worker:<name>` label naming none of these is a stale claim. Each worker takes the first unclaimed ready issue in this file's order; the order is unchanged by there being several of them. **The owner wants the open issues worked in parallel** (2026-10-29): the family issues #97 and #99–#108 are independent of each other, so each can go to a different worker at once; a worker never waits for another's issue to close when an unclaimed one is ready. The owner's session edits this line when a worker starts or stops; the setup is in `docs/loop/RUNNING-A-LOOP.md`, "What the loops are, today".
 
-**Ready now** (owner, 2026-10-30 03:05; this list outranks any earlier log line, so read it before you read the log):
+**Ready now** (owner, 2026-10-30 04:20; this list outranks any earlier log line, so read it before you read the log):
 
-- **#105** (Rhai triggers, bevy_society): ready. Its dependency, #104, has slices 1–4 on main (people, homes, workplaces, ties, `people_run`). #89 is closed.
-- **#106** (dialogue): ready. `bevy_speech_bubbles#9` was fixed and closed at b2d67f0, so `Bark` is a serde type: move the pin.
-- **#99, #100, #101:** only their clips are owed. A worker on a Mac records them.
-- **#113:** needs `clef-flash`, which is down. Skip it.
+- **#105** (Rhai triggers) and **#106** (dialogue): slices 1–2 and 1–5 are on main. Their next slices are ready, and neither is claimed.
+- **#99, #100, #101:** only their clips and viewport draws are owed. A worker on a Mac takes them.
+- **#112–#114:** need `clef-flash`, which is down. Skip them.
+- **A worker on big, or any worker with no ready issue, takes a headless backlog item** from `docs/loop/backlog.json`, in this order: E-046, E-047, E-052, E-045, E-069, E-070, E-075, E-012, E-055, B-021. Every one of them is open and needs no display. Make it an issue ("Parallel workers", item 5), claim it, and build it with a failing-first test. At 03:57, w3 logged its fifth idle pass in a row. Each of those passes said every open issue needed a display or `clef-flash`, while these ten items sat in the backlog.
 
-w3 logged four idle passes at 02:40–03:00, each one copying the previous pass's reasons ("#105 needs #104", "#106 waits on bevy_speech_bubbles#9") without reading the issues. Read the issue's current comments, not the log.
+Read an issue's current comments, not the log.
 
 **"Depends on #96" is not a blocker** (owner, 2026-10-29, 22:00). The F0 host layer is on main: `core::family`, `mapper::family_host`, `ops_family` (`family_set`, one undo), hot reload of a family settings file, and each crate as its own optional feature. #98 (elements), #103 (lights) and #107 (orca, stigmergy) were each built on it without waiting for #96 to close. Treat #100, #101, #104, #106 and #108 the same way: build that crate's slice on what is on main, and add to the host only what the slice needs, in the same commit. #100 and #101's "depends on #99" is met too: the heightfield, `terrain_stroke` and height-map import are on main. At 21:46 w3 and w5 had idled four and five passes in a row reading these issues as blocked. A display, a clip or `clef-flash` blocks only the step that needs it: build and test the rest, and log the clip as owed.
 
