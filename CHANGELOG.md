@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **186-long-pieces-half-turn** `bcb413e` repetition_vary turns a long clutter piece (a bench, a cart) only a half turn, so it never lands on cells it did not cover *No clip: a fix to repetition_vary's plan (which copies turn, and by how much); proved by crates/bevy_emerge_core/tests/vary_never_turns_a_long_piece_off_its_cells.rs*
 - **184-round-repeats** `9a013de` repetition.ron's round kinds: a barrel or a pot repeats at any turn, and repetition_vary never turns one but counts it as left *No clip: a repetition rule in a project data file (agent and REPEATS line read it); proved by crates/bevy_emerge_core/tests/a_round_piece_repeats_at_any_turn.rs*
 - **183-inside** `149f032` Relations: Inside keeps a piece inside an area of another (a table on the rug, a stall in the square), and relations solve sets it just inside *No clip: a relation kind and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_inside_an_area.rs*
 - **180-pointer-read-first** `c488d07` A click lands where the cursor is this frame: the pointer is read before every Update system, so the Note tool's second Shift-click no longer takes the first piece back out (#180) *No clip: an input-ordering fix with nothing new on screen; proved by the_pointer_is_read_before_anything_acts_on_it and 51 of 51 batch runs of a_person_shift_clicks_two_pieces_into_one_note*
