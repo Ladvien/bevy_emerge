@@ -2370,6 +2370,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(label_set::LabelSet),
         Box::new(crate::ops_data::DataSet),
         Box::new(crate::ops_family::FamilySet),
+        Box::new(crate::ops_terrain::TerrainStroke),
         Box::new(crate::ops_runs::RunAdd),
         Box::new(crate::ops_runs::RunSet),
         Box::new(crate::ops_runs::RunRemove),
@@ -2477,6 +2478,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Data field (#86)** — Enter on `<file> <path> <value>` dispatches `data_set` through
     // `set_data_leaf`, the same write an agent's `apply` makes.
     ("data_set", "set_data_leaf("),
+    // **The Terrain field (#99)** — Enter on `<brush> <x> <z> <radius_m> <strength>` dispatches
+    // `terrain_stroke` through `sculpt_terrain`, the same write an agent's `apply` makes.
+    ("terrain_stroke", "sculpt_terrain("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
     // through `add_note`; a click on a standing note opens it for `note_edit` (`edit_note`), and an
     // emptied note is `note_remove` (`remove_note`).
