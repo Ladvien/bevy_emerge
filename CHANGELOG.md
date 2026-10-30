@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **184-round-repeats** `9a013de` repetition.ron's round kinds: a barrel or a pot repeats at any turn, and repetition_vary never turns one but counts it as left *No clip: a repetition rule in a project data file (agent and REPEATS line read it); proved by crates/bevy_emerge_core/tests/a_round_piece_repeats_at_any_turn.rs*
 - **181-backs-onto** `e6ce312` Relations: BacksOnto keeps a piece with its back to another (a bookshelf against a wall, anywhere along it), and relations solve turns it out from the wall *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_backed_onto_another.rs*
 - **177-note-box-on-screen** `ee0ce2b` While a note is typed, the Inspector scrolls its text (LAST: the words, the caret, [auto]) back on screen, even when it was scrolled down to NOTES *No clip: visible, not yet recorded: this sib pass's budget went to the gate; storyboard owed (note_auto.json with the Inspector wheeled to NOTES before the drag)*
 - **95-notes-end-to-end** `59193ea` Notes end to end on a game's map: a person leaves three notes (an area, two Shift-clicked pieces, one piece), two agents work them at once inside their fences, a removal waits for the person's answer, and the person keeps two and undoes the third in one step (#95)<br><a href="docs/changelog/media/2026-10-30-95-notes-end-to-end.mp4"><img src="docs/changelog/media/2026-10-30-95-notes-end-to-end.png" width="320" alt="clip"></a>
