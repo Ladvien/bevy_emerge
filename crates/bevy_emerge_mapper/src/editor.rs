@@ -3969,6 +3969,47 @@ pub fn apply_armed(state: &mut EditorState, project: &Project, after: Option<&se
     }
 }
 
+/// **Arm a composition, or put it down if it is already armed**, through the operation
+/// `composition_arm` — the one an agent calls (E-002). The picker's `Enter`, a picker row's click
+/// and the COMPOSE tab's `Enter` all come here, so the three and an agent have one answer to "what
+/// is armed". The caller writes the receipt from `armed`; `Err` is the refusal.
+pub fn arm_composition(
+    project: &Project,
+    armed: &mut crate::compose::Armed,
+    id: &str,
+) -> Result<(), String> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let params = if armed.is(id) {
+        serde_json::json!({"composition": null})
+    } else {
+        serde_json::json!({"composition": id})
+    };
+    match crate::ops::dispatch(&mut ctx, "composition_arm", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            apply_composition_armed(armed, outcome.after.as_ref());
+            Ok(())
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => Err(e.0),
+    }
+}
+
+/// **The composition an armed outcome names.** Both front ends call this with `composition_arm`'s
+/// `after`: a name arms it, `null` puts it down, and an outcome that names neither changes nothing.
+pub fn apply_composition_armed(armed: &mut crate::compose::Armed, after: Option<&serde_json::Value>) {
+    match after.and_then(|a| a.get("armed")) {
+        Some(serde_json::Value::Null) => armed.0 = None,
+        Some(serde_json::Value::String(id)) => armed.0 = Some(id.clone()),
+        _ => {}
+    }
+}
+
 /// **The Meshes shelf's selection, as an operation answers it (E-044).** A click and `piece_select`
 /// both land here, so the answer names the piece and the shelf holds it as a click holds it: through
 /// `focus_on`, which keeps the highlight and the focused pack in step.
