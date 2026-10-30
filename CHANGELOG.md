@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **e072-envelope** `4d168eb` composition_set_envelope: an agent or a click on the COMPOSE tab's envelope chip switches a group between anchored and bounded (fitted to its members, or a size that must enclose them), with undo *No clip: a registered operation plus a chip; proved by tests/an_agent_can_set_an_envelope.rs*
 - **99-sculpt-clip** `baa506f` Strokes on a map's terrain are drawn in the viewport: two hills raised and a hollow dug by terrain_stroke, saved as the map's heightfield (#99)<br><a href="docs/changelog/media/2026-10-30-terrain-sculpt.mp4"><img src="docs/changelog/media/2026-10-30-terrain-sculpt.png" width="320" alt="clip"></a>
 - **105-note-bind** `76975de` A trigger can be bound to a note's area: trigger_set bind.note *No clip: an API over MCP; proved by tests/a_trigger_binds_to_a_notes_area.rs*
 - **stamp-add** `09d70a1` An agent can stamp a composition onto the map (stamp_add), with undo and redo *No clip: an operation with no new surface; proved by tests/an_agent_can_stamp_a_composition.rs*
