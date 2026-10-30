@@ -13,13 +13,16 @@ use crate::project::Project;
 
 /// Every crate this editor can host, whether or not this build has it. Add a name here in the
 /// commit that adds the cargo feature.
-pub const KNOWN: &[&str] = &["bevy_elements"];
+pub const KNOWN: &[&str] = &["bevy_elements", "bevy_lights"];
 
 /// The family crates this build was compiled with: one entry per enabled cargo feature.
 pub fn built() -> Vec<&'static str> {
     let mut on = Vec::new();
     if cfg!(feature = "bevy_elements") {
         on.push("bevy_elements");
+    }
+    if cfg!(feature = "bevy_lights") {
+        on.push("bevy_lights");
     }
     on
 }
