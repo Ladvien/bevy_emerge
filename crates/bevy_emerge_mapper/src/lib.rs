@@ -80,6 +80,7 @@ pub mod ops;
 pub mod ops_brp;
 pub mod ops_compose;
 pub mod ops_stamp;
+pub mod ops_plan;
 #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
 pub mod ops_crowd;
 #[cfg(feature = "bevy_carnage")]
@@ -97,6 +98,7 @@ pub mod ops_water;
 pub mod terrain_view;
 pub mod ops_play;
 pub mod ops_notes;
+pub mod ops_references;
 pub mod ops_people;
 pub mod ops_scripts;
 pub mod ops_runs;

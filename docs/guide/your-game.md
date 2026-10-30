@@ -134,6 +134,8 @@ bevy_emerge_core has three ways to fill a map. None of them needs the engine.
 - **Grammar continuation.** `grammar` learns the rules of a map from the pieces the author has placed, and continues that map with wave function collapse.
 - **Runs.** `run` repeats one piece along a path at its own pitch. Use it for fences and walls, not for a grid of cells.
 
+A map can hold a run as itself. `Map::runs` stores each run as one `RunPlaced` (an id and a `Run`), and `Map::expanded()` lays it into rows named `<run id>/<n>`, so a fence is one entry and moving its end is one edit. The operations `run_add`, `run_set` and `run_remove` edit runs and each is undone by its `operation_id`. `placements_to_run` turns rows that `run::lay` would produce into the run that lays exactly them, and refuses, naming the first row, when one is off the pitch. In the editor, Shift-drag in run mode lays a run, dragging a run's end moves it, and Cmd-drag over rows turns them into a run.
+
 Two supporting tools sit beside these:
 
 - `range` measures a solved grid of cells, reporting how enclosed and how open it is.

@@ -1689,6 +1689,9 @@ pub struct NoteDraft {
     /// Placement ids Shift-clicked as the note's subject. When any, the note is about these pieces
     /// and `area` is only the cells they span.
     pub pieces: Vec<String>,
+    /// Tab in the box: "decide these yourself". The note is saved with `auto` (E-070), so its holder
+    /// states what it assumed instead of asking about an open choice.
+    pub auto: bool,
 }
 
 /// **The Note tool's state**: the corner a drag started at, and the box once the button comes up.
@@ -1751,6 +1754,7 @@ fn drive_note(
                 editing: None,
                 text: String::new(),
                 pieces: Vec::new(),
+                auto: false,
             });
             if let Some(k) = draft.pieces.iter().position(|p| *p == id) {
                 draft.pieces.remove(k);
@@ -1806,13 +1810,14 @@ fn drive_note(
                 editing: Some(n.id.clone()),
                 text: n.text.clone(),
                 pieces: Vec::new(),
+                auto: n.auto,
             });
             state.status.note(format!("note {}: edit, Enter saves, an emptied note is removed, Esc leaves it", n.id));
             return;
         }
     }
     let area = [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)];
-    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new(), pieces: Vec::new() });
+    note_box.draft = Some(NoteDraft { area, editing: None, text: String::new(), pieces: Vec::new(), auto: false });
     state.status.note(format!(
         "note on {}x{} cells: type it, Enter saves, Shift+Enter is a new line, Esc cancels",
         area[2] - area[0] + 1,
@@ -1937,14 +1942,29 @@ fn type_note(
             Key::Backspace => {
                 draft.text.pop();
             }
+            Key::Tab if draft.editing.is_none() => draft.auto = !draft.auto,
             Key::Space => draft.text.push(' '),
             Key::Character(s) => draft.text.push_str(s),
             _ => {}
         }
         if let Some(d) = note_box.draft.as_ref() {
-            state.status.note(format!("note: {}\u{258f} — Enter saves, Esc cancels", d.text));
+            let auto = if d.auto { " [auto: decides for itself]" } else { "" };
+            state.status.note(format!("note: {}\u{258f}{auto} — Tab toggles auto, Enter saves, Esc cancels", d.text));
         }
     }
+}
+
+/// **The `note_add` arguments a note box's draft stands for.** `auto` is sent only when Tab turned it on.
+pub fn note_add_params(draft: &NoteDraft, pose: Option<[f32; 5]>) -> serde_json::Value {
+    let mut params = if draft.pieces.is_empty() {
+        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose})
+    } else {
+        serde_json::json!({"pieces": draft.pieces, "text": draft.text, "camera": pose})
+    };
+    if draft.auto {
+        params["auto"] = serde_json::json!(true);
+    }
+    params
 }
 
 /// **Leave a note through the registry**, as an agent's `note_add` does. A refusal is a problem,
@@ -1956,17 +1976,12 @@ fn add_note(
     draft: &NoteDraft,
     pose: Option<[f32; 5]>,
 ) {
-    let params = if draft.pieces.is_empty() {
-        serde_json::json!({"cells": draft.area, "text": draft.text, "camera": pose})
-    } else {
-        serde_json::json!({"pieces": draft.pieces, "text": draft.text, "camera": pose})
-    };
     dispatch_note(
         project,
         open,
         state,
         "note_add",
-        params,
+        note_add_params(draft, pose),
         "leave a note",
     );
 }
@@ -2059,6 +2074,27 @@ fn dispatch_note(
             state.status.problem(format!("cannot {phrase}: {}", e.0));
             false
         }
+    }
+}
+
+/// **Flip a group's envelope through the registry** as `composition_set_envelope`: anchored becomes
+/// bounded (fitted to its members), bounded becomes anchored. Returns the receipt, or the refusal.
+pub fn set_envelope(project: &mut Project, id: &str, to_bounded: bool) -> Result<String, String> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = serde_json::json!({"id": id, "envelope": if to_bounded { "bounded" } else { "anchored" }});
+    match crate::ops::dispatch(&mut ctx, "composition_set_envelope", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            if let Some(fresh) = ctx.project {
+                project.compositions = fresh.compositions;
+            }
+            Ok(outcome.summary)
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => Err(e.0),
     }
 }
 
@@ -4466,10 +4502,14 @@ fn terrain_edit_keys(
                     import_terrain(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("forest ") {
                     scatter_forest(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim() == "plan clear" {
+                    clear_plan(project.as_deref(), open.as_deref(), &mut state);
                 } else if raw.trim_start().starts_with("people run") {
                     run_people(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("trigger ") {
                     set_trigger(project.as_deref(), open.as_deref(), &mut state, &raw);
+                } else if raw.trim_start().starts_with("ref ") {
+                    set_reference(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else if raw.trim_start().starts_with("person ") {
                     set_person(project.as_deref(), open.as_deref(), &mut state, &raw);
                 } else {
@@ -4537,6 +4577,35 @@ fn sculpt_terrain(project: Option<&Project>, open: Option<&OpenMap>, state: &mut
 
 /// **Author a person through the registry** as `person_set`, from the terrain line
 /// `person <name> remove`, or `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>] [tie=<name>[:<affinity>[:<trust>]]]`.
+/// **Add or remove a reference image through the registry** as `reference_set`, from the terrain line
+/// `ref <path> [caption]` or `ref <id> remove`.
+fn set_reference(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
+    let words: Vec<&str> = raw.split_whitespace().collect();
+    let (Some(open), Some(first)) = (open, words.get(1)) else {
+        state.status.problem(format!("`{}` is not `ref <path> [caption]` or `ref <id> remove`, so nothing was changed", raw.trim()));
+        return;
+    };
+    let params = if words.get(2) == Some(&"remove") && words.len() == 3 {
+        serde_json::json!({"remove": first})
+    } else {
+        serde_json::json!({"path": first, "caption": words[2..].join(" ")})
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "reference_set", &params) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
 fn set_person(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState, raw: &str) {
     let words: Vec<&str> = raw.split_whitespace().collect();
     let (Some(open), Some(name)) = (open, words.get(1)) else {
@@ -4898,6 +4967,29 @@ fn run_people(project: Option<&Project>, open: Option<&OpenMap>, state: &mut Edi
     };
     match crate::ops::dispatch(&mut ctx, "people_run", &params) {
         Ok(crate::ops::Applied::Done { outcome, .. }) => state.status.note(outcome.summary),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
+    }
+}
+
+/// **Empty the agent's plan** through the registry as `plan_set`, from the terrain line `plan clear`.
+/// Undo puts the plan back, as it does for an agent's own replacement.
+fn clear_plan(project: Option<&Project>, open: Option<&OpenMap>, state: &mut EditorState) {
+    let Some(open) = open else {
+        state.status.problem("no map is open, so there is no plan to clear".to_owned());
+        return;
+    };
+    let mut ctx = crate::ops::Ctx {
+        project: project.cloned(),
+        open: Some(open.clone()),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    match crate::ops::dispatch(&mut ctx, "plan_set", &serde_json::json!({"items": []})) {
+        Ok(crate::ops::Applied::Done { outcome, operation_id, .. }) => {
+            state.status.note(outcome.summary.clone());
+            state.record(Undo::Logged { line: operation_id, phrase: outcome.summary, agent: false });
+        }
         Ok(crate::ops::Applied::Refused(e)) | Err(e) => state.status.problem(e.0),
     }
 }
@@ -7635,6 +7727,7 @@ fn drive_run(
     mut ghost_drag: ResMut<RunGhostDrag>,
     mut gizmos: Gizmos,
     placed: Query<(Entity, &Placement)>,
+    mut due: ResMut<crate::watch::Due>,
 ) {
     if state.tool != Tool::Run {
         // Read, never write, unless something happened — `rebuild_palette` watches `EditorState`
@@ -7757,6 +7850,13 @@ fn drive_run(
         );
         return;
     }
+    // **The platform modifier turns the rows along the line into a run** (#115), one way.
+    if keys::mod_held(&keyboard) {
+        if rows_to_run_along(Some(&mut project), &mut open, &mut state, &d, from, at) {
+            due.map_replaced = true;
+        }
+        return;
+    }
     // **Shift lays the line as a run** (#115): one `RunPlaced` the map holds, whose rows follow when an
     // end moves. Without it the line lays ordinary rows, as it always has.
     if keys::shift_held(&keyboard) {
@@ -7868,6 +7968,46 @@ fn add_run(
         serde_json::json!({"id": id, "run": run}),
         "run a piece along a line",
     );
+}
+
+/// **Replace the standing rows of `brush` along the dragged line by the run that lays them**
+/// (`placements_to_run`). Rows within `RUN_GRAB` of the line, in path order. `true` when the map
+/// changed, so the caller redraws the pieces; a refusal names the first row that does not fit.
+fn rows_to_run_along(
+    project: Option<&mut Project>,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    brush: &bevy_emerge_core::descriptor::Descriptor,
+    from: (f32, f32),
+    to: (f32, f32),
+) -> bool {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let len2 = dx * dx + dy * dy;
+    if len2 <= 0.0 {
+        return false;
+    }
+    let mut hits: Vec<(f32, String)> = open
+        .map
+        .placements
+        .iter()
+        .filter(|p| p.descriptor == brush.id)
+        .filter_map(|p| {
+            let t = (((p.at.0 - from.0) * dx + (p.at.1 - from.1) * dy) / len2).clamp(0.0, 1.0);
+            let off = (p.at.0 - (from.0 + t * dx)).hypot(p.at.1 - (from.1 + t * dy));
+            (off <= RUN_GRAB).then(|| (t, p.id.clone()))
+        })
+        .collect();
+    if hits.is_empty() {
+        state.status.problem(format!("no `{}` rows along that line to turn into a run", brush.id));
+        return false;
+    }
+    hits.sort_by(|a, b| a.0.total_cmp(&b.0));
+    state.next_id += 1;
+    let id = format!("{}_run@{}", short_id(&brush.id), state.next_id);
+    let rows: Vec<String> = hits.into_iter().map(|(_, id)| id).collect();
+    let before = open.map.runs.len();
+    dispatch_note(project, open, state, "placements_to_run", serde_json::json!({"id": id, "rows": rows}), "turn rows into a run");
+    open.map.runs.len() != before
 }
 
 /// **Move one end of a standing run through the registry** (`run_set`); its rows follow.

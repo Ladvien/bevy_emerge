@@ -109,6 +109,9 @@ pub struct AddParams {
     /// The camera pose when written: `[x, y, z, yaw, pitch]`. Zeros when the writer has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera: Option<[f32; 5]>,
+    /// Decide open choices yourself: the agent that takes the note may not ask about them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto: bool,
     /// Undo only: take a note this operation added back off the map.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub take_back: Option<String>,
@@ -136,6 +139,10 @@ impl AddParams {
                 "camera": {
                     "type": "array", "items": {"type": "number"}, "minItems": 5, "maxItems": 5,
                     "description": "The camera pose when written: x, y, z, yaw, pitch. Optional."
+                },
+                "auto": {
+                    "type": "boolean",
+                    "description": "Decide open choices yourself this turn: the agent that takes the note may not ask the person about them and records its assumptions on resolving. Fenced changes are still refused. Omitted is false."
                 }
             }
         })
@@ -172,6 +179,9 @@ impl NoteAdd {
                 _ => return Err(Refusal::new("a note is about `cells` or about `pieces`, and not both. Nothing was added.")),
             }
             .map_err(Refusal::new)?;
+            if p.auto {
+                notes.set_auto(&id, true).map_err(Refusal::new)?;
+            }
             Ok(Change { summary: format!("left note {id}"), inverse: json!({"take_back": id}) })
         })
     }
@@ -685,6 +695,7 @@ impl Talk {
         let p: TalkParams = serde_json::from_value(params.clone())
             .map_err(|e| bad_params(self.name(), "`id`, `agent`, `question`, `answer`, `summary`, `assumptions`, `ops`, `captures`", e))?;
         let source = ctx.source;
+        let refs = ctx.open.as_ref().and_then(|o| bevy_emerge_core::references::References::load(&bevy_emerge_core::references::path_for_map(&o.map_path)).ok()).unwrap_or_default();
         run(ctx, write, |notes, _| {
             let before = notes.notes.clone();
             if let Some(before) = &p.restore {
@@ -716,6 +727,10 @@ impl Talk {
                     if captures.is_empty() && source != crate::ops::Source::Agent {
                         // A person finishing a note by hand has no pictures to name; the record says so.
                         captures = vec!["(none: resolved by a person)".to_owned(); 2];
+                    }
+                    let cited = refs.unknown_citations(p.summary.iter().map(String::as_str).chain(p.assumptions.iter().map(String::as_str)));
+                    if !cited.is_empty() {
+                        return Err(Refusal::new(format!("{} cites {} but this map has no such reference (see `references` in emerge_state). Nothing was changed.", self.name(), cited.join(", "))));
                     }
                     let record = notes::Resolution { summary: need(&p.summary, "summary")?, assumptions: p.assumptions.clone(), ops: p.ops.clone(), captures };
                     notes.resolve_record(id, &by, record, now).map_err(Refusal::new)?;

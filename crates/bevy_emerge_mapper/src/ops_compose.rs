@@ -159,3 +159,109 @@ impl Operation for CompositionDefine {
         Ok(Self::go(ctx, params, true)?.expect("a write returns its outcome"))
     }
 }
+
+/// **Change one composition's envelope** (E-072 slice 3): `composition_set_envelope`.
+///
+/// `anchored` claims no tile; `bounded` fills a tile-shaped box. Without `size`, a bounded
+/// envelope is read off the members the way the Tiles tab fits one ([`crate::build::fit_envelope`],
+/// at the project's cell height). The write goes through [`crate::project::Project::commit_composition`],
+/// so a change that strands a parent which nests this group, or a member outside the box, is refused
+/// with nothing written. Undo calls the operation again with the previous envelope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnvelopeParams {
+    pub id: String,
+    /// `anchored` or `bounded`.
+    pub envelope: String,
+    /// Bounded only: `[width, height, depth]` in metres. Omitted: fitted to the members.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<[f32; 3]>,
+}
+
+pub struct CompositionSetEnvelope;
+
+impl CompositionSetEnvelope {
+    fn go(ctx: &mut Ctx, params: &serde_json::Value, write: bool) -> Result<Outcome, Refusal> {
+        let p: EnvelopeParams = serde_json::from_value(params.clone()).map_err(|e| {
+            Refusal::new(format!("this is not an envelope change: {e}. The fields are `id`, `envelope` and `size`."))
+        })?;
+        let id = bevy_emerge_core::naming::to_snake_case(&p.id);
+        let Some(project) = ctx.project.as_mut() else {
+            return Err(Refusal::new("no project is open."));
+        };
+        let Some(mut comp) = project.compositions.compositions.iter().find(|c| c.id == id).cloned() else {
+            return Err(Refusal::new(format!("the project has no composition `{id}`.")));
+        };
+        let prior = comp.envelope;
+        comp.envelope = match p.envelope.as_str() {
+            "anchored" => {
+                if p.size.is_some() {
+                    return Err(Refusal::new("an anchored envelope has no size."));
+                }
+                bevy_emerge_core::composition::Envelope::Anchored
+            }
+            "bounded" => {
+                let size = match p.size {
+                    Some([w, h, d]) => (w, h, d),
+                    None => crate::build::fit_envelope(&comp.members, &project.library, project.lattice.cell_height),
+                };
+                if ![size.0, size.1, size.2].iter().all(|v| v.is_finite() && *v > 0.0) {
+                    return Err(Refusal::new("a bounded envelope's size must be three positive numbers."));
+                }
+                bevy_emerge_core::composition::Envelope::Bounded { size }
+            }
+            other => return Err(Refusal::new(format!("`{other}` is not an envelope: use `anchored` or `bounded`."))),
+        };
+        let summary = format!("group {id} is now {}", match comp.envelope {
+            bevy_emerge_core::composition::Envelope::Anchored => "anchored".to_owned(),
+            bevy_emerge_core::composition::Envelope::Bounded { size } =>
+                format!("bounded {:.2}x{:.2}x{:.2}", size.0, size.1, size.2),
+        });
+        if !write {
+            let mut trial = project.clone();
+            trial.compositions.compositions.iter_mut().for_each(|c| if c.id == id { *c = comp.clone() });
+            bevy_emerge_core::composition::validate(&trial.compositions.compositions, &trial.library).map_err(Refusal::new)?;
+            return Ok(Outcome { summary: format!("would make {summary}"), affected: 1, saved: false, inverse: None, after: None });
+        }
+        project.commit_composition(comp).map_err(Refusal::new)?;
+        let inverse = match prior {
+            bevy_emerge_core::composition::Envelope::Anchored => json!({"id": id, "envelope": "anchored"}),
+            bevy_emerge_core::composition::Envelope::Bounded { size } =>
+                json!({"id": id, "envelope": "bounded", "size": [size.0, size.1, size.2]}),
+        };
+        let after = state_json(ctx, &id);
+        Ok(Outcome { summary, affected: 1, saved: true, inverse: Some(inverse), after })
+    }
+}
+
+impl Operation for CompositionSetEnvelope {
+    fn name(&self) -> &'static str {
+        "composition_set_envelope"
+    }
+    fn undo(&self) -> Undo {
+        Undo::Inverse
+    }
+    fn schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "envelope"],
+            "properties": {
+                "id": {"type": "string", "description": "The group to change, by id."},
+                "envelope": {"type": "string", "enum": ["anchored", "bounded"], "description": "`anchored` claims no tile; `bounded` fills a tile-shaped box (and is the only kind a solver can place)."},
+                "size": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3, "description": "Bounded only: [width, height, depth] in metres. Omitted, it is fitted to the members."}
+            }
+        })
+    }
+    fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+        state_json(ctx, after.get("id")?.as_str()?)
+    }
+    fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+        let mut scratch = Ctx { project: ctx.project.clone(), open: ctx.open.clone(), ..Ctx::default() };
+        Self::go(&mut scratch, params, false)?;
+        Ok(params.clone())
+    }
+    fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+        Self::go(ctx, params, true)
+    }
+}
