@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **105-receipt** `85093ed` The line after 'people run' names the triggers that fired and for whom, and any script error (#105) *No clip: visible, not yet recorded: the viewport draws no people, so only the status line shows it; proved by the_run_receipt_names_the_triggers_that_fired*
 - **E-052** emerge_list_pieces: unconfirmed is another spelling of by_model, which matches agent-written axes too *No clip: an MCP parameter alias; proved by pieces_params_tests::unconfirmed_is_the_by_model_filter*
 - **E-070** `163f508` note_add takes auto: the agent decides open choices itself and cannot ask, the fence still holds *No clip: an API option on a note; proved by note_auto tests*
 - **105-hot** `4ceb657` A trigger script edited on disk fires on the next society run, no restart (#105) *No clip: a test; proved by a_script_edited_on_disk_takes_effect*
