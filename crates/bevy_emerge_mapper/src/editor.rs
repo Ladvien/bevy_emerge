@@ -2342,14 +2342,11 @@ impl Plugin for EditorPlugin {
                     // armed — and they read the MOUSE, which the census does not model, so mode is
                     // their guard.
                     (
-                        drive_place,
-                        drive_removal,
-                        drive_move,
-                        drive_clone,
-                        drive_run,
-                        drive_note,
+                        (drive_place, drive_removal, drive_move, drive_clone, drive_run).run_if(not_typing),
+                        // **Not behind `not_typing`** (#173): its own box would shut it off, and a box
+                        // of Shift-clicked pieces takes more Shift-clicks.
+                        drive_note.run_if(note_takes_clicks),
                     )
-                        .run_if(not_typing)
                         .run_if(in_map_mode),
                     // **Not behind `not_typing`**: it is the system that types, so it reads the keys
                     // exactly while the note box holds them.
@@ -7292,8 +7289,16 @@ pub struct InHand<'w> {
 }
 
 impl Fields<'_> {
-    /// Is one of them taking keys right now? Adding a field is adding a line, here and nowhere else.
+    /// Is one of them taking keys right now? Adding a field is adding a line, in
+    /// [`Self::typing_beside_the_note_box`] and nowhere else.
     pub fn typing(&self) -> bool {
+        self.typing_beside_the_note_box() || self.note_box.draft.is_some()
+    }
+
+    /// **Every field but the note box** (#173). The box holds the keys like any field, but a box of
+    /// Shift-clicked pieces also takes more Shift-clicks, so the Note tool's mouse guard
+    /// ([`note_takes_clicks`]) must not count it.
+    fn typing_beside_the_note_box(&self) -> bool {
         self.state.renaming.is_some()
             // **The rule seed field (E-081).** Found by this iteration's own review: without this
             // line, typing `1234` into the seed sent `1` through `Map`'s actions and nothing
@@ -7313,7 +7318,6 @@ impl Fields<'_> {
             || self.import.renaming.is_some()
             || self.cell.typing()
             || self.note.typing()
-            || self.note_box.draft.is_some()
             || self.width.typing()
             || self.height.typing()
             || self.build.naming.is_some()
@@ -7331,6 +7335,14 @@ impl Fields<'_> {
 /// the one place that legitimately does not.
 pub fn not_typing(fields: Fields, filters: Res<crate::filter::Filters>) -> bool {
     !fields.typing() && !filters.typing()
+}
+
+/// **The Note tool's mouse guard** (#173): [`not_typing`], except that the note box does not count.
+/// `drive_note` decides which open box takes a click (a box of Shift-clicked pieces takes more; any
+/// other holds the keys and ignores the mouse). Behind `not_typing`, the first Shift-click opened the
+/// box and the box then shut `drive_note` off, so every later Shift-click was dropped.
+pub fn note_takes_clicks(fields: Fields, filters: Res<crate::filter::Filters>) -> bool {
+    !fields.typing_beside_the_note_box() && !filters.typing()
 }
 
 /// **Decide who owns the keyboard, once, before anything reads a key.**
