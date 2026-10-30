@@ -410,11 +410,21 @@
       "id": "E-087",
       "kind": "enhancement",
       "area": "core",
-      "status": "open",
+      "status": "shipped",
       "first_seen": "2026-10-30",
       "last_failure": "",
       "title": "Role-weighted repetition: a map cannot say which repeated pieces a player will notice (#136)",
-      "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Slice 2 shipped 0b4323b: emerge_state.repetition (up to 10 rows + total), tests/emerge_state_names_visible_repeats.rs. Owes: a line in the Inspector (display-checked slice)."
+      "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Slice 2 shipped 0b4323b: emerge_state.repetition (up to 10 rows + total), tests/emerge_state_names_visible_repeats.rs. Slice 3 shipped 50e9fa6: the Map inspector's REPEATS row, tests/inspector_names_the_worst_repeat.rs (failed before, passes after). Clip owed (no display on big)."
+    },
+    {
+      "id": "E-088",
+      "kind": "enhancement",
+      "area": "core",
+      "status": "open",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Layout relations: nothing can say which intended relations a map breaks (#137)",
+      "evidence": "Slice 1 shipped 9747292+99dd179 (w5, big): core relations::{Relations, Relation, Kind, check} over placement ids, <map>.relations.ron; tests/a_map_says_which_relations_it_breaks.rs (failed before: unresolved import; 6 pass after). Owes: editor load + hot reload of <map>.relations.ron, an MCP read through the existing query surface (no new tool), then a solver pass for unmet soft relations."
     }
   ]
 }

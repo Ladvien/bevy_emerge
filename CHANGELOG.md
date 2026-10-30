@@ -5,6 +5,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **106-balloon** `pending` Dialogue preview balloon: the lines a dialogue <name> walk says are drawn as one balloon over the piece that carries the conversation, following the camera (#106 slice 6) *No clip: visible, not yet recorded: needs a Mac with a project holding a speaker piece; proved by balloon::tests::the_balloon_stands_over_the_piece_that_carries_the_conversation (anchor and text only; drawing unobserved)*
+- **E-087-inspector** `50e9fa6` The Map inspector's REPEATS row names the repeat a player will notice first, and how many other looks repeat *No clip: visible, not yet recorded: no display on big*
+- **E-088** `9747292` Layout relations: a map says which intended relations (faces, near, apart, in front of, clear in front) its placements break, and by what *No clip: a core API, not yet drawn in the editor; proved by crates/bevy_emerge_core/tests/a_map_says_which_relations_it_breaks.rs*
 - **E-087b** `0b4323b` emerge_state names the repeats a player will notice: repeated clutter first, structure after *No clip: an MCP state field; proved by tests/emerge_state_names_visible_repeats.rs*
 - **e075-drop** `4417f4d` Dropping an image on the editor window keeps it as a reference of the open map, copied into the project's references/ *No clip: visible, not yet recorded: no display on big*
 - **136-repetition** `bdafe68` Role-weighted repetition: a map reports which repeated pieces a player will notice, clutter above structure *No clip: an engine-free API with no UI yet; proved by tests/repeated_clutter_outranks_repeated_structure.rs*
