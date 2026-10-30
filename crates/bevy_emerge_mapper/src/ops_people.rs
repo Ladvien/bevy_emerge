@@ -347,6 +347,20 @@ pub struct RunReport {
     pub ticks: usize,
     pub people: Vec<Stood>,
     pub hash: u64,
+    /// Every `fx.emit` a trigger made during the run, in the order they happened (#105).
+    pub fired: Vec<Fired>,
+}
+
+/// **One event a trigger emitted** (#105): its name, the tick it fired on, and the person it was about with
+/// where that person stood at that moment. The subject is the event's `actor`, or, for an event emitted from
+/// a trigger with no actor (`Tick`, `Hour`), the person id in its payload's `who`; with neither it has none.
+#[cfg(feature = "bevy_society")]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Fired {
+    pub event: String,
+    pub tick: usize,
+    pub who: Option<String>,
+    pub at: Option<(f32, f32)>,
 }
 
 /// Game-day length in seconds the preview runs at; one society tick is 1/64 s, so a day is 4096 ticks.
@@ -366,6 +380,7 @@ pub fn run_forward(
     people: &People,
     seed: u64,
     days: f32,
+    area: Option<[f32; 4]>,
 ) -> Result<RunReport, Refusal> {
     use bevy::prelude::*;
     use bevy::time::TimeUpdateStrategy;
@@ -448,8 +463,32 @@ pub fn run_forward(
     }
 
     let ticks = (days * SECONDS_PER_DAY * TICK_HZ) as usize + 1;
-    for _ in 0..ticks {
+    let mut fired: Vec<Fired> = Vec::new();
+    for tick in 0..ticks {
         app.update();
+        let events: Vec<bevy_society::ScriptEvent> =
+            app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy_society::ScriptEvent>>().drain().collect();
+        for ev in events {
+            let who_id = ev.data.iter().find_map(|(k, v)| match (k.as_str(), v) {
+                ("who", bevy_society::ScriptValue::Int(i)) => Some(*i),
+                _ => None,
+            });
+            let subject = ev.actor.or_else(|| {
+                let id = who_id?;
+                app.world().resource::<PersonIndex>().sorted.iter().find(|(p, _)| i64::from(p.0) == id).map(|(_, e)| *e)
+            });
+            let w = app.world();
+            let at = subject.and_then(|e| w.get::<Transform>(e)).map(|t| (t.translation.x, t.translation.z));
+            let who = subject.and_then(|e| w.get::<Name>(e)).map(|n| n.as_str().to_owned());
+            if let Some([x0, z0, x1, z1]) = area {
+                // An area keeps only the events about someone standing inside it.
+                let Some((x, z)) = at else { continue };
+                if !(x >= x0.min(x1) && x <= x0.max(x1) && z >= z0.min(z1) && z <= z0.max(z1)) {
+                    continue;
+                }
+            }
+            fired.push(Fired { event: ev.name, tick, who, at });
+        }
     }
 
     let ids: Vec<(bevy_society::PersonId, Entity)> = app.world().resource::<PersonIndex>().sorted.clone();
@@ -479,7 +518,7 @@ pub fn run_forward(
             .unwrap_or_default();
         out.push(Stood { name: w.get::<Name>(e).map(|n| n.as_str().to_owned()).unwrap_or_default(), at: (t.x, t.z), ties, bonds });
     }
-    Ok(RunReport { seed, days, ticks, people: out, hash })
+    Ok(RunReport { seed, days, ticks, people: out, hash, fired })
 }
 
 #[cfg(feature = "bevy_society")]
@@ -491,6 +530,9 @@ struct RunParams {
     seed: Option<u64>,
     #[serde(default)]
     days: Option<f32>,
+    /// `[x0, z0, x1, z1]` in map metres: only events about people standing inside are reported.
+    #[serde(default)]
+    area: Option<[f32; 4]>,
 }
 
 /// **Run a map's people forward and say where they went** (#104). Reads; changes nothing.
@@ -517,7 +559,7 @@ impl PeopleRun {
         };
         let at: Vec<(String, (f32, f32))> = open.map.placements.iter().map(|q| (q.id.clone(), q.at)).collect();
         let n = people.people.len();
-        run_forward(defs, &at, &people, p.seed.unwrap_or(0), p.days.unwrap_or(1.0)).map(|r| (r, n))
+        run_forward(defs, &at, &people, p.seed.unwrap_or(0), p.days.unwrap_or(1.0), p.area).map(|r| (r, n))
     }
     #[cfg(not(feature = "bevy_society"))]
     fn report(_ctx: &Ctx, _raw: &serde_json::Value) -> Result<((), usize), Refusal> {
@@ -540,7 +582,8 @@ impl Operation for PeopleRun {
             "properties": {
                 "map": {"type": "string", "description": "The open map whose people are run."},
                 "seed": {"type": "integer", "description": "The society's seed. Same seed, same day. Default 0."},
-                "days": {"type": "number", "description": "Game-days to run, more than 0 and at most 7. Default 1."}
+                "days": {"type": "number", "description": "Game-days to run, more than 0 and at most 7. Default 1."},
+                "area": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4, "description": "[x0, z0, x1, z1] in metres. Keeps only the trigger events (`fired`) about people standing inside it when they fired."}
             }
         })
     }
