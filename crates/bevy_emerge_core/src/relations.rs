@@ -68,9 +68,9 @@ impl Relations {
             ));
         }
         for (i, rel) in r.relations.iter().enumerate() {
-            // Faces has no distance; 0.0 stands in for "nothing to check".
+            // Faces and AlignedWith have no distance; 0.0 stands in for "nothing to check".
             let metres: [f32; 2] = match &rel.kind {
-                Kind::Faces(_) => [0.0, 0.0],
+                Kind::Faces(_) | Kind::AlignedWith(_) => [0.0, 0.0],
                 Kind::Near { within, .. } | Kind::InFrontOf { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } => [*depth, *width],
@@ -156,6 +156,10 @@ pub enum Kind {
     /// unmet, `by` names the piece whose removal opens a walk and `measured` is that walk's length
     /// (0 when none of the [`OPENER_TRIES`] pieces nearest the straight line does).
     ReachableFrom { from: String, clearance: f32 },
+    /// On this placement's heading, within [`FACING_TOLERANCE_DEG`] (a row of pews facing the
+    /// altar, stalls along a street). Measures the angle between the two headings, degrees, the
+    /// short way round; facing the opposite way is 180° off.
+    AlignedWith(String),
 }
 
 /// What [`check`] found for one relation.
@@ -299,6 +303,14 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
             Ok(q) => {
                 let d = distance(a.at, q);
                 verdict(d <= *within, d)
+            }
+            Err(m) => m,
+        },
+        Kind::AlignedWith(to) => match other(to) {
+            Ok(b) => {
+                let off = (a.yaw - b.yaw).rem_euclid(std::f32::consts::TAU);
+                let off = off.min(std::f32::consts::TAU - off).to_degrees();
+                verdict(off <= FACING_TOLERANCE_DEG, off)
             }
             Err(m) => m,
         },
@@ -614,7 +626,8 @@ const SOLVE_ROUNDS: usize = 8;
 /// **Nudge the pieces of every broken relation until it holds**, greedily and never for the worse.
 ///
 /// For each [`Outcome::Unmet`] relation the solver proposes one move: [`Kind::Faces`] turns the
-/// piece to its target, [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
+/// piece to its target, [`Kind::AlignedWith`] turns it to the other's heading without moving it,
+/// [`Kind::Near`] and [`Kind::Apart`] step it along the line between the two,
 /// [`Kind::InFrontOf`] sets it on the other's forward, and [`Kind::ClearInFront`] moves the intruder
 /// sideways out of the corridor (the door stays where it was hung), [`Kind::VisibleFrom`] moves
 /// the nearest blocker sideways off the sight line (both ends stay), [`Kind::Along`] slides the
@@ -715,6 +728,10 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             let b = other(to)?;
             let (dx, dz) = (b.at.0 - a.at.0, b.at.1 - a.at.1);
             free(a).then(|| (a.id.clone(), a.at, dx.atan2(dz)))
+        }
+        Kind::AlignedWith(to) => {
+            let b = other(to)?;
+            free(a).then(|| (a.id.clone(), a.at, b.yaw))
         }
         Kind::Near { to, within } => {
             let b = other(to)?;
