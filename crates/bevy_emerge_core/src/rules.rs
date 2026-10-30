@@ -596,8 +596,9 @@ pub fn solve_block(
 /// nearest other option.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Choice {
-    /// The seed whose collapse this is. [`solve_block`] with it as `seed_base` rebuilds exactly
-    /// this block, since its first attempt is that seed: choosing an option is choosing its seed.
+    /// The seed whose collapse this is. [`solve_block`] with the same pins and this seed as
+    /// `seed_base` rebuilds exactly this block, since its first attempt is that seed: choosing an
+    /// option is choosing its seed.
     pub seed: u64,
     pub block: Block,
     /// The cells this layout differs in from its nearest other option; `None` when it is the only one.
@@ -611,7 +612,8 @@ pub struct Options {
     pub options: Vec<Choice>,
     /// Seeds tried: every one is an option, too close or failed.
     pub tried: usize,
-    /// Seeds whose layout passed but was within `min_differ` cells of an option already kept.
+    /// Seeds whose layout passed but differed from an option already kept in fewer than
+    /// `min_differ` cells (or in none, when `min_differ` is 0).
     pub too_close: usize,
     /// Seeds whose collapse found no layout, or one that broke the block's rules.
     pub failed: usize,
