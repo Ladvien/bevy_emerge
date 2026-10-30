@@ -6539,8 +6539,8 @@ fn toggle_tag(axis: Axis, token_ix: usize, project: &mut Project, state: &mut Im
         return;
     };
     // **A library entry goes through the operation** (E-042). The chip names one token, so the axis's
-    // whole new list is the old one with that token toggled. `label_set` sorts it and stamps it as a
-    // person's decision, and the write is logged, so it can be undone with the rest.
+    // whole new list is the old one with that token toggled. `label_set` sorts it and stamps it with
+    // the source that dispatched it (here a person's), and the write is logged, so it can be undone with the rest.
     if where_to == Persist::Library {
         let id = d.id.clone();
         let mut next = axis.list(d).clone();
