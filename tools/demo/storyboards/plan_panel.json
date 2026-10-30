@@ -1,0 +1,121 @@
+{
+ "name": "plan_panel",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": "map"
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 3
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "plan_set",
+    "parameters": {
+     "items": [
+      {
+       "text": "lay the walls",
+       "status": "doing"
+      },
+      {
+       "text": "add a gate",
+       "status": "pending"
+      },
+      {
+       "text": "plant trees",
+       "status": "pending"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "plan_set",
+    "parameters": {
+     "items": [
+      {
+       "text": "lay the walls",
+       "status": "done"
+      },
+      {
+       "text": "add a gate",
+       "status": "doing"
+      },
+      {
+       "text": "plant trees",
+       "status": "pending"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "plan_set",
+    "parameters": {
+     "items": [
+      {
+       "text": "lay the walls",
+       "status": "done"
+      },
+      {
+       "text": "add a gate",
+       "status": "done"
+      },
+      {
+       "text": "plant trees",
+       "status": "skipped"
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    300,
+    112
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "the Inspector's PLAN section: no plan yet"
+  },
+  {
+   "at": 3.2,
+   "caption": "agent: plan_set, three steps; the first is in hand"
+  },
+  {
+   "at": 3.6,
+   "wheel": {
+    "y": -1,
+    "n": 4,
+    "at": [
+     150,
+     400
+    ]
+   }
+  },
+  {
+   "at": 7.2,
+   "caption": "agent: plan_set again, the walls done: plan 1 of 3 done"
+  },
+  {
+   "at": 11.2,
+   "caption": "agent: the gate done, the trees skipped: plan 2 of 3 done"
+  }
+ ]
+}
