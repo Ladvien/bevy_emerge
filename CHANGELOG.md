@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **water-run** `316cd58` Springs and lakes run over the sculpted ground until the water settles, and the result is kept as the map's water in one undo *No clip: visible, not yet recorded: no display on big*
 - **108-s1** `803eed1` bevy_carnage is a hosted family crate: its CarnageSettings are authored through family_set *No clip: an API/feature host; proved by family_carnage_settings*
 - **108-destructible** Mark a piece destructible (bevy_carnage): it is fractured once, the chunks cached in the project, and a previewed hit breaks it into closed chunks; the violence dials are the crate's own settings *No clip: visible, not yet recorded: no display on big*
 - **E-072a** `cbb2ac5` An agent can define a composition from placements on the map (composition_define), replace it on request, and undo it *No clip: an operation over MCP; proved by tests/an_agent_can_define_a_composition.rs*
