@@ -75,6 +75,7 @@ impl FamilySet {
             .map_err(|e| Refusal::new(format!("{} cannot be read, so nothing was changed: {e}", path.display())))?;
         let (new, old) = family::set_field(&text, &p.field, &p.value).map_err(Refusal::new)?;
         check_script(&p.krate, &new)?;
+        check_society(&p.krate, &new)?;
         if !write {
             return Ok(None);
         }
@@ -245,6 +246,21 @@ impl Operation for PlacementSetFamily {
             after,
         })
     }
+}
+
+/// **A society definition that `SocietyDefs` refuses to compile is never written** (#104): the saved file is
+/// the crate's own `DefsFile`, so the crate's own compile step decides, and its message is the refusal.
+#[cfg(feature = "bevy_society")]
+fn check_society(krate: &str, text: &str) -> Result<(), Refusal> {
+    if krate != "bevy_society" {
+        return Ok(());
+    }
+    bevy_society::SocietyDefs::from_ron(text).map(|_| ()).map_err(|e| Refusal::new(format!("{e}. Nothing was written.")))
+}
+
+#[cfg(not(feature = "bevy_society"))]
+fn check_society(_krate: &str, _text: &str) -> Result<(), Refusal> {
+    Ok(())
 }
 
 /// **A dialogue script that `validate_script` refuses is never written** (#106): the saved file is the
