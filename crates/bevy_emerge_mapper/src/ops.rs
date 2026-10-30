@@ -2388,6 +2388,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_terrain::TerrainPreset),
         Box::new(crate::ops_volume::VolumeEdit),
         Box::new(crate::ops_forest::ForestScatter),
+        Box::new(crate::ops_tree::TreeEdit),
         Box::new(crate::ops_people::PersonSet),
         Box::new(crate::ops_people::PeopleRun),
         Box::new(crate::ops_scripts::TriggerSet),
@@ -2537,6 +2538,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Terrain field's `forest` line (#102)** — `forest <x> <z> <radius_m> <spacing_m> <seed> <species>`
     // dispatches `forest_scatter` through `scatter_forest`, the same write an agent's `apply` makes.
     ("forest_scatter", "scatter_forest("),
+    // **The tree line (#102)** — `tree <name> [<preset>] [<field.path>=<value> ...]` in the terrain field dispatches
+    // `tree_edit` through `edit_tree`, the same write an agent's `apply` makes.
+    ("tree_edit", "edit_tree("),
     // **The person line (#104)** — `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>]` and `person <name> remove`
     // in the terrain field dispatch `person_set` through `set_person`, the same write an agent's `apply` makes.
     ("person_set", "set_person("),
