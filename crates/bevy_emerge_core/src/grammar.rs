@@ -160,6 +160,13 @@ impl Window {
         let (x0, z0, x1, z1) = self.area;
         x >= x0 && x < x1 && z >= z0 && z < z1
     }
+    /// Does the local cell `(x, z)` share a row or a column with the area? A ring cell that does
+    /// not is a corner, which touches no cell the solve lays.
+    fn beside(&self, x: usize, z: usize) -> bool {
+        let (x, z) = (x + self.grid.0, z + self.grid.1);
+        let (x0, z0, x1, z1) = self.area;
+        (x >= x0 && x < x1) || (z >= z0 && z < z1)
+    }
 }
 
 /// The window a solve over `area` works on; the whole map, with no ring, when there is none.
@@ -598,8 +605,9 @@ const WALKABLE_GAP: f32 = 0.5;
 /// **The ring around an area is pinned to what stands in it** (#192): the first placement in the
 /// cell, as [`learn`] reads a cell, else a stamp centred in it, as the prototype the grammar knows
 /// it by; empty when nothing stands there. A cell holding something the grammar does not know is
-/// left open, so the area's edge is not held to a neighbour the rules cannot read. The ring is
-/// never laid ([`harvest`]), so leaving it open changes nothing outside the area.
+/// left open, so the area's edge is not held to a neighbour the rules cannot read, and so are the
+/// ring's four corners, which touch no cell of the area. The ring is never laid ([`harvest`]), so
+/// leaving a cell open changes nothing outside the area.
 fn pinned_domains(
     map: &Map,
     grammar: &Grammar,
@@ -651,7 +659,10 @@ fn pinned_domains(
         }
     }
     for (i, mask) in initial.iter_mut().enumerate() {
-        if win.lays(i % w, i / w) {
+        let (x, z) = (i % w, i / w);
+        // A corner of the ring touches no cell the solve lays, so pinning it could only refuse an
+        // area over two old pieces the grammar would not set side by side.
+        if win.lays(x, z) || !win.beside(x, z) {
             continue;
         }
         *mask = match ring.get(&i) {

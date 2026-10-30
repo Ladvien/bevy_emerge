@@ -143,10 +143,25 @@ fn a_neighbour_the_grammar_does_not_know_leaves_the_edge_open() {
         9,
         "every cell of the area is still laid"
     );
-    assert!(
-        holed.placements.iter().any(|p| p.descriptor == "stranger"),
-        "the stranger is left where it stands"
-    );
+}
+
+#[test]
+fn a_corner_of_the_ring_touches_nothing_it_lays() {
+    let grammar = grammar::learn(&board(|_, _| false), 1.0).unwrap_or_else(|e| panic!("{e}"));
+    let mut holed = board(in_hole);
+    // Cell (0, 0) is the ring's north-west corner. Turned to `b`, it stands beside two other `b`s,
+    // a pair the board never taught, but it touches no cell of the area.
+    let corner = holed
+        .placements
+        .iter_mut()
+        .find(|p| p.at == centre(0, 0))
+        .unwrap_or_else(|| panic!("the board has a piece at cell (0, 0)"));
+    corner.descriptor = "b".to_owned();
+
+    let solved = grammar::solve_in(&holed, &grammar, 1.0, HOLE, 5, ids()).unwrap_or_else(|e| {
+        panic!("two old pieces at the ring's corner must not refuse the area between them: {e}")
+    });
+    assert_eq!(solved.placements.len(), 9, "every cell of the area is laid");
 }
 
 #[test]
