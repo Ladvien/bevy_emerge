@@ -903,8 +903,8 @@ dependencies = [
 
 [[package]]
 name = "bevy_elements"
-version = "0.7.5"
-source = "git+https://github.com/Ladvien/bevy_elements?rev=d88a6b54abda9cdc5ffa4e04b4e85e710a677ba0#d88a6b54abda9cdc5ffa4e04b4e85e710a677ba0"
+version = "0.7.6"
+source = "git+https://github.com/Ladvien/bevy_elements?rev=2fee42a6c385081783116301469ada6f2d0a4792#2fee42a6c385081783116301469ada6f2d0a4792"
 dependencies = [
  "bevy",
  "bevy_isomesh",
@@ -971,6 +971,7 @@ dependencies = [
  "bevy_fairy",
  "bevy_flora",
  "bevy_gooey",
+ "bevy_light_grid",
  "bevy_lights",
  "bevy_orca",
  "bevy_society",
@@ -1426,6 +1427,15 @@ dependencies = [
  "smallvec",
  "tracing",
  "wgpu-types",
+]
+
+[[package]]
+name = "bevy_light_grid"
+version = "0.1.0"
+source = "git+https://github.com/Ladvien/bevy_light_grid?rev=8b4a3c760ccc05f39e81bb22e366b330080fcc95#8b4a3c760ccc05f39e81bb22e366b330080fcc95"
+dependencies = [
+ "bevy_ecs",
+ "bevy_math",
 ]
 
 [[package]]

@@ -1541,6 +1541,53 @@ fn keep_palette_selection_on_screen(
     }
 }
 
+/// The Inspector's scrolling body, read for its geometry and written for its scroll position.
+type InspectorBodyQuery<'w, 's> =
+    Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform, &'static mut ScrollPosition), With<MapControlsPane>>;
+
+/// **The note box is drawn where the person can read it** (#177): while a note is being typed, the
+/// Inspector scrolls its receipt row (`Field::Last`, where the box's text, caret and `[auto]` are
+/// drawn) back on screen.
+///
+/// The box has no field of its own: [`type_note`] writes the draft into the receipt. With the
+/// Inspector scrolled down to NOTES, where the person watches the list a new note joins, that row
+/// was off the top of the pane, so the note was typed blind. Measured recording #175 on sib.
+///
+/// **Keyed on what the row shows, not on the resource**, through `chrome::Follow`: the box opening,
+/// each keystroke, Tab and a Shift-clicked piece re-arm it, and nothing else does. So a person who
+/// scrolls back down to NOTES with the box open is left there until the next key, which brings the
+/// text back the way a text editor brings back its caret.
+fn keep_note_box_on_screen(
+    note_box: Res<NoteBox>,
+    rows: Query<(&Field, &ComputedNode, &UiGlobalTransform)>,
+    mut bodies: InspectorBodyQuery,
+    mut follow: Local<crate::chrome::Follow<(usize, bool, usize)>>,
+) {
+    let shown = note_box.draft.as_ref().map(|d| (d.text.len(), d.auto, d.pieces.len()));
+    if !follow.should_scroll(shown) || shown.is_none() {
+        return;
+    }
+    let Some((row_mid, row_half)) = rows
+        .iter()
+        .find(|(f, _, _)| **f == Field::Last)
+        .map(|(_, n, t)| (t.translation.y, n.size.y * 0.5))
+    else {
+        return;
+    };
+    for (body, body_tf, mut scroll) in &mut bodies {
+        let (at, max) = crate::chrome::scroll_bounds(body);
+        if let Some(want) = crate::chrome::scroll_to_reveal(
+            (row_mid, row_half),
+            (body_tf.translation.y, body.size().y * 0.5),
+            at,
+            max,
+            body.inverse_scale_factor,
+        ) {
+            scroll.0.y = want;
+        }
+    }
+}
+
 /// A spawned instance of a map placement, tagged with the id it came from.
 #[derive(Component)]
 pub struct Placement(pub String);
@@ -2156,12 +2203,30 @@ impl Plugin for EditorPlugin {
             (
                 crate::environment::apply_environment.after(crate::family_host::Reloaded),
                 crate::environment::scrub_clock.after(crate::environment::apply_environment),
+                crate::environment::dress_volume.after(crate::family_host::Reloaded).after(crate::terrain_view::sync_terrain_view),
             ),
         );
         #[cfg(all(feature = "bevy_flora", feature = "bevy_elements"))]
         app.add_systems(Update, crate::forest_season::follow_date.after(crate::environment::scrub_clock));
+        #[cfg(feature = "bevy_flora")]
+        app.add_plugins(crate::forest_view::ForestViewPlugin);
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
+        // **The light map (#103):** shown by its button, re-baked when the map changes, drawn over the floor.
+        #[cfg(feature = "bevy_light_grid")]
+        app.init_resource::<crate::light_overlay::LightOverlay>()
+            .add_observer(crate::light_overlay::on_light_map_click)
+            .add_systems(
+                Update,
+                (
+                    crate::light_overlay::refresh_light_overlay,
+                    crate::light_overlay::draw_light_overlay
+                        .after(crate::light_overlay::refresh_light_overlay)
+                        .run_if(in_map_mode)
+                        .run_if(resource_exists::<OpenMap>)
+                        .run_if(resource_exists::<Project>),
+                ),
+            );
         #[cfg(feature = "bevy_gooey")]
         crate::ui_skin::build(app);
         app.add_observer(on_play_click);
@@ -2374,14 +2439,11 @@ impl Plugin for EditorPlugin {
                     // armed — and they read the MOUSE, which the census does not model, so mode is
                     // their guard.
                     (
-                        drive_place,
-                        drive_removal,
-                        drive_move,
-                        drive_clone,
-                        drive_run,
-                        drive_note,
+                        (drive_place, drive_removal, drive_move, drive_clone, drive_run).run_if(not_typing),
+                        // **Not behind `not_typing`** (#173): its own box would shut it off, and a box
+                        // of Shift-clicked pieces takes more Shift-clicks.
+                        drive_note.run_if(note_takes_clicks),
                     )
-                        .run_if(not_typing)
                         .run_if(in_map_mode),
                     // **Not behind `not_typing`**: it is the system that types, so it reads the keys
                     // exactly while the note box holds them.
@@ -2444,8 +2506,8 @@ impl Plugin for EditorPlugin {
                         draw_proposal,
                     ),
                     (refresh_status, refresh_history),
-                    // Nested as a pair — the tuple is at its twenty-system cap, and these two are
-                    // one rule: the list the arrows rearm must be the list on screen.
+                    // Nested — the tuple is at its twenty-system cap, and these are one rule: what
+                    // the keys move must be on screen (the palette's row, the note box's text).
                     (
                         rebuild_palette.run_if(
                             // **`or_eager` on the last rung, because `run_once` holds a `Local`.**
@@ -2469,6 +2531,7 @@ impl Plugin for EditorPlugin {
                                 .or_eager(run_once),
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
+                        keep_note_box_on_screen.run_if(in_map_mode),
                     ),
                     (
                         refresh_size,
@@ -3141,7 +3204,8 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
         // FOLLOW-OK: a readout and a field block, not a list. Nothing in here is walked by the
         // arrows, so there is no selection to keep on screen — the scroll exists for HEIGHT. The
         // Map's one walked list is `PaletteList`, in the panel across the screen, and that one has
-        // `keep_palette_selection_on_screen`.
+        // `keep_palette_selection_on_screen`. The one thing here that does move under the keys is
+        // the note box's text in LAST, and `keep_note_box_on_screen` scrolls that row back (#177).
         crate::chrome::scroll_list(p, MapControlsPane).with_children(|p| {
             // The readout, in the same two columns as the keys so the whole panel shares one left
             // edge.
@@ -3323,6 +3387,15 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 ..default()
             })
             .with_children(crate::environment::spawn_section);
+
+            // **Light map (#103):** show or hide `bevy_light_grid`'s field over the open map.
+            #[cfg(feature = "bevy_light_grid")]
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(crate::light_overlay::spawn_section);
 
             // **Terrain (#99).** One line: `<brush> <x> <z> <radius_m> <strength>`, e.g.
             // `raise 12 8 6 2`. Enter sculpts the open map's ground through `terrain_stroke`.
@@ -7277,6 +7350,8 @@ fn relations_readout(open: &OpenMap) -> (String, Color) {
                 Kind::AlignedWith(to) => format!("{of} aligned with {to}"),
                 Kind::Between { a, b, .. } => format!("{of} between {a} and {b}"),
                 Kind::MirrorOf { of: other, about, .. } => format!("{of} mirror of {other} about {about}"),
+                Kind::BacksOnto { of: other, .. } => format!("{of} backs onto {other}"),
+                Kind::Inside { of: other, .. } => format!("{of} inside {other}"),
             };
             let what = if r.hard { format!("{what} (hard)") } else { what };
             match outcome {
@@ -7365,8 +7440,16 @@ pub struct InHand<'w> {
 }
 
 impl Fields<'_> {
-    /// Is one of them taking keys right now? Adding a field is adding a line, here and nowhere else.
+    /// Is one of them taking keys right now? Adding a field is adding a line, in
+    /// [`Self::typing_beside_the_note_box`] and nowhere else.
     pub fn typing(&self) -> bool {
+        self.typing_beside_the_note_box() || self.note_box.draft.is_some()
+    }
+
+    /// **Every field but the note box** (#173). The box holds the keys like any field, but a box of
+    /// Shift-clicked pieces also takes more Shift-clicks, so the Note tool's mouse guard
+    /// ([`note_takes_clicks`]) must not count it.
+    fn typing_beside_the_note_box(&self) -> bool {
         self.state.renaming.is_some()
             // **The rule seed field (E-081).** Found by this iteration's own review: without this
             // line, typing `1234` into the seed sent `1` through `Map`'s actions and nothing
@@ -7386,7 +7469,6 @@ impl Fields<'_> {
             || self.import.renaming.is_some()
             || self.cell.typing()
             || self.note.typing()
-            || self.note_box.draft.is_some()
             || self.width.typing()
             || self.height.typing()
             || self.build.naming.is_some()
@@ -7404,6 +7486,14 @@ impl Fields<'_> {
 /// the one place that legitimately does not.
 pub fn not_typing(fields: Fields, filters: Res<crate::filter::Filters>) -> bool {
     !fields.typing() && !filters.typing()
+}
+
+/// **The Note tool's mouse guard** (#173): [`not_typing`], except that the note box does not count.
+/// `drive_note` decides which open box takes a click (a box of Shift-clicked pieces takes more; any
+/// other holds the keys and ignores the mouse). Behind `not_typing`, the first Shift-click opened the
+/// box and the box then shut `drive_note` off, so every later Shift-click was dropped.
+pub fn note_takes_clicks(fields: Fields, filters: Res<crate::filter::Filters>) -> bool {
+    !fields.typing_beside_the_note_box() && !filters.typing()
 }
 
 /// **Decide who owns the keyboard, once, before anything reads a key.**

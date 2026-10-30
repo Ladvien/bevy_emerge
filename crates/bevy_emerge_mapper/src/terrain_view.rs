@@ -118,6 +118,11 @@ fn modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
+/// The ground's plain material, heightfield or carved; `environment::dress_volume` weathers the carved one.
+pub fn ground_base() -> StandardMaterial {
+    StandardMaterial { perceptual_roughness: 1.0, ..default() }
+}
+
 /// **Draw the open map's terrain and water**, and redraw when either file changes.
 pub fn sync_terrain_view(
     time: Res<Time>,
@@ -157,7 +162,7 @@ pub fn sync_terrain_view(
     if let Some(ground) = &ground {
         let at = Transform::from_xyz(open.map.origin.0, open.map.origin.1 - drop, open.map.origin.2);
         let carved = volume_chunks(&project, &open, ground);
-        let material = materials.add(StandardMaterial { perceptual_roughness: 1.0, ..default() });
+        let material = materials.add(ground_base());
         if carved.is_empty() {
             drawn.push(commands.spawn((TerrainView::Ground, Mesh3d(meshes.add(ground_mesh(ground))), MeshMaterial3d(material), at)).id());
         } else {

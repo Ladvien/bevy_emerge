@@ -1,0 +1,26 @@
+{
+ "name": "composition_envelope",
+ "fps": 10,
+ "scale": 2,
+ "width": 960,
+ "setup": [
+  {"mcp": "emerge_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "table", "at": [5.0, 5.0]}}},
+  {"mcp": "emerge_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "dining_chair", "at": [5.0, 4.2]}}},
+  {"mcp": "emerge_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "dining_chair", "at": [5.0, 5.8]}}},
+  {"mcp": "emerge_apply_operation", "args": {"operation": "composition_define", "parameters": {"id": "dining_corner", "from": ["table@1", "dining_chair@2", "dining_chair@3"]}}},
+  {"mcp": "emerge_apply_operation", "args": {"operation": "door_open", "parameters": {"door": "kit", "tab": "compose"}}}
+ ],
+ "chunks": [
+  {"seconds": 4},
+  {"seconds": 9, "operation": {"name": "composition_set_envelope", "parameters": {"id": "dining_corner", "envelope": "anchored"}}}
+ ],
+ "steps": [
+  {"at": 0.0, "cursor": [640, 420]},
+  {"at": 0.1, "caption": "a group kept from three placed pieces: bounded, its box drawn"},
+  {"at": 4.1, "caption": "agent: composition_set_envelope anchored. The box goes, the row says anchored"},
+  {"at": 7.0, "cursor": [100, 282]},
+  {"at": 7.4, "caption": "person: a second click on the selected row flips it back"},
+  {"at": 8.2, "click": [100, 282]},
+  {"at": 9.0, "caption": "bounded again, fitted to its members: 2.0 x 4.0 x 3.0"}
+ ]
+}
