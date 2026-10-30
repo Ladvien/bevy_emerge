@@ -118,6 +118,7 @@ mod chrome_census;
 mod closeup_frames_the_edit;
 mod compose_is_read_only;
 mod composition_arm_is_an_operation;
+mod composition_rename_is_an_operation;
 mod crowd_heat;
 mod crowd_preview_is_an_operation;
 mod crowd_preview_measures;

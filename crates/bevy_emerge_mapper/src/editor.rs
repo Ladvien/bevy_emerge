@@ -2114,6 +2114,38 @@ pub fn set_envelope(project: &mut Project, id: &str, to_bounded: bool) -> Result
     }
 }
 
+/// **Rename a composition through the registry** as `composition_rename` (E-002, #129): the COMPOSE
+/// tab's `I` field comes here, so the naming rule, the refusals and the all-or-nothing write of the
+/// compositions file and every stamping map are the operation's. The open map, when there is one,
+/// takes the text its file now holds. Returns the receipt, or the refusal.
+pub fn rename_composition(
+    project: &mut Project,
+    open: Option<&mut OpenMap>,
+    from: &str,
+    raw: &str,
+) -> Result<String, String> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: open.as_deref().cloned(),
+        source: crate::ops::Source::Human,
+        session: crate::ops::session_id(),
+        ..crate::ops::Ctx::default()
+    };
+    let params = serde_json::json!({"composition": from, "name": raw});
+    match crate::ops::dispatch(&mut ctx, "composition_rename", &params) {
+        Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            if let Some(fresh) = ctx.project {
+                project.compositions = fresh.compositions;
+            }
+            if let (Some(open), Some(fresh)) = (open, ctx.open) {
+                *open = fresh;
+            }
+            Ok(outcome.summary)
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => Err(e.0),
+    }
+}
+
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
