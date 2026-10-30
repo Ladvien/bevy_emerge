@@ -1744,6 +1744,16 @@
       "evidence": "crates/bevy_emerge_mapper/src/editor.rs::composition_from_set. Slice 1 shipped: composition_define (ops_compose.rs, from placement ids, replace flag, undo restores compositions.ron); test tests/an_agent_can_define_a_composition.rs. Slice 2 shipped: stamp_add (ops_stamp.rs; test tests/an_agent_can_stamp_a_composition.rs; #122). Slice 3 shipped: composition_set_envelope (ops_compose.rs; UI: a second click on the selected Compose row flips anchored/bounded via editor::set_envelope; test tests/an_agent_can_set_a_composition_envelope.rs; #123). Still open: nothing in the op surface; the click's clip is not yet recorded.",
       "last_failure": "",
       "first_seen": "2026-10-25"
+    },
+    {
+      "id": "E-046",
+      "kind": "enhancement",
+      "area": "editor",
+      "title": "Decision: refuse a door write when the log append fails (gap 9)",
+      "status": "rejected",
+      "evidence": "Cycle 8 review gap 9. Behaviour unchanged in c6016bc. Needs a decision. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md Assumed decision (owner may override): options (a) accept current behaviour, (b) let navigation-only Undo::None ops skip the append. Pick (a): the log is the source of truth, and a door_open line that cannot be recorded means the log has stopped working, so every other write would be refused for the same cause (tests/a_change_whose_log_line_cannot_be_written_is_taken_back.rs pins the take-back). No code change.",
+      "last_failure": "",
+      "first_seen": "2026-10-23"
     }
   ]
 }

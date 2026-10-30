@@ -109,6 +109,9 @@ pub struct AddParams {
     /// The camera pose when written: `[x, y, z, yaw, pitch]`. Zeros when the writer has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera: Option<[f32; 5]>,
+    /// Decide open choices yourself: the agent that takes the note may not ask about them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto: bool,
     /// Undo only: take a note this operation added back off the map.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub take_back: Option<String>,
@@ -136,6 +139,10 @@ impl AddParams {
                 "camera": {
                     "type": "array", "items": {"type": "number"}, "minItems": 5, "maxItems": 5,
                     "description": "The camera pose when written: x, y, z, yaw, pitch. Optional."
+                },
+                "auto": {
+                    "type": "boolean",
+                    "description": "Decide open choices yourself this turn: the agent that takes the note may not ask the person about them and records its assumptions on resolving. Fenced changes are still refused. Omitted is false."
                 }
             }
         })
@@ -172,6 +179,9 @@ impl NoteAdd {
                 _ => return Err(Refusal::new("a note is about `cells` or about `pieces`, and not both. Nothing was added.")),
             }
             .map_err(Refusal::new)?;
+            if p.auto {
+                notes.set_auto(&id, true).map_err(Refusal::new)?;
+            }
             Ok(Change { summary: format!("left note {id}"), inverse: json!({"take_back": id}) })
         })
     }

@@ -167,16 +167,6 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-046",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "Decision: refuse a door write when the log append fails (gap 9)",
-      "status": "open",
-      "evidence": "Cycle 8 review gap 9. Behaviour unchanged in c6016bc. Needs a decision. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
       "id": "E-047",
       "kind": "enhancement",
       "area": "mcp",
@@ -264,7 +254,7 @@
         "evidence": "Open-ended requests produce 2-3 alternatives as the brief asks, but there is no way for the person to say 'decide these yourself this turn'. Mixar carries an `auto_mode` on the turn, and omitting the field IS false."
       },
       "status": "open",
-      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py",
+      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Still open: an Auto toggle in the Note tool UI (needs a display).",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
