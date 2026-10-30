@@ -2380,6 +2380,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         #[cfg(feature = "bevy_carnage")]
         Box::new(crate::ops_destructible::DestructibleHit),
         Box::new(crate::ops_terrain::TerrainImport),
+        Box::new(crate::ops_volume::VolumeEdit),
         Box::new(crate::ops_forest::ForestScatter),
         Box::new(crate::ops_water::WaterPlace),
         Box::new(crate::ops_water::WaterRun),
@@ -2523,6 +2524,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("destructible_hit", "hit_destructible("),
     // **The water line (#100)** — `water <spring|sink|lake> ...` in the terrain field dispatches `water_place` through `place_water`.
     ("water_place", "place_water("),
+    // **The volume line (#101)** — `volume add|carve sphere|box|capsule <numbers> [smooth_m]` and `volume clear` in the
+    // terrain field dispatch `volume_edit` through `edit_volume`.
+    ("volume_edit", "edit_volume("),
     // `water run` in the same field dispatches `water_run` through `run_water`.
     ("water_run", "run_water("),
     // **The Note tool (#89)** — a dragged rectangle and the note box's Enter dispatch `note_add`
