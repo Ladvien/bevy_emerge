@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **181-backs-onto** `e6ce312` Relations: BacksOnto keeps a piece with its back to another (a bookshelf against a wall, anywhere along it), and relations solve turns it out from the wall *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_backed_onto_another.rs*
 - **95-notes-end-to-end** `59193ea` Notes end to end on a game's map: a person leaves three notes (an area, two Shift-clicked pieces, one piece), two agents work them at once inside their fences, a removal waits for the person's answer, and the person keeps two and undoes the third in one step (#95)<br><a href="docs/changelog/media/2026-10-30-95-notes-end-to-end.mp4"><img src="docs/changelog/media/2026-10-30-95-notes-end-to-end.png" width="320" alt="clip"></a>
 - **173-second-shift-click** `59193ea` The Note tool's second Shift-click adds its piece to the open note, so one note can name a group of pieces (#173)<br><a href="docs/changelog/media/2026-10-30-95-notes-end-to-end.mp4"><img src="docs/changelog/media/2026-10-30-95-notes-end-to-end.png" width="320" alt="clip"></a>
 - **101-cover** `48272bf` The carved ground wears snow and wetness from the environment file: volume_cover, bevy_elements' SurfaceCover, is put on the chunks' WeatheredMaterial and follows a family_set live (#101) *No clip: visible, not yet recorded: no display on big; proved by volume_wears_its_cover (--features volume_snow)*
