@@ -2128,6 +2128,8 @@ impl Plugin for EditorPlugin {
         );
         #[cfg(feature = "bevy_elements")]
         app.add_observer(on_environment_click);
+        #[cfg(feature = "bevy_gooey")]
+        crate::ui_skin::build(app);
         app.add_observer(on_play_click);
         app.init_resource::<EditorState>()
             .init_resource::<MapFraming>()
