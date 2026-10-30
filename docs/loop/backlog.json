@@ -105,22 +105,6 @@
       "first_seen": "2026-10-22"
     },
     {
-      "id": "B-030",
-      "kind": "bug",
-      "area": "editor",
-      "title": "The oplog ties each change to its map by name, so undo of a pre-rename change needs the rename undone first, and the refusal says 'Open <old name>'",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "Judgment: 1 of 3 (no_workaround only). Rename is rare; the refusal is clear once the rename is undone."
-      },
-      "status": "fixed",
-      "evidence": "Reviewer gap 13, 2026-10-22 snip iteration. crates/bevy_emerge_mapper/src/ops.rs:531-580 keys the oplog by map name. Refusal now names the rename to undo first (ops.rs); regression: tests/an_undo_across_a_rename_names_the_rename.rs. Keying by map id is still not done.",
-      "last_failure": "",
-      "first_seen": "2026-10-22"
-    },
-    {
       "id": "E-033",
       "kind": "enhancement",
       "area": "docs",
@@ -203,16 +187,6 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-051",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "Kit ops clone the whole Project per click, and a third Levenshtein copy exists (review gap 12)",
-      "status": "shipped",
-      "evidence": "editor.rs:3030-3036: each shelf click or arrow step clones Project and appends an oplog line; a chip click clones Project once and measured twice. Third Levenshtein copy at ops.rs:2278, next to brush_arm's (ops.rs ~1894) and core's private one. Fix: share brush_arm's ranking helper. Report: docs/loop/iterations/2026-10-23-cycle9-c966e73.md | Done (w3, #117): Project's measured/library/masks/kits/triangles are Shared<T> (Arc, copy on write); a clone is refcount bumps. Proved by tests/project_clone_shares.rs.",
-      "last_failure": "",
-      "first_seen": "2026-10-23"
-    },
-    {
       "id": "E-052",
       "kind": "enhancement",
       "area": "mcp",
@@ -263,16 +237,6 @@
       "first_seen": "2026-10-23"
     },
     {
-      "id": "E-066",
-      "kind": "enhancement",
-      "area": "editor",
-      "title": "Cmd+Z does not take away a map that was just made: there is no map_remove operation",
-      "status": "fixed",
-      "evidence": "map_create declares Undo::None because `take_back` applies an inverse by calling the SAME operation's commit with it, and the faithful inverse of a create is a removal — which no operation carries. map removal exists only as the chooser's Delete row (chooser.rs confirm_delete_entry, std::fs::remove_file), outside the registry. An agent can therefore make a map and not unmake it. FIXED: map_create's inverse is its own only_as_undo form {remove}, whose inverse is {restore:{name,text}} (file bytes kept in the log); creation lines are project-scoped in undo_target, so they undo by name from any open map; refused while that map is open. Proof: tests/a_made_map_can_be_taken_away_by_undo.rs.",
-      "last_failure": "",
-      "first_seen": "2026-10-24"
-    },
-    {
       "id": "E-069",
       "kind": "enhancement",
       "area": "collaboration",
@@ -301,22 +265,6 @@
       },
       "status": "open",
       "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py",
-      "last_failure": "",
-      "first_seen": "2026-10-25"
-    },
-    {
-      "id": "E-072",
-      "kind": "enhancement",
-      "area": "compose",
-      "title": "An agent cannot author a composition, an envelope or a stamp, so only a person can build the kit's rules",
-      "must_fix": {
-        "blocks": false,
-        "common": false,
-        "no_workaround": true,
-        "evidence": "The emergence chain is mesh -> piece -> composition -> generated layout. The first and the last are agent-reachable (piece_import, layout_propose); the middle is not: composition_create, composition_set_envelope and stamp_add exist only as editor functions (editor::composition_from_set, Project::commit_composition)."
-      },
-      "status": "open",
-      "evidence": "crates/bevy_emerge_mapper/src/editor.rs::composition_from_set. Slice 1 shipped: composition_define (ops_compose.rs, from placement ids, replace flag, undo restores compositions.ron); test tests/an_agent_can_define_a_composition.rs. Slice 2 shipped: stamp_add (ops_stamp.rs; test tests/an_agent_can_stamp_a_composition.rs; #122). Still open: an envelope edit operation.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },

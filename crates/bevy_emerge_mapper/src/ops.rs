@@ -2376,6 +2376,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_dialogue::DialoguePreview),
         Box::new(crate::ops_terrain::TerrainStroke),
         Box::new(crate::ops_compose::CompositionDefine),
+        Box::new(crate::ops_compose::CompositionSetEnvelope),
         #[cfg(all(feature = "bevy_orca", feature = "bevy_stigmergy"))]
         Box::new(crate::ops_crowd::CrowdPreview),
         #[cfg(feature = "bevy_carnage")]
@@ -2397,6 +2398,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_runs::RunAdd),
         Box::new(crate::ops_runs::RunSet),
         Box::new(crate::ops_runs::RunRemove),
+        Box::new(crate::ops_runs::PlacementsToRun),
         Box::new(crate::ops_notes::NoteAdd),
         Box::new(crate::ops_notes::NoteEdit),
         Box::new(crate::ops_notes::NoteRemove),
@@ -2447,6 +2449,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // (E-072). The held set carries no placement ids, which is why the key does not dispatch the
     // operation itself.
     ("composition_define", "keep_as_group("),
+    // **The Compose list's second click**: a click on the already-selected group toggles its
+    // envelope between anchored and bounded through `set_envelope`, which dispatches
+    // `composition_set_envelope` (E-072 slice 3).
+    ("composition_set_envelope", "set_envelope("),
     // **The pin key and the pin-reason field**, which pin or unpin one placement. Both come to
     // `set_pin`, which dispatches `placement_set_pin`, so the rule has one answer.
     ("placement_set_pin", "set_pin("),
@@ -2562,6 +2568,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("run_add", "add_run("),
     ("run_set", "set_run("),
     ("run_remove", "remove_run("),
+    // **Convert rows to a run (#115)** — a platform-modifier drag in run mode over standing rows
+    // dispatches `placements_to_run` through `rows_to_run_along`.
+    ("placements_to_run", "rows_to_run_along("),
     ("note_edit", "edit_note("),
     ("note_remove", "remove_note("),
     // **Enter on the Note tool with no box open** sends every draft through `send_notes`, which

@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **E-072-3** `1286260` An agent can change a composition's envelope (composition_set_envelope); a second click on the selected Compose row flips it *No clip: visible, not yet recorded: no display on big; proved by tests/an_agent_can_set_a_composition_envelope.rs*
 - **99-sculpt-clip** `baa506f` Strokes on a map's terrain are drawn in the viewport: two hills raised and a hollow dug by terrain_stroke, saved as the map's heightfield (#99)<br><a href="docs/changelog/media/2026-10-30-terrain-sculpt.mp4"><img src="docs/changelog/media/2026-10-30-terrain-sculpt.png" width="320" alt="clip"></a>
 - **105-note-bind** `76975de` A trigger can be bound to a note's area: trigger_set bind.note *No clip: an API over MCP; proved by tests/a_trigger_binds_to_a_notes_area.rs*
 - **stamp-add** `09d70a1` An agent can stamp a composition onto the map (stamp_add), with undo and redo *No clip: an operation with no new surface; proved by tests/an_agent_can_stamp_a_composition.rs*
@@ -29,6 +30,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-29
 
+- **115-s5** `8316c61` Rows laid by hand turn into a run: placements_to_run, or Cmd-drag in run mode *No clip: an operation; proved by rows_become_a_run_through_an_operation*
+- **115-live-diff** `3b51545` The live reload names an edited run once by its id, not each of its rows (#115) *No clip: an API; proved by crates/bevy_emerge_core/tests/live_diff_names_runs.rs*
 - **102-forest-scatter** `d7a0d7c` forest_scatter: a stroke plants bevy_flora's own scatter under the brush, on the terrain, one undo step (typed 'forest' line and apply) *No clip: an operation and a typed line, no viewport drawing yet; proved by tests/forest_stroke_is_an_operation.rs*
 - **102-flora-host** `033523f` bevy_flora is a hosted family crate: a project lists it in family.ron and its settings change through family_set *No clip: an API and cargo feature; proved by flora_family tests*
 - **play-stop-group** `2f2603d` Stop ends the game Play started even when it runs through a launcher such as cargo run *No clip: a process-lifecycle fix; proved by play_stop_ends_the_whole_game*
