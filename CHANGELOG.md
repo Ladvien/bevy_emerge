@@ -4,6 +4,8 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **167-degrees** `a67d95b` Relations: #167's acceptance (AlignedWith 0/20 met, 0/90 unmet, 350/10 met; Faces at every quarter turn as drawn) proved against the map's degrees *No clip: a regression test for what relations measure on a turned piece; proved by bevy_emerge_core/tests/relations_read_a_maps_yaw_in_degrees.rs*
+- **170-mirror** `cee3587` Relations: MirrorOf keeps a piece opposite another across a third's axis (a pair of lamps flanking a door), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_mirrored_across_another.rs*
 - **165-degrees** `df938a1` Relations read a map's yaw in degrees: a piece in front of a turned door is in front of it, and relations solve writes degrees back *No clip: a fix to what relations measure and write on a turned piece; proved by bevy_emerge_mapper/tests/relations_read_a_turned_piece_in_degrees.rs*
 - **163-beside** `ab5a504` Relations: LeftOf and RightOf keep a piece beside another (a lamp left of the door), and relations solve sets it there *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_kept_beside_another.rs*
 - **166-options** `684e580` A block offers several distinct layouts on request: rules::options keeps up to N that each differ from the others in at least a given number of cells, each chosen by the seed that rebuilds it *No clip: a core API; proved by bevy_emerge_core/tests/a_block_offers_distinct_options.rs*
