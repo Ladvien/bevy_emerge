@@ -33,10 +33,17 @@ fn ctx(tag: &str, port: u16) -> (Ctx, std::path::PathBuf) {
     std::fs::write(root.join("game.py"), GAME).unwrap();
     std::fs::write(
         root.join("play.ron"),
-        format!(r#"(version: 1, command: ["python3", "game.py", "{{map}}", "{{camera}}", "{port}"], port: {port})"#),
+        format!(r#"(version: 1, command: ["{py}", "game.py", "{{map}}", "{{camera}}", "{port}"], port: {port})"#, py = fixtures_python()),
     )
     .unwrap();
     (Ctx { root: Some(root.clone()), session: "test".to_owned(), ..Ctx::default() }, root)
+}
+
+/// The interpreter the fixture game runs on: the system's `/usr/bin/python3` where there is one.
+/// Homebrew's Python 3.15.2 on bmb never answered the fixture's POST, so this test panicked before
+/// `play_stop` and left the game running (#121; owner, 2026-10-30).
+fn fixtures_python() -> &'static str {
+    if std::path::Path::new("/usr/bin/python3").exists() { "/usr/bin/python3" } else { "python3" }
 }
 
 #[test]
