@@ -277,10 +277,10 @@ impl ForestScatter {
         } else {
             let project = ctx.project.as_ref().expect("forest_path needs a project");
             let mut forest = forest_of(project, &p.map);
-            let ground: Option<bevy_emerge_core::heightfield::Heightfield> =
-                std::fs::read_to_string(project.emerge_dir.join("terrain").join(format!("{}.ron", p.map)))
-                    .ok()
-                    .and_then(|t| ron::from_str(&t).ok());
+            // A terrain file that does not read is flat ground here, as the terrain view draws it (#187).
+            let ground = std::fs::read_to_string(project.emerge_dir.join("terrain").join(format!("{}.ron", p.map)))
+                .ok()
+                .and_then(|t| bevy_emerge_core::heightfield::Heightfield::parse(&t).ok());
             let added = match (&p.place, &p.plant) {
                 (Some(at), _) => vec![place(&forest, at, ground.as_ref())],
                 (None, Some(stroke)) => plant(&forest, stroke, ground.as_ref()),
