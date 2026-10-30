@@ -83,7 +83,7 @@ impl Relations {
                 | Kind::BacksOnto { within, .. }
                 | Kind::Between { within, .. } => [*within, 0.0],
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
-                Kind::ClearInFront { depth, width } => [*depth, *width],
+                Kind::ClearInFront { depth, width } | Kind::Inside { width, depth, .. } => [*depth, *width],
                 Kind::VisibleFrom { clearance, .. } | Kind::ReachableFrom { clearance, .. } => [*clearance, 0.0],
                 Kind::Along { path, within } => {
                     if path.len() < 2 {
@@ -203,6 +203,13 @@ pub enum Kind {
     /// [`FACING_TOLERANCE_DEG`]. Sideways along the other is free, so a long wall backs a piece
     /// anywhere along it; [`Kind::Near`] bounds that. Measures the distance off the plane.
     BacksOnto { of: String, within: f32 },
+    /// Inside an area of a placement (a table on the rug, a chest inside the room's floor, a stall
+    /// in the market square; Merrell et al. keep every piece inside the room polygon, and ProcTHOR
+    /// places each floor object inside a rectangle of the room): this placement's centre stands in
+    /// the `width` × `depth` rectangle centred on the other, in the other's own frame (`width`
+    /// across its left and right, `depth` along its forward), so turning the other turns the area.
+    /// Headings are free. Measures the distance from the centre to the rectangle, 0 inside.
+    Inside { of: String, width: f32, depth: f32 },
 }
 
 /// What [`check`] found for one relation.
@@ -409,6 +416,18 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
                 let away = ahead.signum() * (a.yaw.sin() * fx + a.yaw.cos() * fz);
                 let turned = away.clamp(-1.0, 1.0).acos().to_degrees();
                 verdict(off > 0.0 && off <= *within && turned <= FACING_TOLERANCE_DEG, off)
+            }
+            Err(m) => m,
+        },
+        Kind::Inside { of, width, depth } => match other(of) {
+            Ok(b) => {
+                let (ahead, left) = local(b, a.at);
+                let out_side = (left.abs() - width / 2.0).max(0.0);
+                let out_ahead = (ahead.abs() - depth / 2.0).max(0.0);
+                verdict(
+                    left.abs() <= width / 2.0 && ahead.abs() <= depth / 2.0,
+                    out_side.hypot(out_ahead),
+                )
             }
             Err(m) => m,
         },
@@ -756,7 +775,8 @@ const SOLVE_ROUNDS: usize = 8;
 /// segment between its two ends (inside them, on its own side), [`Kind::MirrorOf`] sets it on the
 /// other's mirror point (the axis and the other stay), [`Kind::BacksOnto`] turns it straight out
 /// from the other's face and sets it just inside `within` off it, on its own side and where it
-/// stood along it, and [`Kind::ReachableFrom`] slides
+/// stood along it, [`Kind::Inside`] sets it just inside the other's area across whichever edges
+/// it stood past, on its own side and keeping its heading, and [`Kind::ReachableFrom`] slides
 /// the piece whose removal opens a walk just far enough that one opens (both ends stay). A move
 /// is kept only when it lowers the map's (hard unmet, soft unmet) pair, compared hard first
 /// ([`Relation::hard`]): so a hard relation is never broken to mend soft ones, a hard one is
@@ -976,6 +996,17 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             let to = (b.at.0 + fx * ahead + fz * left, b.at.1 + fz * ahead - fx * left);
             let yaw = (sign * fx).atan2(sign * fz);
             free(a).then(|| (a.id.clone(), to, yaw))
+        }
+        Kind::Inside { of, width, depth } => {
+            let b = other(of)?;
+            let (ahead, left) = local(b, a.at);
+            // Only an axis it stands past moves, and only to just inside that edge.
+            let into = |v: f32, half: f32| if v.abs() > half { v.signum() * half * 0.9 } else { v };
+            let (ahead, left) = (into(ahead, depth / 2.0), into(left, width / 2.0));
+            // Back from `b`'s frame: forward (fx, fz), left (fz, -fx), as `local` measures.
+            let (fx, fz) = forward(b);
+            let to = (b.at.0 + fx * ahead + fz * left, b.at.1 + fz * ahead - fx * left);
+            free(a).then(|| (a.id.clone(), to, a.yaw))
         }
         Kind::ReachableFrom { from, clearance } => {
             let b = other(from)?;
