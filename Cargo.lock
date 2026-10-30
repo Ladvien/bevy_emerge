@@ -756,18 +756,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_debugger_bevy"
-version = "0.2.0"
-source = "git+https://github.com/Ladvien/bevy_debugger_mcp?rev=f9dec25cea00e16a1de22502fd12f823d8baf88b#f9dec25cea00e16a1de22502fd12f823d8baf88b"
-dependencies = [
- "bevy",
- "bevy_remote",
- "image",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "bevy_derive"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -958,7 +946,6 @@ dependencies = [
  "arboard",
  "base64 0.22.1",
  "bevy",
- "bevy_debugger_bevy",
  "bevy_devshot",
  "bevy_elements",
  "bevy_emerge",
@@ -966,6 +953,7 @@ dependencies = [
  "bevy_emerge_core",
  "bevy_emerge_decide",
  "bevy_emerge_snip",
+ "bevy_fairy",
  "bevy_lights",
  "image",
  "ron",
@@ -1052,6 +1040,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "bevy_fairy"
+version = "0.3.1"
+source = "git+https://github.com/Ladvien/bevy_fairy?rev=06c9c1805651fabb2474a9d09af84c761be406aa#06c9c1805651fabb2474a9d09af84c761be406aa"
+dependencies = [
+ "bevy",
+ "image",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
