@@ -193,6 +193,7 @@ mod the_library_seed_is_a_selection;
 mod the_map_opens_framed;
 mod the_meshes_pane_says_how_sure_the_labels_are;
 mod the_next_undo_is_named;
+mod the_plan_panel_lists_the_agents_steps;
 mod the_refusal_is_on_screen;
 mod the_run_receipt_names_the_triggers_that_fired;
 mod the_scripts_panel_lists_the_maps_triggers;
