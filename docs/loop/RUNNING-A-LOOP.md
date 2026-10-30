@@ -368,7 +368,7 @@ things up.
 | worker / loop | host | clone | supervisor | target dir | jobs | display | floor |
 |---|---|---|---|---|---|---|---|
 | `bevy_emerge_loop` (also owns non-issue work) | big_mac | `~/bevy_emerge_loop` | `com.ladvien.wiggum-emerge` | `~/target/emerge-loop` | 4 | native Metal | 25 GB |
-| `bevy_emerge_w2` (records big's unrecorded clips) | big_mac | `~/bevy_emerge_w2` | `com.ladvien.wiggum-emerge-w2` | `~/target/emerge-w2` | 4 | native Metal | 25 GB |
+| `bevy_emerge_w2` (records big's unrecorded clips) | bmb, from 2026-10-30 00:11 (moved off big_mac, whose 10 cores ran three loops: w2's gates and pushes timed out three passes running). Its unpushed commits came over as a git bundle | `~/bevy_emerge_w2` | `com.ladvien.wiggum-emerge-w2` (gui/501) | `~/target/emerge-w2`, an APFS clone of w7's | 4 | native Metal | 20 GB |
 | `bevy_emerge_w3` (the GPU: #109) | big | `~/bevy_emerge_w3` | `wiggum@emerge-w3.service`, `MemoryMax=10G`, no swap | `~/target/emerge-w3` | 6 | Xvfb `:96` | 150 GB |
 | `bevy_emerge_w4` | laptop | `~/bevy_emerge_w4` | `com.ladvien.wiggum-emerge-w4` | `~/target/emerge-w4`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only` | 4 | native Metal | 20 GB, above Sanctuary's 15 so this worker stops first |
 | `bevy_emerge_w5` | big | `~/bevy_emerge_w5` | `wiggum@emerge-w5.service`, `MemoryHigh=6G`, `MemoryMax=8G`, no swap | `~/target/emerge-w5`, started as a btrfs reflink copy of w3's (`cp -a --reflink=always`), so no cold build | 4 | Xvfb `:94` | 150 GB |
