@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **183-inside** `149f032` Relations: Inside keeps a piece inside an area of another (a table on the rug, a stall in the square), and relations solve sets it just inside *No clip: a relation kind and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_inside_an_area.rs*
 - **180-pointer-read-first** `c488d07` A click lands where the cursor is this frame: the pointer is read before every Update system, so the Note tool's second Shift-click no longer takes the first piece back out (#180) *No clip: an input-ordering fix with nothing new on screen; proved by the_pointer_is_read_before_anything_acts_on_it and 51 of 51 batch runs of a_person_shift_clicks_two_pieces_into_one_note*
 - **181-backs-onto** `e6ce312` Relations: BacksOnto keeps a piece with its back to another (a bookshelf against a wall, anywhere along it), and relations solve turns it out from the wall *No clip: a relation kind in relations.ron and its RELATIONS row text; proved by bevy_emerge_core/tests/a_piece_backed_onto_another.rs*
 - **177-note-box-on-screen** `ee0ce2b` While a note is typed, the Inspector scrolls its text (LAST: the words, the caret, [auto]) back on screen, even when it was scrolled down to NOTES<br><a href="docs/changelog/media/2026-10-30-177-note-box-on-screen.mp4"><img src="docs/changelog/media/2026-10-30-177-note-box-on-screen.png" width="320" alt="clip"></a>
