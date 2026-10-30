@@ -161,8 +161,8 @@
       "kind": "enhancement",
       "area": "editor",
       "title": "Log kit writes so they can be undone (depends on E-004)",
-      "status": "open",
-      "evidence": "Cycle 8 notes. Depends on E-004. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
+      "status": "shipped",
+      "evidence": "Cycle 8 notes. Depends on E-004. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md. Found done 2026-10-30 (w3): every kit write is a logged operation with Undo::Inverse (label_set, piece_import, label_apply in ops.rs/ops_label_vlm.rs; E-004's locked log shipped 2026-10-28), proved by tests/label_set_is_an_operation.rs, a_meshes_undo_takes_back_the_agents_newest_label.rs, an_agent_can_import_a_mesh.rs, a_library_change_does_not_block_another_pieces_undo.rs.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -237,8 +237,8 @@
         "no_workaround": false,
         "evidence": "The brief's step 2 says the agent reads state and acts in small steps; a person watching has no list of what it means to do. Mixar renders the agent's plan as a checklist with a status per item."
       },
-      "status": "open",
-      "evidence": "mixar@39b9d27:ui/properties/chat_slot_types.py (MixieChatTodoItem). Slice 1 shipped: plan_set (ops_plan.rs; core plan.rs; the plan is the .plan.ron beside the .map.ron, in emerge_state under `plan`, one undo step restores the previous plan; person-side `plan clear` in the Terrain field); test tests/an_agent_can_show_its_plan.rs. Still open: the checklist panel that shows the plan beside the map (needs a display to verify).",
+      "status": "shipped",
+      "evidence": "mixar@39b9d27:ui/properties/chat_slot_types.py (MixieChatTodoItem). Slice 1 shipped: plan_set (ops_plan.rs; core plan.rs; the plan is the .plan.ron beside the .map.ron, in emerge_state under `plan`, one undo step restores the previous plan; person-side `plan clear` in the Terrain field); test tests/an_agent_can_show_its_plan.rs. Slice 2 (#134, w3, 2026-10-30): the PLAN section of the Inspector (editor.rs refresh_plan_list) draws 'plan: k of n done' and '<n> [<status>] <text>' per step, follows the file twice a second, 'no plan' when empty; test tests/the_plan_panel_lists_the_agents_steps.rs (failed before: left [] right [\"no plan\"]). Clip owed (no display on big).",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },

@@ -1362,6 +1362,11 @@ struct DataLeafRow {
     path: String,
 }
 
+/// **The Plan panel's list** (E-069): the agent's plan for the open map, one numbered row per step
+/// with its status, under a count of how many are done.
+#[derive(Component, Clone, Copy)]
+struct PlanList;
+
 /// **The Notes panel's list** (#90): a header of two buttons, then one row per note.
 #[derive(Component, Clone, Copy)]
 struct NotesList;
@@ -2417,7 +2422,16 @@ impl Plugin for EditorPlugin {
                         ),
                         keep_palette_selection_on_screen.run_if(in_map_mode),
                     ),
-                    (refresh_size, refresh_family, refresh_data, refresh_terrain, refresh_crowd, refresh_data_list, refresh_notes_list),
+                    (
+                        refresh_size,
+                        refresh_family,
+                        refresh_data,
+                        refresh_terrain,
+                        refresh_crowd,
+                        refresh_data_list,
+                        refresh_notes_list,
+                        refresh_plan_list,
+                    ),
                     refresh_triangle_total,
                     // Nested: the tuple is at 20. The wireframe edge and the slab inside it are
                     // one idea, and the slab only moves when the map's size does.
@@ -3333,6 +3347,25 @@ fn spawn_panel(mut commands: Commands, frame: Res<crate::chrome::Frame>) {
                 crate::chrome::section(s, "NOTES");
                 s.spawn((
                     NotesList,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                        ..default()
+                    },
+                ));
+            });
+
+            // **Plan (E-069).** What the agent means to do on this map and how far it has got: the
+            // `.plan.ron` that `plan_set` writes, read like the notes are.
+            p.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(crate::chrome::GAP_TIGHT),
+                ..default()
+            })
+            .with_children(|s| {
+                crate::chrome::section(s, "PLAN");
+                s.spawn((
+                    PlanList,
                     Node {
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(crate::chrome::GAP_TIGHT),
@@ -5374,6 +5407,58 @@ fn on_notes_click(
             Err(why) => state.status.problem(why),
         }
     }
+}
+
+/// Keep [`PlanList`] equal to the open map's plan: a count, then `<n> [<status>] <text>` per step in
+/// the agent's order, or "no plan". Read twice a second, like the notes, so a `plan_set`, its undo
+/// and a hand edit of the file all show; rebuilt only when what it says changed.
+fn refresh_plan_list(
+    mut commands: Commands,
+    time: Res<Time>,
+    open: Option<Res<OpenMap>>,
+    lists: Query<Entity, With<PlanList>>,
+    mut local: Local<(Option<bevy_emerge_core::plan::Plan>, f32)>,
+) {
+    use bevy_emerge_core::plan::{self, Plan, Status};
+    let (shown, since) = &mut *local;
+    *since += time.delta_secs();
+    if shown.is_some() && *since < 0.5 {
+        return;
+    }
+    *since = 0.0;
+    let now = open.and_then(|o| Plan::load(&plan::path_for_map(&o.map_path)).ok()).unwrap_or_default();
+    if shown.as_ref() == Some(&now) {
+        return;
+    }
+    for list in &lists {
+        commands.entity(list).despawn_related::<Children>();
+        commands.entity(list).with_children(|p| {
+            if now.items.is_empty() {
+                p.spawn((Text::new("no plan"), TextColor(DIM), crate::chrome::font(crate::chrome::text::LABEL)));
+                return;
+            }
+            let (_, _, done, _) = now.counts();
+            p.spawn((
+                Text::new(format!("plan: {done} of {} done", now.items.len())),
+                TextColor(DIM),
+                crate::chrome::font(crate::chrome::text::LABEL),
+            ));
+            for (at, item) in now.items.iter().enumerate() {
+                let (status, colour) = match item.status {
+                    Status::Pending => ("pending", TEXT),
+                    Status::Doing => ("doing", ACCENT),
+                    Status::Done => ("done", DIM),
+                    Status::Skipped => ("skipped", DIM),
+                };
+                p.spawn((
+                    Text::new(format!("{} [{status}] {}", at + 1, item.text)),
+                    TextColor(colour),
+                    crate::chrome::font(crate::chrome::text::BODY),
+                ));
+            }
+        });
+    }
+    *shown = Some(now);
 }
 
 /// Keep [`NotesList`] equal to the open map's notes under the current filter: newest first, every
