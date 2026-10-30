@@ -13,11 +13,13 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy_elements::{
-    Climate, DustSettings, GeoLocation, RockSettings, SnowSettings, WeatherDirector, WeatherPreset, WetnessSettings, WorldClock,
+    Climate, DustSettings, GeoLocation, RockSettings, SnowSettings, SurfaceCover, WeatherDirector, WeatherPreset, WeatheredExtension,
+    WeatheredMaterial, WetnessSettings, WorldClock,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::family_host::FamilySettings;
+use crate::terrain_view::TerrainView;
 
 /// The crate this settings file belongs to, as `family.ron` names it.
 pub const CRATE: &str = "bevy_elements";
@@ -47,6 +49,11 @@ pub struct ElementsSettings {
     /// Blown sand and dust.
     #[serde(default)]
     pub dust: DustSettings,
+    /// The snow and wetness the carved ground wears whatever the weather is (#101): the crate's own
+    /// `SurfaceCover`, put on the volume's material by [`dress_volume`]. `None` (the default) lets the
+    /// scene's weather decide, as it does for a game's own weathered material.
+    #[serde(default)]
+    pub volume_cover: Option<SurfaceCover>,
 }
 
 impl ElementsSettings {
@@ -65,6 +72,7 @@ impl ElementsSettings {
             wetness: WetnessSettings::default(),
             rocks: RockSettings::default(),
             dust: DustSettings::default(),
+            volume_cover: None,
         }
     }
 
@@ -154,6 +162,53 @@ pub fn apply_environment(
         apply(&parsed, clock, location, climate, director, &mut applied_force);
     }
     apply_cover(&parsed, &mut preview);
+}
+
+/// **The carved ground wears the game's weathered material** (#101). While the project has a
+/// `family/bevy_elements.ron` and `bevy_elements`' plugins are in the app, every chunk of the carved
+/// ground ([`TerrainView::Volume`](crate::terrain_view::TerrainView::Volume)) is drawn with one
+/// `WeatheredMaterial`, so the preview's snow and wetness are what the game draws. The file's
+/// [`ElementsSettings::volume_cover`] is put on that material with `set_cover` when the file changes,
+/// so an edit shows in the next frame without remeshing; a file that does not parse keeps the previous
+/// cover (`apply_environment` reports it). Without the file the chunks go back to the plain material.
+pub fn dress_volume(
+    settings: Res<FamilySettings>,
+    weathered: Option<ResMut<Assets<WeatheredMaterial>>>,
+    mut plain_materials: ResMut<Assets<StandardMaterial>>,
+    plain: Query<(Entity, &TerrainView), With<MeshMaterial3d<StandardMaterial>>>,
+    dressed: Query<(Entity, &TerrainView), With<MeshMaterial3d<WeatheredMaterial>>>,
+    mut commands: Commands,
+    mut state: Local<(Option<Handle<WeatheredMaterial>>, Option<String>)>,
+) {
+    let Some(mut weathered) = weathered else { return };
+    let (handle, seen) = &mut *state;
+    let Some(text) = settings.text.get(CRATE) else {
+        let mut back = None;
+        for (e, view) in &dressed {
+            if *view == TerrainView::Volume {
+                let back = back.get_or_insert_with(|| plain_materials.add(crate::terrain_view::ground_base())).clone();
+                commands.entity(e).remove::<MeshMaterial3d<WeatheredMaterial>>().insert(MeshMaterial3d(back));
+            }
+        }
+        *seen = None;
+        return;
+    };
+    let handle = handle
+        .get_or_insert_with(|| weathered.add(WeatheredMaterial { base: crate::terrain_view::ground_base(), extension: WeatheredExtension::default() }))
+        .clone();
+    if seen.as_ref() != Some(text) {
+        *seen = Some(text.clone());
+        if let Ok(parsed) = ElementsSettings::from_ron(text)
+            && let Some(mut material) = weathered.get_mut(&handle)
+        {
+            material.extension.set_cover(parsed.volume_cover);
+        }
+    }
+    for (e, view) in &plain {
+        if *view == TerrainView::Volume {
+            commands.entity(e).remove::<MeshMaterial3d<StandardMaterial>>().insert(MeshMaterial3d(handle.clone()));
+        }
+    }
 }
 
 /// **The clock scrubber** (#98): camera-style state, not an operation. `Some(hour)` holds the

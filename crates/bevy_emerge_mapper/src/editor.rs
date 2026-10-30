@@ -2124,6 +2124,7 @@ impl Plugin for EditorPlugin {
             (
                 crate::environment::apply_environment.after(crate::family_host::Reloaded),
                 crate::environment::scrub_clock.after(crate::environment::apply_environment),
+                crate::environment::dress_volume.after(crate::family_host::Reloaded).after(crate::terrain_view::sync_terrain_view),
             ),
         );
         #[cfg(feature = "bevy_elements")]
