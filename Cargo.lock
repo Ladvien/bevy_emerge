@@ -684,7 +684,7 @@ version = "0.7.0"
 source = "git+https://github.com/Ladvien/bevy_carnage?rev=615c264e28680448b934d3f28b73487dd8b98750#615c264e28680448b934d3f28b73487dd8b98750"
 dependencies = [
  "bevy",
- "isomesh",
+ "isomesh 0.0.10",
  "libm",
  "serde",
 ]
@@ -974,6 +974,7 @@ dependencies = [
  "bevy_speech_bubbles",
  "bevy_stigmergy",
  "image",
+ "isomesh 0.0.11",
  "ron",
  "serde",
  "serde_json",
@@ -3899,6 +3900,14 @@ name = "isomesh"
 version = "0.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7306d524f42aab4d398c77050d3dd9c71b2d96b56f017042e0e7fdda9ab455a0"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "isomesh"
+version = "0.0.11"
+source = "git+https://github.com/Ladvien/isomesh?rev=d3dc6c0fb6b43b899e534643f51f76a856d2d9ee#d3dc6c0fb6b43b899e534643f51f76a856d2d9ee"
 dependencies = [
  "libm",
 ]

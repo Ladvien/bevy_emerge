@@ -44,6 +44,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "roles and setters for the widget layer's a11y tree; `bevy_a11y` does not re-export it, and \
          0.24 is what `bevy_feathers` itself depends on so the two cannot drift",
     ),
+    (
+        "isomesh",
+        "meshes the volume edit list per chunk, welded across seams (#101, owner exception, family); optional, behind the `isomesh` feature, pinned by git rev",
+    ),
     ("ron", "map and library serialization"),
     ("serde", "derives on every schema type this crate reads and writes"),
     ("serde_json", "the VLM chat request and reply bodies"),
