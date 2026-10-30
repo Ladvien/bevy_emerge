@@ -434,7 +434,7 @@
       "first_seen": "2026-10-30",
       "last_failure": "",
       "title": "Kit standards: a project's dimensions every kit piece must meet, and which pieces break them (#138)",
-      "evidence": "Research lens #4 (kit admission rules). Slice 1 shipped 3abf44f+37385fe (w3, big): core standards::{Standards, Rule, Dim, Why, Breach, check}, standards.ron beside kits.ron; tests/a_kit_says_which_pieces_break_its_standards.rs (failed before: unresolved import; 8 pass after). Owes: editor load + hot reload of standards.ron and breaches in the Meshes tab (and a rule whose kind covers no piece), piece_import reporting breaches on admission, an MCP read through the existing query surface (no new tool). Assumed decision: rules scoped by kind token; breaches reported, not refused."
+      "evidence": "Research lens #4 (kit admission rules). Slice 1 shipped 3abf44f+37385fe (w3, big): core standards::{Standards, Rule, Dim, Why, Breach, check}, standards.ron beside kits.ron; tests/a_kit_says_which_pieces_break_its_standards.rs (failed before: unresolved import; 8 pass after). Slice 2 shipped a23ba4b (w3, big): core standards::idle and emerge_state.standards {breaches, idle, error}, re-read each call; tests/emerge_state_reports_standards_breaches.rs (failed before: standards null; 3 pass after). Owes: breaches in the Meshes tab, piece_import reporting breaches on admission. Assumed decision: rules scoped by kind token; breaches reported, not refused."
     }
   ]
 }

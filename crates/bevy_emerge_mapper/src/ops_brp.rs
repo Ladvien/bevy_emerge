@@ -568,6 +568,9 @@ fn editor_state(
             (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library),
             _ => Value::Null,
         },
+        // **The kit pieces that break the project's standards** (#138): read from `standards.ron`
+        // beside `kits.ron` on every call, so an edit to that file is seen with no restart.
+        "standards": project.as_ref().map(|p| standards_json(&p.library, &p.project_dir)),
         // **The intended relations this map breaks** (#137): read from `<map>.relations.ron` on every
         // call, so an edit to that file is seen by the next answer with no restart.
         "relations": open.as_ref().map(|o| relations_json(&o.map.placements, &o.map_path)),
@@ -662,6 +665,43 @@ fn relations_json(placements: &[bevy_emerge_core::map::Placed], map_path: &std::
         })
         .collect();
     json!({"relations": rows, "unmet": unmet, "missing": missing, "error": null})
+}
+
+/// **The project's standards, checked against its library**, as `emerge_state` reports them: every
+/// breach, and every rule that covers no piece. No file is no rules and no error; a file that cannot
+/// be read or parsed is named in `error`, never read as an empty list.
+fn standards_json(library: &bevy_emerge_core::library::Library, project_dir: &std::path::Path) -> Value {
+    use bevy_emerge_core::standards::{check, idle, Dim, Standards, Why, FILE};
+    let path = project_dir.join(FILE);
+    let loaded = match std::fs::read_to_string(&path) {
+        Ok(text) => Standards::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Standards::default()),
+        Err(e) => Err(e.to_string()),
+    };
+    let standards = match loaded {
+        Ok(s) => s,
+        Err(e) => return json!({"breaches": [], "idle": [], "error": format!("{}: {e}", path.display())}),
+    };
+    let rows: Vec<Value> = check(library, &standards)
+        .into_iter()
+        .map(|b| {
+            let (why, bound) = match b.why {
+                Why::Unmeasured => ("unmeasured", None),
+                Why::BelowMin(v) => ("below_min", Some(v)),
+                Why::AboveMax(v) => ("above_max", Some(v)),
+                Why::NotMultipleOf(v) => ("not_multiple_of", Some(v)),
+            };
+            json!({
+                "piece": b.piece,
+                "rule": b.rule,
+                "dim": match b.dim { Dim::Width => "width", Dim::Depth => "depth", Dim::Height => "height" },
+                "found": b.found,
+                "why": why,
+                "bound": bound,
+            })
+        })
+        .collect();
+    json!({"breaches": rows, "idle": idle(library, &standards), "error": null})
 }
 
 /// **The parameters of `emerge/pieces`.** Every filter is optional, and they combine: a piece is

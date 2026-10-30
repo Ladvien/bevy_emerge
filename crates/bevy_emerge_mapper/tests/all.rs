@@ -124,6 +124,7 @@ mod emerge_pieces_lists_the_library;
 mod emerge_state_names_the_library;
 mod emerge_state_names_visible_repeats;
 mod emerge_state_reports_broken_relations;
+mod emerge_state_reports_standards_breaches;
 mod environment_applies;
 mod every_key_has_a_home;
 mod every_list_follows_its_selection;
