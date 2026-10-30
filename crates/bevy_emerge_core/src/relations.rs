@@ -85,8 +85,9 @@ impl Relations {
                 Kind::Apart { at_least, .. } => [*at_least, 0.0],
                 Kind::ClearInFront { depth, width } | Kind::Inside { width, depth, .. } => [*depth, *width],
                 Kind::Balances { with, within, .. } => {
-                    // An empty group is `Near`; a piece in its own group is counted twice, and the
-                    // solve's landing point would be wrong.
+                    // An empty group is `Near`; a placement in `with` twice (or the relation's own,
+                    // which is in its group already) would weigh double, and the solve's landing
+                    // point would be wrong.
                     if with.is_empty() {
                         return Err(format!(
                             "relations: relation {i} (of {:?}) balances with no other placement; `with` names one or more",
@@ -97,6 +98,12 @@ impl Relations {
                         return Err(format!(
                             "relations: relation {i} (of {:?}) names {:?} in its own `with`; the placement is in its group already",
                             rel.of, rel.of
+                        ));
+                    }
+                    if let Some((j, twice)) = with.iter().enumerate().find(|(j, id)| with[..*j].contains(id)) {
+                        return Err(format!(
+                            "relations: relation {i} (of {:?}) names {twice:?} twice in `with` (again at {j}); each placement weighs once",
+                            rel.of
                         ));
                     }
                     [*within, 0.0]
@@ -231,9 +238,10 @@ pub enum Kind {
     /// about the hall's centre; Merrell et al.'s visual balance, "the mean of the distribution of
     /// visual weight at the center of the composition", on the ground plane): the mean of this
     /// placement's centre and every `with` placement's centre stands within `within` metres of
-    /// `about`'s centre. Every placement weighs the same. `with` names one or more placements, not
-    /// this one; `about` may be one of them. Headings are free. Measures the distance from the
-    /// mean to `about`'s centre.
+    /// `about`'s centre. Every placement weighs the same, so `with` names one or more placements,
+    /// each once and never this one. `about` may be one of them, or this placement itself, which
+    /// then stands at the mean of the others (a well at the centre of its stalls). Headings are
+    /// free. Measures the distance from the mean to `about`'s centre.
     Balances { with: Vec<String>, about: String, within: f32 },
 }
 
@@ -1053,14 +1061,21 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
             free(a).then(|| (a.id.clone(), to, a.yaw))
         }
         Kind::Balances { with, about, .. } => {
-            // The mean of n centres is c when this one stands at n·c minus the others' sum.
-            let c = other(about)?.at;
             let n = (with.len() + 1) as f32;
-            let mut to = (n * c.0, n * c.1);
+            let mut others = (0.0, 0.0);
             for id in with {
                 let p = other(id)?.at;
-                to = (to.0 - p.0, to.1 - p.1);
+                others = (others.0 + p.0, others.1 + p.1);
             }
+            let to = if about == &a.id {
+                // Its own centre moves with it: the mean of n is this one when it stands at the
+                // mean of the other n − 1 (a well at the centre of its stalls).
+                (others.0 / (n - 1.0), others.1 / (n - 1.0))
+            } else {
+                // The mean of n centres is c when this one stands at n·c minus the others' sum.
+                let c = other(about)?.at;
+                (n * c.0 - others.0, n * c.1 - others.1)
+            };
             free(a).then(|| (a.id.clone(), to, a.yaw))
         }
         Kind::ReachableFrom { from, clearance } => {

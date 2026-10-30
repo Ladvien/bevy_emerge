@@ -122,6 +122,38 @@ fn solve_moves_only_its_own_piece_so_the_mean_lands_on_the_centre_keeping_its_he
 }
 
 #[test]
+fn a_piece_that_is_its_own_centre_is_solved_to_the_mean_of_the_others() {
+    // The well at the centre of its stalls: it is the centre and one of the group, so moving it
+    // moves the centre too, and it lands on the others' mean.
+    let rows = vec![
+        piece("well", (0.0, 0.0), 15.0),
+        piece("stall_a", (8.0, 3.0), 0.0),
+        piece("stall_b", (12.0, 5.0), 0.0),
+        piece("stall_c", (10.0, 7.0), 0.0),
+    ];
+    let rel = Relations {
+        version: RELATIONS_VERSION,
+        relations: vec![Relation {
+            of: "well".into(),
+            kind: Kind::Balances {
+                with: vec!["stall_a".into(), "stall_b".into(), "stall_c".into()],
+                about: "well".into(),
+                within: 0.25,
+            },
+            hard: false,
+        }],
+    };
+    let o = check_map(&rows, &rel).remove(0);
+    // Mean of the four is (7.5, 3.75): its distance from the well at the origin.
+    assert!((measured(&o) - 7.5f32.hypot(3.75)).abs() < 1e-3, "{o:?}");
+    let solved = solve_map(&rows, &rel);
+    assert_eq!(solved.unmet_after, 0, "{:?}", solved.unsatisfied);
+    let well = solved.placements.iter().find(|p| p.id == "well").unwrap();
+    assert!((well.at.0 - 10.0).abs() < 1e-3 && (well.at.1 - 5.0).abs() < 1e-3, "{:?}", well.at);
+    assert!((well.yaw - 15.0).abs() < 1e-3, "kept its heading: {}", well.yaw);
+}
+
+#[test]
 fn an_empty_or_self_naming_group_and_a_negative_bound_are_refused() {
     let text = |with: &str, within: &str| {
         format!("(version: {RELATIONS_VERSION}, relations: [(of: \"stall_a\", kind: Balances(with: [{with}], about: \"well\", within: {within}))])")
@@ -132,6 +164,8 @@ fn an_empty_or_self_naming_group_and_a_negative_bound_are_refused() {
     assert!(err.contains("stall_a"), "{err}");
     let err = Relations::parse(&text("\"stall_b\"", "-1.0")).expect_err("a negative within must not read");
     assert!(err.contains("-1"), "{err}");
+    let err = Relations::parse(&text("\"stall_b\", \"stall_c\", \"stall_b\"", "1.0")).expect_err("one stall weighing double");
+    assert!(err.contains("stall_b") && err.contains("twice"), "{err}");
     let r = Relations::parse(&text("\"stall_b\", \"stall_c\"", "1.0")).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(r, balances(&["stall_b", "stall_c"], "well", 1.0));
 }
