@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-30
 
 - **158-created-file** `b0e7a8f` A project file written for the first time while the editor is open (repetition.ron, standards.ron, rules.ron, compositions.ron) is read at once, not after a second edit (#158) *No clip: a watcher fix, seen in the E-090 clip's second step; proved by tests/a_project_file_created_while_open_is_read.rs*
+- **159-between** `7523243` A relation keeps a piece between two others (a table between two chairs), and relations solve sets it there *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_kept_between_two_others.rs*
 - **session-per-turn** `c6628e3` session::score measures an agent per turn: asking on a clear request or acting on a vague one, and a later turn breaking an earlier turn's relation *No clip: an engine-free API; proved by bevy_emerge_core/tests/a_session_scores_each_turn.rs*
 - **relations-aligned-with** `8777873` Relations: AlignedWith keeps a piece on another's heading (a row of pews), and relations solve turns it there in place *No clip: visible, not yet recorded: no display on big (RELATIONS row reads 'pew_2 aligned with pew_1'); proved by bevy_emerge_core/tests/a_piece_kept_aligned_with_another.rs*
 - **153-options** `8c44207` An agent asked for options gets distinct layouts, each with the seed that lays it (layout_propose options) *No clip: an MCP operation parameter; proved by tests/a_proposal_offers_options.rs*
