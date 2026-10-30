@@ -28,7 +28,7 @@
         "evidence": "cargo info for all seven crates says 'could not find ... in registry'. There is no published baseline, so no release can be made and no pre-publish gate has a version to check against."
       },
       "status": "open",
-      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` fails before any decision is reachable — \"all dependencies must have a version requirement specified when packaging: dependency `bevy_emerge_rng` does not specify a version\" (the `path` spec is dropped and crates.io is consulted). `bevy_emerge_solver` and `bevy_devshot` are also `publish = false`, so the graph has an unpublishable node in the middle. Making the workspace publishable is therefore: add a version to every intra-workspace path dependency (core->rng, core->solver, snip, anim, mapper->core/rng/solver/devshot, mcp->core), decide whether solver/devshot ship at all, then publish in dependency order rng -> solver -> core -> snip -> anim -> devshot -> mapper -> mcp. Until then the README's 'use the crates by path or git' is the only install path that works, and it is accurate. `bevy_elements` is a separate repo and already published (0.5.3, now 0.6.0).",
+      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` fails before any decision is reachable \u2014 \"all dependencies must have a version requirement specified when packaging: dependency `bevy_emerge_rng` does not specify a version\" (the `path` spec is dropped and crates.io is consulted). `bevy_emerge_solver` and `bevy_devshot` are also `publish = false`, so the graph has an unpublishable node in the middle. Making the workspace publishable is therefore: add a version to every intra-workspace path dependency (core->rng, core->solver, snip, anim, mapper->core/rng/solver/devshot, mcp->core), decide whether solver/devshot ship at all, then publish in dependency order rng -> solver -> core -> snip -> anim -> devshot -> mapper -> mcp. Until then the README's 'use the crates by path or git' is the only install path that works, and it is accurate. `bevy_elements` is a separate repo and already published (0.5.3, now 0.6.0).",
       "last_failure": "",
       "first_seen": "2026-10-21"
     },
@@ -151,8 +151,8 @@
       "kind": "enhancement",
       "area": "mcp",
       "title": "label_suggest and label_apply: VLM labelling over MCP, fixture-backed",
-      "status": "open",
-      "evidence": "Cycle 8 enhancement notes; needs VLM fixture. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md",
+      "status": "shipped",
+      "evidence": "Cycle 8 enhancement notes; needs VLM fixture. Report: docs/loop/iterations/2026-10-23-cycle8-0cd1e1b.md Shipped 3b5e8b0: ops_label_vlm.rs, test a_vlm_label_is_suggested_then_applied.",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -201,8 +201,8 @@
       "kind": "enhancement",
       "area": "docs",
       "title": "Stale code comments the docs rewrite found",
-      "status": "open",
-      "evidence": "[vlm.rs header fixed 2026-10-27; mcp main.rs already says fourteen] keys.rs comments describe a Cmd+2 row and Compose lattice keys that no longer exist and a retired twelve-row ceiling; bevy_emerge_mcp main.rs module doc says eleven tools (there are twelve); tiles.rs ~6428 calls an agent's label_set a person's decision; labels.rs writes proposals to a file nothing loads.",
+      "status": "shipped",
+      "evidence": "[vlm.rs header fixed 2026-10-27; mcp main.rs already says fourteen] keys.rs comments describe a Cmd+2 row and Compose lattice keys that no longer exist and a retired twelve-row ceiling; bevy_emerge_mcp main.rs module doc says eleven tools (there are twelve); tiles.rs ~6428 calls an agent's label_set a person's decision; labels.rs writes proposals to a file nothing loads. [2026-10-30 w5: keys.rs ceiling/Cmd+2 comments, tiles.rs label_set source, labels.rs proposals file noted; mcp says fifteen tools and lists fifteen]",
       "last_failure": "",
       "first_seen": "2026-10-23"
     },
@@ -254,7 +254,7 @@
         "evidence": "Open-ended requests produce 2-3 alternatives as the brief asks, but there is no way for the person to say 'decide these yourself this turn'. Mixar carries an `auto_mode` on the turn, and omitting the field IS false."
       },
       "status": "open",
-      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Still open: an Auto toggle in the Note tool UI (needs a display).",
+      "evidence": "mixar@39b9d27:core/chat_payloads.py (auto_mode), mixar@39b9d27:core/composer_send.py. Shipped: note_add `auto` (Note.auto, Notes::set_auto; an auto note cannot note_ask, the fence still refuses and says so); tests note_auto (core and editor). Assumed decision: the flag is on the note, not a global turn setting, and does not open the fence. Person-side: Tab in the note box toggles auto (tests/a_note_box_can_say_auto.rs); status line shows it. Still open: a clip, and a visible Auto chip in the Notes panel.",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },
@@ -270,7 +270,7 @@
         "evidence": "A person can drop a reference and say 'like this'; nothing stores it as project data or lets the agent name it back. Mixar keeps a moodboard the agent reads and cites."
       },
       "status": "open",
-      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py. Slice 1 shipped: core references.rs (References beside the map as <map>.references.ron; add/remove/cite/missing, ids never reused, paths inside the project); tests/references.rs. Still open: an operation + MCP tool (reference_add/list/remove through generic apply), the UI drop, and a note summary citing an id.",
+      "evidence": "mixar@39b9d27:src/scripts/mixar/modules/moodboard/core/chat_sync.py. Slice 1 shipped: core references.rs (References beside the map as <map>.references.ron; add/remove/cite/missing, ids never reused, paths inside the project); tests/references.rs. Slice 2: reference_set op + emerge_state references. Slice 3: note_resolve refuses a cited reference id the map lacks. Still open: the UI drop (needs a display).",
       "last_failure": "",
       "first_seen": "2026-10-25"
     },

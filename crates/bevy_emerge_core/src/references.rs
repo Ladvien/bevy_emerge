@@ -128,6 +128,27 @@ impl References {
         Ok(format!("reference {} ({}): {}", r.id, r.path, r.caption))
     }
 
+    /// The ids that `texts` cite as `reference rN` and that are not in this set, in first-cited order. A
+    /// note's resolution cites the picture it used; an id that names nothing is a citation nobody can follow.
+    pub fn unknown_citations<'a>(&self, texts: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for text in texts {
+            let mut rest = text;
+            while let Some(at) = rest.find("reference r") {
+                rest = &rest[at + "reference ".len()..];
+                let digits: String = rest[1..].chars().take_while(char::is_ascii_digit).collect();
+                if digits.is_empty() {
+                    continue;
+                }
+                let id = format!("r{digits}");
+                if self.get(&id).is_none() && !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+        }
+        out
+    }
+
     /// `(id, path)` of every reference whose file is not under `root`.
     pub fn missing(&self, root: &Path) -> Vec<(String, String)> {
         self.refs.iter().filter(|r| !root.join(&r.path).is_file()).map(|r| (r.id.clone(), r.path.clone())).collect()

@@ -4,6 +4,12 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **105-scripts-panel** Scripts panel: every trigger of the open map is a row in the editor; a row opens the terrain line to edit it (#105) *No clip: visible, not yet recorded: no display on big; proved by tests/the_scripts_panel_lists_the_maps_triggers.rs*
+- **E-043** `3b5e8b0` label_suggest and label_apply: an agent asks the VLM about a piece from its own shots and applies the answer, with undo *No clip: an MCP operation pair; proved by tests/a_vlm_label_is_suggested_then_applied.rs*
+- **105-receipt** `85093ed` The line after 'people run' names the triggers that fired and for whom, and any script error (#105) *No clip: visible, not yet recorded: the viewport draws no people, so only the status line shows it; proved by the_run_receipt_names_the_triggers_that_fired*
+- **E-055** `c177b4d` Stale code comments corrected *No clip: comments only; proved by cargo check*
+- **E-070-auto-toggle** `99cd8e5` Tab in the note box marks a note auto: the agent decides open choices itself and says what it assumed *No clip: visible, not yet recorded: no display on big*
+- **E-075c** `f328bc5` A note's resolution can cite a reference picture by id; an id the map lacks is refused *No clip: an agent-facing refusal; proved by note_cites_reference::a_resolve_citing_a_reference_the_map_lacks_is_refused*
 - **E-075b** `4c54e46` Reference images are added and removed through the reference_set operation (UI line 'ref <path> [caption]') and listed in emerge_state for the agent to cite *No clip: an operation and state field; proved by tests/references.rs*
 - **E-047** `238331d` emerge_list_pieces says its confidence describes the record, not a check; one confidence parser *No clip: an API wording and a refactor; proved by a_confidence_word_parses_back*
 - **E-075-refs-core** Reference images are project data: <map>.references.ron holds them with ids an agent can cite (core slice, #124) *No clip: an API, no operation or UI yet; proved by bevy_emerge_core tests/references.rs*
