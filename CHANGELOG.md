@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **162-room** `273b5b0` A kit says whether it can open a hallway out into a room: adjacency::room builds the smallest room with a middle, nine pieces with every inner seam declared, or says there is none *No clip: a core API; proved by a_kit_says_whether_it_can_open_into_a_room*
 - **160-ring** `eb75d90` A kit says whether it can loop a hallway back: adjacency::ring builds the smallest closed loop of four pieces, or says there is none *No clip: a core API; proved by a_kit_says_whether_it_can_loop_a_hallway_back*
 - **159-between** `7523243` A relation keeps a piece between two others (a table between two chairs), and relations solve sets it there *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_piece_kept_between_two_others.rs*
 - **session-per-turn** `c6628e3` session::score measures an agent per turn: asking on a clear request or acting on a vague one, and a later turn breaking an earlier turn's relation *No clip: an engine-free API; proved by bevy_emerge_core/tests/a_session_scores_each_turn.rs*

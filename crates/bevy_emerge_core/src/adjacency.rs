@@ -900,7 +900,8 @@ pub fn room(library: &Library, divisions: u32) -> Option<Room> {
     })
 }
 
-/// A placement of `piece` at `q` quarter turns with its north-west corner at `at`, for a trial map.
+/// A placement of `piece` at `q` quarter turns centred on `at` ([`Placed::at`](crate::map::Placed::at)
+/// is the centre), for a trial map.
 fn block_placed(id: &str, piece: &str, q: u8, at: (f32, f32)) -> crate::map::Placed {
     crate::map::Placed {
         id: id.to_owned(),
