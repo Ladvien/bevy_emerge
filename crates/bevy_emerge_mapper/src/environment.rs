@@ -356,7 +356,7 @@ pub fn spawn_section(s: &mut ChildSpawnerCommands) {
     });
 }
 
-type WorldCamera = (Entity, Has<bevy_elements::ElementsCamera>, &'static mut Camera);
+type WorldCamera = (Entity, Option<Ref<'static, bevy_elements::ElementsCamera>>, &'static mut Camera);
 
 /// **The preview's look** (#98): a project with a `family/bevy_elements.ron` gets `bevy_elements'`
 /// atmosphere, fog, clouds and sun on the editor camera, which is what the game draws; a project
@@ -370,33 +370,60 @@ type WorldCamera = (Entity, Has<bevy_elements::ElementsCamera>, &'static mut Cam
 /// onto the shared texture holding only the ground colour, wiped the world out of every frame. So
 /// while dressed the interface camera clears that texture to transparent and both it and the world
 /// are written over what is below them with premultiplied alpha.
+///
+/// **Undressing takes two steps (#193).** `bevy_elements` does not undress a camera whose
+/// `ElementsCamera` is removed: its atmosphere, fogs, MSAA, exposure and fill light stay, and so
+/// does the required `Hdr`. So the file's removal first sets [`ElementsCamera::bare`], which makes
+/// the crate take back what it inserted, and a later frame (once the crate has seen that change)
+/// removes the marker and `Hdr` and gives the camera the editor's own exposure and fill light
+/// back. Removing `Hdr` while the crate's sky is still on the camera quits the editor on a
+/// validation error, which is why it is not one step.
 pub fn dress_camera(
     settings: Res<FamilySettings>,
     mut camera: Query<WorldCamera, (With<crate::view::MainCamera>, Without<crate::surface::SurfaceCamera>)>,
     mut interface: Query<&mut Camera, With<crate::surface::SurfaceCamera>>,
     mut commands: Commands,
 ) {
+    use bevy_elements::ElementsCamera;
     let wanted = settings.text.contains_key(CRATE);
-    for (entity, has, mut world) in &mut camera {
-        if wanted == has {
-            continue;
+    for (entity, elements, mut world) in &mut camera {
+        let dressed = elements.as_deref().is_some_and(|e| *e != ElementsCamera::bare());
+        match (wanted, elements) {
+            (true, _) if dressed => {}
+            (true, _) => {
+                commands.entity(entity).insert(ElementsCamera::default());
+                composite_surface(true, &mut world, interface.iter_mut());
+            }
+            (false, Some(_)) if dressed => {
+                commands.entity(entity).insert(ElementsCamera::bare());
+                composite_surface(false, &mut world, interface.iter_mut());
+            }
+            // Bare, and not set bare since this system last ran: the crate has had a frame to
+            // take its dressing back.
+            (false, Some(bare)) if !bare.is_changed() => {
+                commands
+                    .entity(entity)
+                    .remove::<(ElementsCamera, bevy::camera::Hdr)>()
+                    .insert((bevy::camera::Exposure::default(), crate::view::editor_ambient()));
+            }
+            (false, _) => {}
         }
-        if wanted {
-            commands.entity(entity).insert(bevy_elements::ElementsCamera::default());
-        } else {
-            commands.entity(entity).remove::<bevy_elements::ElementsCamera>();
-        }
-        composite_surface(wanted, &mut world, interface.iter_mut());
     }
 }
 
 /// **Sets the surface's cameras to compose an HDR world (`dressed`) or the shared texture (not).**
+///
+/// **The interface writes nothing back while dressed (#193).** It shares the ground camera's main
+/// texture, and with `MsaaWriteback::Auto` Bevy writes the frame a lower camera left there back
+/// into its MSAA target before it draws. Measured live on sib: the interface then wrote the ground
+/// colour over the whole world (a red ground made the viewport red), and `MsaaWriteback::Off`
+/// brought the world back. Its clear to transparent is what it starts from instead.
 pub fn composite_surface<'a>(
     dressed: bool,
     world: &mut Camera,
     interface: impl Iterator<Item = Mut<'a, Camera>>,
 ) {
-    use bevy::camera::{CameraOutputMode, ClearColorConfig};
+    use bevy::camera::{CameraOutputMode, ClearColorConfig, MsaaWriteback};
     use bevy::render::render_resource::BlendState;
     let over = |dressed| {
         if dressed {
@@ -414,5 +441,6 @@ pub fn composite_surface<'a>(
     for mut ui in interface {
         ui.output_mode = over(dressed);
         ui.clear_color = clear;
+        ui.msaa_writeback = if dressed { MsaaWriteback::Off } else { MsaaWriteback::Auto };
     }
 }
