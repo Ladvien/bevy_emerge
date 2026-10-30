@@ -1,0 +1,51 @@
+{
+ "name": "relations_between",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_frame_view",
+   "args": {
+    "target": "map"
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 3
+  },
+  {
+   "seconds": 4,
+   "operation": {
+    "name": "relations_solve",
+    "parameters": {}
+   }
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    200,
+    650
+   ]
+  },
+  {
+   "at": 0.2,
+   "caption": "relations.ron: the table between chair_1 and chair_2, within 0.5 m"
+  },
+  {
+   "at": 1.2,
+   "caption": "it stands 3 m off the line between them: RELATIONS names it unmet"
+  },
+  {
+   "at": 3.2,
+   "caption": "agent: relations_solve"
+  },
+  {
+   "at": 4.5,
+   "caption": "the table is set on the segment between the chairs; the relation is met"
+  }
+ ]
+}

@@ -348,6 +348,30 @@ impl RowDelta {
                 .collect(),
         })
     }
+
+    /// **The delta that undoes a logged operation, read from its `inverse`**, or `None` when the
+    /// operation changed more than rows. Most row operations log a `delta`; a removal logs the
+    /// `put_back` its own undo sends ([`placement_remove::PutBack`], [`stamp_remove::PutBack`]),
+    /// which is the same change: the rows it took, back at the indices they held. Reading both is
+    /// what lets a note whose work removed a piece be undone in one step (#95).
+    pub fn undoing(inverse: &serde_json::Value) -> Option<RowDelta> {
+        if let Some(delta) = inverse.get("delta") {
+            return serde_json::from_value(delta.clone()).ok();
+        }
+        let put_back = inverse.get("put_back")?;
+        if let Ok(pb) = serde_json::from_value::<placement_remove::PutBack>(put_back.clone()) {
+            let rows = pb
+                .rows
+                .into_iter()
+                .map(|r| serde_json::from_value(r.placed).map(|row| Indexed { index: r.index, row }))
+                .collect::<Result<Vec<_>, _>>()
+                .ok()?;
+            return Some(RowDelta { add_placements: rows, ..RowDelta::default() });
+        }
+        let pb = serde_json::from_value::<stamp_remove::PutBack>(put_back.clone()).ok()?;
+        let row = serde_json::from_value(pb.stamp).ok()?;
+        Some(RowDelta { add_stamps: vec![Indexed { index: pb.index, row }], ..RowDelta::default() })
+    }
 }
 
 impl std::fmt::Display for Refusal {
@@ -2550,6 +2574,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(crate::ops_terrain::TerrainPreset),
         Box::new(crate::ops_volume::VolumeEdit),
         Box::new(crate::ops_forest::ForestScatter),
+        Box::new(crate::ops_tree::TreeEdit),
         Box::new(crate::ops_people::PersonSet),
         Box::new(crate::ops_people::PeopleRun),
         Box::new(crate::ops_scripts::TriggerSet),
@@ -2799,6 +2824,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The Terrain field's `forest` line (#102)** — `forest <x> <z> <radius_m> <spacing_m> <seed> <species>`
     // dispatches `forest_scatter` through `scatter_forest`, the same write an agent's `apply` makes.
     ("forest_scatter", "scatter_forest("),
+    // **The tree line (#102)** — `tree <name> [<preset>] [<field.path>=<value> ...]` in the terrain field dispatches
+    // `tree_edit` through `edit_tree`, the same write an agent's `apply` makes.
+    ("tree_edit", "edit_tree("),
     // **The person line (#104)** — `person <name> [<x> <z>] [home=<id>] [work=<id>] [faction=<id>]` and `person <name> remove`
     // in the terrain field dispatch `person_set` through `set_person`, the same write an agent's `apply` makes.
     ("person_set", "set_person("),
