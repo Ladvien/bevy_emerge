@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **E-089-4** `4c4144f` The Meshes pane names the project standards the selected piece breaks, and an edit to standards.ron reaches it live *No clip: visible, not yet recorded: no display on big*
 - **138-import-standards** `d2a3ee9` piece_import names which of the project's standards the imported piece breaks *No clip: an MCP answer field; proved by tests/an_imported_piece_names_the_standards_it_breaks.rs*
 - **E-089-s2** `a23ba4b` emerge_state names the kit pieces that break the project's standards.ron, and the rules that cover no piece (#138 slice 2) *No clip: an MCP read, no editor surface changed; proved by crates/bevy_emerge_mapper/tests/emerge_state_reports_standards_breaches.rs*
 - **137-solve** `4353041` relations::solve nudges pieces until a map's intended relations hold, never breaking one to mend another *No clip: an engine-free API; proved by crates/bevy_emerge_core/tests/a_solver_mends_broken_relations.rs*
