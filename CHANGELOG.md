@@ -5,6 +5,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 ## 2026-10-29
 
 - **E-072a** `cbb2ac5` An agent can define a composition from placements on the map (composition_define), replace it on request, and undo it *No clip: an operation over MCP; proved by tests/an_agent_can_define_a_composition.rs*
+- **107-heat** `a10b342` Crowd preview heat overlay: the run's trail and queues drawn on the floor, and carried in crowd_preview's outcome *No clip: visible, not yet recorded: the overlay needs a clip of 100 walkers gate to church; proved by crowd_heat tests*
 - **water-place** `385bcbe` Springs, sinks and lakes can be placed on a map and saved beside it, one undo each *No clip: visible, not yet recorded: no display on big*
 - **94-agent** `f99a11f` Send starts the project's notes agent (agent.ron), and the MCP docs say how any agent works a note *No clip: visible, not yet recorded: no display on big; proved by tests/send_starts_the_notes_agent.rs*
 - **107-crowd-op** `345ddd8` Crowd preview is an operation and a Crowd field: walk N people between two spots and read who arrived and where they queue *No clip: visible, not yet recorded: heat overlay not built yet; proved by crowd_preview_is_an_operation*
