@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **105-note-bind** `76975de` A trigger can be bound to a note's area: trigger_set bind.note *No clip: an API over MCP; proved by tests/a_trigger_binds_to_a_notes_area.rs*
 - **106-person-talks** `ad0a4b7` A person holds a conversation: person_set takes one the project's dialogue script defines, an undefined one is refused (#106) *No clip: an API; proved by tests::person_talks*
 - **105-triggers** Triggers: bevy_society Rhai scripts bound to people, a faction or an area, syntax-checked on save, and shown firing in people_run (trigger_set) *No clip: visible, not yet recorded: no display on big; proved by tests/triggers.rs*
 - **dialogue-barks** `d3785bc` Barks: a piece can carry a list of the crate's own Bark lines, refused with the crate's message when malformed (#106 slice 4) *No clip: visible, not yet recorded: no display on big; proved by family_dialogue::barks_attached_to_a_piece_are_the_crates_own_bark_list_and_a_malformed_one_is_refused*
