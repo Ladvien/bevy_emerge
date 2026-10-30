@@ -1,0 +1,154 @@
+{
+ "name": "notes_panel",
+ "fps": 10,
+ "scale": 1,
+ "width": 960,
+ "setup": [
+  {
+   "mcp": "emerge_apply_operation",
+   "args": {
+    "operation": "note_add",
+    "parameters": {
+     "pieces": [
+      "sofa@0"
+     ],
+     "text": "turn the sofa to face the room"
+    }
+   }
+  },
+  {
+   "mcp": "emerge_apply_operation",
+   "args": {
+    "operation": "note_add",
+    "parameters": {
+     "pieces": [
+      "table@5",
+      "chair@6"
+     ],
+     "text": "make this a dining corner"
+    }
+   }
+  },
+  {
+   "mcp": "emerge_apply_operation",
+   "args": {
+    "operation": "note_add",
+    "parameters": {
+     "pieces": [
+      "bookcase_tall@4"
+     ],
+     "text": "fill the shelves with books"
+    }
+   }
+  }
+ ],
+ "chunks": [
+  {
+   "seconds": 8
+  },
+  {
+   "seconds": 9
+  }
+ ],
+ "steps": [
+  {
+   "at": 0.0,
+   "cursor": [
+    640,
+    300
+   ]
+  },
+  {
+   "at": 0.1,
+   "wheel": {
+    "y": -4,
+    "n": 5,
+    "at": [
+     220,
+     450
+    ]
+   }
+  },
+  {
+   "at": 0.7,
+   "caption": "NOTES: every note of the map, newest first"
+  },
+  {
+   "at": 2.0,
+   "caption": "Show cycles the status shown: draft, sent, done, all"
+  },
+  {
+   "at": 2.2,
+   "click": [
+    74,
+    433
+   ]
+  },
+  {
+   "at": 3.2,
+   "click": [
+    74,
+    433
+   ]
+  },
+  {
+   "at": 4.2,
+   "click": [
+    74,
+    495
+   ]
+  },
+  {
+   "at": 5.2,
+   "click": [
+    74,
+    495
+   ]
+  },
+  {
+   "at": 6.0,
+   "caption": "Send all drafts: every draft is sent at once"
+  },
+  {
+   "at": 6.4,
+   "click": [
+    190,
+    433
+   ]
+  },
+  {
+   "at": 9.0,
+   "caption": "one Ctrl+Z puts all three back to draft: Send was one undo step"
+  },
+  {
+   "at": 9.2,
+   "key": "KeyZ",
+   "mods": [
+    "ControlLeft"
+   ]
+  },
+  {
+   "at": 11.2,
+   "caption": "Ctrl+Shift+Z sends them again"
+  },
+  {
+   "at": 11.4,
+   "key": "KeyZ",
+   "mods": [
+    "ControlLeft",
+    "ShiftLeft"
+   ]
+  },
+  {
+   "at": 13.2,
+   "caption": "a row frames its note: n1, the sofa"
+  },
+  {
+   "at": 13.5,
+   "click": [
+    200,
+    583
+   ]
+  }
+ ]
+}
