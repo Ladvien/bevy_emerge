@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **106-attach** `0ecb31a` A conversation can be attached to a placed piece by name; one the dialogue script lacks is refused *No clip: visible, not yet recorded: no display on big; proved by family_dialogue attach test*
 - **104-society-host** `2b3486f` bevy_society is a hosted family crate: family_set refuses a society definition the crate cannot compile *No clip: an API; proved by family_society tests*
 
 ## 2026-10-29
