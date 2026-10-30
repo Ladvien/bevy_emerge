@@ -2156,6 +2156,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<DataEdit>()
             .init_resource::<TerrainEdit>()
             .init_resource::<CrowdEdit>()
+            .init_resource::<crate::balloon::BalloonPreview>()
             .init_resource::<Folded>()
             .init_resource::<EdgeFaults>()
             // Shared by both tabs' lists, so it is registered once here rather than by whichever
@@ -2429,7 +2430,7 @@ impl Plugin for EditorPlugin {
                             .run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
                     ),
                     check_edges.run_if(resource_exists_and_changed::<Project>.or_eager(run_once)),
-                    (draw_edge_faults, draw_crowd_heat).run_if(in_map_mode),
+                    (draw_edge_faults, draw_crowd_heat, crate::balloon::show_balloon).run_if(in_map_mode),
                 ),)
                     .run_if(in_state(crate::screen::Screen::Editor))
                     .run_if(crate::tiles::Door::map_door_is_open),
@@ -4279,6 +4280,7 @@ fn family_edit_keys(
     project: Option<ResMut<Project>>,
     mut open: Option<ResMut<OpenMap>>,
     mut state: ResMut<EditorState>,
+    mut balloon: ResMut<crate::balloon::BalloonPreview>,
 ) {
     if edit.active.is_none() {
         return;
@@ -4291,7 +4293,7 @@ fn family_edit_keys(
             Key::Enter => {
                 let raw = edit.active.take().unwrap_or_default();
                 if raw.trim_start().starts_with("dialogue ") {
-                    preview_dialogue(project.as_deref(), &mut state, &raw);
+                    preview_dialogue(project.as_deref(), open.as_deref().map(|o| &o.map), &mut state, &mut balloon, &raw);
                 } else if raw.trim_start().starts_with('@') {
                     set_piece_family(project.as_deref(), open.as_deref_mut(), &mut state, &raw);
                 } else {
@@ -4351,7 +4353,13 @@ fn set_family_field(project: Option<&Project>, state: &mut EditorState, raw: &st
 /// **Walk a conversation through the registry** as `dialogue_preview`: `dialogue <conversation> [option numbers]`,
 /// and say its lines in the status line.
 #[cfg(feature = "bevy_speech_bubbles")]
-fn preview_dialogue(project: Option<&Project>, state: &mut EditorState, raw: &str) {
+fn preview_dialogue(
+    project: Option<&Project>,
+    map: Option<&bevy_emerge_core::map::Map>,
+    state: &mut EditorState,
+    balloon: &mut crate::balloon::BalloonPreview,
+    raw: &str,
+) {
     let mut words = raw.split_whitespace().skip(1);
     let Some(name) = words.next() else {
         state.status.problem("`dialogue` needs a conversation name: `dialogue <conversation> [option numbers]`".to_owned());
@@ -4369,6 +4377,9 @@ fn preview_dialogue(project: Option<&Project>, state: &mut EditorState, raw: &st
     };
     match crate::ops::dispatch(&mut ctx, "dialogue_preview", &serde_json::json!({"conversation": name, "choices": choices})) {
         Ok(crate::ops::Applied::Done { outcome, .. }) => {
+            if let Some(after) = outcome.after.as_ref() {
+                *balloon = crate::balloon::BalloonPreview::from_after(after, map, name);
+            }
             let said = outcome.after.as_ref().and_then(|a| a["lines"].as_array()).map(|l| {
                 l.iter().map(|x| format!("{}: {}", x["speaker"].as_str().unwrap_or(""), x["text"].as_str().unwrap_or(""))).collect::<Vec<_>>().join(" / ")
             });
@@ -4379,7 +4390,13 @@ fn preview_dialogue(project: Option<&Project>, state: &mut EditorState, raw: &st
 }
 
 #[cfg(not(feature = "bevy_speech_bubbles"))]
-fn preview_dialogue(_project: Option<&Project>, state: &mut EditorState, _raw: &str) {
+fn preview_dialogue(
+    _project: Option<&Project>,
+    _map: Option<&bevy_emerge_core::map::Map>,
+    state: &mut EditorState,
+    _balloon: &mut crate::balloon::BalloonPreview,
+    _raw: &str,
+) {
     state.status.problem("this editor was built without bevy_speech_bubbles, so there is no dialogue to preview".to_owned());
 }
 
