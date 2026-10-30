@@ -118,11 +118,8 @@ mod every_list_follows_its_selection;
 mod every_refusal_is_in_a_problem;
 mod every_resource_says_what_a_door_does_to_it;
 mod family_carnage_settings;
-<<<<<<< HEAD
 mod family_dialogue;
-=======
 mod family_host;
->>>>>>> 58fd4fc5bbe4a8327995e8718f40ff668a77454b
 mod family_lights_settings;
 mod family_set_is_an_operation;
 mod family_settings_reload;
