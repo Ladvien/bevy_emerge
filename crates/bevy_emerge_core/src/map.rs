@@ -81,7 +81,9 @@ use crate::placement::ir::Guard;
 /// default is the pair of numbers the editor shipped, so an older map generates exactly as it did.
 /// **`8` added [`Map::runs`]** — a piece repeated along a path, held as the run and not the rows it
 /// lays; an older map says `runs: []` by saying nothing.
-pub const MAP_VERSION: u32 = 8;
+/// **`9` added [`Placed::family`]** — the family-crate settings a piece carries; an older map says
+/// `family: {}` by saying nothing.
+pub const MAP_VERSION: u32 = 9;
 
 /// One authored world.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -371,6 +373,12 @@ pub struct Placed {
     /// respect. This one is for the reader.
     #[serde(default, skip_serializing_if = "absent")]
     pub note: Option<String>,
+    /// **Settings of the family crates this piece carries, by crate name** (#103): a brazier's
+    /// `bevy_lights` `Flicker`, as the crate's own serde type written as RON text. The editor holds no
+    /// schema for it, so the piece moves, copies and undoes like any other and the game's own copy of
+    /// the plugin reads the same text. Skipped when empty, so every older file stays byte-identical.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub family: std::collections::BTreeMap<String, String>,
 }
 
 /// An invisible thing that owns a group of props and governs their use.

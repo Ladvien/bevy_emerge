@@ -122,6 +122,7 @@ mod family_dialogue;
 mod family_host;
 mod family_lights_settings;
 mod family_set_is_an_operation;
+mod placement_family;
 mod family_settings_reload;
 mod family_settings_at_launch;
 mod font_fallback;
@@ -145,6 +146,7 @@ mod out_of_area_compares_before_and_after;
 mod pieces_stand_on_sculpted_ground;
 mod piece_select_is_an_operation;
 mod play_starts_and_stops_the_game;
+mod play_stop_ends_the_whole_game;
 mod placement_remove;
 mod placement_set_yaw;
 mod placement_undo_without_id;
@@ -181,6 +183,7 @@ mod the_way_back_actually_goes_back;
 mod the_whole_map_is_inside_the_cameras_depth;
 mod two_writers_never_share_a_sequence_number;
 mod water_place_is_an_operation;
+mod water_run_settles_a_pond;
 mod world_gizmos_stay_in_the_world;
 
 /// A file under `tests/` that is not a module here is never compiled, so its tests would silently
