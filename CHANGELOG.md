@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-30
 
+- **relations-visible-from** `96d335e` A relation keeps a sight line clear: VisibleFrom names the piece in the way, and relations solve moves it off *No clip: visible, not yet recorded: no display on big; proved by bevy_emerge_core/tests/a_sight_line_no_piece_may_stand_in.rs*
 - **143-repetition-vary** `2fad900` repetition_vary and the Terrain line `repeats vary` turn the clutter copies that repeat visibly, never structure, with one undo *No clip: visible, not yet recorded: no display on big*
 - **E-142-1** `dd539fc` A kit names every edge face no piece of it can meet (adjacency::dead_ends) *No clip: an API with no editor surface yet; proved by tests/a_kit_names_every_face_nothing_can_meet.rs*
 - **e088-inspector-relations** `d1264c8` The Map inspector's RELATIONS row names how many intended relations the open map breaks and the first one, live as the file changes *No clip: visible, not yet recorded: no display on big*

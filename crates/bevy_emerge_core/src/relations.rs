@@ -236,13 +236,18 @@ fn check_one(placements: &[Placed], r: &Relation) -> Outcome {
             }
         }
         Kind::VisibleFrom { from, clearance } => match other(from) {
-            Ok(b) => match blocker(placements, b, a, *clearance) {
-                Some((p, off)) => Outcome::Unmet {
-                    measured: off,
-                    by: Some(p.id.clone()),
-                },
-                None => Outcome::Met { measured: *clearance },
-            },
+            Ok(b) => {
+                let nearest = blockers(placements, b, a, *clearance)
+                    .into_iter()
+                    .min_by(|x, y| x.1.abs().total_cmp(&y.1.abs()));
+                match nearest {
+                    Some((p, side)) => Outcome::Unmet {
+                        measured: side.abs(),
+                        by: Some(p.id.clone()),
+                    },
+                    None => Outcome::Met { measured: *clearance },
+                }
+            }
             Err(m) => m,
         },
     }
@@ -262,25 +267,87 @@ fn rests_on(placements: &[Placed], p: &Placed, end: &str) -> bool {
     false
 }
 
-/// The placement nearest the line from `from` to `to` among those within `clearance` of it and
-/// strictly between its ends, with its distance off the line.
-fn blocker<'a>(placements: &'a [Placed], from: &Placed, to: &Placed, clearance: f32) -> Option<(&'a Placed, f32)> {
-    let length = distance(from.at, to.at);
-    if length <= 1e-4 {
-        return None;
+/// The piece `p` rests on at the bottom of its `on` chain, or `p` itself. A chain is never longer
+/// than the map, so an `on` cycle in a malformed file ends.
+fn bottom<'a>(placements: &'a [Placed], mut p: &'a Placed) -> &'a Placed {
+    for _ in 0..placements.len() {
+        let Some(host) = p.on.as_deref().and_then(|h| find(placements, h).ok()) else {
+            break;
+        };
+        p = host;
     }
-    let (ux, uz) = ((to.at.0 - from.at.0) / length, (to.at.1 - from.at.1) / length);
+    p
+}
+
+/// A sight line: its start, unit direction and length.
+type Line = ((f32, f32), (f32, f32), f32);
+
+/// The line from `from` to `to`; `None` when the two stand on one spot.
+fn line(from: &Placed, to: &Placed) -> Option<Line> {
+    let length = distance(from.at, to.at);
+    (length > 1e-4).then(|| {
+        let u = ((to.at.0 - from.at.0) / length, (to.at.1 - from.at.1) / length);
+        (from.at, u, length)
+    })
+}
+
+/// `p` in a line's frame: (along it, sideways toward `(uz, -ux)`).
+fn on_line(start: (f32, f32), (ux, uz): (f32, f32), p: (f32, f32)) -> (f32, f32) {
+    let (dx, dz) = (p.0 - start.0, p.1 - start.1);
+    (ux * dx + uz * dz, uz * dx - ux * dz)
+}
+
+/// Every placement within `clearance` of the line from `from` to `to` and strictly between its
+/// ends, other than the ends and what rests on them, with its signed distance off the line.
+fn blockers<'a>(placements: &'a [Placed], from: &Placed, to: &Placed, clearance: f32) -> Vec<(&'a Placed, f32)> {
+    let Some((start, u, length)) = line(from, to) else {
+        return Vec::new();
+    };
     placements
         .iter()
         .filter(|p| p.id != from.id && p.id != to.id)
         .filter_map(|p| {
-            let (dx, dz) = (p.at.0 - from.at.0, p.at.1 - from.at.1);
-            let (along, side) = (ux * dx + uz * dz, uz * dx - ux * dz);
-            (along > 0.0 && along < length && side.abs() <= clearance).then_some((p, side.abs()))
+            let (along, side) = on_line(start, u, p.at);
+            (along > 0.0 && along < length && side.abs() <= clearance).then_some((p, side))
         })
         .filter(|(p, _)| !rests_on(placements, p, &from.id) && !rests_on(placements, p, &to.id))
-        .min_by(|x, y| x.1.total_cmp(&y.1))
+        .collect()
 }
+
+/// The moves that clear the sight line to `a` from `b`: each blocker's bottom host, once, slid
+/// sideways just far enough that it and everything resting on it stand past `clearance`, to
+/// whichever side needs the shorter slide. Riders keep their place on the host.
+fn clear_sight(placements: &[Placed], a: &Placed, b: &Placed, clearance: f32) -> Vec<Move> {
+    let Some((start, u, _)) = line(b, a) else {
+        return Vec::new();
+    };
+    let past = clearance * 1.1 + 0.05;
+    let mut hosts: Vec<&Placed> = Vec::new();
+    for (p, _) in blockers(placements, b, a, clearance) {
+        let host = bottom(placements, p);
+        if !hosts.iter().any(|h| h.id == host.id) {
+            hosts.push(host);
+        }
+    }
+    hosts
+        .into_iter()
+        .map(|host| {
+            let sides = placements
+                .iter()
+                .filter(|q| q.id == host.id || rests_on(placements, q, &host.id))
+                .map(|q| on_line(start, u, q.at).1);
+            let (low, high) = sides.fold((f32::INFINITY, f32::NEG_INFINITY), |(l, h), s| (l.min(s), h.max(s)));
+            let (up, down) = (past - low, -past - high);
+            let shift = if up.abs() <= down.abs() { up } else { down };
+            // Sideways is (uz, -ux), as `on_line` measures.
+            let to = (host.at.0 + u.1 * shift, host.at.1 - u.0 * shift);
+            (host.id.clone(), to, host.yaw)
+        })
+        .collect()
+}
+
+/// One proposed move: the placement, where it goes, and its yaw there.
+type Move = (String, (f32, f32), f32);
 
 /// What [`solve`] did to a map's placements.
 #[derive(Clone, Debug, PartialEq)]
@@ -327,19 +394,24 @@ pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
             let Outcome::Unmet { by, .. } = check_one(&current, r) else {
                 continue;
             };
-            let Some((id, at, yaw)) = propose(&current, r, by.as_deref()) else {
+            let moves = propose(&current, r, by.as_deref());
+            if moves.is_empty() {
                 continue;
-            };
+            }
             let mut trial = current.clone();
             let depth = trial.len();
-            move_piece(&mut trial, &id, at, yaw, depth);
+            for (id, at, yaw) in &moves {
+                move_piece(&mut trial, id, *at, *yaw, depth);
+            }
             let trial_count = unmet(&trial);
             if trial_count < count {
                 current = trial;
                 count = trial_count;
                 progressed = true;
-                if !moved.contains(&id) {
-                    moved.push(id);
+                for (id, ..) in moves {
+                    if !moved.contains(&id) {
+                        moved.push(id);
+                    }
                 }
             }
         }
@@ -355,10 +427,13 @@ pub fn solve(placements: &[Placed], relations: &Relations) -> Solved {
     }
 }
 
-/// The one move that would mend `r`: which piece, and where it goes. `None` when the piece to move
-/// rests on another, or the relation names a piece the map lacks.
-fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Option<(String, (f32, f32), f32)> {
-    let a = find(placements, &r.of).ok()?;
+/// The moves that would mend `r`: which pieces, and where they go. Empty when the piece to move
+/// rests on another, or the relation names a piece the map lacks. Every kind moves one piece but
+/// a sight line, which clears all its blockers at once (one at a time could never lower the count).
+fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Vec<Move> {
+    let Ok(a) = find(placements, &r.of) else {
+        return Vec::new();
+    };
     let other = |id: &str| find(placements, id).ok();
     let free = |p: &Placed| p.on.is_none();
     // `toward` from `from`, unit length; `fallback` when the two stand on one spot.
@@ -371,7 +446,10 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Option<(Str
         }
     };
     let forward = |p: &Placed| (p.yaw.sin(), p.yaw.cos());
-    match &r.kind {
+    if let Kind::VisibleFrom { from, clearance } = &r.kind {
+        return other(from).map_or_else(Vec::new, |b| clear_sight(placements, a, b, *clearance));
+    }
+    let one = (|| match &r.kind {
         Kind::Faces(to) => {
             let b = other(to)?;
             let (dx, dz) = (b.at.0 - a.at.0, b.at.1 - a.at.1);
@@ -398,14 +476,7 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Option<(Str
         }
         Kind::ClearInFront { width, .. } => {
             // The intruder, or the piece it rests on: moving the host carries it out.
-            // A malformed file could chain `on` in a circle; a chain is never longer than the map.
-            let mut intruder = other(by?)?;
-            for _ in 0..placements.len() {
-                let Some(host) = intruder.on.as_deref().and_then(other) else {
-                    break;
-                };
-                intruder = host;
-            }
+            let intruder = bottom(placements, other(by?)?);
             let (ahead, side) = local(a, intruder.at);
             let sign = if side < 0.0 { -1.0 } else { 1.0 };
             let side = sign * (width / 2.0 * 1.1 + 0.05);
@@ -417,27 +488,9 @@ fn propose(placements: &[Placed], r: &Relation, by: Option<&str>) -> Option<(Str
             );
             Some((intruder.id.clone(), to, intruder.yaw))
         }
-        Kind::VisibleFrom { from, clearance } => {
-            let b = other(from)?;
-            let mut blocking = other(by?)?;
-            for _ in 0..placements.len() {
-                let Some(host) = blocking.on.as_deref().and_then(other) else {
-                    break;
-                };
-                blocking = host;
-            }
-            // Off the line on the side it already stands, measured from the host's own centre.
-            let length = distance(b.at, a.at);
-            let (ux, uz) = ((a.at.0 - b.at.0) / length, (a.at.1 - b.at.1) / length);
-            let (dx, dz) = (blocking.at.0 - b.at.0, blocking.at.1 - b.at.1);
-            let (along, side) = (ux * dx + uz * dz, uz * dx - ux * dz);
-            let sign = if side < 0.0 { -1.0 } else { 1.0 };
-            let side = sign * (clearance * 1.1 + 0.05);
-            // Back from the line's frame: along (ux, uz), sideways (uz, -ux).
-            let to = (b.at.0 + ux * along + uz * side, b.at.1 + uz * along - ux * side);
-            Some((blocking.id.clone(), to, blocking.yaw))
-        }
-    }
+        Kind::VisibleFrom { .. } => None,
+    })();
+    one.into_iter().collect()
 }
 
 /// Put `id` at `at` turned to `yaw`, carrying everything resting on it (and on that, and so on):

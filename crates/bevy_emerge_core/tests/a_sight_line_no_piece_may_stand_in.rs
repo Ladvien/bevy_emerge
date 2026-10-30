@@ -107,3 +107,45 @@ fn solve_moves_the_blocker_and_its_rider_off_the_line_and_leaves_the_ends() {
     assert!((sack.0 - cart.0).abs() < 1e-4 && (sack.1 - cart.1).abs() < 1e-4, "the sack rides: {sack:?}");
     assert_eq!(check(&solved.placements, &sign_seen_from_gate()), vec![Outcome::Met { measured: 1.0 }]);
 }
+
+#[test]
+fn a_rider_off_its_hosts_centre_is_carried_clear_too() {
+    // The sack is the nearer blocker; sliding the cart by the cart's own offset would leave it on.
+    let map = vec![
+        at("gate", 0.0, 0.0),
+        at("sign", 10.0, 0.0),
+        at("cart", 5.0, -0.6),
+        on(at("sack", 5.0, 0.3), "cart"),
+    ];
+    let solved = solve(&map, &sign_seen_from_gate());
+    assert_eq!((solved.unmet_before, solved.unmet_after), (1, 0), "{:?}", solved.placements);
+    assert_eq!(solved.moved, vec!["cart".to_owned()]);
+}
+
+#[test]
+fn every_blocker_on_the_line_is_cleared_in_one_move() {
+    // Moving one of two blockers leaves the line blocked, so a one-piece move could never be kept.
+    let map = vec![
+        at("gate", 0.0, 0.0),
+        at("sign", 10.0, 0.0),
+        at("crate", 3.0, 0.2),
+        at("barrel", 6.0, -0.3),
+        at("well", 5.0, 4.0),
+    ];
+    let solved = solve(&map, &sign_seen_from_gate());
+    assert_eq!((solved.unmet_before, solved.unmet_after), (1, 0), "{:?}", solved.placements);
+    assert_eq!(solved.moved, vec!["crate".to_owned(), "barrel".to_owned()]);
+    let well = solved.placements.iter().find(|p| p.id == "well").unwrap();
+    assert_eq!(well.at, (5.0, 4.0), "a piece off the line is never moved");
+}
+
+#[test]
+fn a_rider_two_deep_on_an_end_does_not_block_it() {
+    let map = [
+        at("gate", 0.0, 0.0),
+        at("sign", 10.0, 0.0),
+        on(at("shelf", 9.5, 0.0), "sign"),
+        on(at("cup", 9.0, 0.1), "shelf"),
+    ];
+    assert_eq!(outcome(&map), Outcome::Met { measured: 1.0 });
+}
