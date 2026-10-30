@@ -1906,6 +1906,26 @@
       "evidence": "Slice 1 shipped bdafe68: core repetition::repeats + tests/repeated_clutter_outranks_repeated_structure.rs. Slice 2 shipped 0b4323b: emerge_state.repetition (up to 10 rows + total), tests/emerge_state_names_visible_repeats.rs. Slice 3 shipped 50e9fa6: the Map inspector's REPEATS row, tests/inspector_names_the_worst_repeat.rs (failed before, passes after). Clip owed (no display on big)."
     },
     {
+      "id": "E-089",
+      "kind": "enhancement",
+      "area": "core",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Kit standards: a project's dimensions every kit piece must meet, and which pieces break them (#138)",
+      "evidence": "Research lens #4 (kit admission rules). Slice 1 shipped 3abf44f+37385fe (w3, big): core standards::{Standards, Rule, Dim, Why, Breach, check}, standards.ron beside kits.ron; tests/a_kit_says_which_pieces_break_its_standards.rs (failed before: unresolved import; 8 pass after). Slice 2 shipped a23ba4b (w3, big): core standards::idle and emerge_state.standards {breaches, idle, error}, re-read each call; tests/emerge_state_reports_standards_breaches.rs (failed before: standards null; 3 pass after). Slice 3 (d2a3ee9): piece_import's applied answer carries after.standards {breaches, error} for the imported piece and its summary names the broken rules; tests/an_imported_piece_names_the_standards_it_breaks.rs (failed before: after.standards null; 2 pass after). Owes: breaches in the Meshes tab. Assumed decision: rules scoped by kind token; breaches reported, not refused. Slice 4 shipped 4c4144f (w3, big): the Meshes pane's 'standards' row names each breach of the selected piece (rule: dim found, bound), watch.rs watches standards.ron so an edit reaches the pane live; tests/the_meshes_pane_names_the_standards_a_piece_breaks.rs (failed before: no 'huge:' line; 2 pass after). All of #138's slices shipped; clip owed (no display on big)."
+    },
+    {
+      "id": "E-090",
+      "kind": "enhancement",
+      "area": "mapper",
+      "status": "shipped",
+      "first_seen": "2026-10-30",
+      "last_failure": "",
+      "title": "Repetition rules are hard-wired: a project cannot say which kinds are structure (#139)",
+      "evidence": "Shipped e8f9edf (w3, big): <project_dir>/repetition.ron read by emerge_state.repetition (error names a bad file) and the REPEATS status line, watched by watch.rs; tests/a_projects_repetition_rules_decide_what_is_structure.rs failed before (3 of 4), 4 pass after. Clip owed: no display on big."
+    },
+    {
       "id": "E-088",
       "kind": "enhancement",
       "area": "core",

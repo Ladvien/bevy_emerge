@@ -563,9 +563,10 @@ fn editor_state(
         // **The agent's plan for this map** (E-069): items with a status each, and a count per status.
         "plan": open.as_ref().map(|o| crate::ops_plan::state_json(o)),
         // **The repeats a player will notice first** (#136): same piece, yaw and tip, close together,
-        // weighed by role so repeated clutter heads the list above repeated structure.
+        // weighed by role so repeated clutter heads the list above repeated structure. The rules are
+        // the project's `repetition.ron` (#139), read on every call so an edit is seen with no restart.
         "repetition": match (open.as_ref(), project.as_ref()) {
-            (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library),
+            (Some(o), Some(p)) => repetition_json(&o.map.placements, &p.library, &p.project_dir),
             _ => Value::Null,
         },
         // **The kit pieces that break the project's standards** (#138): read from `standards.ron`
@@ -596,13 +597,19 @@ fn editor_state(
 /// The most repeats `emerge_state` names; `total` always counts them all.
 const REPEATS_CAP: usize = 10;
 
-/// **The visible repeats of a map, as `emerge_state` reports them**, under the default rules.
+/// **The visible repeats of a map, as `emerge_state` reports them**, under the project's rules. A
+/// rules file that cannot be read is named in `error` with no repeats, never read as the defaults.
 fn repetition_json(
     placements: &[bevy_emerge_core::map::Placed],
     library: &bevy_emerge_core::library::Library,
+    project_dir: &std::path::Path,
 ) -> Value {
-    use bevy_emerge_core::repetition::{repeats, RepetitionRules, Role};
-    let all = repeats(placements, library, &RepetitionRules::default());
+    use bevy_emerge_core::repetition::{repeats, Role};
+    let rules = match load_repetition(project_dir) {
+        Ok(r) => r,
+        Err(e) => return json!({"repeats": [], "total": 0, "error": e}),
+    };
+    let all = repeats(placements, library, &rules);
     let rows: Vec<Value> = all
         .iter()
         .take(REPEATS_CAP)
@@ -617,7 +624,23 @@ fn repetition_json(
             })
         })
         .collect();
-    json!({"repeats": rows, "total": all.len()})
+    json!({"repeats": rows, "total": all.len(), "error": null})
+}
+
+/// `<project_dir>/repetition.ron`, or the default rules when there is no such file; any other
+/// failure to read or parse it is the error, naming the file. Shared by `emerge_state` and the
+/// status bar's `REPEATS` line (#139), so the two cannot disagree.
+pub(crate) fn load_repetition(
+    project_dir: &std::path::Path,
+) -> Result<bevy_emerge_core::repetition::RepetitionRules, String> {
+    use bevy_emerge_core::repetition::{RepetitionRules, FILE};
+    let path = project_dir.join(FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => RepetitionRules::parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(RepetitionRules::default()),
+        Err(e) => Err(e.to_string()),
+    }
+    .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// **The relations beside a map, checked against its placements**, as `emerge_state` reports them.
@@ -688,18 +711,10 @@ pub(crate) fn piece_standards_json(
     piece: &bevy_emerge_core::descriptor::Descriptor,
     project_dir: &std::path::Path,
 ) -> (Value, Vec<String>) {
-    use bevy_emerge_core::library::Library;
-    use bevy_emerge_core::standards::check;
-    let standards = match load_standards(project_dir) {
-        Ok(s) => s,
+    let breaches = match piece_breaches(piece, project_dir) {
+        Ok(b) => b,
         Err(e) => return (json!({"breaches": [], "error": e}), Vec::new()),
     };
-    let one = Library {
-        version: bevy_emerge_core::library::LIBRARY_VERSION,
-        note: None,
-        descriptors: vec![piece.clone()],
-    };
-    let breaches = check(&one, &standards);
     let mut rules: Vec<String> = Vec::new();
     for b in &breaches {
         if !rules.contains(&b.rule) {
@@ -710,9 +725,27 @@ pub(crate) fn piece_standards_json(
     (json!({"breaches": rows, "error": null}), rules)
 }
 
+/// **One piece's breaches of `<project_dir>/standards.ron`**, in file order, or the file's error.
+/// Shared by `piece_import`'s answer and the Meshes pane (#138), so the two cannot disagree.
+pub(crate) fn piece_breaches(
+    piece: &bevy_emerge_core::descriptor::Descriptor,
+    project_dir: &std::path::Path,
+) -> Result<Vec<bevy_emerge_core::standards::Breach>, String> {
+    use bevy_emerge_core::library::Library;
+    let standards = load_standards(project_dir)?;
+    let one = Library {
+        version: bevy_emerge_core::library::LIBRARY_VERSION,
+        note: None,
+        descriptors: vec![piece.clone()],
+    };
+    Ok(bevy_emerge_core::standards::check(&one, &standards))
+}
+
 /// `<project_dir>/standards.ron`, or no rules when there is no such file; any other failure to read
 /// or parse it is the error, naming the file.
-fn load_standards(project_dir: &std::path::Path) -> Result<bevy_emerge_core::standards::Standards, String> {
+pub(crate) fn load_standards(
+    project_dir: &std::path::Path,
+) -> Result<bevy_emerge_core::standards::Standards, String> {
     use bevy_emerge_core::standards::{Standards, FILE};
     let path = project_dir.join(FILE);
     match std::fs::read_to_string(&path) {

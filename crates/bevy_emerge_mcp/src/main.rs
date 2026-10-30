@@ -617,7 +617,9 @@ impl Emerge {
                        margin, nearby pieces, the palette, the camera, a picture recipe and earlier notes. \
                        repetition names up to 10 visible repeats (the same piece at one yaw and tip \
                        within 6 m), the one a player notices first first: descriptor, patched, role \
-                       (clutter or structure), pieces, pairs, score; total counts them all. \
+                       (clutter or structure), pieces, pairs, score; total counts them all; the radius, \
+                       the structure kinds and their weight come from the project's repetition.ron, \
+                       re-read on every call, and a bad file is named in error. \
                        relations checks the <map>.relations.ron beside the open map, re-read on \
                        every call: each relation (of, kind) with outcome met, unmet or missing, \
                        measured (metres, or degrees off for Faces), by (the piece that breaks it) \

@@ -7050,21 +7050,24 @@ fn refresh_status(
             Field::Last => (state.status.note_text().to_owned(), DIM),
             // **The worst repeat first, then how many other looks repeat**, short enough for one line.
             // Dim when nothing repeats, the EDGES rule: a standing line that is fine stays quiet.
+            // Under the project's `repetition.ron` (#139), the rules `emerge_state` reports under; a
+            // file that cannot be read says so in the refusal colour rather than falling back.
             Field::Repeats => {
-                use bevy_emerge_core::repetition::{repeats, RepetitionRules};
-                let all = repeats(
-                    &open.map.placements,
-                    &project.library,
-                    &RepetitionRules::default(),
-                );
-                match all.split_first() {
-                    None => ("none".to_owned(), DIM),
-                    Some((worst, rest)) => {
-                        let more = match rest.len() {
-                            0 => String::new(),
-                            n => format!(", {n} more"),
-                        };
-                        (format!("{} \u{d7}{}{more}", worst.descriptor, worst.pieces), TEXT)
+                use bevy_emerge_core::repetition::{repeats, FILE};
+                match crate::ops_brp::load_repetition(&project.project_dir) {
+                    Err(_) => (format!("{FILE} unreadable"), ACCENT),
+                    Ok(rules) => {
+                        let all = repeats(&open.map.placements, &project.library, &rules);
+                        match all.split_first() {
+                            None => ("none".to_owned(), DIM),
+                            Some((worst, rest)) => {
+                                let more = match rest.len() {
+                                    0 => String::new(),
+                                    n => format!(", {n} more"),
+                                };
+                                (format!("{} \u{d7}{}{more}", worst.descriptor, worst.pieces), TEXT)
+                            }
+                        }
                     }
                 }
             }

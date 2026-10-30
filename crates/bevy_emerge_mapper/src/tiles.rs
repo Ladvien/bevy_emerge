@@ -9460,6 +9460,38 @@ struct DetailInputs<'w, 's> {
     panes: Query<'w, 's, Entity, With<DetailPane>>,
 }
 
+/// **What the Meshes pane says about `piece` and the project's standards** (#138 slice 4): one line
+/// per breach, `rule: dim found m, why bound m`, in file order; or one line naming the file when it
+/// does not parse. Empty when the piece breaks no rule or there is no `standards.ron`.
+fn standards_lines(piece: &Descriptor, project_dir: &std::path::Path) -> Vec<String> {
+    use bevy_emerge_core::standards::{Dim, Why};
+    let breaches = match crate::ops_brp::piece_breaches(piece, project_dir) {
+        Ok(b) => b,
+        Err(e) => return vec![format!("not read: {e}")],
+    };
+    breaches
+        .iter()
+        .map(|b| {
+            let dim = match b.dim {
+                Dim::Width => "width",
+                Dim::Depth => "depth",
+                Dim::Height => "height",
+            };
+            let found = b
+                .found
+                .map(|v| format!(" {v:.2} m"))
+                .unwrap_or_default();
+            let why = match b.why {
+                Why::Unmeasured => "unmeasured".to_owned(),
+                Why::BelowMin(v) => format!("under min {v:.2} m"),
+                Why::AboveMax(v) => format!("over max {v:.2} m"),
+                Why::NotMultipleOf(v) => format!("not a multiple of {v:.2} m"),
+            };
+            format!("{}: {dim}{found}, {why}", b.rule)
+        })
+        .collect()
+}
+
 /// Rebuild the detail for whichever candidate is selected.
 fn rebuild_detail(detail: DetailInputs<'_, '_>) {
     let DetailInputs {
@@ -9752,6 +9784,37 @@ fn rebuild_detail(detail: DetailInputs<'_, '_>) {
                     crate::chrome::font(crate::chrome::text::LABEL),
                 ));
             });
+
+            // **The project standards this piece breaks** (#138 slice 4), one line per breach, under
+            // the size they are about. Off `placed`, the layered piece, because that is what a map
+            // places and what `emerge_state.standards` checks. No breach, no row: a met rule is not
+            // news. Read from `standards.ron` on each rebuild, and `watch` rebuilds the pane when
+            // that file changes; a file that does not parse is named, never read as no rules.
+            let standards_lines = standards_lines(placed, &project.project_dir);
+            if !standards_lines.is_empty() {
+                p.spawn(Node {
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::FlexStart,
+                    margin: UiRect::top(Val::Px(crate::chrome::GAP_ROW)),
+                    ..default()
+                })
+                .with_children(|row| {
+                    crate::chrome::row_label(row, crate::chrome::COL_LABEL, "standards");
+                    row.spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    })
+                    .with_children(|col| {
+                        for line in standards_lines {
+                            col.spawn((
+                                Text::new(line),
+                                TextColor(crate::chrome::DANGER),
+                                crate::chrome::font(crate::chrome::text::LABEL),
+                            ));
+                        }
+                    });
+                });
+            }
 
             // **How this piece sits, on one line.** It is what replaced `Role`, `rests_on` and the
             // height heuristic that once decided a 10.9 cm mug was a floor decal — so it is worth a
