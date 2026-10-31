@@ -2558,6 +2558,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(door_open::DoorOpen),
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
+        Box::new(piece_set_mount::PieceSetMount),
         Box::new(crate::ops_label_vlm::LabelSuggest),
         Box::new(crate::ops_label_vlm::LabelApply),
         Box::new(crate::ops_data::DataSet),
@@ -2810,6 +2811,10 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // **The label chips (E-042)**, which toggle one token on a library piece's axis through
     // `toggle_tag`, which calls `set_label` and dispatches `label_set` with the person's source.
     ("label_set", "set_label("),
+    // **The mount key and chip (E-002, #129 slice 6)** — `M` and a click on the mount value step the
+    // mount through `step_mount`, which calls `set_mount` and dispatches `piece_set_mount` for a
+    // library piece, the same write an agent's `apply` makes.
+    ("piece_set_mount", "set_mount("),
     // **The labeler's two halves (E-043)** — `L` photographs a piece and asks the model through
     // `request_photos`, and the answer lands through `apply_suggestion`; `label_suggest` and
     // `label_apply` are the same two steps for an agent that brings its own shots.
@@ -5337,6 +5342,298 @@ pub mod label_set {
             let Some(project) = ctx.project.as_mut() else {
                 return Err(Refusal::new(
                     "no project is open, so there is no library to set a label in.",
+                ));
+            };
+            let e = edit(project, source, &req)?;
+            // **The file first.** `commit_measured` writes and only then adopts the library, so a
+            // refused save leaves the piece and the editor as they were.
+            if let Err(msg) = crate::tiles::commit_measured(project, e.measured) {
+                return Err(Refusal::new(format!(
+                    "the file refused the change, so nothing was written and the piece is unchanged: {msg}"
+                )));
+            }
+            Ok(Outcome {
+                summary: e.summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({"id": id, "restore": e.before})),
+                after: Some(e.after),
+            })
+        }
+    }
+}
+
+/// **Set where a library piece belongs: its mount** (E-002, #129 slice 6).
+///
+/// `M` on the Meshes tab stepped a piece's mount with its own write, so an agent could label a
+/// piece's kind and look but not say where it goes, and the registry's two-front-end rule listed the
+/// key as unmigrated. This is the operation both now dispatch. The mount is the descriptor's own
+/// `Mount`, as JSON (`"OnFloor"`, `{"OnWall": {"height": 1.5}}`), and it must be one the project
+/// offers: the same list the key cycles (`mount_options`, one `OnSurface` per surface class the
+/// vocabulary declares), with any height or opening size free. The write stamps the mount axis as
+/// the writer's (`By::Human` or `By::Agent`), and the inverse puts the mount and the label record
+/// back whole.
+pub mod piece_set_mount {
+    use super::*;
+    use bevy_grimoire_core::descriptor::{
+        Axis, By, Descriptor, LabelOrigin, Mount, mount_height, mount_label, mount_options,
+        with_mount_height,
+    };
+    use serde_json::json;
+
+    /// **What an undo puts back**: the mount, and the label record its provenance lives in.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Restore {
+        pub mount: Option<Mount>,
+        pub labels: Option<LabelOrigin>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The library piece's id, as `grimoire/pieces` names it.
+        pub id: String,
+        /// The mount to give it. Absent on an undo's put-back.
+        #[serde(default)]
+        pub mount: Option<Mount>,
+        /// **Undo only.** The mount and label record to put back, exactly as they were.
+        #[serde(default)]
+        pub restore: Option<Restore>,
+    }
+
+    enum Request {
+        Set { id: String, mount: Mount },
+        Restore { id: String, restore: Restore },
+    }
+
+    fn request(raw: &serde_json::Value) -> Result<Request, Refusal> {
+        let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+            Refusal::new(format!(
+                "this is not a mount to set: {e}. The fields are `id` and `mount`, the mount as the \
+                 descriptor spells it (`\"OnFloor\"`, `{{\"OnWall\": {{\"height\": 1.8}}}}`)."
+            ))
+        })?;
+        match (p.mount, p.restore) {
+            (Some(mount), None) => Ok(Request::Set { id: p.id, mount }),
+            (None, Some(restore)) => Ok(Request::Restore { id: p.id, restore }),
+            (Some(_), Some(_)) => Err(Refusal::new(
+                "a restore names the whole record, so it takes `id` and `restore` and nothing else.",
+            )),
+            (None, None) => Err(Refusal::new(
+                "setting a mount needs `id` and `mount`. Nothing was set.",
+            )),
+        }
+    }
+
+    /// **A mount with its free numbers set aside**, so an authored height or opening size is not
+    /// mistaken for a mount the project does not offer.
+    fn canon(m: &Mount) -> Mount {
+        match m {
+            Mount::InOpening { .. } => Mount::InOpening { clear: None },
+            Mount::OnFace { class, .. } => Mount::OnFace {
+                class: class.clone(),
+                height: 1.8,
+            },
+            m => with_mount_height(m, 1.8).unwrap_or_else(|| m.clone()),
+        }
+    }
+
+    /// **The numbers a mount carries must be real lengths**: a NaN or a negative height is a mount
+    /// no placement could be seated at.
+    fn lengths_refusal(m: &Mount) -> Option<String> {
+        let bad = |v: f32| !v.is_finite() || v <= 0.0;
+        let height = match m {
+            Mount::OnFace { height, .. } => Some(*height),
+            m => mount_height(m),
+        };
+        if height.is_some_and(bad) {
+            return Some("a mount's height is a length in metres above zero".to_owned());
+        }
+        if let Mount::InOpening { clear: Some((w, h)) } = m
+            && (bad(*w) || bad(*h))
+        {
+            return Some("an opening's width and height are lengths in metres above zero".to_owned());
+        }
+        None
+    }
+
+    /// **The piece's state as an undo compares it.**
+    fn state_json(d: &Descriptor) -> serde_json::Value {
+        json!({"id": d.id, "mount": d.mount})
+    }
+
+    struct Edit {
+        measured: bevy_grimoire_core::library::Library,
+        before: Restore,
+        after: serde_json::Value,
+        summary: String,
+    }
+
+    /// **The edit, computed on a copy of the measured library.** Nothing is written here; the commit
+    /// does that, so a refused write leaves the piece as it was.
+    fn edit(project: &Project, source: Source, req: &Request) -> Result<Edit, Refusal> {
+        let id = match req {
+            Request::Set { id, .. } | Request::Restore { id, .. } => id,
+        };
+        let mut measured = (*project.measured).clone();
+        let index = measured
+            .descriptors
+            .iter()
+            .position(|d| &d.id == id)
+            .ok_or_else(|| {
+                if let Some(ns) = project.other_kit_of(id) {
+                    return Refusal::new(format!(
+                        "`{id}` belongs to kit `{ns}`, not the kit being authored (`{}`), so nothing was set.",
+                        project.namespace
+                    ));
+                }
+                let ids: Vec<&str> = measured.descriptors.iter().map(|d| d.id.as_str()).collect();
+                let hint = match nearest_ids(&ids, id) {
+                    near if near.is_empty() => String::new(),
+                    near => format!(" Close ids: {}.", near.join(", ")),
+                };
+                Refusal::new(format!(
+                    "no library piece is called `{id}`, so nothing was set.{hint} Pick one from the \
+                     Meshes shelf."
+                ))
+            })?;
+        let d = &mut measured.descriptors[index];
+        let before = Restore {
+            mount: d.mount.clone(),
+            labels: d.labels.clone(),
+        };
+        let summary = match req {
+            Request::Set { mount, .. } => {
+                if let Some(why) = lengths_refusal(mount) {
+                    return Err(Refusal::new(format!("{why}, so nothing was set.")));
+                }
+                let surfaces: Vec<String> = project.vocab.surfaces.names().map(str::to_owned).collect();
+                let options = mount_options(&surfaces);
+                if !options.iter().any(|o| canon(o) == canon(mount)) {
+                    let offered: Vec<String> = options
+                        .iter()
+                        .map(|o| {
+                            format!(
+                                "{} = {}",
+                                mount_label(Some(o)),
+                                serde_json::to_string(o).unwrap_or_default()
+                            )
+                        })
+                        .collect();
+                    return Err(Refusal::new(format!(
+                        "{} is not a mount this project offers, so nothing was set. Offered: {}.",
+                        serde_json::to_string(mount).unwrap_or_default(),
+                        offered.join("; ")
+                    )));
+                }
+                d.mount = Some(mount.clone());
+                crate::labels::stamp_by(
+                    d,
+                    Axis::Mount,
+                    match source {
+                        Source::Human => By::Human,
+                        Source::Agent => By::Agent,
+                    },
+                );
+                format!(
+                    "set mount on `{id}`: {} -> {}",
+                    mount_label(before.mount.as_ref()),
+                    mount_label(d.mount.as_ref())
+                )
+            }
+            Request::Restore { restore, .. } => {
+                d.mount = restore.mount.clone();
+                d.labels = restore.labels.clone();
+                format!("restored mount on `{id}`")
+            }
+        };
+        let after = state_json(d);
+        // **The project must take it, asked now**, so a preview refuses what the commit would refuse
+        // (a mount on a surface class no piece offers is one the library cannot hold) and the
+        // person's cycle can skip such a rung without a refusal in the log.
+        crate::tiles::check_measured(project, &measured).map_err(|why| {
+            Refusal::new(format!("the project would not take this, so nothing was set: {why}"))
+        })?;
+        Ok(Edit {
+            measured,
+            before,
+            after,
+            summary,
+        })
+    }
+
+    /// **Give one library piece a mount.**
+    pub struct PieceSetMount;
+
+    impl Operation for PieceSetMount {
+        fn name(&self) -> &'static str {
+            "piece_set_mount"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn writes_library(&self) -> bool {
+            true
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "mount"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The library piece's id, as grimoire/pieces names it."
+                    },
+                    "mount": {
+                        "type": ["string", "object"],
+                        "description": "Where the piece goes, as the descriptor spells a mount: \"OnFloor\", \"OnCeiling\", \"Tiled\", {\"OnWall\": {\"height\": 1.8}}, {\"OnSurface\": {\"class\": \"worktop\"}}, {\"OnSurfaceOrFloor\": {\"class\": \"worktop\"}}, {\"OnFace\": {\"class\": \"worktop\", \"height\": 1.8}}, {\"Decal\": {\"on\": \"Floor\"}} or {\"InOpening\": {\"clear\": null}}. It must be one the project offers (a refusal lists them); a wall height or an opening size is free."
+                    }
+                }
+            })
+        }
+
+        /// **An undo's put-back is never a request an agent may send.**
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            matches!(request(params), Ok(Request::Restore { .. }))
+        }
+
+        /// **The piece's mount now**, against the one the change recorded. A piece that has gone
+        /// missing answers nothing, so an undo cannot match it.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let id = after.get("id")?.as_str()?;
+            let project = ctx.project.as_ref()?;
+            let d = project.measured.descriptors.iter().find(|d| d.id == id)?;
+            Some(state_json(d))
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let req = request(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to set a mount in.",
+                ));
+            };
+            Ok(edit(project, ctx.source, &req)?.after)
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let req = request(params)?;
+            let source = ctx.source;
+            let id = match &req {
+                Request::Set { id, .. } | Request::Restore { id, .. } => id.clone(),
+            };
+            let Some(project) = ctx.project.as_mut() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to set a mount in.",
                 ));
             };
             let e = edit(project, source, &req)?;
