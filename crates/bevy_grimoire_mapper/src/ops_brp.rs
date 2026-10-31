@@ -1473,6 +1473,14 @@ fn operation_apply(
     {
         crate::editor::apply_selected(import, outcome.after.as_ref());
     }
+    // **An agent's removal leaves the shelf where a key's does (#129 slice 8)**: its mesh is a candidate
+    // again, with the cursor on it.
+    if let (Ok(ops::Applied::Done { outcome, .. }), Some(import), Some(project)) =
+        (&applied, import.as_deref_mut(), project.as_deref())
+        && p.operation == "piece_remove"
+    {
+        crate::tiles::follow_piece_removal(project, import, outcome.after.as_ref());
+    }
     // **The agent's change joins the person's one undo history (B-019).** Logged here, so Cmd+Z
     // takes back the newest change whoever made it, not the newest the person made by hand. An
     // operation that changes no document (`Undo::None`, such as arming a piece) has nothing to take
@@ -1721,6 +1729,13 @@ fn operation_undo(
     // both — dropped the taken-back entry and stacked the undo's line for redo — while this door only
     // dropped, so an agent could take a turn away and the person's REDO row said "nothing to redo".
     if let Ok((plan, ops::Applied::Done { outcome, operation_id, .. })) = &undone {
+        // **An agent's undo or redo of a removal moves the shelf as the removal did**, so a restored
+        // piece is not also listed as a candidate.
+        if plan.line.op == "piece_remove"
+            && let (Some(import), Some(project)) = (import.as_mut(), project.as_deref())
+        {
+            crate::tiles::follow_piece_removal(project, import, outcome.after.as_ref());
+        }
         if plan.restores {
             let writes = ops::find(&plan.line.op).is_some_and(|o| o.writes_library());
             join_history(

@@ -4259,6 +4259,44 @@ pub fn set_pack_excluded(
     }
 }
 
+/// **Take one piece out of the library through the operation** (E-002, #129 slice 8). `Delete` on the
+/// Meshes tab's library shelf calls this, so a person's removal is the change an agent's
+/// `piece_remove` makes, with the person's source, and its log line is one Cmd+Z on the Meshes tab.
+/// Returns the outcome's `after` (`id`, `removed`, `mesh`) when the write landed, so the caller can
+/// move the shelf with [`crate::tiles::follow_piece_removal`]; a refusal goes to the status row.
+pub fn remove_piece(
+    import: &mut crate::tiles::ImportState,
+    project: &mut crate::project::Project,
+    id: &str,
+) -> Option<serde_json::Value> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let params = serde_json::json!({"id": id});
+    match crate::ops::dispatch(&mut ctx, "piece_remove", &params) {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            if let Some(fresh) = ctx.project {
+                adopt_library(project, &fresh);
+            }
+            import.record_logged(operation_id, outcome.summary);
+            outcome.after
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            import.status.problem(format!("not sent back: {}", e.0));
+            None
+        }
+    }
+}
+
 /// **Carry the library a label operation changed onto the live project.** Only the fields a
 /// library write touches move: the measured library and the layers the Map draws from it, and the
 /// kit's policy (a pack's exclusion). A clone is not the live state, so without this the write would
