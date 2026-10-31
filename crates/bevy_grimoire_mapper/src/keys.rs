@@ -904,6 +904,7 @@ impl Action {
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::ArmComposition | Action::ComposeArm => Some("composition_arm"),
             Action::RenameComposition => Some("composition_rename"),
+            Action::CycleMount => Some("piece_set_mount"),
             Action::RenameMap => Some("map_rename"),
             Action::NoteTool => Some("note_add"),
             Action::SetRule => Some("rules_set"),

@@ -4187,6 +4187,39 @@ pub fn set_label(
     }
 }
 
+/// **Set one library piece's mount through the operation** (E-002, #129 slice 6). `M` on the Meshes
+/// tab and the mount chip call this for a piece in the library, so a person's mount is the change an
+/// agent's `piece_set_mount` makes, with the person's source. Returns `true` when the write landed,
+/// so the caller records the change only then; a refusal goes to the status row.
+pub fn set_mount(
+    import: &mut crate::tiles::ImportState,
+    project: &mut crate::project::Project,
+    id: &str,
+    mount: &bevy_grimoire_core::descriptor::Mount,
+) -> bool {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let params = serde_json::json!({"id": id, "mount": mount});
+    match crate::ops::dispatch(&mut ctx, "piece_set_mount", &params) {
+        Ok(crate::ops::Applied::Done { .. }) => {
+            if let Some(fresh) = ctx.project {
+                adopt_library(project, &fresh);
+            }
+            true
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            import.status.problem(e.0);
+            false
+        }
+    }
+}
+
 /// **Carry the library a label operation changed onto the live project.** Only the fields a
 /// library write touches move: the measured library and the layers the Map draws from it. A
 /// clone is not the live state, so without this the write would reach the file and not the screen.

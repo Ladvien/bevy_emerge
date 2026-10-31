@@ -267,7 +267,6 @@ const UNMIGRATED: &[Action] = &[
     Action::PrevCandidate,
     Action::NextCandidate,
     Action::TypeId,
-    Action::CycleMount,
     Action::Accept,
     Action::FoldPack,
     Action::Rescan,
@@ -353,7 +352,8 @@ const UNMIGRATED: &[Action] = &[
 // 110 -> 108: `TipX` and `TipZ` -> `placement_set_tip` (E-002, #129 slice 3): `Y` and `U` tip a placed piece through the operation an agent calls.
 // 108 -> 106: `LiftUp` and `LiftDown` -> `placement_set_lift` (E-002, #129 slice 4): `[` and `]` lift a placed piece through the operation an agent calls.
 // 106 -> 105: `Straighten` -> `placement_set_pose` (E-002, #129 slice 5): `V` straightens a placed piece through the operation an agent calls.
-const UNMIGRATED_MAX: usize = 105;
+// 105 -> 104: `CycleMount` -> `piece_set_mount` (E-002, #129 slice 6): `M` and a click on the mount value set a library piece's mount through the operation an agent calls.
+const UNMIGRATED_MAX: usize = 104;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

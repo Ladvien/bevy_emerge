@@ -3291,6 +3291,49 @@ pub fn library_writes_for_test() -> usize {
     LIBRARY_WRITES.with(std::cell::Cell::get)
 }
 
+/// **Rebuild the layered view from these measurements and prove it still holds together**, touching
+/// nothing: the authoring kit's layer, the merge with every bound kit, the derived half of `effects`,
+/// the lattices and the vocabulary. [`commit_measured`] runs it before it writes, and an operation's
+/// plan runs it through [`check_measured`], so a preview refuses what the commit would refuse.
+fn rebuild_from(
+    project: &Project,
+    measured: &bevy_grimoire_core::library::Library,
+) -> Result<
+    (
+        bevy_grimoire_core::library::Library,
+        bevy_grimoire_core::library::Library,
+        Vec<bevy_grimoire_core::vocab::Masks>,
+    ),
+    String,
+> {
+    // **The authoring kit's own layer**, since patches are per-kit and `Policy::apply` refuses a
+    // rule that matches nothing.
+    let layered = project.policy.apply(measured)?;
+    // **Then the merge, because the palette is every bound kit.** Replacing `project.library` with
+    // the single kit's layer here would drop every other kit's pieces out of the palette the moment
+    // a mesh was imported — the edit would look like it had deleted the rest of the project.
+    let mut library = project.merged_with(&layered)?;
+    // **Settled here as well as at open, because this is the other place the derived view is built.**
+    // `Project::open` normalizes the derived half of `effects` across the whole merged set, and
+    // `measured` and the kit layers it is rebuilt from never received that correction — so without
+    // this the FIRST save of anything (a tag chip, a note, one lattice cell) put every row back to
+    // its pre-open state until the project was reopened. `changed_ids` below then read that
+    // settled-against-unsettled difference as news and marked every one of those rows `touched`,
+    // sending the Map off to redraw pieces nobody had edited.
+    crate::labels::settle_library(&mut library, &project.vocab);
+    library.validate_lattices(project.lattice.face_bands)?;
+    let masks = library.resolve(&project.vocab)?;
+    Ok((layered, library, masks))
+}
+
+/// **Whether the project would take these measurements**, without writing or adopting them.
+pub(crate) fn check_measured(
+    project: &Project,
+    measured: &bevy_grimoire_core::library::Library,
+) -> Result<(), String> {
+    rebuild_from(project, measured).map(|_| ())
+}
+
 /// **Write these measurements, and adopt them only if that worked.**
 ///
 /// The structural edits — adding an imported piece, removing one — need to *propose* a library rather
@@ -3308,25 +3351,7 @@ pub(crate) fn commit_measured(
     measured: impl Into<crate::project::Shared<bevy_grimoire_core::library::Library>>,
 ) -> Result<std::path::PathBuf, String> {
     let measured = measured.into();
-    // Rebuild the layered view from the edited measurements, and prove it still holds together,
-    // before anything touches the disk.
-    // **The authoring kit's own layer**, since patches are per-kit and `Policy::apply` refuses a
-    // rule that matches nothing.
-    let layered = project.policy.apply(&measured)?;
-    // **Then the merge, because the palette is every bound kit.** Replacing `project.library` with
-    // the single kit's layer here would drop every other kit's pieces out of the palette the moment
-    // a mesh was imported — the edit would look like it had deleted the rest of the project.
-    let mut library = project.merged_with(&layered)?;
-    // **Settled here as well as at open, because this is the other place the derived view is built.**
-    // `Project::open` normalizes the derived half of `effects` across the whole merged set, and
-    // `measured` and the kit layers it is rebuilt from never received that correction — so without
-    // this the FIRST save of anything (a tag chip, a note, one lattice cell) put every row back to
-    // its pre-open state until the project was reopened. `changed_ids` below then read that
-    // settled-against-unsettled difference as news and marked every one of those rows `touched`,
-    // sending the Map off to redraw pieces nobody had edited.
-    crate::labels::settle_library(&mut library, &project.vocab);
-    library.validate_lattices(project.lattice.face_bands)?;
-    let masks = library.resolve(&project.vocab)?;
+    let (layered, library, masks) = rebuild_from(project, &measured)?;
 
     let path = project.library_path.clone();
     let text = measured.to_ron()?;
@@ -5458,9 +5483,9 @@ fn on_mount_chip(
 fn step_mount(project: &mut Project, state: &mut ImportState) {
     let surfaces: Vec<String> = project.vocab.surfaces.names().map(str::to_owned).collect();
     let options = mount_options(&surfaces);
-    // Taken before the write — the only moment the old value still exists.
-    let history_before = state.snapshot(project);
-    let Some((d, where_to)) = state.editing_mut(&mut project.measured) else {
+    // **Worked out first, from the piece as it stands**, so a library piece can hand the answer to
+    // the operation an agent calls and a candidate, which is not in the library, can write it itself.
+    let Some(d) = state.editing(&project.measured) else {
         return;
     };
     // **An authored height survives the cycle.** Every entry in `options` is a literal, so landing on
@@ -5490,12 +5515,46 @@ fn step_mount(project: &mut Project, state: &mut ImportState) {
             })
         })
         .map_or(0, |i| (i + 1) % options.len());
-    let mut want = options[next].clone();
-    if let Some(h) = had
-        && let Some(kept) = bevy_grimoire_core::descriptor::with_mount_height(&want, h)
-    {
-        want = kept;
+    let carried = |o: &bevy_grimoire_core::descriptor::Mount| {
+        had.and_then(|h| bevy_grimoire_core::descriptor::with_mount_height(o, h))
+            .unwrap_or_else(|| o.clone())
+    };
+    // Taken before the write — the only moment the old value still exists.
+    let history_before = state.snapshot(project);
+    // **A library piece is written by `piece_set_mount` (E-002, #129 slice 6)**, the operation an agent
+    // calls, so the key and the click and an agent's `apply` are one validated, saved and logged
+    // change. A candidate is not in the library and has nothing to write until Accept, so it stays
+    // in memory.
+    if let Some(id) = state.selected_library_id.clone() {
+        // **The first rung from here the project can take.** A surface class no piece offers is a
+        // rung the library refuses, and stopping on it would leave `M` pressing against a wall; the
+        // cycle steps past it, asking `check_measured` so no refusal is logged for a rung nobody chose.
+        let taken = (0..options.len())
+            .map(|k| carried(&options[(next + k) % options.len()]))
+            .find(|m| {
+                let mut trial = (*project.measured).clone();
+                match trial.descriptors.iter_mut().find(|d| d.id == id) {
+                    Some(d) => d.mount = Some(m.clone()),
+                    None => return false,
+                }
+                check_measured(project, &trial).is_ok()
+            });
+        let Some(want) = taken else {
+            state
+                .status
+                .problem(format!("`{id}` has no mount the project can take"));
+            return;
+        };
+        if crate::editor::set_mount(state, project, &id, &want) {
+            state.record(history_before);
+            state.status.note(format!("mount: {}", mount_label(Some(&want))));
+        }
+        return;
     }
+    let want = carried(&options[next]);
+    let Some((d, where_to)) = state.editing_mut(&mut project.measured) else {
+        return;
+    };
     d.mount = Some(want);
     crate::labels::stamp_human(d, bevy_grimoire_core::descriptor::Axis::Mount);
     let said = format!("mount: {}", mount_label(d.mount.as_ref()));
