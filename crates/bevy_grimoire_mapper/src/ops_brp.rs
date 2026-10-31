@@ -255,7 +255,9 @@ pub(crate) fn put_back(
     // `LabelGeneration` bump below removed: the `KIND` chip block still repainted (9,521 px), so a
     // second trigger would be a second answer to a question already answered.
     if let Some(fresh) = ctx.project.as_ref()
-        && project.as_deref().is_some_and(|p| p.measured != fresh.measured)
+        && project
+            .as_deref()
+            .is_some_and(|p| p.measured != fresh.measured || p.policy != fresh.policy)
         && let Some(handle) = project.as_deref_mut()
     {
         crate::editor::adopt_library(handle, fresh);
