@@ -5458,9 +5458,9 @@ fn on_mount_chip(
 fn step_mount(project: &mut Project, state: &mut ImportState) {
     let surfaces: Vec<String> = project.vocab.surfaces.names().map(str::to_owned).collect();
     let options = mount_options(&surfaces);
-    // Taken before the write — the only moment the old value still exists.
-    let history_before = state.snapshot(project);
-    let Some((d, where_to)) = state.editing_mut(&mut project.measured) else {
+    // **Worked out first, from the piece as it stands**, so a library piece can hand the answer to
+    // the operation an agent calls and a candidate, which is not in the library, can write it itself.
+    let Some(d) = state.editing(&project.measured) else {
         return;
     };
     // **An authored height survives the cycle.** Every entry in `options` is a literal, so landing on
@@ -5496,6 +5496,22 @@ fn step_mount(project: &mut Project, state: &mut ImportState) {
     {
         want = kept;
     }
+    // Taken before the write — the only moment the old value still exists.
+    let history_before = state.snapshot(project);
+    // **A library piece is written by `piece_set_mount` (E-002, #129 slice 6)**, the operation an agent
+    // calls, so the key and the click and an agent's `apply` are one validated, saved and logged
+    // change. A candidate is not in the library and has nothing to write until Accept, so it stays
+    // in memory.
+    if let Some(id) = state.selected_library_id.clone() {
+        if crate::editor::set_mount(state, project, &id, &want) {
+            state.record(history_before);
+            state.status.note(format!("mount: {}", mount_label(Some(&want))));
+        }
+        return;
+    }
+    let Some((d, where_to)) = state.editing_mut(&mut project.measured) else {
+        return;
+    };
     d.mount = Some(want);
     crate::labels::stamp_human(d, bevy_grimoire_core::descriptor::Axis::Mount);
     let said = format!("mount: {}", mount_label(d.mount.as_ref()));
