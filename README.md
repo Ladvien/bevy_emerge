@@ -1,37 +1,20 @@
-# bevy_grimoire
+# Grimoire (`bevy_grimoire`)
 
-[![CI](https://github.com/bevy-coven/bevy_grimoire/actions/workflows/ci.yml/badge.svg)](https://github.com/bevy-coven/bevy_grimoire/actions/workflows/ci.yml)
+> ⚠️ **Vibe Coded.** Written by AI agents working from a human's direction, covered by tests rather than a line-by-line human review. Read the code before you rely on it for something you care about.
 
-bevy_grimoire is a world editor for Bevy games, for game developers who want to build levels with an AI agent working beside them.
+A world editor for Bevy games, for developers who build levels with an AI agent, the Familiar, working beside them.
+
+[![crates.io](https://img.shields.io/crates/v/bevy_grimoire.svg)](https://crates.io/crates/bevy_grimoire) [![docs.rs](https://img.shields.io/docsrs/bevy_grimoire_core)](https://docs.rs/bevy_grimoire_core) [![CI](https://github.com/bevy-coven/bevy_grimoire/actions/workflows/ci.yml/badge.svg)](https://github.com/bevy-coven/bevy_grimoire/actions/workflows/ci.yml) [![Bevy 0.20](https://img.shields.io/badge/bevy-0.20-purple.svg)](https://bevyengine.org) [![licence](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#who-and-licence)
 
 ![The whole editor window: an AI agent turns the abbey 90 degrees and removes its table through MCP calls, each change named on the inspector's LAST line and in the history list as the agent's; then the person presses Cmd+Z twice and takes both back](https://raw.githubusercontent.com/bevy-coven/bevy_grimoire/main/docs/media/agent-drives.gif)
 
-An agent calls `grimoire_apply_operation` twice (a turn, then a removal). The inspector on the left names each change and who made it, and two presses of Cmd+Z take them back. [How agents work](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/agents.md).
+*An agent calls `grimoire_apply_operation` twice, a turn and then a removal; the inspector names each change and who made it, and two presses of Cmd+Z take them back. A 64-second recording with snips is [on the book page](https://bevy-coven.github.io/crates/bevy_grimoire.html#the-demo).*
 
-[`docs/media/demo.mp4`](https://raw.githubusercontent.com/bevy-coven/bevy_grimoire/main/docs/media/demo.mp4) is a longer recording, 64 seconds, and a different one rather than a longer cut of the clip above: it runs on a walled map, not the abbey, and its receipts name `wall_02_2` and `wall_02_3`. An agent frames the two wall pieces, turns `wall_02_2` to 90 degrees, and removes `wall_02_3`; the person's Cmd+Z reports `put back wall_02_3`. It ends with a snip: the person arms the snip, drags a box over the walled cluster, writes a note, and the receipt names the PNG it saved. [`docs/media/demo-poster.png`](https://raw.githubusercontent.com/bevy-coven/bevy_grimoire/main/docs/media/demo-poster.png) is a still from that recording, showing the snip box drawn over the cluster with the note typed.
+**Status:** usable · Bevy 0.20 · toolchain 1.98.1 (pinned in `rust-toolchain.toml`)
 
-## Why
+**Why:** a level editor where an agent's change is the same kind of change as yours, through the same named operations, in the same undo history, so you can let it build while you watch, snip what is wrong and take back what you do not want.
 
-- **You and an agent use the same operations.** Turning, removing, pinning, renaming, opening a door and arming a piece are named operations. An agent changes the map only through them, so its change is the same kind of change as yours. Some of your keys still change the map without going through them; the list of those is explicit in the repository and only shrinks.
-- **One undo history.** Cmd+Z takes back the agent's last turn as well as your own. The agent's turn joins your history, so you do not need a second undo.
-- **Snips show the agent what you mean.** Cmd+\ lets you drag a rectangle over the editor and write a note. The agent can list your snips, read each note, and get each picture from its file.
-- **Edit data files and see the result.** The editor checks its project files every quarter of a second and re-reads the ones that changed.
-- **A generator shows you the layout before you keep it.** G proposes a whole arrangement and draws it as translucent pieces, so you look at the map rather than at a sentence about it, and Enter keeps exactly what you saw. An agent asked for options calls `layout_propose` with `options: 3`: it gets three layouts that differ from one another, each with the seed that lays it, and proposes the one you pick by its seed.
-- **A piece can rest on a surface or on the floor.** A library entry can say "on a surface of this class, or on the floor", and each placement records which it took — so a dressing set goes on the bench in one room and on the floor in the next without a second library entry.
-- **Layouts learned from your maps.** You lay out a corner the way you want it. The editor learns the rules from that arrangement, then continues it with wave function collapse, so it adds more of your layout, not a generic one.
-- **Labels that wait for you.** A vision model can propose a label for each piece. Each proposal is marked unchecked. To confirm an axis, toggle one of its label chips, which marks the whole axis as yours. No button confirms a proposal in place.
-
-## Status
-
-**Works today:** the editor (`bevy_grimoire_mapper`) for building maps from kits; the MCP server (`bevy_grimoire_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout, drawn before you commit to it; pieces that may rest on a surface or on the floor.
-
-**On crates.io, the libraries a game links.** `bevy_grimoire_rng`, `bevy_grimoire_solver`, `bevy_grimoire_core`, `bevy_grimoire_snip`, `bevy_grimoire` and `bevy_grimoire_anim` are published at 0.1.0 (`cargo add bevy_grimoire_core`, `cargo add bevy_grimoire`, `cargo add bevy_grimoire_anim`). The editor (`bevy_grimoire_mapper`), the MCP server (`bevy_grimoire_mcp`), `bevy_grimoire_decide` and `bevy_devshot` are not published (`publish = false`): the editor pins the owner's family crates by git revision, which crates.io refuses, so run it from a clone of this repository, on your game's project.
-
-The mapper editor is AI-written and has not had a line-by-line human audit. It is covered by tests, but read [`crates/bevy_grimoire_mapper/README.md`](https://github.com/bevy-coven/bevy_grimoire/blob/main/crates/bevy_grimoire_mapper/README.md) before you trust it with a project you care about.
-
-## Install and quick start
-
-You need a Rust toolchain and the graphics requirements of Bevy 0.20. The repository pins its toolchain in `rust-toolchain.toml`, so `rustup` selects the right one for you. Clone the repository and run the editor on its own project:
+## Quick start
 
 ```sh
 git clone https://github.com/bevy-coven/bevy_grimoire
@@ -39,70 +22,73 @@ cd bevy_grimoire
 cargo run -p bevy_grimoire_mapper -- .
 ```
 
-The editor opens a menu of the project's kits and maps. Each kit shows how many pieces it holds. Choose a map in the MAPS column to open it. [Getting started](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/getting-started.md) walks through your first map.
+The editor opens a menu of the project's kits and maps; choose a map in the MAPS column. On your own game, pass its root instead of `.`; a project from before the rename has its `assets/emerge` folder moved to `assets/grimoire` the first time it opens. [Getting started](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/getting-started.md) walks through your first map.
 
-To let an agent drive the open editor, run the MCP server with the project directory. The editor must be running for the tools to answer:
-
-```sh
-cargo run -q -p bevy_grimoire_mcp -- --project /path/to/project
-```
-
-Add it to your MCP client, for example:
+To let the Familiar drive the open editor, add the MCP server to your MCP client (the editor must be running):
 
 ```json
-{
-  "mcpServers": {
-    "bevy_grimoire": {
-      "command": "cargo",
-      "args": ["run", "-q", "-p", "bevy_grimoire_mcp", "--", "--project", "/path/to/project"],
-      "cwd": "/path/to/bevy_grimoire"
-    }
-  }
-}
+{ "mcpServers": { "bevy_grimoire": {
+    "command": "cargo", "args": ["run", "-q", "-p", "bevy_grimoire_mcp", "--", "--project", "/path/to/project"],
+    "cwd": "/path/to/bevy_grimoire" } } }
 ```
 
-The tools are listed in [MCP tools](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/mcp-tools.md).
+## Try it
+
+```sh
+cargo run -p bevy_grimoire_mapper -- . --kit furniture
+```
+
+Opens the repository's own project on its `furniture` kit (`site` and `scp` are the others); choose `+ new map` in the MAPS column for a map to place them on. [The MCP tools](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/mcp-tools.md) list what an agent can call.
+
+![The editor on the Map door after the agent's turn and removal: the inspector lists both changes as the agent's, the abbey stands turned on the town map, and the PLACE palette lists the container kit](https://raw.githubusercontent.com/bevy-coven/bevy_grimoire/main/docs/media/editor.png)
+
+*The same window mid-clip: every change in the history list says who made it.*
 
 ## What you can do
 
-- **Build a map.** Place pieces, fill areas, and undo a placement. See [building maps](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/building-maps.md).
+- **Build a map**: place pieces, fill areas, turn and remove them, and undo any of it: [building maps](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/building-maps.md).
 
   ![The whole editor window on the Map door: the PLACE list is walked to the gate house, R turns it before it is placed, two clicks place two gate houses, X and a click remove one, and Cmd+Z puts it back; the inspector names each step](https://raw.githubusercontent.com/bevy-coven/bevy_grimoire/main/docs/media/build-a-map.gif)
 
-- **Make kits and labels.** Bring in meshes, group them into kits, and label each piece. A label change says what it did, in the receipt row of the door you are on — including the effects a `kind` change re-derived from the vocabulary. See [kits and labels](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/kits-and-labels.md).
-- **Work with an agent.** Let an agent turn and remove pieces, label them, and frame and capture the map, while you watch and snip problems. A still's answer carries a fingerprint of its bytes, so two captures can be compared as pictures. See [agents](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/agents.md).
-- **Use the data files.** Read and edit the files a game loads. See [data files](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/data-files.md).
-- **Know the keys.** See [keys](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/keys.md).
+- **Work with the Familiar**: an agent turns, removes, labels, frames and captures through the same operations you use, and one Cmd+Z takes back its turn: [agents](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/agents.md).
+- **Show the agent what you mean**: Cmd+\ snips a rectangle of the editor with a note the agent can read and see: [agents](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/agents.md).
+- **Continue a layout you started**: the editor learns the rules of a corner you laid out and continues it with WFC (wave function collapse), drawn as translucent pieces before you keep it: [building maps](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/building-maps.md).
+- **Make kits and labels**: bring in meshes, group them into kits, and confirm the labels a vision model proposes: [kits and labels](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/kits-and-labels.md).
+- **Edit the files your game loads, live**: the editor re-reads changed project files every quarter of a second, and a game can reload them too: [data files](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/data-files.md), [your game](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/your-game.md).
+- **Configure the rest of the Coven**: sky, forests, lights, villagers, dialogue and destructible props, each as that crate's own settings: [the book](https://bevy-coven.github.io/with-grimoire.html).
 
-## Use it in your game
+## Part of the Coven
 
-Depend on `bevy_grimoire_core` and `bevy_grimoire` from crates.io (`bevy_grimoire_core = "0.1"`, `bevy_grimoire = "0.1"`), and on the other crates by path or git to follow this repository. `bevy_grimoire_core` has no engine dependency and holds the grammar and solver, so a game can use it without the editor. Sanctuary, the game this was built for, depends on `bevy_grimoire_core` by path and lays out its town blocks with it. See [your game](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/your-game.md) for the steps.
+Grimoire is the editor of the [Bevy Coven](https://github.com/bevy-coven): it takes each family crate as an optional cargo feature and edits that crate's own serde settings, so what it saves is what your game loads with the crate alone. [Using a crate with Grimoire](https://bevy-coven.github.io/with-grimoire.html) explains the arrangement.
 
-## Crates
+## The crates
 
 | Crate | What it is |
 |---|---|
-| `bevy_grimoire_mapper` | The standalone editor. Opens a project directory and writes the files a game loads. |
-| `bevy_grimoire_mcp` | The MCP server that gives an agent the editor's operations over stdio. It talks to the running editor. |
-| `bevy_grimoire` | The runtime half. Loads a library and a map into a Bevy world. |
-| `bevy_grimoire_core` | The world-building core: constraint representation, solvers, wave function collapse and the grammar learner. Engine-free. |
-| `bevy_grimoire_solver` | A deterministic SAT back-end. It reads no clock and uses no threads or entropy. |
-| `bevy_grimoire_anim` | Blends clip weights on a skinned rig's animation player. |
-| `bevy_grimoire_rng` | One deterministic ChaCha8 random stream. `bevy_grimoire_core` re-exports it. |
-| `bevy_grimoire_snip` | Cuts one rectangle out of a picture of the editor. Shared by the editor and the MCP server. |
-| `bevy_devshot` | A frame on demand. Touch a sentinel file and the next frame is written as a PNG from the GPU. |
+| `bevy_grimoire_mapper` | The editor. Opens a project directory and writes the files a game loads. Not on crates.io: run it from a clone. |
+| `bevy_grimoire_mcp` | The MCP server that gives an agent the editor's operations over stdio. |
+| [`bevy_grimoire`](https://crates.io/crates/bevy_grimoire) | The runtime half: loads a library and a map into a Bevy world (`GrimoirePlugin`, `GrimoireLivePlugin`). |
+| [`bevy_grimoire_core`](https://crates.io/crates/bevy_grimoire_core) | The engine-free core: the constraint representation, solvers, WFC and the grammar learner. |
+| [`bevy_grimoire_solver`](https://crates.io/crates/bevy_grimoire_solver), [`_rng`](https://crates.io/crates/bevy_grimoire_rng), [`_anim`](https://crates.io/crates/bevy_grimoire_anim), [`_snip`](https://crates.io/crates/bevy_grimoire_snip) | A deterministic SAT back-end, one ChaCha8 random stream, clip-weight blending, and cutting a rectangle out of a picture of the editor. |
+| `bevy_devshot` | A frame on demand: touch a sentinel file and the next frame is written as a PNG. |
 
-## Documentation
+A game depends on `bevy_grimoire_core` and `bevy_grimoire` (`cargo add bevy_grimoire_core bevy_grimoire`). The crates were called `bevy_emerge_*` until 2026-10-31; those names have a final release that points here.
 
-- [Guide](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/README.md): every page, in reading order.
-- [MCP tools](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/mcp-tools.md): the tools an agent can call.
-- [The development loop](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/loop.md): how the project is built, one iteration at a time.
-- [Mapper README](https://github.com/bevy-coven/bevy_grimoire/blob/main/crates/bevy_grimoire_mapper/README.md): what the editor is and its status.
+## Bevy compatibility
 
-## Contributing
+| `bevy_grimoire_*` | Bevy |
+|---|---|
+| 0.1 | 0.20 |
 
-Run `cargo test --workspace` before you push. CI runs the same command under a virtual display (see `.github/workflows/ci.yml`). The badge at the top of this page shows its status. [`AGENTS.md`](https://github.com/bevy-coven/bevy_grimoire/blob/main/AGENTS.md) sets the conventions the code follows. [The development loop](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/loop.md) describes how changes are proposed, tested and reported.
+## Learn more
 
-## Licence
+- [The guide](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/README.md): every page, in reading order.
+- [The book page](https://bevy-coven.github.io/crates/bevy_grimoire.html), with the 64-second demo.
+- [MCP tools](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/mcp-tools.md), [`CHANGELOG.md`](https://github.com/bevy-coven/bevy_grimoire/blob/main/CHANGELOG.md) (every visible change has a clip), and [docs.rs/bevy_grimoire_core](https://docs.rs/bevy_grimoire_core).
+- [The development loop](https://github.com/bevy-coven/bevy_grimoire/blob/main/docs/guide/loop.md): how changes are proposed, tested and reported.
 
-Licensed under either of [Apache License, Version 2.0](https://github.com/bevy-coven/bevy_grimoire/blob/main/LICENSE-APACHE) or [MIT licence](https://github.com/bevy-coven/bevy_grimoire/blob/main/LICENSE-MIT), at your option.
+## Who and licence
+
+Maintained by [@Ladvien](https://github.com/Ladvien). Issues and pull requests are welcome at [github.com/bevy-coven/bevy_grimoire/issues](https://github.com/bevy-coven/bevy_grimoire/issues); a game asks for what it needs with the `consumer` label. Read the org's [CONTRIBUTING.md](https://github.com/bevy-coven/.github/blob/main/CONTRIBUTING.md) and [`AGENTS.md`](https://github.com/bevy-coven/bevy_grimoire/blob/main/AGENTS.md) first, and run `cargo test --workspace` before you push.
+
+MIT OR Apache-2.0, at your option.

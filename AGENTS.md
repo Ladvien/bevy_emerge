@@ -114,3 +114,5 @@ A loop is one dumb driver (`tools/loop/wiggum.sh`) running one fresh `omp -p` pe
 - One plugin per domain; split by domain, not by kind.
 - Do not hard-wrap markdown.
 - Close any Bevy app you launch for a test.
+
+README and docs follow https://github.com/bevy-coven/.github/blob/main/DOCUMENTATION.md; a feature is not done until its README line and, if visible, its GIF exist.

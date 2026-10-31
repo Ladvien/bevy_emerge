@@ -503,3 +503,5 @@ made this pass, and list what earlier passes left.
 - [ ] Only bevy_emerge_loop released, locally, from a green gate; nothing was yanked.
 - [ ] You stopped inside the budget.
 - [ ] Worktrees and build directories you made are removed, and the leftovers earlier passes left are listed in the log, not deleted (see "Clean up when you are done").
+
+README and docs follow https://github.com/bevy-coven/.github/blob/main/DOCUMENTATION.md; a feature is not done until its README line and, if visible, its GIF exist.
