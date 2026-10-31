@@ -4532,6 +4532,17 @@ pub mod placement_set_lift {
         if lift.abs() < 1e-4 { 0.0 } else { lift }
     }
 
+    /// **A lift as JSON, in the fewest digits that read back as the same `f32`.**
+    ///
+    /// Undo compares the lift its log line holds, read back from text, with the map's. An `f32`
+    /// widened to `f64` prints with 17 digits (`0.03` is `0.029999999329447746`), and `serde_json`'s
+    /// default parser can read such a number back one `f64` step off, so the comparison refused an
+    /// undo of "the map has changed outside the log". The `f32`'s own shortest decimal (`0.03`) reads
+    /// back exactly, and reads back as the same `f32`.
+    fn lift_json(lift: f32) -> serde_json::Value {
+        json!(lift.to_string().parse::<f64>().unwrap_or(f64::from(lift)))
+    }
+
     /// **Lift one placement.**
     pub struct PlacementSetLift;
 
@@ -4554,7 +4565,7 @@ pub mod placement_set_lift {
                 .map
                 .placements
                 .iter()
-                .map(|p| json!([p.id, p.lift]))
+                .map(|p| json!([p.id, lift_json(p.lift)]))
                 .collect();
             Some(json!({"map": open.map.name, "lifts": lifts}))
         }
@@ -4566,7 +4577,7 @@ pub mod placement_set_lift {
             };
             let open = ctx.open.as_ref()?;
             let p = open.map.placements.iter().find(|q| q.id == id)?;
-            Some(json!({"id": p.id, "lift": p.lift}))
+            Some(json!({"id": p.id, "lift": lift_json(p.lift)}))
         }
 
         fn plan(
@@ -4586,7 +4597,7 @@ pub mod placement_set_lift {
                     p.id
                 )));
             }
-            Ok(json!({"id": p.id, "lift": stored(p.lift)}))
+            Ok(json!({"id": p.id, "lift": lift_json(stored(p.lift))}))
         }
 
         fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
@@ -4632,8 +4643,8 @@ pub mod placement_set_lift {
                 summary,
                 affected: 1,
                 saved: true,
-                inverse: Some(json!({"id": p.id, "lift": old})),
-                after: Some(json!({"map": map_name, "id": p.id, "lift": lift})),
+                inverse: Some(json!({"id": p.id, "lift": lift_json(old)})),
+                after: Some(json!({"map": map_name, "id": p.id, "lift": lift_json(lift)})),
             })
         }
     }
