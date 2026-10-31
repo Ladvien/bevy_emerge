@@ -1,10 +1,10 @@
 [package]
 name = "bevy_emerge_snip"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
-description = "Cutting one rectangle out of a PNG of the bevy_emerge editor, shared by the editor and the MCP server."
+description = "Renamed to bevy_grimoire_snip. Cutting one rectangle out of a PNG of the bevy_emerge editor, shared by the editor and the MCP server."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/Ladvien/bevy_emerge"
+repository = "https://github.com/bevy-coven/bevy_grimoire"
 keywords = ["bevy", "gamedev", "level-design"]
 categories = ["game-development"]
 rust-version = "1.88"
