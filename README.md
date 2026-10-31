@@ -25,7 +25,7 @@ An agent calls `emerge_apply_operation` twice (a turn, then a removal). The insp
 
 **Works today:** the editor (`bevy_emerge_mapper`) for building maps from kits; the MCP server (`bevy_emerge_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout, drawn before you commit to it; pieces that may rest on a surface or on the floor.
 
-**On crates.io, the libraries a game links.** `bevy_emerge_rng`, `bevy_emerge_solver`, `bevy_emerge_core` and `bevy_emerge_snip` are published at 0.1.0 (`cargo add bevy_emerge_core`). `bevy_emerge` and `bevy_emerge_anim` are next: their publish check compiles Bevy, and until it finishes you depend on them by path or git. The editor (`bevy_emerge_mapper`), the MCP server (`bevy_emerge_mcp`), `bevy_emerge_decide` and `bevy_devshot` are not published (`publish = false`): the editor pins the owner's family crates by git revision, which crates.io refuses, so run it from a clone of this repository, on your game's project.
+**On crates.io, the libraries a game links.** `bevy_emerge_rng`, `bevy_emerge_solver`, `bevy_emerge_core`, `bevy_emerge_snip` and `bevy_emerge` are published at 0.1.0 (`cargo add bevy_emerge_core`, `cargo add bevy_emerge`). `bevy_emerge_anim` is next: its publish check compiles Bevy, and until it finishes you depend on it by path or git. The editor (`bevy_emerge_mapper`), the MCP server (`bevy_emerge_mcp`), `bevy_emerge_decide` and `bevy_devshot` are not published (`publish = false`): the editor pins the owner's family crates by git revision, which crates.io refuses, so run it from a clone of this repository, on your game's project.
 
 The mapper editor is AI-written and has not had a line-by-line human audit. It is covered by tests, but read [`crates/bevy_emerge_mapper/README.md`](crates/bevy_emerge_mapper/README.md) before you trust it with a project you care about.
 
@@ -76,7 +76,7 @@ The tools are listed in [MCP tools](docs/mcp-tools.md).
 
 ## Use it in your game
 
-Depend on `bevy_emerge_core` from crates.io (`bevy_emerge_core = "0.1"`), and on the other crates by path or git to follow this repository. `bevy_emerge_core` has no engine dependency and holds the grammar and solver, so a game can use it without the editor. Sanctuary, the game this was built for, depends on `bevy_emerge_core` by path and lays out its town blocks with it. See [your game](docs/guide/your-game.md) for the steps.
+Depend on `bevy_emerge_core` and `bevy_emerge` from crates.io (`bevy_emerge_core = "0.1"`, `bevy_emerge = "0.1"`), and on the other crates by path or git to follow this repository. `bevy_emerge_core` has no engine dependency and holds the grammar and solver, so a game can use it without the editor. Sanctuary, the game this was built for, depends on `bevy_emerge_core` by path and lays out its town blocks with it. See [your game](docs/guide/your-game.md) for the steps.
 
 ## Crates
 
