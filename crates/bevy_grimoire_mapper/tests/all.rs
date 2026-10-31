@@ -193,6 +193,7 @@ mod one_prompt_one_vocabulary;
 mod one_undo_takes_back_the_newest_change;
 mod operations_have_two_front_ends;
 mod out_of_area_compares_before_and_after;
+mod pack_set_excluded_is_an_operation;
 mod pieces_stand_on_sculpted_ground;
 mod piece_select_is_an_operation;
 mod piece_set_mount_is_an_operation;

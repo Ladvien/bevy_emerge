@@ -905,6 +905,7 @@ impl Action {
             Action::ArmComposition | Action::ComposeArm => Some("composition_arm"),
             Action::RenameComposition => Some("composition_rename"),
             Action::CycleMount => Some("piece_set_mount"),
+            Action::ExcludePack => Some("pack_set_excluded"),
             Action::RenameMap => Some("map_rename"),
             Action::NoteTool => Some("note_add"),
             Action::SetRule => Some("rules_set"),

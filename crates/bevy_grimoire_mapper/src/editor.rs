@@ -4220,9 +4220,49 @@ pub fn set_mount(
     }
 }
 
+/// **Leave a pack out of the kit, or bring it back, through the operation** (E-002, #129 slice 7).
+/// `Shift+R` on the Meshes tab calls this, so a person's exclusion is the change an agent's
+/// `pack_set_excluded` makes, with the person's source, and its log line is one Cmd+Z on the Meshes
+/// tab. Returns `true` when the write landed; a refusal goes to the status row.
+pub fn set_pack_excluded(
+    import: &mut crate::tiles::ImportState,
+    project: &mut crate::project::Project,
+    pack: &str,
+    excluded: bool,
+) -> bool {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: None,
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let params = serde_json::json!({"pack": pack, "excluded": excluded});
+    match crate::ops::dispatch(&mut ctx, "pack_set_excluded", &params) {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => {
+            if let Some(fresh) = ctx.project {
+                adopt_library(project, &fresh);
+            }
+            import.record_logged(operation_id, outcome.summary.clone());
+            import.status.note(outcome.summary);
+            true
+        }
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            import.status.problem(format!("not excluded: {}", e.0));
+            false
+        }
+    }
+}
+
 /// **Carry the library a label operation changed onto the live project.** Only the fields a
-/// library write touches move: the measured library and the layers the Map draws from it. A
-/// clone is not the live state, so without this the write would reach the file and not the screen.
+/// library write touches move: the measured library and the layers the Map draws from it, and the
+/// kit's policy (a pack's exclusion). A clone is not the live state, so without this the write would
+/// reach the file and not the screen.
 pub fn adopt_library(live: &mut crate::project::Project, fresh: &crate::project::Project) {
     live.measured = fresh.measured.clone();
     live.library = fresh.library.clone();
@@ -4230,6 +4270,7 @@ pub fn adopt_library(live: &mut crate::project::Project, fresh: &crate::project:
     live.kits = fresh.kits.clone();
     live.triangles = fresh.triangles.clone();
     live.touched = fresh.touched.clone();
+    live.policy = fresh.policy.clone();
 }
 
 /// Grow or shrink one axis. Clamped at one cell rather than at zero: a map has to enclose something,

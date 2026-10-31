@@ -4672,8 +4672,9 @@ fn scan_on_entering_the_kits_door(
 /// **`Shift+R` — this pack is not what the kit is built from, or it is again.**
 ///
 /// One key, both directions: the row already says which state it is in, and a separate restore verb
-/// would be a second way to say the same thing. Written to the kit's `project.ron` through
-/// `policy::rewrite_exclude`, which splices the one field and leaves the file's prose alone.
+/// would be a second way to say the same thing. **Written through `pack_set_excluded` (E-002, #129
+/// slice 7)**, the operation an agent calls, which splices the kit's `project.ron` through
+/// `policy::rewrite_exclude` (the file's prose stays) and logs one line that Cmd+Z takes back.
 pub fn exclude_pack(
     keyboard: Res<ButtonInput<KeyCode>>,
     live: Res<keys::Live>,
@@ -4704,33 +4705,12 @@ pub fn exclude_pack(
         return;
     };
 
-    let mut exclude = project.policy.exclude.clone();
-    let had = exclude.iter().any(|e| e.trim_end_matches('/') == pack);
-    if had {
-        exclude.retain(|e| e.trim_end_matches('/') != pack);
-    } else {
-        exclude.push(pack.clone());
-        exclude.sort();
-    }
-
-    let path = project.grimoire_dir.join(bevy_grimoire_core::policy::POLICY_FILE);
-    let written = std::fs::read_to_string(&path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))
-        .and_then(|text| bevy_grimoire_core::policy::rewrite_exclude(&text, &exclude))
-        .and_then(|out| bevy_grimoire_core::ron_surgery::save_atomic(&path, &out));
-    match written {
-        Err(e) => state.status.problem(format!("not excluded: {e}")),
-        Ok(()) => {
-            // **The file is the truth, so the resource follows it** rather than being written
-            // alongside — one description of what this kit excludes, not two.
-            project.policy.exclude = exclude;
-            state.status.note(if had {
-                format!("`{pack}` is back — it can be imported and labelled again")
-            } else {
-                format!("`{pack}` excluded from this kit — it will not be offered or labelled")
-            });
-        }
-    }
+    let want = !project
+        .policy
+        .exclude
+        .iter()
+        .any(|e| e.trim_end_matches('/') == pack);
+    crate::editor::set_pack_excluded(&mut state, &mut project, &pack, want);
 }
 
 /// **Which mesh directories the kit being authored draws on.**
