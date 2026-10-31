@@ -2212,7 +2212,7 @@ mod tests {
         std::fs::write(
             dir.join(".env"),
             "# the labeler's endpoint\nexport GRIMOIRE_VLM_KEY=\"file-key\"\n\
-             GRIMOIRE_VLM_MODEL='file-model'\n\nnot a pair\nEMERGE_VLM_TIMEOUT_SECS=7\n",
+             GRIMOIRE_VLM_MODEL='file-model'\n\nnot a pair\nGRIMOIRE_VLM_TIMEOUT_SECS=7\n",
         )
         .unwrap_or_else(|e| panic!("{e}"));
         let file = dotenv(&dir);

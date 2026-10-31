@@ -381,10 +381,10 @@ def main():
     ap.add_argument("storyboard")
     ap.add_argument("--port", type=int, required=True)
     ap.add_argument("--project", required=True)
-    ap.add_argument("--server", default=os.environ.get("BEVY_EMERGE_MCP") or shutil.which("bevy_grimoire_mcp"))
+    ap.add_argument("--server", default=os.environ.get("BEVY_GRIMOIRE_MCP") or shutil.which("bevy_grimoire_mcp"))
     args = ap.parse_args()
     if not args.server:
-        sys.exit("bevy_grimoire_mcp not found: pass --server or set BEVY_EMERGE_MCP")
+        sys.exit("bevy_grimoire_mcp not found: pass --server or set BEVY_GRIMOIRE_MCP")
 
     with open(args.storyboard) as fh:
         sb = json.load(fh)

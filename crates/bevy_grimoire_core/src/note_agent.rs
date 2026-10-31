@@ -85,14 +85,14 @@ impl AgentSettings {
     }
 
     /// **Start the agent, once.** `Ok(None)` when no command is set. The child runs in the project folder
-    /// with `BEVY_EMERGE_PROJECT` set; a thread reaps it when it ends. A program that cannot start is an
+    /// with `BEVY_GRIMOIRE_PROJECT` set; a thread reaps it when it ends. A program that cannot start is an
     /// `Err` naming it, so the editor reports it rather than dropping the send silently.
     pub fn launch(&self, root: &Path) -> Result<Option<u32>, String> {
         let Some(program) = &self.command else { return Ok(None) };
         let mut child = Command::new(program)
             .args(self.argv(root))
             .current_dir(root)
-            .env("BEVY_EMERGE_PROJECT", root)
+            .env("BEVY_GRIMOIRE_PROJECT", root)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

@@ -20,7 +20,7 @@ BEVY_BRP_PORT=15710 /path/to/bevy_grimoire_mapper . town > editor.log 2>&1
 Record a storyboard against it:
 
 ```sh
-BEVY_EMERGE_MCP=/path/to/bevy_grimoire_mcp \
+BEVY_GRIMOIRE_MCP=/path/to/bevy_grimoire_mcp \
   python3 tools/demo/record.py tools/demo/storyboards/hero.json --port 15710 --project /path/to/project
 ```
 

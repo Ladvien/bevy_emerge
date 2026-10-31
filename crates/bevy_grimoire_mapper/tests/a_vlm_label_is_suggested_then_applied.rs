@@ -59,7 +59,7 @@ fn context(tag: &str, url: &str) -> Ctx {
         .build("m");
     std::fs::write(
         root.join(".env"),
-        format!("GRIMOIRE_VLM_KEY=k\nEMERGE_VLM_URL={url}\nEMERGE_VLM_MODEL=asked\n"),
+        format!("GRIMOIRE_VLM_KEY=k\nGRIMOIRE_VLM_URL={url}\nGRIMOIRE_VLM_MODEL=asked\n"),
     )
     .expect(".env");
     for shot in ["front.png", "side.png"] {
