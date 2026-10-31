@@ -1448,6 +1448,9 @@ fn replay_logged(
             if let Some(fresh) = ctx.project.take() {
                 crate::editor::adopt_library(project, &fresh);
             }
+            // **A removal's undo or redo moves the shelf as the removal did**: the restored piece is
+            // no longer a candidate, and a removed one is again.
+            follow_piece_removal(project, state, outcome.after.as_ref());
             state.push_step(
                 !back,
                 Step::Logged {
@@ -6228,62 +6231,84 @@ fn remove_tile(
         Ok(mesh) => mesh,
         Err(e) => return state.status.problem(e),
     };
-    let before = state.snapshot(&project);
-    match take_out_of_library(&id, &mut project) {
-        Ok(path) => {
-            // The rescan IS the strip: `import::scan` measures the GLB fresh, so the candidate
-            // re-enters with the importer's facts and none of the author's judgements.
-            scan(&project, &mut state);
-            // **The shelf follows the cursor, so this is the switch.** `Shelf` is derived —
-            // `selected_library_id.is_none()` is *"the arrows are walking the candidates"* — so
-            // clearing it and pointing `selected` at the reborn row is what puts `NOT IMPORTED` on
-            // screen with the piece under the highlight. There is no second flag to set.
-            state.selected_library_id = None;
-            // **Through `focus_on`, the one place allowed to move this cursor.** Setting `selected`
-            // by hand left the mesh's pack FOLDED, and `keep_candidate_selection_visible` — which
-            // fires on the very next `ImportState` change, and this is one — takes the highlight off
-            // any row that is not on screen. So the piece just sent back lost the cursor to whichever
-            // row happened to be visible first. `focus_on` opens the pack, drops the heading cursor
-            // and clears the shelf as one act; see its note for why the unfold is not cosmetic.
-            //
-            // The clear above stays first: `focus_on` early-returns when the mesh is not among the
-            // candidates, and the `None` arm below still has to put the shelf away.
-            if let Some(m) = &mesh {
-                state.focus_on(&EditTarget::Candidate(m.clone()));
-            }
-            // Proposed labels under either identity judged the piece as it was configured —
-            // stale by definition now.
-            let dropped = suggestions
-                .remove(&EditTarget::Library(id.clone()))
+    // **Through the registry (E-002, #129 slice 8).** The removal is the operation an agent calls, and
+    // its log line is the step Cmd+Z takes back (`replay_logged`); what stays here is the shelf: the
+    // rescan, the cursor, and the labels the piece's judgements made stale.
+    let Some(after) = crate::editor::remove_piece(&mut state, &mut project, &id) else {
+        return;
+    };
+    // The rescan IS the strip: `import::scan` measures the GLB fresh, so the candidate re-enters with
+    // the importer's facts and none of the author's judgements. It also puts `NOT IMPORTED` on screen
+    // with the piece under the highlight, through `focus_on`, the one place allowed to move the cursor
+    // (see `follow_piece_removal`).
+    follow_piece_removal(&project, &mut state, Some(&after));
+    // Proposed labels under either identity judged the piece as it was configured — stale by
+    // definition now.
+    let dropped = suggestions
+        .remove(&EditTarget::Library(id.clone()))
+        .is_some()
+        | mesh.as_ref().is_some_and(|m| {
+            suggestions
+                .remove(&EditTarget::Candidate(m.clone()))
                 .is_some()
-                | mesh.as_ref().is_some_and(|m| {
-                    suggestions
-                        .remove(&EditTarget::Candidate(m.clone()))
-                        .is_some()
-                });
-            if dropped {
-                generation.0 = generation.0.wrapping_add(1);
-            }
-            state.record(before);
-            // **An entry with no mesh has nowhere to go back to**, and says so rather than claiming
-            // a trip it did not make. Rare — every imported piece has one — but a library is a file
-            // somebody can hand-edit.
-            //
-            // **And the no-mesh half is a refusal, not a receipt.** The removal happened, but the
-            // thing the author asked for — a piece back on the NOT IMPORTED shelf — did not, and
-            // "the editor did only part of it" is the crate's own definition of a problem. A note
-            // is one dim row that the next receipt erases; this one has to survive.
-            match &mesh {
-                Some(_) => state.status.note(format!(
-                    "sent `{id}` back to NOT IMPORTED — measured fresh, stripped"
-                )),
-                None => state.status.problem(format!(
-                    "removed `{id}` — it named no mesh, so nothing came back"
-                )),
-            }
-            info!("sent `{id}` back out of {}", path.display());
+        });
+    if dropped {
+        generation.0 = generation.0.wrapping_add(1);
+    }
+    // **An entry with no mesh has nowhere to go back to**, and says so rather than claiming a trip it
+    // did not make. Rare — every imported piece has one — but a library is a file somebody can
+    // hand-edit.
+    //
+    // **And the no-mesh half is a refusal, not a receipt.** The removal happened, but the thing the
+    // author asked for — a piece back on the NOT IMPORTED shelf — did not, and "the editor did only
+    // part of it" is the crate's own definition of a problem. A note is one dim row that the next
+    // receipt erases; this one has to survive.
+    match &mesh {
+        Some(_) => state.status.note(format!(
+            "sent `{id}` back to NOT IMPORTED — measured fresh, stripped"
+        )),
+        None => state.status.problem(format!(
+            "removed `{id}` — it named no mesh, so nothing came back"
+        )),
+    }
+    info!("sent `{id}` back out of the library");
+}
+
+/// **Move the Meshes shelf to where a library removal, or the undo or redo of one, leaves it.**
+///
+/// `after` is `piece_remove`'s answer (`id`, `removed`, `mesh`); anything else changes nothing, so a
+/// logged step that is not a removal passes through untouched. The candidates are rescanned, because
+/// they are *the meshes under assets/ that the library does not hold* and the removal just changed
+/// what that is. A removed piece's mesh is then the highlighted candidate, on the `NOT IMPORTED`
+/// shelf; a restored piece is the highlighted row on the library shelf.
+pub(crate) fn follow_piece_removal(
+    project: &Project,
+    state: &mut ImportState,
+    after: Option<&serde_json::Value>,
+) {
+    let Some(after) = after else { return };
+    let (Some(id), Some(removed)) = (
+        after.get("id").and_then(serde_json::Value::as_str),
+        after.get("removed").and_then(serde_json::Value::as_bool),
+    ) else {
+        return;
+    };
+    scan(project, state);
+    if removed {
+        // **The shelf follows the cursor, so this is the switch.** `Shelf` is derived —
+        // `selected_library_id.is_none()` is *"the arrows are walking the candidates"* — so clearing it
+        // and pointing `selected` at the reborn row is what puts `NOT IMPORTED` on screen with the
+        // piece under the highlight. The clear stays first: `focus_on` early-returns when the mesh is
+        // not among the candidates, and the shelf still has to be put away.
+        state.selected_library_id = None;
+        if let Some(mesh) = after.get("mesh").and_then(serde_json::Value::as_str) {
+            // **Through `focus_on`, which opens the mesh's pack.** Setting `selected` by hand left the
+            // pack FOLDED, and `keep_candidate_selection_visible` then took the highlight off any row
+            // not on screen.
+            state.focus_on(&EditTarget::Candidate(mesh.to_owned()));
         }
-        Err(e) => state.status.problem(format!("not sent back: {e}")),
+    } else {
+        state.focus_on(&EditTarget::Library(id.to_owned()));
     }
 }
 

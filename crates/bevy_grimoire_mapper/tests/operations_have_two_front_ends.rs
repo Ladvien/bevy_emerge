@@ -270,7 +270,6 @@ const UNMIGRATED: &[Action] = &[
     Action::Accept,
     Action::FoldPack,
     Action::Rescan,
-    Action::RemoveTile,
     Action::CloneMode,
     Action::RunMode,
     Action::UndoTile,
@@ -353,7 +352,8 @@ const UNMIGRATED: &[Action] = &[
 // 106 -> 105: `Straighten` -> `placement_set_pose` (E-002, #129 slice 5): `V` straightens a placed piece through the operation an agent calls.
 // 105 -> 104: `CycleMount` -> `piece_set_mount` (E-002, #129 slice 6): `M` and a click on the mount value set a library piece's mount through the operation an agent calls.
 // 104 -> 103: `ExcludePack` -> `pack_set_excluded` (E-002, #129 slice 7): `Shift+R` leaves a pack out of the kit, or brings it back, through the operation an agent calls.
-const UNMIGRATED_MAX: usize = 103;
+// 103 -> 102: `RemoveTile` -> `piece_remove` (E-002, #129 slice 8): `Delete` on a library piece sends it back out of the library through the operation an agent calls.
+const UNMIGRATED_MAX: usize = 102;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

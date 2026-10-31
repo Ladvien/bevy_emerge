@@ -2524,6 +2524,216 @@ pub mod piece_import {
     }
 }
 
+/// **Send one piece back out of the library, and put it back (E-002, #129 slice 8).**
+///
+/// `Delete` on the Meshes tab's library shelf took a piece out of `library.ron` with a write of its
+/// own, so an agent could import a piece and never un-import one (the removal existed only as
+/// `piece_import`'s undo form), the key left no operation-log line, and the registry's two-front-end
+/// rule listed it as unmigrated. This is the same removal, named: `id` takes the piece out, and the
+/// mesh it came from is a candidate again the next time the shelf is scanned.
+///
+/// # The refusals are the key's own
+///
+/// A piece a map places, or a composition holds, is refused by name and nothing is written: an
+/// orphaned placement is a piece that silently fails to appear. The plan asks the same questions the
+/// write does ([`crate::tiles::remove_blockers`], `Project::maps_that_place`), so a preview refuses
+/// what the commit would.
+///
+/// # Undo is the descriptor, back where it stood
+///
+/// The inverse is this operation again with `restore` (the whole descriptor as it was, authored
+/// judgements included) and `at` (the place it held among the library's descriptors, so the file is
+/// as it was when removals are undone newest first, as Cmd+Z does; an older removal undone first
+/// lands by its recorded place and the file's order may differ by one). **Both are undo-only** ([`Operation::only_as_undo`]): an agent that wants a mesh in
+/// the library imports it, measured fresh, with `piece_import`.
+pub mod piece_remove {
+    use super::*;
+    use bevy_grimoire_core::descriptor::Descriptor;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The library id to take out, as the Meshes shelf names it.
+        #[serde(default)]
+        pub id: Option<String>,
+        /// **Undo only.** The descriptor to put back.
+        #[serde(default)]
+        pub restore: Option<Descriptor>,
+        /// **Undo only.** Where `restore` stood among the library's descriptors.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub at: Option<usize>,
+    }
+
+    fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+        let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+            Refusal::new(format!(
+                "this is not a piece to remove: {e}. The field is `id`, the piece's id in the library \
+                 (`site/wall`)."
+            ))
+        })?;
+        match (&p.id, &p.restore, p.at) {
+            (Some(_), None, None) | (None, Some(_), _) => Ok(p),
+            (None, None, _) => Err(Refusal::new(
+                "no piece to remove \u{2014} give `id`, the piece's id in the library (`site/wall`). \
+                 Nothing was changed.",
+            )),
+            _ => Err(Refusal::new(
+                "`id` takes a piece out; `restore` and `at` put one back and only an undo sends them, \
+                 and not with `id`. Nothing was changed.",
+            )),
+        }
+    }
+
+    /// **What would go, where it stood and the mesh that would come back**, or the refusal.
+    fn leaving(project: &Project, id: &str) -> Result<(Descriptor, usize, Option<String>), Refusal> {
+        let used = project.maps_that_place(id).map_err(Refusal::new)?;
+        if !used.is_empty() {
+            return Err(Refusal::new(format!(
+                "`{id}` is placed by {} \u{2014} remove those placements first",
+                used.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")
+            )));
+        }
+        let mesh = crate::tiles::remove_blockers(id, project).map_err(Refusal::new)?;
+        let Some(at) = project.measured.descriptors.iter().position(|d| d.id == id) else {
+            return Err(Refusal::new(match project.kit_of(id) {
+                Some(kit) => format!(
+                    "`{id}` belongs to `{kit}`, not to `{}` \u{2014} open that kit to send it back.",
+                    project.namespace
+                ),
+                None => format!("`{id}` is not in this kit"),
+            }));
+        };
+        Ok((project.measured.descriptors[at].clone(), at, mesh))
+    }
+
+    /// **What an undo compares, and what the change answers in `after`.** The key is `id`, the name
+    /// every library change is scoped by, so a newer change to another piece never blocks this undo.
+    /// `mesh` rides along so the shelf can land on the reborn candidate without reading the file.
+    fn state_json(id: &str, removed: bool, mesh: Option<&str>) -> serde_json::Value {
+        json!({"id": id, "removed": removed, "mesh": mesh})
+    }
+
+    /// **Take one piece out of the library, or (an undo) put it back.**
+    pub struct PieceRemove;
+
+    impl Operation for PieceRemove {
+        fn name(&self) -> &'static str {
+            "piece_remove"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        /// **It writes the library**, so its logged change joins the Meshes history, as an import's does.
+        fn writes_library(&self) -> bool {
+            true
+        }
+
+        /// **A put-back is never a request an agent may send.**
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            parse(params).is_ok_and(|p| p.restore.is_some())
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The piece's id in the library, as the Meshes shelf names it, e.g. site/wall. It is refused while a map places it or a composition holds it. Its mesh is a candidate again, measured fresh, with none of the piece's judgements; one undo puts the piece back exactly as it was."
+                    }
+                }
+            })
+        }
+
+        /// **Whether the piece is out of the library now**, against what the change recorded.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let id = after.get("id")?.as_str()?;
+            let project = ctx.project.as_ref()?;
+            let present = project.measured.descriptors.iter().any(|d| d.id == id);
+            Some(json!({
+                "id": id,
+                "removed": !present,
+                "mesh": after.get("mesh").cloned().unwrap_or(serde_json::Value::Null),
+            }))
+        }
+
+        fn plan(&self, ctx: &Ctx, params: &serde_json::Value) -> Result<serde_json::Value, Refusal> {
+            let p = parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to remove a piece from.",
+                ));
+            };
+            if let Some(d) = &p.restore {
+                if project.measured.descriptors.iter().any(|m| m.id == d.id) {
+                    return Err(Refusal::new(format!(
+                        "`{}` is already in the library, so nothing was put back.",
+                        d.id
+                    )));
+                }
+                let mut trial = project.measured.clone();
+                let at = p.at.unwrap_or(trial.descriptors.len()).min(trial.descriptors.len());
+                trial.descriptors.insert(at, d.clone());
+                crate::tiles::check_measured(project, &trial).map_err(Refusal::new)?;
+                return Ok(state_json(&d.id, false, d.mesh.as_deref()));
+            }
+            let id = p.id.as_deref().unwrap_or_default();
+            let (_, at, mesh) = leaving(project, id)?;
+            // **The project's own verdict, before anything is written**: a policy rule that names the
+            // piece, or a surface only it offered, refuses the library without it, and a preview must
+            // say so as the commit will.
+            let mut trial = project.measured.clone();
+            trial.descriptors.remove(at);
+            crate::tiles::check_measured(project, &trial).map_err(Refusal::new)?;
+            Ok(state_json(id, true, mesh.as_deref()))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = parse(params)?;
+            self.plan(ctx, params)?;
+            let Some(project) = ctx.project.as_mut() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no library to remove a piece from.",
+                ));
+            };
+            if let Some(d) = &p.restore {
+                let mut trial = project.measured.clone();
+                let at = p.at.unwrap_or(trial.descriptors.len()).min(trial.descriptors.len());
+                trial.descriptors.insert(at, d.clone());
+                crate::tiles::commit_measured(project, trial).map_err(Refusal::new)?;
+                return Ok(Outcome {
+                    summary: format!("put `{}` back in the library", d.id),
+                    affected: 1,
+                    saved: true,
+                    inverse: Some(json!({"id": d.id})),
+                    after: Some(state_json(&d.id, false, d.mesh.as_deref())),
+                });
+            }
+            let id = p.id.as_deref().unwrap_or_default();
+            let (before, at, mesh) = leaving(project, id)?;
+            crate::tiles::take_out_of_library(id, project).map_err(Refusal::new)?;
+            let summary = match &mesh {
+                Some(m) => format!(
+                    "sent `{id}` back out of the library \u{2014} `{m}` is a candidate again, measured fresh"
+                ),
+                None => format!("removed `{id}` from the library \u{2014} it named no mesh, so nothing came back"),
+            };
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({"restore": before, "at": at})),
+                after: Some(state_json(id, true, mesh.as_deref())),
+            })
+        }
+    }
+}
+
 /// **Every operation the editor knows, in one list.**
 ///
 /// **The one list.** The MCP tool surface, the parity test and the log's vocabulary are all read
@@ -2540,6 +2750,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(map_open::MapOpen),
         Box::new(placement_add::PlacementAdd),
         Box::new(piece_import::PieceImport),
+        Box::new(piece_remove::PieceRemove),
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_set_tip::PlacementSetTip),
@@ -2803,6 +3014,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // `piece_import`, so an agent importing a .glb and a person accepting a scanned mesh are one
     // operation (S2.2).
     ("piece_import", "admit_candidate("),
+    // **The shelf's remove key (E-002, #129 slice 8)** — `Delete` on a library piece calls `remove_piece`
+    // and dispatches `piece_remove`, the same write an agent's `apply` makes.
+    ("piece_remove", "remove_piece("),
     // **The door and tab keys and the door switch**, which open a door through `open_door`, and that
     // runs the `door_open` operation (item 1 of cycle 8).
     ("door_open", "open_door("),
