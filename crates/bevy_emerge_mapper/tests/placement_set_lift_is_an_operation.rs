@@ -205,14 +205,7 @@ fn a_persons_bracket_is_the_operation_and_one_cmd_z_takes_it_back() {
     for _ in 0..8 {
         app.update();
     }
-    let origin = app.world().resource::<OpenMap>().map.origin;
-    let mut cameras = app
-        .world_mut()
-        .query_filtered::<(&Camera, &GlobalTransform), With<MainCamera>>();
-    let (camera, transform) = cameras.single(app.world()).expect("the editor has one main camera");
-    let over = camera
-        .world_to_viewport(transform, Vec3::new(origin.0, 0.0, origin.2))
-        .unwrap_or_else(|e| panic!("the barrel is not on screen: {e:?}"));
+    let over = over_barrel(&mut app, 0.0);
 
     // **`Esc` puts the armed brush down first**, or the bracket steers the ghost, not the piece.
     press(&mut app, vec![KeyCode::Escape], over);
@@ -239,7 +232,25 @@ fn a_persons_bracket_is_the_operation_and_one_cmd_z_takes_it_back() {
 
     // **`]` then `[` is exactly home**, not a hair off it: the file drops the field.
     press(&mut app, vec![KeyCode::BracketRight], over);
-    press(&mut app, vec![KeyCode::BracketLeft], over);
+    let lifted = lift_of(&app, "barrel@0");
+    assert!(lifted > 0.0, "] over the barrel did not lift it the second time: {lifted}");
+    // **The pick is the ray through the piece's own volume**, so once the barrel is a step up the
+    // pixel that met its base meets air: the pointer follows the piece, as a hand would.
+    let over_lifted = over_barrel(&mut app, lifted + 0.05);
+    press(&mut app, vec![KeyCode::BracketLeft], over_lifted);
     assert_eq!(lift_of(&app, "barrel@0"), 0.0, "] then [ must be exactly on the datum");
     assert!(!file(&app).contains("lift"), "a piece on its datum must not write a lift field: {}", file(&app));
+}
+
+/// **The pixel over the barrel at height `y` metres**, so the pointer is on the piece wherever its lift
+/// has put it.
+fn over_barrel(app: &mut App, y: f32) -> Vec2 {
+    let origin = app.world().resource::<OpenMap>().map.origin;
+    let mut cameras = app
+        .world_mut()
+        .query_filtered::<(&Camera, &GlobalTransform), With<MainCamera>>();
+    let (camera, transform) = cameras.single(app.world()).expect("the editor has one main camera");
+    camera
+        .world_to_viewport(transform, Vec3::new(origin.0, y, origin.2))
+        .unwrap_or_else(|e| panic!("the barrel is not on screen: {e:?}"))
 }
