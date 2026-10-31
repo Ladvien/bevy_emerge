@@ -4,6 +4,7 @@ What each change added, newest first. A visible change has a clip: click the sti
 
 ## 2026-10-31
 
+- **grimoire-solver-0.1.1** bevy_grimoire_solver 0.1.1 on crates.io: its docs.rs page shows the N-queens GIF, now an absolute URL *No clip: a release whose only change is the README image URL; proved by the docs.rs page's image answering 200*
 - **grimoire-rename** `8ade561` the editor is Grimoire: crates bevy_grimoire_*, MCP tools grimoire_*, env vars GRIMOIRE_*, and the project data folder assets/grimoire; a project still in assets/emerge is moved once when the editor opens it, and refused when both folders exist *No clip: a rename; the only new pixels are the word Grimoire in the window title and the menu's chrome bar; proved by bevy_grimoire_core/tests/a_project_in_assets_emerge_is_moved_once.rs*
 - **129-placement-set-lift** `8455e35` [ and ] lift a placed piece through placement_set_lift, the operation an agent calls: an agent can raise a lamp off its table, the pieces resting on it ride with it, and it is undone like any other (#129 slice 4) *No clip: an operation behind two existing keys, nothing new to see; proved by tests/placement_set_lift_is_an_operation.rs*
 - **179-busy-poll** `9b10173` emerge_capture_sequence keeps waiting when the busy editor misses one status poll's 5 s budget, instead of abandoning the clip (#179) *No clip: a fix to the MCP server's capture-sequence poll; proved by bevy_emerge_mcp/tests/a_slow_status_poll.rs*
