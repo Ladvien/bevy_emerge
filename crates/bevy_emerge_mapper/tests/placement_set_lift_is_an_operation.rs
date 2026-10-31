@@ -115,6 +115,30 @@ fn an_agent_lifts_a_piece_the_file_follows_and_undo_puts_it_back() {
     );
 }
 
+/// **A lift an f32 cannot spell in a few digits still undoes.** The log line holds the lift as JSON
+/// text and undo compares it with the map's lift, so a number that does not survive the text (an
+/// f32 widened to f64 has 17 digits, and serde_json's default parser can read one back a step off)
+/// made `emerge/operation_undo` refuse "the map has changed outside the log". `0.03` is one such
+/// value, and the key's 1/3 m step reaches more of them.
+#[test]
+fn a_lift_that_an_f32_spells_in_many_digits_still_undoes() {
+    let mut app = editor("lift-digits");
+    for lift_m in [0.03_f32, 0.11, 1.0 / 3.0] {
+        let a = lift(&mut app, serde_json::json!({"id": "barrel@0", "lift": lift_m}));
+        assert_eq!(a["outcome"], "applied", "a lift of {lift_m} was not applied: {a}");
+        assert_eq!(lift_of(&app, "barrel@0"), lift_m, "the map does not hold {lift_m}");
+
+        let id = a["operation_id"].as_str().expect("an apply returns its id").to_owned();
+        let back = call(
+            &mut app,
+            "emerge/operation_undo",
+            serde_json::json!({"operation_id": id, "dry_run": false}),
+        );
+        assert_eq!(back["outcome"], "applied", "undo of a lift of {lift_m} was refused: {back}");
+        assert_eq!(lift_of(&app, "barrel@0"), 0.0, "undo of {lift_m} left the barrel lifted");
+    }
+}
+
 #[test]
 fn an_unknown_piece_a_typo_and_a_non_number_are_refused_and_nothing_is_written() {
     let mut app = editor("lift-refused");
