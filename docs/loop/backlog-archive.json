@@ -1974,6 +1974,38 @@
       "last_failure": "",
       "title": "A relations file cannot keep a piece beside a path through other pieces: a lamp meant for the road is met behind the gate (#146)",
       "evidence": "Shipped e8b7fe0 (w3, big): core relations Kind::Along {path, within} (centre-to-polyline through waypoint centres, clamped at the ends; Missing for an absent waypoint; parse refuses <2 waypoints) in check and solve (piece slid toward the nearest path point on its own side, just inside within, riders carried); inspector row 'lamp along gate → well → hall'. tests/a_piece_kept_beside_a_path.rs (6) failed before (no variant Along). Assumed decision: centre model over swept bounds or navmesh route. Clip owed (no display on big)."
+    },
+    {
+      "id": "E-006",
+      "kind": "enhancement",
+      "area": "release",
+      "title": "No crate in this workspace is published to crates.io, so the first publication is undecided",
+      "must_fix": {
+        "blocks": false,
+        "common": false,
+        "no_workaround": false,
+        "evidence": "cargo info for all seven crates says 'could not find ... in registry'. There is no published baseline, so no release can be made and no pre-publish gate has a version to check against."
+      },
+      "status": "fixed",
+      "evidence": "Measured 2026-10-27: `cargo package -p bevy_emerge_core` failed because intra-workspace path dependencies carried no version. 2026-10-30 slice 2 (5cd5fbc, #128), assumed decision: ship rng, solver, core, snip, bevy_emerge and bevy_emerge_anim; mapper (git-pinned family deps) and mcp (depends on unpublished decide) are publish = false. Published and tagged 0.1.0: bevy_emerge_rng (earlier), solver, core, snip (45309d9), bevy_emerge (index 2026-10-31T01:11Z, verify build 119 min 56 s under memory starvation #195), bevy_emerge_anim (index pubtime 2026-10-31T01:57:45Z, tag bevy_emerge_anim-v0.1.0). Proof: https://index.crates.io/be/vy/bevy_emerge_anim lists 0.1.0 with bevy_emerge_core ^0.1.0; git tag -l 'bevy_emerge*-v0.1.0' lists six tags.",
+      "last_failure": "",
+      "first_seen": "2026-10-21"
+    },
+    {
+      "id": "B-021",
+      "kind": "bug",
+      "area": "editor",
+      "title": "A placement appeared in the map during a probe with the cursor and O, not reproduced",
+      "must_fix": {
+        "blocks": false,
+        "common": true,
+        "no_workaround": true,
+        "evidence": "On the first probe run a barrel was placed (status 'placed barrel@1 at (-1965.65, -98.65)', undo_depth 1, map dirty). It was not reproduced in two replays of the same cursor and O inputs on a fresh editor, and the scratch session was discarded unsaved. Cause unknown."
+      },
+      "status": "fixed",
+      "evidence": "target/loop/2026-10-22-fcc4e02/live (editor.log); /tmp/emerge_live/it9/probe_pin.py. Pointer investigation 2026-10-22 (CiBuilder): placement at scale 1 and 2 lands under the pointer (crates/bevy_emerge_mapper/tests/a_piece_lands_where_the_pointer_is.rs, 930ced5). Reproduced 2026-10-30 (bevy_emerge_w4, #182): a click on the door strip's 'the kit door' cue placed lamp_tall@4 at (-17.69, -2.69), off a 10 m map and off screen. Cause: view::cursor_ray handed a pointer outside the map camera's viewport (the frame's hole) to Camera::viewport_to_world, which extrapolates past the edge. Fixed: cursor_ray answers None outside camera.logical_viewport_rect(). Regression: tests/a_click_outside_the_viewport_places_nothing.rs (failed before: a click above the viewport placed wall@1 at (-20.5, -20.5)).",
+      "last_failure": "",
+      "first_seen": "2026-10-22"
     }
   ]
 }

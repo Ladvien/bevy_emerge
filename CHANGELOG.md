@@ -2,6 +2,10 @@
 
 What each change added, newest first. A visible change has a clip: click the still to play it. `python3 tools/changelog/changelog.py page --open` plays them all in one page.
 
+## 2026-10-31
+
+- **E-006-publish-bevy_emerge_anim** `dd1fc52` bevy_emerge_anim 0.1.0, which blends clip weights on a skinned rig's animation player, is on crates.io: with it every crate a game links is on the registry (#128) *No clip: a release to crates.io, nothing to see in the editor; proved by the crates.io index entry for bevy_emerge_anim 0.1.0 (pubtime 2026-10-31T01:57:45Z) and the bevy_emerge_anim-v0.1.0 tag*
+
 ## 2026-10-30
 
 - **E-006-publish-solver-core-snip** `45309d9` bevy_emerge_solver, bevy_emerge_core and bevy_emerge_snip 0.1.0 are on crates.io (rng was already): a game links them from the registry instead of a path (#128) *No clip: a release to crates.io, nothing to see in the editor; proved by cargo publish verify builds of the packaged crates (solver 9 s, core 7 min, snip 3.5 min) and the tags bevy_emerge_solver-v0.1.0, bevy_emerge_core-v0.1.0, bevy_emerge_snip-v0.1.0*
