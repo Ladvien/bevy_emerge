@@ -142,6 +142,12 @@ fn a_bad_pack_a_missing_folder_a_repeat_and_a_typo_are_refused() {
     for pack in ["", "/etc", "../aaa", "aaa/../bbb", "aaa//a1", ".", "bad\"quote", "back\\slash"] {
         let r = set_excluded(&mut app, pack, true);
         assert_eq!(r["outcome"], "refused", "`{pack}` is not a pack and was applied: {r}");
+        // **The name's own guard, not the missing folder's**: a quote or a backslash is refused as a
+        // name, because `rewrite_exclude` writes a string unescaped.
+        assert!(
+            r.to_string().contains("is not a pack"),
+            "`{pack}` was refused for another reason, so the guard on the name is untested: {r}"
+        );
     }
     let missing = set_excluded(&mut app, "no_such_pack", true);
     assert_eq!(missing["outcome"], "refused", "a folder that does not exist was excluded: {missing}");
@@ -176,6 +182,48 @@ fn a_bad_pack_a_missing_folder_a_repeat_and_a_typo_are_refused() {
     let again = set_excluded(&mut app, "aaa/", true);
     assert_eq!(again["outcome"], "refused", "excluding a pack twice was applied: {again}");
     assert_eq!(excluded(&app), vec!["aaa".to_owned()], "a repeat changed the list");
+
+    // **A folder above it already leaves it out**, so excluding the inner pack is no change.
+    let parent = set_excluded(&mut app, "ccc", true);
+    assert_eq!(parent["outcome"], "applied", "{parent}");
+    let inner = set_excluded(&mut app, "ccc/inner", true);
+    assert_eq!(inner["outcome"], "refused", "a pack its parent already excludes was logged as a change: {inner}");
+    assert!(inner.to_string().contains("`ccc`"), "the refusal does not name the folder that covers it: {inner}");
+    assert_eq!(excluded(&app), vec!["aaa".to_owned(), "ccc".to_owned()], "the refused inner pack was listed");
+
+    // **A put-back is an undo's form**, never an agent's change.
+    let forged = call(
+        &mut app,
+        "grimoire/operation_apply",
+        serde_json::json!({
+            "operation": "pack_set_excluded",
+            "parameters": {"pack": "no_such_pack", "excluded": true, "put_back": true},
+            "dry_run": false,
+        }),
+    );
+    assert_eq!(forged["outcome"], "refused", "an agent sent an undo's put-back as a change: {forged}");
+    assert_eq!(excluded(&app), vec!["aaa".to_owned(), "ccc".to_owned()], "a forged put-back was listed");
+}
+
+/// **A restore is always undoable, even when the folder has gone since.** The undo of a restore lists
+/// the pack again, and asking the disk for the folder there would refuse the one Cmd+Z the author
+/// expects to work.
+#[test]
+fn a_restore_is_undone_even_when_its_folder_is_gone() {
+    let mut app = editor("pack-put-back");
+    let on = set_excluded(&mut app, "bbb", true);
+    assert_eq!(on["outcome"], "applied", "{on}");
+    let off = set_excluded(&mut app, "bbb", false);
+    assert_eq!(off["outcome"], "applied", "{off}");
+    assert!(excluded(&app).is_empty(), "the restore did not take the pack off the list");
+    let folder = app.world().resource::<Project>().root.join("assets").join("bbb");
+    std::fs::remove_dir_all(&folder).expect("remove the pack's folder");
+
+    let id = off["operation_id"].as_str().expect("an apply returns its id").to_owned();
+    let back = call(&mut app, "grimoire/operation_undo", serde_json::json!({"operation_id": id, "dry_run": false}));
+    assert_eq!(back["outcome"], "applied", "the undo of a restore was refused because the folder is gone: {back}");
+    assert_eq!(excluded(&app), vec!["bbb".to_owned()], "the undo did not list the pack again");
+    assert!(file(&app).contains("\"bbb\""), "the policy file does not list the pack again: {}", file(&app));
 }
 
 /// **A bare undo takes back the open map's newest change, never a pack's exclusion.** An exclusion is

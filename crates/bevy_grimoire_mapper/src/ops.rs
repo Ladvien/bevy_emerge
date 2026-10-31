@@ -5677,8 +5677,10 @@ pub mod piece_set_mount {
 /// An exclusion that is already in force, a restore of a pack nobody excluded and a folder that does
 /// not exist are refused rather than logged as a change that changed nothing.
 ///
-/// **Undo** is the same operation with `excluded` flipped. It is not an undo-only form: an agent may
-/// exclude and restore a pack itself, and nothing here puts a file's bytes in the log.
+/// **Undo** is the same operation with `excluded` flipped, so an agent may exclude and restore a pack
+/// itself and nothing here puts a file's bytes in the log. The one undo-only form is the put-back of a
+/// restore (`put_back`): it re-lists a pack without asking whether its folder is still there, so a
+/// restore is always undoable, and an agent cannot send it as a change.
 pub mod pack_set_excluded {
     use super::*;
     use serde_json::json;
@@ -5690,6 +5692,9 @@ pub mod pack_set_excluded {
         pub pack: String,
         /// `true` leaves the pack out of the kit; `false` brings it back.
         pub excluded: bool,
+        /// **Undo only.** Re-list an entry a restore removed although its folder has gone since.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pub put_back: bool,
     }
 
     fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
@@ -5726,6 +5731,14 @@ pub mod pack_set_excluded {
             .any(|e| e.trim_end_matches('/') == pack)
     }
 
+    /// **The listed entry that already leaves this pack out** because it names a folder above it.
+    fn covered_by<'p>(project: &'p Project, pack: &str) -> Option<&'p str> {
+        project.policy.exclude.iter().map(|e| e.trim_end_matches('/')).find(|e| {
+            pack.strip_prefix(e)
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
+    }
+
     struct Edit {
         path: PathBuf,
         text: String,
@@ -5746,11 +5759,20 @@ pub mod pack_set_excluded {
                 if had { "excluded" } else { "offered" }
             )));
         }
-        if p.excluded && !project.root.join("assets").join(&pack).is_dir() {
-            return Err(Refusal::new(format!(
-                "there is no folder `{pack}` under assets/, so nothing was excluded. A pack is named as \
-                 the Meshes shelf names it."
-            )));
+        if p.excluded && !p.put_back {
+            // **Already in force through a folder above it**: logging it would record a change that
+            // changed nothing.
+            if let Some(above) = covered_by(project, &pack) {
+                return Err(Refusal::new(format!(
+                    "`{pack}` is already excluded: `{above}` leaves it out, so nothing was changed."
+                )));
+            }
+            if !project.root.join("assets").join(&pack).is_dir() {
+                return Err(Refusal::new(format!(
+                    "there is no folder `{pack}` under assets/, so nothing was excluded. A pack is named as \
+                     the Meshes shelf names it."
+                )));
+            }
         }
         let mut exclude = project.policy.exclude.clone();
         if had {
@@ -5780,9 +5802,10 @@ pub mod pack_set_excluded {
     }
 
     /// **What an undo compares.** The key is `id`, the name every library change is scoped by, so a
-    /// newer change to one pack never blocks the undo of another's.
+    /// newer change to one pack never blocks the undo of another's. It carries a `pack:` prefix: a
+    /// piece id and a map's name are scopes of the same kind, and a pack may share a word with one.
     fn state_json(pack: &str, excluded: bool) -> serde_json::Value {
-        json!({"id": pack, "excluded": excluded})
+        json!({"id": format!("pack:{pack}"), "excluded": excluded})
     }
 
     /// **Exclude one pack from the kit, or restore it.**
@@ -5801,6 +5824,11 @@ pub mod pack_set_excluded {
         /// as it does a library write: it takes back the open map's newest change.
         fn writes_library(&self) -> bool {
             true
+        }
+
+        /// **A put-back is never a request an agent may send.**
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            parse(params).is_ok_and(|p| p.put_back)
         }
 
         fn schema(&self) -> serde_json::Value {
@@ -5823,7 +5851,7 @@ pub mod pack_set_excluded {
 
         /// **Whether the pack is excluded now**, against what the change recorded.
         fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
-            let pack = after.get("id")?.as_str()?;
+            let pack = after.get("id")?.as_str()?.strip_prefix("pack:")?;
             let project = ctx.project.as_ref()?;
             Some(state_json(pack, is_excluded(project, pack)))
         }
@@ -5862,7 +5890,11 @@ pub mod pack_set_excluded {
                 summary: e.summary,
                 affected: 1,
                 saved: true,
-                inverse: Some(json!({"pack": e.pack, "excluded": !e.excluded})),
+                inverse: Some(if e.excluded {
+                    json!({"pack": e.pack, "excluded": false})
+                } else {
+                    json!({"pack": e.pack, "excluded": true, "put_back": true})
+                }),
                 after: Some(state_json(&e.pack, e.excluded)),
             })
         }

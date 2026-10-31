@@ -12196,7 +12196,7 @@ pub(crate) fn carry_changes(project: &mut Project, ctx: &mut crate::ops::Ctx) {
     if project.rules != fresh.rules {
         project.rules = fresh.rules.clone();
     }
-    if project.measured != fresh.measured {
+    if project.measured != fresh.measured || project.policy != fresh.policy {
         adopt_library(project, &fresh);
     }
 }
