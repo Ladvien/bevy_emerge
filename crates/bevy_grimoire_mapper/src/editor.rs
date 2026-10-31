@@ -545,9 +545,7 @@ impl EditorState {
             match op {
                 Undo::RemovedMany { .. }
                 | Undo::Moved { .. }
-                | Undo::RemoveAt { .. }
-                | Undo::Turned { .. }
-                | Undo::Tipped { .. } => true,
+                | Undo::RemoveAt { .. } => true,
                 Undo::Group { ops } => ops.iter().any(by_row),
                 Undo::Added { .. }
                 | Undo::Stamped { .. }
@@ -887,10 +885,6 @@ enum Undo {
     /// not generally the tail. Redoing a delete through `Added` would have removed whatever happened to
     /// be at the end of the list instead.
     RemoveAt { indices: Vec<usize> },
-    /// Put a placement's yaw back. Its own inverse, carrying the other angle.
-    Turned { index: usize, yaw: f32 },
-    /// Put a placement's tip back. Its own inverse, carrying the other quarter turns.
-    Tipped { index: usize, tip: (u8, u8) },
     /// **Several reversals that are one act** — applied in order, inverted by reversing.
     ///
     /// `generate` needs it: undoing a `G` press must strip the solver rows AND put the removed sketch
@@ -993,8 +987,6 @@ impl Undo {
             Undo::RemoveAt { indices } if redo => format!("remove {}{again}", indices.len()),
             Undo::RemoveAt { indices } => format!("place {}", indices.len()),
             Undo::Moved { moved } => format!("move {}{again}", moved.was.len()),
-            Undo::Turned { .. } => format!("turn{again}"),
-            Undo::Tipped { .. } => format!("tip{again}"),
             Undo::Group { ops } => format!("{} changes{again}", ops.len()),
             Undo::Stamped { count } if redo => format!("remove {count} stamps{again}"),
             Undo::Stamped { count } => format!("stamp {count}"),
@@ -1077,10 +1069,6 @@ impl Undo {
                     (false, _) => format!("remove {}", piece_count(&present)),
                 }
             }
-            Undo::Turned { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
-            Undo::Turned { index, .. } => format!("turn {}{back}", name_at(*index)),
-            Undo::Tipped { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
-            Undo::Tipped { index, .. } => format!("tip {}{back}", name_at(*index)),
             Undo::Pin { id, .. } if !map.placements.iter().any(|p| p.id == *id) => {
                 format!("cannot: {id} is gone")
             }
@@ -11735,71 +11723,6 @@ fn apply(
                 .note(format!("removed {} placement(s) again", items.len()));
             Undo::RemovedMany { items }
         }
-        Undo::Turned { index, yaw } => {
-            let Some(p) = open.map.placements.get_mut(index) else {
-                state.status.problem(
-                    "cannot take back that turn: the piece it turned is no longer on the map",
-                );
-                return Reversal::Refused;
-            };
-            let was = std::mem::replace(&mut p.yaw, yaw);
-            let (id, at, tip, descriptor, patch) =
-                (p.id.clone(), p.at, p.tip, p.descriptor.clone(), p.patch.clone());
-            for (entity, marker) in placed {
-                if marker.0 == id {
-                    commands.entity(entity).despawn();
-                }
-            }
-            // The identical failure the forward path (`turn_under_cursor`) reports loudly: an
-            // `if let Ok` here swallowed it, leaving the piece despawned with no respawn under a
-            // success message — a piece missing from screen is the one thing a status line must
-            // never be cheerful about. The yaw HAS changed either way, so the inverse still stands.
-            match heights(project, &*open) {
-                Ok(ys) => {
-                    if let (Some(d), Some(&y)) =
-                        (descriptor_with(&project.library, &descriptor, patch.as_ref()), ys.get(index))
-                        && let Some(e) =
-                            spawn_piece(commands, assets, Pose { d: &d, yaw, tip }, at, open.map.origin, y)
-                        {
-                            commands.entity(e).insert(Placement(id.clone()));
-                        }
-                    state.status.problem(format!("{id} back to {yaw:.0} deg"));
-                }
-                Err(e) => {
-                    state
-                        .status
-                        .problem(format!("turned {id} back but cannot draw it: {e}"));
-                    error!("{e}");
-                }
-            }
-            Undo::Turned { index, yaw: was }
-        }
-        Undo::Tipped { index, tip } => {
-            let Some(p) = open.map.placements.get_mut(index) else {
-                state.status.problem(
-                    "cannot take back that tilt: the piece it tipped is no longer on the map",
-                );
-                return Reversal::Refused;
-            };
-            let was = std::mem::replace(&mut p.tip, tip);
-            let id = p.id.clone();
-            match redraw_placements(commands, assets, project, &*open, placed, &[index]) {
-                Ok(()) => {
-                    state.status.note(if tip == (0, 0) {
-                        format!("{id} upright again")
-                    } else {
-                        format!("{id} back to {}/4 about X, {}/4 about Z", tip.0, tip.1)
-                    });
-                }
-                Err(e) => {
-                    state
-                        .status
-                        .problem(format!("tipped {id} back but cannot draw it: {e}"));
-                    error!("{e}");
-                }
-            }
-            Undo::Tipped { index, tip: was }
-        }
         Undo::Group { ops } => {
             // Applied in order; the inverse is the sub-inverses REVERSED — the composition rule, and
             // the whole reason a composition can exist without a second undo mechanism. A sub-op that
@@ -12399,6 +12322,52 @@ fn set_lift(
     }
 }
 
+/// **Pose one placement, its yaw and its tip together, through the operation registry** (E-002,
+/// #129 slice 5), so a turn and a tip are validated, saved and logged as one change the way an
+/// agent's `placement_set_pose` is. A refusal lands as a problem, where the author looks.
+fn set_pose(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+    yaw: f32,
+    tip: (u8, u8),
+) -> Option<(String, String)> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(
+            &mut *open,
+            OpenMap::new(
+                bevy_grimoire_core::map::Map::default(),
+                std::path::PathBuf::new(),
+            ),
+        )),
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let outcome = crate::ops::dispatch(
+        &mut ctx,
+        "placement_set_pose",
+        &serde_json::json!({"id": id, "yaw": yaw, "tip": [tip.0, tip.1]}),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => Some((operation_id, outcome.summary)),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+            None
+        }
+    }
+}
+
 /// Turn the placement under the cursor by `step` degrees, and redraw it.
 ///
 /// Rewrites the yaw in the map and respawns the entity rather than rotating the transform in place:
@@ -12408,10 +12377,10 @@ fn set_lift(
 /// **Put the piece under the cursor back to straight** — yaw to zero and every tip undone, in one
 /// act and one undo entry.
 ///
-/// `V`'s other half. The brush's reset is two field writes; a placed piece's is a re-spawn and a
-/// history entry, and it is recorded as an [`Undo::Group`] because turning and tipping are two
-/// operations that one keypress performed — an author who presses `V` once expects one `Cmd+Z` to
-/// undo it.
+/// `V`'s other half. The brush's reset is two field writes; a placed piece's goes through
+/// `placement_set_pose` (E-002, #129 slice 5), the operation an agent calls, so the turn and the tip
+/// are one validated, saved and logged change, and the `Cmd+Z` an author expects after one `V` takes
+/// both back.
 fn straighten_under_cursor(
     commands: &mut Commands,
     assets: &AssetServer,
@@ -12427,31 +12396,19 @@ fn straighten_under_cursor(
         state.status.note("nothing here to straighten".to_owned());
         return;
     };
-    let Some(p) = open.map.placements.get_mut(index) else {
+    let Some(p) = open.map.placements.get(index) else {
         return;
     };
-    let (was_yaw, was_tip) = (p.yaw, p.tip);
-    if was_yaw == 0.0 && was_tip == (0, 0) {
+    if p.yaw == 0.0 && p.tip == (0, 0) {
         // Already straight: a note rather than an undo entry that would take nothing back.
         state.status.note("already straight".to_owned());
         return;
     }
-    p.yaw = 0.0;
-    p.tip = (0, 0);
     let id = p.id.clone();
-    // One keypress, one entry — `Undo::Group` applies in order and inverts by reversing.
-    state.record(Undo::Group {
-        ops: vec![
-            Undo::Turned {
-                index,
-                yaw: was_yaw,
-            },
-            Undo::Tipped {
-                index,
-                tip: was_tip,
-            },
-        ],
-    });
+    let Some((line, summary)) = set_pose(project, open, state, &id, 0.0, (0, 0)) else {
+        return;
+    };
+    state.record_logged(line, summary, false);
     // The shared redraw, so a piece standing on this one keeps the height it had — the same call
     // `tip_under_cursor` makes, rather than a second copy of it.
     match redraw_placements(commands, assets, project, &*open, placed, &[index]) {

@@ -644,7 +644,8 @@ enumerated! {
     /// calling `rules_set` are one change with one undo.
     SetRule,
     /// Put the steered thing back to the rotation and tip it was authored at — same subject as
-    /// [`Action::TurnPieceLeft`].
+    /// [`Action::TurnPieceLeft`]. A placed piece straightens through `placement_set_pose`, the
+    /// operation an agent calls, with yaw 0 and an upright tip.
     Straighten,
     /// Leave the removal mode without removing anything.
     Cancel,
@@ -899,6 +900,7 @@ impl Action {
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::TipX | Action::TipZ => Some("placement_set_tip"),
             Action::LiftUp | Action::LiftDown => Some("placement_set_lift"),
+            Action::Straighten => Some("placement_set_pose"),
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::ArmComposition | Action::ComposeArm => Some("composition_arm"),
             Action::RenameComposition => Some("composition_rename"),

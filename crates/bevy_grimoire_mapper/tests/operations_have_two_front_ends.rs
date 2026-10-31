@@ -245,7 +245,6 @@ const UNMIGRATED: &[Action] = &[
     Action::CycleTarget,
     Action::MoveMode,
     Action::FrameView,
-    Action::Straighten,
     Action::Cancel,
     Action::CycleGrid,
     Action::AcceptEdges,
@@ -353,7 +352,8 @@ const UNMIGRATED: &[Action] = &[
 // 111 -> 110: `RenameComposition` -> `composition_rename` (E-002, #129 slice 2): the COMPOSE tab's name field renames through the operation an agent calls.
 // 110 -> 108: `TipX` and `TipZ` -> `placement_set_tip` (E-002, #129 slice 3): `Y` and `U` tip a placed piece through the operation an agent calls.
 // 108 -> 106: `LiftUp` and `LiftDown` -> `placement_set_lift` (E-002, #129 slice 4): `[` and `]` lift a placed piece through the operation an agent calls.
-const UNMIGRATED_MAX: usize = 106;
+// 106 -> 105: `Straighten` -> `placement_set_pose` (E-002, #129 slice 5): `V` straightens a placed piece through the operation an agent calls.
+const UNMIGRATED_MAX: usize = 105;
 
 /// **The allowlist is explicit, and it only shrinks.**
 ///

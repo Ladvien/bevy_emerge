@@ -2543,6 +2543,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_set_tip::PlacementSetTip),
+        Box::new(placement_set_pose::PlacementSetPose),
         Box::new(placement_set_lift::PlacementSetLift),
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
@@ -2753,6 +2754,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("placement_set_tip", "set_tip("),
     // **The lift keys**, `[` and `]`, which dispatch `placement_set_lift` through `set_lift` (E-002, #129).
     ("placement_set_lift", "set_lift("),
+    // **The straighten key**, `V`, which dispatches `placement_set_pose` through `set_pose` with yaw 0 and
+    // an upright tip (E-002, #129 slice 5).
+    ("placement_set_pose", "set_pose("),
     // **The map's name field**, which the N key opens. Enter dispatches `map_rename` through
     // `rename_map`, so the name rule and the file's move are the operation's.
     ("map_rename", "rename_map("),
@@ -4143,7 +4147,7 @@ pub mod placement_set_yaw {
     }
 
     /// **The facing a placement is stored with**: wrapped into `[0, 360)`, as the keys wrap it.
-    fn wrapped(yaw: f32) -> f32 {
+    pub(super) fn wrapped(yaw: f32) -> f32 {
         yaw.rem_euclid(360.0)
     }
 
@@ -4325,7 +4329,12 @@ pub mod placement_set_tip {
 
     /// **Why this placement cannot take this tip**, or `None` when it can. The plan and the commit
     /// ask the same question, so a dry run refuses what the real one would.
-    fn refusal(project: Option<&Project>, open: &OpenMap, id: &str, tip: (u8, u8)) -> Option<Refusal> {
+    pub(super) fn refusal(
+        project: Option<&Project>,
+        open: &OpenMap,
+        id: &str,
+        tip: (u8, u8),
+    ) -> Option<Refusal> {
         let Some(p) = open.map.placements.iter().find(|q| q.id == id) else {
             return Some(Refusal::new(format!(
                 "no placement is called `{id}` on this map, so nothing was tipped."
@@ -4463,6 +4472,205 @@ pub mod placement_set_tip {
                 saved: true,
                 inverse: Some(json!({"id": p.id, "tip": [old.0, old.1]})),
                 after: Some(json!({"map": map_name, "id": p.id, "tip": [tip.0, tip.1]})),
+            })
+        }
+    }
+}
+
+/// **Set one placement's whole facing, its turn and its tip together** (E-002, #129 slice 5): what
+/// `V` does to the piece under the cursor (`yaw` 0 and `tip` `[0, 0]`, straight again), and what an
+/// agent asks for when it wants both fields in one change.
+///
+/// Two calls (`placement_set_yaw`, then `placement_set_tip`) would be two log lines and two undo
+/// steps for one act, and the first could land while the second is refused. This is one: it asks
+/// both operations' questions before it writes, writes the file once, and its inverse is itself
+/// with the old pair, so one undo puts both back. The refusals are the tip's own (a piece that holds
+/// others up cannot tip, an unmeasured piece cannot be seated), and they apply only when the tip
+/// changes: standing a piece upright is always allowed.
+pub mod placement_set_pose {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The placement's id, as the map file and `grimoire/state` name it.
+        pub id: String,
+        /// The facing in degrees. Wrapped into `[0, 360)` before it is stored.
+        pub yaw: f32,
+        /// Quarter turns about X, then about Z, each 0 to 3. `[0, 0]` is upright.
+        pub tip: [u8; 2],
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "yaw", "tip"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The placement's id, as the map file names it."
+                    },
+                    "yaw": {
+                        "type": "number",
+                        "description": "The facing in degrees. Wrapped into 0 to 360, so -15 is 345."
+                    },
+                    "tip": {
+                        "type": "array",
+                        "items": {"type": "integer", "minimum": 0, "maximum": 3},
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Quarter turns about X, then about Z, each 0 to 3. [0, 0] is upright."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal; a yaw that is
+        /// not finite and a quarter count past 3 are refused, as `placement_set_yaw` and
+        /// `placement_set_tip` refuse them.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not a placement's facing: {e}. The fields are `id`, `yaw` and `tip` \
+                     (two quarter-turn counts, about X then Z), and nothing else."
+                ))
+            })?;
+            if !p.yaw.is_finite() {
+                return Err(Refusal::new(
+                    "a facing has to be a finite number of degrees. Nothing was posed.",
+                ));
+            }
+            if p.tip.iter().any(|q| *q > 3) {
+                return Err(Refusal::new(format!(
+                    "a tip is two quarter-turn counts from 0 to 3, and {:?} is not. Nothing was posed.",
+                    p.tip
+                )));
+            }
+            Ok(p)
+        }
+    }
+
+    /// **Pose one placement.**
+    pub struct PlacementSetPose;
+
+    impl Operation for PlacementSetPose {
+        fn name(&self) -> &'static str {
+            "placement_set_pose"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            let poses: Vec<serde_json::Value> = open
+                .map
+                .placements
+                .iter()
+                .map(|p| json!([p.id, p.yaw, [p.tip.0, p.tip.1]]))
+                .collect();
+            Some(json!({"map": open.map.name, "poses": poses}))
+        }
+
+        /// **The posed piece's facing now**, against the one its change recorded.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let Some(id) = after.get("id").and_then(serde_json::Value::as_str) else {
+                return self.state(ctx);
+            };
+            let open = ctx.open.as_ref()?;
+            let p = open.map.placements.iter().find(|q| q.id == id)?;
+            Some(json!({"id": p.id, "yaw": p.yaw, "tip": [p.tip.0, p.tip.1]}))
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to pose.",
+                ));
+            };
+            if let Some(no) = super::placement_set_tip::refusal(
+                ctx.project.as_ref(),
+                open,
+                &p.id,
+                (p.tip[0], p.tip[1]),
+            ) {
+                return Err(no);
+            }
+            Ok(json!({"id": p.id, "yaw": super::placement_set_yaw::wrapped(p.yaw), "tip": p.tip}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let yaw = super::placement_set_yaw::wrapped(p.yaw);
+            let tip = (p.tip[0], p.tip[1]);
+            let Some(mut open) = ctx.open.take() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to pose.",
+                ));
+            };
+            if let Some(no) =
+                super::placement_set_tip::refusal(ctx.project.as_ref(), &open, &p.id, tip)
+            {
+                ctx.open = Some(open);
+                return Err(no);
+            }
+            let Some(index) = open.map.placements.iter().position(|q| q.id == p.id) else {
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "no placement is called `{}` on this map, so nothing was posed.",
+                    p.id
+                )));
+            };
+            // **The old facing, for the undo.** Its inverse is the same operation with this pair.
+            let old_yaw = std::mem::replace(&mut open.map.placements[index].yaw, yaw);
+            let old_tip = std::mem::replace(&mut open.map.placements[index].tip, tip);
+            let summary = if yaw == 0.0 && tip == (0, 0) {
+                format!("{} straight again", p.id)
+            } else {
+                format!(
+                    "posed {} at {yaw:.0} deg, tipped {}/4 about X and {}/4 about Z",
+                    p.id, tip.0, tip.1
+                )
+            };
+            // **And the file, so the pose is not only in memory.** A refusal to save puts both old
+            // values back, so the editor and the file agree.
+            let Some(project) = ctx.project.as_ref() else {
+                open.map.placements[index].yaw = old_yaw;
+                open.map.placements[index].tip = old_tip;
+                ctx.open = Some(open);
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map.placements[index].yaw = old_yaw;
+                open.map.placements[index].tip = old_tip;
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "the file refused the pose, so nothing was written and the facing is unchanged: {e}"
+                )));
+            }
+            let map_name = open.map.name.clone();
+            ctx.open = Some(open);
+            // **Only the posed piece is recorded**, so an unrelated edit cannot block its undo.
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({"id": p.id, "yaw": old_yaw, "tip": [old_tip.0, old_tip.1]})),
+                after: Some(json!({"map": map_name, "id": p.id, "yaw": yaw, "tip": [tip.0, tip.1]})),
             })
         }
     }
