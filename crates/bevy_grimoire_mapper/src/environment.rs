@@ -370,6 +370,13 @@ type WorldCamera = (Entity, Has<bevy_elements::ElementsCamera>, &'static mut Cam
 /// onto the shared texture holding only the ground colour, wiped the world out of every frame. So
 /// while dressed the interface camera clears that texture to transparent and both it and the world
 /// are written over what is below them with premultiplied alpha.
+///
+/// **And the interface does not copy the ground back (#193, #194).** That clear was not honoured: the
+/// interface shares the ground camera's texture, and with MSAA on `MsaaWriteback::Auto` copies what
+/// the lower camera wrote (the opaque ground colour) into the interface's sampled texture instead of
+/// clearing it, so the interface's write put the ground back over the world. While dressed the
+/// interface's writeback is `Off`; with `Off` set live over BRP the viewport went from one colour to
+/// the sky, the box and the grid.
 pub fn dress_camera(
     settings: Res<FamilySettings>,
     mut camera: Query<WorldCamera, (With<crate::view::MainCamera>, Without<crate::surface::SurfaceCamera>)>,
@@ -396,7 +403,7 @@ pub fn composite_surface<'a>(
     world: &mut Camera,
     interface: impl Iterator<Item = Mut<'a, Camera>>,
 ) {
-    use bevy::camera::{CameraOutputMode, ClearColorConfig};
+    use bevy::camera::{CameraOutputMode, ClearColorConfig, MsaaWriteback};
     use bevy::render::render_resource::BlendState;
     let over = |dressed| {
         if dressed {
@@ -414,5 +421,6 @@ pub fn composite_surface<'a>(
     for mut ui in interface {
         ui.output_mode = over(dressed);
         ui.clear_color = clear;
+        ui.msaa_writeback = if dressed { MsaaWriteback::Off } else { MsaaWriteback::default() };
     }
 }

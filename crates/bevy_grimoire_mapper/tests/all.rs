@@ -223,6 +223,7 @@ mod the_editor_and_the_game_agree;
 mod the_enclosure_wish_is_the_maps_to_set;
 mod the_games_verdict_reaches_grimoire_state;
 mod the_ghost_is_the_contract;
+mod the_interface_does_not_write_the_ground_back_over_the_world;
 mod the_journal_draws_the_agents_steps;
 mod the_layout_score_counts_crossings;
 mod the_library_seed_is_a_selection;
