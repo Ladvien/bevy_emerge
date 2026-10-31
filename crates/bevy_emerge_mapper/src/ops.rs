@@ -2543,6 +2543,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(placement_set_pin::PlacementSetPin),
         Box::new(placement_set_yaw::PlacementSetYaw),
         Box::new(placement_set_tip::PlacementSetTip),
+        Box::new(placement_set_lift::PlacementSetLift),
         Box::new(placement_remove::PlacementRemove),
         Box::new(stamp_remove::StampRemove),
         Box::new(crate::ops_stamp::StampAdd),
@@ -2750,6 +2751,8 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     ("placement_set_yaw", "set_yaw("),
     // **The tip keys**, Y and U, which dispatch `placement_set_tip` through `set_tip` (E-002, #129).
     ("placement_set_tip", "set_tip("),
+    // **The lift keys**, `[` and `]`, which dispatch `placement_set_lift` through `set_lift` (E-002, #129).
+    ("placement_set_lift", "set_lift("),
     // **The map's name field**, which the N key opens. Enter dispatches `map_rename` through
     // `rename_map`, so the name rule and the file's move are the operation's.
     ("map_rename", "rename_map("),
@@ -4460,6 +4463,177 @@ pub mod placement_set_tip {
                 saved: true,
                 inverse: Some(json!({"id": p.id, "tip": [old.0, old.1]})),
                 after: Some(json!({"map": map_name, "id": p.id, "tip": [tip.0, tip.1]})),
+            })
+        }
+    }
+}
+
+/// **Lift one placement to an authored height above its datum, in metres** (E-002, #129 slice 4):
+/// what `[` and `]` do to the piece under the cursor, a subgrid unit at a time, and what an agent
+/// asks for in one call.
+///
+/// The lift is `Placed::lift`, layered over the height `stack::resolve_y` decides (the floor, the
+/// wall's height, the host's surface), so everything resting on the piece rides with it: a lamp
+/// follows its table. Zero is "on its datum" and is what the file drops, so a lift within a tenth of
+/// a millimetre of zero is stored as exactly zero.
+pub mod placement_set_lift {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The placement's id, as the map file and `emerge/state` name it.
+        pub id: String,
+        /// The authored lift in metres above the resolved height. Zero puts the piece back on it.
+        pub lift: f32,
+    }
+
+    impl Params {
+        /// **The JSON schema**, which is what an agent reads.
+        pub fn schema() -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "lift"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The placement's id, as the map file names it."
+                    },
+                    "lift": {
+                        "type": "number",
+                        "description": "Metres above the height the piece's mount decides; negative lowers it. 0 puts it back on its datum."
+                    }
+                }
+            })
+        }
+
+        /// **The parameters, parsed.** `deny_unknown_fields`, so a typo is a refusal.
+        pub fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+            let p: Params = serde_json::from_value(raw.clone()).map_err(|e| {
+                Refusal::new(format!(
+                    "these are not a placement's lift: {e}. The fields are `id` and `lift` (metres), \
+                     and nothing else."
+                ))
+            })?;
+            if !p.lift.is_finite() {
+                return Err(Refusal::new(
+                    "a lift has to be a finite number of metres. Nothing was lifted.",
+                ));
+            }
+            Ok(p)
+        }
+    }
+
+    /// **The lift a placement is stored with**: float noise around zero is zero, so a piece brought
+    /// home is exactly home and `Placed::lift` skips the field on write.
+    fn stored(lift: f32) -> f32 {
+        if lift.abs() < 1e-4 { 0.0 } else { lift }
+    }
+
+    /// **Lift one placement.**
+    pub struct PlacementSetLift;
+
+    impl Operation for PlacementSetLift {
+        fn name(&self) -> &'static str {
+            "placement_set_lift"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            Params::schema()
+        }
+
+        fn state(&self, ctx: &Ctx) -> Option<serde_json::Value> {
+            let open = ctx.open.as_ref()?;
+            let lifts: Vec<serde_json::Value> = open
+                .map
+                .placements
+                .iter()
+                .map(|p| json!([p.id, p.lift]))
+                .collect();
+            Some(json!({"map": open.map.name, "lifts": lifts}))
+        }
+
+        /// **The lifted piece's lift now**, against the one its change recorded.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let Some(id) = after.get("id").and_then(serde_json::Value::as_str) else {
+                return self.state(ctx);
+            };
+            let open = ctx.open.as_ref()?;
+            let p = open.map.placements.iter().find(|q| q.id == id)?;
+            Some(json!({"id": p.id, "lift": p.lift}))
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = Params::parse(params)?;
+            let Some(open) = ctx.open.as_ref() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to lift.",
+                ));
+            };
+            if !open.map.placements.iter().any(|q| q.id == p.id) {
+                return Err(Refusal::new(format!(
+                    "no placement is called `{}` on this map, so nothing was lifted.",
+                    p.id
+                )));
+            }
+            Ok(json!({"id": p.id, "lift": stored(p.lift)}))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = Params::parse(params)?;
+            let lift = stored(p.lift);
+            let Some(mut open) = ctx.open.take() else {
+                return Err(Refusal::new(
+                    "no map is open, so there are no placements to lift.",
+                ));
+            };
+            let Some(index) = open.map.placements.iter().position(|q| q.id == p.id) else {
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "no placement is called `{}` on this map, so nothing was lifted.",
+                    p.id
+                )));
+            };
+            // **The old lift, for the undo.** Its inverse is the same operation with this value.
+            let old = std::mem::replace(&mut open.map.placements[index].lift, lift);
+            let summary = if lift == 0.0 {
+                format!("{} back on its datum", p.id)
+            } else {
+                format!("{} lifted {lift:+.2} m", p.id)
+            };
+            // **And the file, so the lift is not only in memory.** A refusal to save puts the old
+            // lift back, so the editor and the file agree.
+            let Some(project) = ctx.project.as_ref() else {
+                open.map.placements[index].lift = old;
+                ctx.open = Some(open);
+                return Err(Refusal::new("no project is open."));
+            };
+            if let Err(e) = open.save(project) {
+                open.map.placements[index].lift = old;
+                ctx.open = Some(open);
+                return Err(Refusal::new(format!(
+                    "the file refused the lift, so nothing was written and the piece is where it was: {e}"
+                )));
+            }
+            let map_name = open.map.name.clone();
+            ctx.open = Some(open);
+            // **Only the lifted piece is recorded**, so an unrelated edit cannot block its undo.
+            Ok(Outcome {
+                summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(json!({"id": p.id, "lift": old})),
+                after: Some(json!({"map": map_name, "id": p.id, "lift": lift})),
             })
         }
     }

@@ -622,7 +622,8 @@ enumerated! {
     /// The same quarter turn about Z.
     TipZ,
     /// Raise the piece under the cursor by one subgrid unit (`grid::SNAP / divisions`) — the
-    /// authored `Placed::lift`, layered over the resolved height so stacking still follows.
+    /// authored `Placed::lift`, layered over the resolved height so stacking still follows. A placed
+    /// piece lifts through `placement_set_lift`, the operation an agent calls.
     LiftUp,
     /// And back down.
     LiftDown,
@@ -897,6 +898,7 @@ impl Action {
             Action::OwnToggle => Some("placement_set_pin"),
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
             Action::TipX | Action::TipZ => Some("placement_set_tip"),
+            Action::LiftUp | Action::LiftDown => Some("placement_set_lift"),
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::ArmComposition | Action::ComposeArm => Some("composition_arm"),
             Action::RenameComposition => Some("composition_rename"),

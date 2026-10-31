@@ -547,7 +547,6 @@ impl EditorState {
                 | Undo::Moved { .. }
                 | Undo::RemoveAt { .. }
                 | Undo::Turned { .. }
-                | Undo::Lifted { .. }
                 | Undo::Tipped { .. } => true,
                 Undo::Group { ops } => ops.iter().any(by_row),
                 Undo::Added { .. }
@@ -890,9 +889,6 @@ enum Undo {
     RemoveAt { indices: Vec<usize> },
     /// Put a placement's yaw back. Its own inverse, carrying the other angle.
     Turned { index: usize, yaw: f32 },
-    /// Put a placement's authored lift back. Its own inverse, carrying the other offset — and its
-    /// apply redraws the piece's dependents too, because raising a table moves the lamp.
-    Lifted { index: usize, lift: f32 },
     /// Put a placement's tip back. Its own inverse, carrying the other quarter turns.
     Tipped { index: usize, tip: (u8, u8) },
     /// **Several reversals that are one act** — applied in order, inverted by reversing.
@@ -998,7 +994,6 @@ impl Undo {
             Undo::RemoveAt { indices } => format!("place {}", indices.len()),
             Undo::Moved { moved } => format!("move {}{again}", moved.was.len()),
             Undo::Turned { .. } => format!("turn{again}"),
-            Undo::Lifted { .. } => format!("lift{again}"),
             Undo::Tipped { .. } => format!("tip{again}"),
             Undo::Group { ops } => format!("{} changes{again}", ops.len()),
             Undo::Stamped { count } if redo => format!("remove {count} stamps{again}"),
@@ -1084,8 +1079,6 @@ impl Undo {
             }
             Undo::Turned { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
             Undo::Turned { index, .. } => format!("turn {}{back}", name_at(*index)),
-            Undo::Lifted { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
-            Undo::Lifted { index, .. } => format!("lift {}{back}", name_at(*index)),
             Undo::Tipped { index, .. } if gone(*index) => format!("cannot: piece {index} is gone"),
             Undo::Tipped { index, .. } => format!("tip {}{back}", name_at(*index)),
             Undo::Pin { id, .. } if !map.placements.iter().any(|p| p.id == *id) => {
@@ -11781,35 +11774,6 @@ fn apply(
             }
             Undo::Turned { index, yaw: was }
         }
-        Undo::Lifted { index, lift } => {
-            let Some(p) = open.map.placements.get_mut(index) else {
-                state.status.problem(
-                    "cannot take back that lift: the piece it lifted is no longer on the map",
-                );
-                return Reversal::Refused;
-            };
-            let was = std::mem::replace(&mut p.lift, lift);
-            let id = p.id.clone();
-            // The whole ride: everything resting on this piece moved with the lift, so it all
-            // comes back down (or up) together.
-            let group = with_dependents(&open.map, index);
-            match redraw_placements(commands, assets, project, &*open, placed, &group) {
-                Ok(()) => {
-                    state.status.note(if lift == 0.0 {
-                        format!("{id} back on its datum")
-                    } else {
-                        format!("{id} back to {lift:+.2} m of lift")
-                    });
-                }
-                Err(e) => {
-                    state
-                        .status
-                        .problem(format!("lifted {id} back but cannot draw it: {e}"));
-                    error!("{e}");
-                }
-            }
-            Undo::Lifted { index, lift: was }
-        }
         Undo::Tipped { index, tip } => {
             let Some(p) = open.map.placements.get_mut(index) else {
                 state.status.problem(
@@ -12373,6 +12337,51 @@ fn set_tip(
         &mut ctx,
         "placement_set_tip",
         &serde_json::json!({"id": id, "tip": [tip.0, tip.1]}),
+    );
+    if let Some(fresh) = ctx.open.take() {
+        *open = fresh;
+    }
+    match outcome {
+        Ok(crate::ops::Applied::Done {
+            outcome,
+            operation_id,
+            ..
+        }) => Some((operation_id, outcome.summary)),
+        Ok(crate::ops::Applied::Refused(e)) | Err(e) => {
+            state.status.problem(e.0);
+            None
+        }
+    }
+}
+
+/// **Lift one placement to a height through the operation registry** (E-002, #129 slice 4), so a lift
+/// is validated, saved and logged the way an agent's is. A refusal lands as a problem, where the
+/// author looks; the lift's own note is written by the caller.
+fn set_lift(
+    project: &Project,
+    open: &mut OpenMap,
+    state: &mut EditorState,
+    id: &str,
+    lift: f32,
+) -> Option<(String, String)> {
+    let mut ctx = crate::ops::Ctx {
+        project: Some(project.clone()),
+        open: Some(std::mem::replace(
+            &mut *open,
+            OpenMap::new(
+                bevy_emerge_core::map::Map::default(),
+                std::path::PathBuf::new(),
+            ),
+        )),
+        source: crate::ops::Source::Human,
+        root: None,
+        session: crate::ops::session_id(),
+        proposal: None,
+    };
+    let outcome = crate::ops::dispatch(
+        &mut ctx,
+        "placement_set_lift",
+        &serde_json::json!({"id": id, "lift": lift}),
     );
     if let Some(fresh) = ctx.open.take() {
         *open = fresh;
@@ -13552,11 +13561,13 @@ fn lift_step(project: &Project, level: SnapLevel) -> f32 {
     level.pitch(project.lattice.snap_divisor)
 }
 
-/// **Raise or lower the placement under the cursor by one subgrid unit.**
+/// **Raise or lower the placement under the cursor by one subgrid unit** through `placement_set_lift`,
+/// the operation an agent calls (E-002, #129 slice 4).
 ///
-/// This writes [`bevy_emerge_core::map::Placed::lift`] — the one deliberate amendment to "the height
-/// comes from the mount, never from the author". The datum still comes from `stack::resolve_y`,
-/// which is why everything resting on this piece is redrawn with it: the lamp follows the table.
+/// The operation writes [`bevy_emerge_core::map::Placed::lift`] — the one deliberate amendment to "the
+/// height comes from the mount, never from the author" — saves the map and logs the change. The datum
+/// still comes from `stack::resolve_y`, which is why everything resting on this piece is redrawn
+/// with it: the lamp follows the table.
 #[allow(clippy::too_many_arguments)]
 fn lift_under_cursor(
     commands: &mut Commands,
@@ -13576,28 +13587,17 @@ fn lift_under_cursor(
         return;
     };
     let step = lift_step(project, level);
-    let Some(p) = open.map.placements.get_mut(index) else {
+    let Some(p) = open.map.placements.get(index) else {
         return;
     };
-    let was = p.lift;
-    let mut want = p.lift + sign * step;
-    // Snap the float noise out of zero so a piece brought home is exactly home and the file drops
-    // the field — `Placed::lift` skips a zero on write.
-    if want.abs() < step * 1e-3 {
-        want = 0.0;
-    }
-    p.lift = want;
-    let id = p.id.clone();
-    state.record(Undo::Lifted { index, lift: was });
+    let (id, want) = (p.id.clone(), p.lift + sign * step);
+    let Some((line, summary)) = set_lift(project, open, state, &id, want) else {
+        return;
+    };
+    state.record_logged(line, summary.clone(), false);
     let group = with_dependents(&open.map, index);
     match redraw_placements(commands, assets, project, &*open, placed, &group) {
-        Ok(()) => {
-            state.status.note(if want == 0.0 {
-                format!("{id} back on its datum")
-            } else {
-                format!("{id} lifted {want:+.2} m")
-            });
-        }
+        Ok(()) => state.status.note(summary),
         Err(e) => {
             state
                 .status
