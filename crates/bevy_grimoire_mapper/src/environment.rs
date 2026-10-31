@@ -384,7 +384,14 @@ pub fn dress_camera(
         if wanted {
             commands.entity(entity).insert(bevy_elements::ElementsCamera::default());
         } else {
-            commands.entity(entity).remove::<bevy_elements::ElementsCamera>();
+            // **`Hdr` goes with it** (#193): `ElementsCamera` requires it, the crate does not take it
+            // back, and `view::setup` spawns the camera without one. Left on, the camera keeps
+            // drawing into an HDR texture while `composite_surface(false, ..)` puts the surface back
+            // to the plain write, which is the state #118 fixed for the dressed side.
+            commands
+                .entity(entity)
+                .remove::<bevy_elements::ElementsCamera>()
+                .remove::<bevy::camera::Hdr>();
         }
         composite_surface(wanted, &mut world, interface.iter_mut());
     }
