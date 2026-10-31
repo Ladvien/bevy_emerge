@@ -10,7 +10,10 @@ resolver = "3"
 [workspace.dependencies]
 bevy = { version = "0.20.0" }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0"
+# `float_roundtrip`: an operation's `after` is logged as JSON text and compared, read back, with the map's
+# `f32`s widened to `f64`. The default parser can read a 17-digit number back one step off, which made undo
+# refuse a turn to 3.9 degrees as an edit outside the log (#196).
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 ron = "0.12.2"
 rand = "0.10"
 rand_chacha = "0.10"
