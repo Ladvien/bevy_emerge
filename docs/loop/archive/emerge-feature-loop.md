@@ -6,12 +6,12 @@
 > directory. Kept for its history only.
 
 ---
-description: One iteration of the bevy_emerge usability loop. Fix confirmed bugs, ship at most one verified usability enhancement with visual proof, publish the release to crates.io, then stop.
+description: One iteration of the bevy_grimoire usability loop. Fix confirmed bugs, ship at most one verified usability enhancement with visual proof, publish the release to crates.io, then stop.
 argument-hint: "[optional focus area, e.g. compositions | wfc | labeller | tile-kits | maps]"
 disable-model-invocation: true
 ---
 
-# bevy_emerge: one loop iteration
+# bevy_grimoire: one loop iteration
 
 ## Non-negotiables
 
@@ -28,7 +28,7 @@ Read these first. They are repeated as a checklist at the end.
 
 ## Context
 
-You are running one iteration of a long, repeated loop on **bevy_emerge**, a Bevy 0.20 editor for authoring game worlds: maps, tile kits, compositions, WFC (wave function collapse) generation, a VLM-assisted labeller, and an agent-drivable UI. Each iteration starts with a fresh context. Your only memory of earlier iterations is the backlog, the loop log, and git history.
+You are running one iteration of a long, repeated loop on **bevy_grimoire**, a Bevy 0.20 editor for authoring game worlds: maps, tile kits, compositions, WFC (wave function collapse) generation, a VLM-assisted labeller, and an agent-drivable UI. Each iteration starts with a fresh context. Your only memory of earlier iterations is the backlog, the loop log, and git history.
 
 A game developer sits in front of this editor. The goal is a truly expressive editor where **the human describes and the agent drives**. The target workflow has four steps, and every iteration should make one of them faster or more reliable:
 
@@ -43,12 +43,12 @@ A game developer sits in front of this editor. The goal is a truly expressive ed
 
    Every change can be undone in one step. Operations that are irreversible or wide in scope are previewed and need explicit confirmation before they commit.
 
-The agent reaches the editor only through **the bevy_emerge MCP server** (see "MCP server"). Gaps in any of these four steps are first-class usability problems.
+The agent reaches the editor only through **the bevy_grimoire MCP server** (see "MCP server"). Gaps in any of these four steps are first-class usability problems.
 
 How the repo is laid out (check against the current README):
-- `bevy_emerge_core` holds the engine-free schema, grammar learning, WFC and validation.
-- `bevy_emerge` is the runtime that puts a library and a map into a Bevy world.
-- `bevy_emerge_mapper` is the editor application. It opens a project directory and writes `<root>/assets/emerge`, which games then load.
+- `bevy_grimoire_core` holds the engine-free schema, grammar learning, WFC and validation.
+- `bevy_grimoire` is the runtime that puts a library and a map into a Bevy world.
+- `bevy_grimoire_mapper` is the editor application. It opens a project directory and writes `<root>/assets/grimoire`, which games then load.
 
 That project directory is where the editor's data lives (see "Data-driven and hot-reloadable").
 
@@ -58,7 +58,7 @@ Focus for this iteration: `$ARGUMENTS`. If empty, choose based on the evidence y
 
 ## Direction
 
-**Bevy is the app; Blender is a tool.** Scenes are authored in bevy_emerge because that is where the game runs. Blender is driven through the golem MCP for what a DCC does (meshes, UVs, bakes, painting, rigging), and its results enter bevy_emerge as kit pieces. Do not fork Blender or rebuild DCC features in Bevy.
+**Bevy is the app; Blender is a tool.** Scenes are authored in bevy_grimoire because that is where the game runs. Blender is driven through the golem MCP for what a DCC does (meshes, UVs, bakes, painting, rigging), and its results enter bevy_grimoire as kit pieces. Do not fork Blender or rebuild DCC features in Bevy.
 
 **Collaborate the way Mixar does.** The agent shows what it is doing as steps narrated by measured effect (the oplog's `result` lines, never raw logs), hangs captures on the step that made them, groups a turn so one action takes it back, and hands results to the person with explicit keep/undo answers that come back to the agent. Before building any of it, follow `docs/loop/borrowing-from-mixar.md`: it has the licence rule, the pinned source, the procedure, and the catalogue of beats with their status.
 
@@ -162,7 +162,7 @@ Rules:
 
 ## MCP server
 
-bevy_emerge ships an MCP server built on the official Rust SDK (`rmcp`). Every agent, including you, drives the editor through it. If you find yourself working around it (raw BRP calls, editing files directly, simulating clicks), that is a parity gap. Log it as an enhancement candidate. Screenshots are for perception and verification only. Never drive the UI by clicking.
+bevy_grimoire ships an MCP server built on the official Rust SDK (`rmcp`). Every agent, including you, drives the editor through it. If you find yourself working around it (raw BRP calls, editing files directly, simulating clicks), that is a parity gap. Log it as an enhancement candidate. Screenshots are for perception and verification only. Never drive the UI by clicking.
 
 **Interoperability and safety**
 - Stdio transport at minimum. Rely only on the MCP specification.
@@ -181,7 +181,7 @@ bevy_emerge ships an MCP server built on the official Rust SDK (`rmcp`). Every a
 **Undo and the operation log**
 - Each operation declares its undo strategy:
   - an inverse delta, for cheap edits;
-  - a snapshot or re-seed, for procedural operations such as `emerge_run_wfc`.
+  - a snapshot or re-seed, for procedural operations such as `grimoire_run_wfc`.
 
   Do not assume undo is cheap and uniform.
 - An agent's multi-step action is grouped into one undo step, so a single undo reverts the whole agent step.
@@ -199,8 +199,8 @@ bevy_emerge ships an MCP server built on the official Rust SDK (`rmcp`). Every a
 - Any UI code path that changes editor state without dispatching a registered operation is a must-fix bug.
 
 **Tool design for agents**
-- Tools speak in domain terms: `emerge_create_map`, `emerge_paint_tiles`, `emerge_place_composition`, `emerge_run_wfc`, `emerge_label_tiles`, `emerge_capture_sequence`. They do not speak in entity IDs or component JSON.
-- Every tool is prefixed `emerge_`.
+- Tools speak in domain terms: `grimoire_create_map`, `grimoire_paint_tiles`, `grimoire_place_composition`, `grimoire_run_wfc`, `grimoire_label_tiles`, `grimoire_capture_sequence`. They do not speak in entity IDs or component JSON.
+- Every tool is prefixed `grimoire_`.
 - Keep the always-loaded toolset small. Put rarely used tools behind a discovery or category tool.
 - A mutating tool returns a short state delta, plus an image only when one is useful.
 - Large results are capped and paginated. When a result hits its cap, the response says how to narrow the query.
@@ -217,10 +217,10 @@ When you add or change a tool, test it as an outside agent would: list the tools
 
 Many usability problems only show up over time: flicker, layout jumping, progress that stalls, stale state, lagging hover or focus, a WFC run that thrashes. Capture three things.
 
-- **Stills** for layout, via `emerge_capture_still`. Under the hood this uses Bevy's `Screenshot::primary_window()` with the `save_to_disk` observer. Bevy needs its `png` feature or the files come out empty.
+- **Stills** for layout, via `grimoire_capture_still`. Under the hood this uses Bevy's `Screenshot::primary_window()` with the `save_to_disk` observer. Bevy needs its `png` feature or the files come out empty.
   - Capture at native resolution.
   - For fine layout checks, review full-resolution crops of the region, not downscaled whole frames.
-- **Sequences** for anything that changes over time, via `emerge_capture_sequence { seconds, fps, label }`.
+- **Sequences** for anything that changes over time, via `grimoire_capture_sequence { seconds, fps, label }`.
   - Default to **4 fps** (one frame every 250 ms). Use 2 fps only for long, slow operations where nothing short-lived can happen.
   - Capture the interaction plus about 2 seconds to settle. Start capture before triggering the action, so frame 0 is the state before it.
   - Name frames `<label>/f000_t0.00s.png`, `f001_t0.25s.png`, and so on.
@@ -280,7 +280,7 @@ A bug is **must-fix** if Blocks is yes, or if any two answers are yes. If the ca
 
 **Failure triage.** A red test in a full run is a suspect, not a verdict.
 - Rerun that test binary alone. Load-dependent failures are the commonest false attribution this loop makes.
-- If it passes alone, run it on the base commit: `git worktree add /tmp/emerge_base <sha>` with `CARGO_TARGET_DIR=/tmp/emerge_base_target`, then remove both. A failure the base also has is pre-existing: log it, and do not attribute it to this iteration's change.
+- If it passes alone, run it on the base commit: `git worktree add /tmp/grimoire_base <sha>` with `CARGO_TARGET_DIR=/tmp/grimoire_base_target`, then remove both. A failure the base also has is pre-existing: log it, and do not attribute it to this iteration's change.
 - Never use `git stash` or `git checkout -- <file>` over uncommitted work to recreate a "before". A worktree at the base commit is the only honest "before", and it cannot touch the tree you are working in.
 
 **Budget.** If there are more must-fix bugs than you can fix well (roughly five or more, or your context is getting heavy), fix the most damaging, log the rest, skip Phase 2, and say so in the report.

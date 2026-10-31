@@ -1,12 +1,12 @@
-# bevy_emerge
+# bevy_grimoire
 
-[![CI](https://github.com/Ladvien/bevy_emerge/actions/workflows/ci.yml/badge.svg)](https://github.com/Ladvien/bevy_emerge/actions/workflows/ci.yml)
+[![CI](https://github.com/bevy-coven/bevy_grimoire/actions/workflows/ci.yml/badge.svg)](https://github.com/bevy-coven/bevy_grimoire/actions/workflows/ci.yml)
 
-bevy_emerge is a world editor for Bevy games, for game developers who want to build levels with an AI agent working beside them.
+bevy_grimoire is a world editor for Bevy games, for game developers who want to build levels with an AI agent working beside them.
 
 ![The whole editor window: an AI agent turns the abbey 90 degrees and removes its table through MCP calls, each change named on the inspector's LAST line and in the history list as the agent's; then the person presses Cmd+Z twice and takes both back](docs/media/agent-drives.gif)
 
-An agent calls `emerge_apply_operation` twice (a turn, then a removal). The inspector on the left names each change and who made it, and two presses of Cmd+Z take them back. [How agents work](docs/guide/agents.md).
+An agent calls `grimoire_apply_operation` twice (a turn, then a removal). The inspector on the left names each change and who made it, and two presses of Cmd+Z take them back. [How agents work](docs/guide/agents.md).
 
 [`docs/media/demo.mp4`](docs/media/demo.mp4) is a longer recording, 64 seconds, and a different one rather than a longer cut of the clip above: it runs on a walled map, not the abbey, and its receipts name `wall_02_2` and `wall_02_3`. An agent frames the two wall pieces, turns `wall_02_2` to 90 degrees, and removes `wall_02_3`; the person's Cmd+Z reports `put back wall_02_3`. It ends with a snip: the person arms the snip, drags a box over the walled cluster, writes a note, and the receipt names the PNG it saved. [`docs/media/demo-poster.png`](docs/media/demo-poster.png) is a still from that recording, showing the snip box drawn over the cluster with the note typed.
 
@@ -23,20 +23,20 @@ An agent calls `emerge_apply_operation` twice (a turn, then a removal). The insp
 
 ## Status
 
-**Works today:** the editor (`bevy_emerge_mapper`) for building maps from kits; the MCP server (`bevy_emerge_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout, drawn before you commit to it; pieces that may rest on a surface or on the floor.
+**Works today:** the editor (`bevy_grimoire_mapper`) for building maps from kits; the MCP server (`bevy_grimoire_mcp`) that lets an agent drive the running editor; snips; undo shared between you and the agent; the watcher that reloads project files; grammar learning and wave function collapse for continuing a layout, drawn before you commit to it; pieces that may rest on a surface or on the floor.
 
-**On crates.io, the libraries a game links.** `bevy_emerge_rng`, `bevy_emerge_solver`, `bevy_emerge_core`, `bevy_emerge_snip`, `bevy_emerge` and `bevy_emerge_anim` are published at 0.1.0 (`cargo add bevy_emerge_core`, `cargo add bevy_emerge`, `cargo add bevy_emerge_anim`). The editor (`bevy_emerge_mapper`), the MCP server (`bevy_emerge_mcp`), `bevy_emerge_decide` and `bevy_devshot` are not published (`publish = false`): the editor pins the owner's family crates by git revision, which crates.io refuses, so run it from a clone of this repository, on your game's project.
+**On crates.io, the libraries a game links.** `bevy_grimoire_rng`, `bevy_grimoire_solver`, `bevy_grimoire_core`, `bevy_grimoire_snip`, `bevy_grimoire` and `bevy_grimoire_anim` are published at 0.1.0 (`cargo add bevy_grimoire_core`, `cargo add bevy_grimoire`, `cargo add bevy_grimoire_anim`). The editor (`bevy_grimoire_mapper`), the MCP server (`bevy_grimoire_mcp`), `bevy_grimoire_decide` and `bevy_devshot` are not published (`publish = false`): the editor pins the owner's family crates by git revision, which crates.io refuses, so run it from a clone of this repository, on your game's project.
 
-The mapper editor is AI-written and has not had a line-by-line human audit. It is covered by tests, but read [`crates/bevy_emerge_mapper/README.md`](crates/bevy_emerge_mapper/README.md) before you trust it with a project you care about.
+The mapper editor is AI-written and has not had a line-by-line human audit. It is covered by tests, but read [`crates/bevy_grimoire_mapper/README.md`](crates/bevy_grimoire_mapper/README.md) before you trust it with a project you care about.
 
 ## Install and quick start
 
 You need a Rust toolchain and the graphics requirements of Bevy 0.20. The repository pins its toolchain in `rust-toolchain.toml`, so `rustup` selects the right one for you. Clone the repository and run the editor on its own project:
 
 ```sh
-git clone https://github.com/Ladvien/bevy_emerge
-cd bevy_emerge
-cargo run -p bevy_emerge_mapper -- .
+git clone https://github.com/bevy-coven/bevy_grimoire
+cd bevy_grimoire
+cargo run -p bevy_grimoire_mapper -- .
 ```
 
 The editor opens a menu of the project's kits and maps. Each kit shows how many pieces it holds. Choose a map in the MAPS column to open it. [Getting started](docs/guide/getting-started.md) walks through your first map.
@@ -44,7 +44,7 @@ The editor opens a menu of the project's kits and maps. Each kit shows how many 
 To let an agent drive the open editor, run the MCP server with the project directory. The editor must be running for the tools to answer:
 
 ```sh
-cargo run -q -p bevy_emerge_mcp -- --project /path/to/project
+cargo run -q -p bevy_grimoire_mcp -- --project /path/to/project
 ```
 
 Add it to your MCP client, for example:
@@ -52,10 +52,10 @@ Add it to your MCP client, for example:
 ```json
 {
   "mcpServers": {
-    "bevy_emerge": {
+    "bevy_grimoire": {
       "command": "cargo",
-      "args": ["run", "-q", "-p", "bevy_emerge_mcp", "--", "--project", "/path/to/project"],
-      "cwd": "/path/to/bevy_emerge"
+      "args": ["run", "-q", "-p", "bevy_grimoire_mcp", "--", "--project", "/path/to/project"],
+      "cwd": "/path/to/bevy_grimoire"
     }
   }
 }
@@ -76,20 +76,20 @@ The tools are listed in [MCP tools](docs/mcp-tools.md).
 
 ## Use it in your game
 
-Depend on `bevy_emerge_core` and `bevy_emerge` from crates.io (`bevy_emerge_core = "0.1"`, `bevy_emerge = "0.1"`), and on the other crates by path or git to follow this repository. `bevy_emerge_core` has no engine dependency and holds the grammar and solver, so a game can use it without the editor. Sanctuary, the game this was built for, depends on `bevy_emerge_core` by path and lays out its town blocks with it. See [your game](docs/guide/your-game.md) for the steps.
+Depend on `bevy_grimoire_core` and `bevy_grimoire` from crates.io (`bevy_grimoire_core = "0.1"`, `bevy_grimoire = "0.1"`), and on the other crates by path or git to follow this repository. `bevy_grimoire_core` has no engine dependency and holds the grammar and solver, so a game can use it without the editor. Sanctuary, the game this was built for, depends on `bevy_grimoire_core` by path and lays out its town blocks with it. See [your game](docs/guide/your-game.md) for the steps.
 
 ## Crates
 
 | Crate | What it is |
 |---|---|
-| `bevy_emerge_mapper` | The standalone editor. Opens a project directory and writes the files a game loads. |
-| `bevy_emerge_mcp` | The MCP server that gives an agent the editor's operations over stdio. It talks to the running editor. |
-| `bevy_emerge` | The runtime half. Loads a library and a map into a Bevy world. |
-| `bevy_emerge_core` | The world-building core: constraint representation, solvers, wave function collapse and the grammar learner. Engine-free. |
-| `bevy_emerge_solver` | A deterministic SAT back-end. It reads no clock and uses no threads or entropy. |
-| `bevy_emerge_anim` | Blends clip weights on a skinned rig's animation player. |
-| `bevy_emerge_rng` | One deterministic ChaCha8 random stream. `bevy_emerge_core` re-exports it. |
-| `bevy_emerge_snip` | Cuts one rectangle out of a picture of the editor. Shared by the editor and the MCP server. |
+| `bevy_grimoire_mapper` | The standalone editor. Opens a project directory and writes the files a game loads. |
+| `bevy_grimoire_mcp` | The MCP server that gives an agent the editor's operations over stdio. It talks to the running editor. |
+| `bevy_grimoire` | The runtime half. Loads a library and a map into a Bevy world. |
+| `bevy_grimoire_core` | The world-building core: constraint representation, solvers, wave function collapse and the grammar learner. Engine-free. |
+| `bevy_grimoire_solver` | A deterministic SAT back-end. It reads no clock and uses no threads or entropy. |
+| `bevy_grimoire_anim` | Blends clip weights on a skinned rig's animation player. |
+| `bevy_grimoire_rng` | One deterministic ChaCha8 random stream. `bevy_grimoire_core` re-exports it. |
+| `bevy_grimoire_snip` | Cuts one rectangle out of a picture of the editor. Shared by the editor and the MCP server. |
 | `bevy_devshot` | A frame on demand. Touch a sentinel file and the next frame is written as a PNG from the GPU. |
 
 ## Documentation
@@ -97,7 +97,7 @@ Depend on `bevy_emerge_core` and `bevy_emerge` from crates.io (`bevy_emerge_core
 - [Guide](docs/guide/README.md): every page, in reading order.
 - [MCP tools](docs/mcp-tools.md): the tools an agent can call.
 - [The development loop](docs/guide/loop.md): how the project is built, one iteration at a time.
-- [Mapper README](crates/bevy_emerge_mapper/README.md): what the editor is and its status.
+- [Mapper README](crates/bevy_grimoire_mapper/README.md): what the editor is and its status.
 
 ## Contributing
 

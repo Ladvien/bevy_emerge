@@ -35,7 +35,7 @@ def binary(name):
     target = Path(json.loads(out.stdout)["target_directory"])
     path = target / "debug" / name
     if not path.is_file():
-        sys.exit(f"{path} is not built: run `cargo build -p bevy_emerge_mapper -p bevy_emerge_mcp` first")
+        sys.exit(f"{path} is not built: run `cargo build -p bevy_grimoire_mapper -p bevy_grimoire_mcp` first")
     return path
 
 
@@ -54,7 +54,7 @@ SKIP_DIRS = ("third_party", "sources", ".git")
 def make_scratch(source, dest):
     """A throwaway copy of a project: `dest/assets` holds what `source` holds, minus `SKIP_DIRS`.
 
-    A project root is a directory holding `assets/emerge`, so copying `assets` is what makes one.
+    A project root is a directory holding `assets/grimoire`, so copying `assets` is what makes one.
     The source is only ever read — a live check that wrote to a person's project would be the one
     thing this loop must never do.
     """
@@ -64,7 +64,7 @@ def make_scratch(source, dest):
     src = Path(source)
     assets = dest / "assets"
     # **What a run reads, and not the whole tree.** Sanctuary's `assets` is 1.5 GB and the acceptance
-    # touches `emerge/` (the kit, the maps, the vocabulary — under a megabyte) and `models/` (the
+    # touches `grimoire/` (the kit, the maps, the vocabulary — under a megabyte) and `models/` (the
     # meshes the palette draws). `third_party/` and `sources/` are 1.4 GB of reference art and
     # `.blend` files no editor path reads, and copying them filled the disk twice — `errno=28`
     # mid-run, which is a full disk and not a failure of the thing being measured.
@@ -84,13 +84,13 @@ class Editor:
     """One editor process on a scratch project, closed by its own pid.
 
     **Closed by pid, never by name.** The person may have an editor open on their own project, and
-    `pkill -f bevy_emerge_mapper` would take theirs down with ours.
+    `pkill -f bevy_grimoire_mapper` would take theirs down with ours.
     """
 
     def __init__(self, project, *args, capture_log=True):
         self.project = Path(project)
         self.port = free_port()
-        self.mapper = binary("bevy_emerge_mapper")
+        self.mapper = binary("bevy_grimoire_mapper")
         log = self.project / "target" / "loop" / "editor.log"
         log.parent.mkdir(parents=True, exist_ok=True)
         self.log_path = log
@@ -106,7 +106,7 @@ class Editor:
         return self.proc.poll() is None
 
     def wait_ready(self, pred=lambda state: True, limit=120):
-        """Block until the editor answers `emerge/state` and `pred(state)` holds.
+        """Block until the editor answers `grimoire/state` and `pred(state)` holds.
 
         The port is open before the world is: BRP answers as soon as the plugin is added, so a
         predicate on the state is what "ready" means. Anything else races the first frame.
@@ -122,7 +122,7 @@ class Editor:
                     pass
                 raise RuntimeError(f"the editor exited before it was ready (see {self.log_path})\n{tail}")
             try:
-                last = brp(self.port, "emerge/state", {})["result"]
+                last = brp(self.port, "grimoire/state", {})["result"]
             # **A refused connection and a method that is not registered yet are both "not ready".**
             # `brp` raises `RuntimeError` for a JSON-RPC error, which at this point means the bridge is
             # up and its handlers are not — and treating that as fatal made the script give up while
@@ -169,7 +169,7 @@ class Client(McpClient):
     def text(self, tool, args=None):
         """One call, its answer as text, without parsing it as JSON.
 
-        `emerge_capture_still` answers with a path and a fingerprint; a tool that answers prose
+        `grimoire_capture_still` answers with a path and a fingerprint; a tool that answers prose
         would break `json_call`, and a caller that only wants the text should not have to care.
         """
         want = self._next()

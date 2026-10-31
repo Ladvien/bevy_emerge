@@ -4,7 +4,7 @@
   "scale": 2,
   "width": 600,
   "crop": [503, 239, 917, 513],
-  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-17, -17, -13, -13]}}}],
+  "setup": [{"mcp": "grimoire_frame_view", "args": {"target": {"rect": [-17, -17, -13, -13]}}}],
   "chunks": [{"seconds": 3.0}],
   "steps": [
     {"at": 0.0, "caption": "person: the view is zoomed in on one corner"},

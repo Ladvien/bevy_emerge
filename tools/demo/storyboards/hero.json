@@ -4,7 +4,7 @@
   "scale": 2,
   "width": 600,
   "crop": [470, 64, 950, 690],
-  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [-30, -40, 60, 10]}}}],
+  "setup": [{"mcp": "grimoire_frame_view", "args": {"target": {"rect": [-30, -40, 60, 10]}}}],
   "chunks": [
     {"seconds": 6},
     {"seconds": 2.5, "operation": {"name": "placement_remove", "parameters": {"id": "block_3_1"}}},
@@ -19,7 +19,7 @@
     {"at": 3.6, "caption": "person: type a note, Enter saves"},
     {"at": 3.8, "type": "remove these houses"},
     {"at": 5.2, "key": "Enter"},
-    {"at": 5.5, "mcp": "emerge_list_snips", "args": {"limit": 1}, "caption": "agent: reads the snip"},
+    {"at": 5.5, "mcp": "grimoire_list_snips", "args": {"limit": 1}, "caption": "agent: reads the snip"},
     {"at": 6.0, "caption": "agent: placement_remove block_3_1"},
     {"at": 8.5, "caption": "agent: placement_remove block_4_1"},
     {"at": 11.0, "caption": "person: ⌘Z takes the newest change back"},

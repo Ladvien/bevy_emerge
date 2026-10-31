@@ -1,10 +1,10 @@
 ---
-description: One build-loop pass on bevy_emerge. Fix confirmed bugs, ship at most one verified enhancement with visual proof, leave the tree pushed and green, then stop. Designed to be run headless in a Wiggum loop on big with DeepSeek 4.1 Flash — every pass starts from a fresh context and its only memory is the repo.
+description: One build-loop pass on bevy_grimoire. Fix confirmed bugs, ship at most one verified enhancement with visual proof, leave the tree pushed and green, then stop. Designed to be run headless in a Wiggum loop on big with DeepSeek 4.1 Flash — every pass starts from a fresh context and its only memory is the repo.
 argument-hint: "[optional focus area, e.g. compositions | wfc | labeller | tile-kits | maps]"
 disable-model-invocation: true
 ---
 
-# bevy_emerge: one build-loop pass
+# bevy_grimoire: one build-loop pass
 
 You are one pass of a **Wiggum loop**: a dumb outer shell reruns this same prompt forever, in the
 background, with no memory carried between passes. **Everything you know about previous passes is in the
@@ -84,13 +84,13 @@ and the difference is invisible from inside the loop. So these paths are **read-
 
 **Exceptions the owner has written.** These are granted outright, with no assumed decision to record:
 
-- **#89 (Notes 1/7), `crates/bevy_emerge_mapper/src/keys.rs`'s `#[cfg(test)]` block:** add the note tool's one `Action` to the action list that must match `BINDINGS`, and raise `(Context::Map, 31)` to `32` in `no_context_gains_a_key`, with a comment in that test's style saying what the key is and why. Only in the commit that adds that action and its binding (Shift+N, with `RenameMap` made Shift-up), whose message says "owner exception, #89". Nothing else in the block changes. Granted 2026-10-28.
+- **#89 (Notes 1/7), `crates/bevy_grimoire_mapper/src/keys.rs`'s `#[cfg(test)]` block:** add the note tool's one `Action` to the action list that must match `BINDINGS`, and raise `(Context::Map, 31)` to `32` in `no_context_gains_a_key`, with a comment in that test's style saying what the key is and why. Only in the commit that adds that action and its binding (Shift+N, with `RenameMap` made Shift-up), whose message says "owner exception, #89". Nothing else in the block changes. Granted 2026-10-28.
 
-- **Family crates (#96–#108), `crates/bevy_emerge_mapper/tests/leaf.rs`'s `ALLOWED`:** the commit that adds a family crate (a Ladvien repo listed in `AGENTS.md`'s "Use the ladvien crate family") to the editor's `[dependencies]` adds that crate's one row to `ALLOWED`, with a reason naming its issue. The dependency must be `optional = true`, behind a cargo feature named after the crate, and pinned by git `rev`. Nothing else in `leaf.rs` changes, and no other crate is added this way. The commit message says "owner exception, family". Granted 2026-10-29; the first row, `bevy_elements`, the owner added himself.
+- **Family crates (#96–#108), `crates/bevy_grimoire_mapper/tests/leaf.rs`'s `ALLOWED`:** the commit that adds a family crate (a Ladvien repo listed in `AGENTS.md`'s "Use the ladvien crate family") to the editor's `[dependencies]` adds that crate's one row to `ALLOWED`, with a reason naming its issue. The dependency must be `optional = true`, behind a cargo feature named after the crate, and pinned by git `rev`. Nothing else in `leaf.rs` changes, and no other crate is added this way. The commit message says "owner exception, family". Granted 2026-10-29; the first row, `bevy_elements`, the owner added himself.
 
 - **A new field on a saved schema type (`Map`, `Descriptor`, `Library`, a composition, a settings file; first needed by #115), in any test file or `#[cfg(test)]` block:** the commit that adds the field may (a) add that field with its empty default (`Vec::new()`, `None`, `Default::default()`) to struct literals that spell every field out, and (b) raise an assert on that type's format version (`MAP_VERSION` and its kin) by exactly one, to the version the commit introduces. Nothing else in those tests changes: no assertion is removed, loosened or re-pinned, and a test that fails for any other reason is a failure of the change. The commit must also load the previous version (a migration, with a test that reads an old-version file), and its message says "owner exception, schema field". Granted 2026-10-29.
 
-- **A new editor test file, `crates/bevy_emerge_mapper/tests/all.rs`:** the editor's integration tests are modules of ONE test binary (`--test editor`; `autotests = false`), so a new `crates/bevy_emerge_mapper/tests/<name>.rs` adds its one `mod <name>;` line to `all.rs`, in order, and writes `use crate::fixtures;`, not `mod fixtures;`. Nothing else in `all.rs` changes. Run one file's tests with `cargo test -p bevy_emerge_mapper --test editor <name>::`. Tests share one process, so a scratch path is unique to its test (its name and `std::process::id()`). Granted 2026-10-29.
+- **A new editor test file, `crates/bevy_grimoire_mapper/tests/all.rs`:** the editor's integration tests are modules of ONE test binary (`--test editor`; `autotests = false`), so a new `crates/bevy_grimoire_mapper/tests/<name>.rs` adds its one `mod <name>;` line to `all.rs`, in order, and writes `use crate::fixtures;`, not `mod fixtures;`. Nothing else in `all.rs` changes. Run one file's tests with `cargo test -p bevy_grimoire_mapper --test editor <name>::`. Tests share one process, so a scratch path is unique to its test (its name and `std::process::id()`). Granted 2026-10-29.
 
 ## Owner input: recommend, record, proceed
 
@@ -186,14 +186,14 @@ it to this pass.
 Before you pick an item, list the repository's open issues and triage them:
 
 ```sh
-gh issue list --repo Ladvien/bevy_emerge --state open --limit 100 \
+gh issue list --repo bevy-coven/bevy_grimoire --state open --limit 100 \
   --json number,title,labels,createdAt --jq '.[] | "#\(.number) [\(.labels | map(.name) | join(","))] \(.title)"'
 ```
 
 `gh` is installed and logged in on the laptop, big and big_mac (big_mac since 2026-10-28). If it is absent or its login fails, run this instead. It needs no login and prints the same list, but nothing can be filed or commented without `gh`, so say so in the log line:
 
 ```sh
-curl -s "https://api.github.com/repos/Ladvien/bevy_emerge/issues?state=open&per_page=100" \
+curl -s "https://api.github.com/repos/Ladvien/bevy_grimoire/issues?state=open&per_page=100" \
   | python3 -c 'import json,sys; [print("#%s [%s] %s" % (i["number"], ",".join(l["name"] for l in i["labels"]), i["title"])) for i in json.load(sys.stdin) if "pull_request" not in i]'
 ```
 
@@ -264,7 +264,7 @@ Several passes run at once (owner, 2026-10-29), each in its **own clone on its o
 4. **Release when you stop.** Remove your label when the issue closes (`Fixes #N`), and when you leave it blocked (with the comment saying what it needs).
 5. **Work that is not an issue is claimed by making it one** (owner, 2026-10-29: "They shouldn't stay idle."). A worker with no issue it can claim takes non-issue work: Phase 1's backlog bugs, the series' next step, the focus's backlog items (items 4–6), or a feature it researches itself (Phase 2). Claim it before writing code, so two workers never build one item: search for an open issue naming it (`gh issue list --state open --search "<backlog id or title>"`); with none, `gh issue create --label enhancement --label worker:<name> --title "<backlog id>: <title>"` with the backlog entry, or the research summary and its sources, as the body. Then it is a claimed issue like any other (items 1–4). Releases stay `bevy_emerge_loop`'s alone (Phase 5).
 6. **A red check on `main` is everyone's bug, and one worker's item.** The first to see it opens a `bug` issue naming the failing test and the commit that turned it red (unless one is open) and claims it. The others treat that failure as pre-existing (Phase 1's triage) and go on.
-7. **GitHub Actions is not your gate.** CI runs once a day (`.github/workflows/ci.yml`). Never wait for, poll or re-run a workflow: the local gate (Phase 4) is the gate, and a green local gate is what lets you push. At the start of a pass, read the last daily run once: `gh run list --workflow ci.yml --limit 1 --json conclusion,headSha,url`. A `failure` is a bug: open a `bug` issue naming that run unless one is open, and the ranking takes it first. The push runs the local gate too: each worker clone sets `core.hooksPath=tools/loop/hooks`, whose `pre-push` runs clippy and `cargo test --workspace` on the commit you push to `main` (only `backlog.py check` and `changelog.py check` when the push changes nothing but docs and media) and refuses the push when one fails. Give `git push` a timeout of at least 1800 s. A refused push is a red gate: fix it, or log the item as blocked and ship only what passes. Never push with `--no-verify` and never change `core.hooksPath`. Measured 2026-10-29: w3's passes 4–8 each reported "I did not run `cargo test --workspace`" and pushed `bevy_emerge_decide` tests that failed 165 of 200 runs, so `main` was red.
+7. **GitHub Actions is not your gate.** CI runs once a day (`.github/workflows/ci.yml`). Never wait for, poll or re-run a workflow: the local gate (Phase 4) is the gate, and a green local gate is what lets you push. At the start of a pass, read the last daily run once: `gh run list --workflow ci.yml --limit 1 --json conclusion,headSha,url`. A `failure` is a bug: open a `bug` issue naming that run unless one is open, and the ranking takes it first. The push runs the local gate too: each worker clone sets `core.hooksPath=tools/loop/hooks`, whose `pre-push` runs clippy and `cargo test --workspace` on the commit you push to `main` (only `backlog.py check` and `changelog.py check` when the push changes nothing but docs and media) and refuses the push when one fails. Give `git push` a timeout of at least 1800 s. A refused push is a red gate: fix it, or log the item as blocked and ship only what passes. Never push with `--no-verify` and never change `core.hooksPath`. Measured 2026-10-29: w3's passes 4–8 each reported "I did not run `cargo test --workspace`" and pushed `bevy_grimoire_decide` tests that failed 165 of 200 runs, so `main` was red.
 8. **Merge, never force.** On a refused push, `git pull --no-rebase origin main` and push again at once. A clean merge (no conflict, no hand edit) into a commit that already passed the push gate in this clone runs only clippy over every target, in minutes, so the retry is cheap; a merge where you resolved a conflict runs the full gate again, and a conflict with another worker's change keeps both changes. Never amend or edit the merge commit itself: that is a hand edit, and it costs the full gate. **A push that ends "Connection to github.com closed by remote host" after the gate printed `passed` did not land: push the same commit again at once.** The gate remembers it and skips (`already passed the gate in this clone`). Measured 2026-10-29: bevy_emerge_loop's pass 127 gated #115's commits for 30 minutes twice and lost both pushes this way.
 9. **Every visible feature ships with its clip and its docs** (Phase 5): a changelog line with a demo clip, and its section in the README or `docs/guide/`. A worker on big records under its unit's Xvfb display first. If no clip there passes the look, it writes `--no-clip "visible, not yet recorded: no display on big"`, and **`bevy_emerge_w2` (a Mac) records the oldest such line before claiming new work** in its next pass. A feature without a clip after a day is a bug in the docs.
 
@@ -272,8 +272,8 @@ Several passes run at once (owner, 2026-10-29), each in its **own clone on its o
 
 The owner's crates (`bevy_elements`, `bevy_flora`, `bevy_lights`, `bevy_society`, `bevy_speech_bubbles`, `bevy_stigmergy`, `bevy_light_grid`, `bevy_orca`, `bevy_carnage`, `bevy_fairy`, `isomesh`; issues #96–#108) are integrated by **configuring them, never by forking, wrapping or patching them here**. When an item needs a change in one of them (a missing API, a setting that cannot change at runtime, a bug), the change is made **in that crate's repository** and this editor then takes it by moving its pin.
 
-1. **Check for one first.** `gh issue list --repo Ladvien/<crate> --state open --label consumer:bevy_emerge` and read the titles. Add to an open one rather than filing a twin.
-2. **File it.** `gh issue create --repo Ladvien/<crate> --label consumer --label consumer:bevy_emerge`, with a title saying what the crate should do, and a body with **Problem** (what the editor cannot do, with the call or setting), **Want** (the crate-side behaviour, general enough for any game or tool), **Acceptance** (a test in that repository that fails before and passes after), and **Needed by: Ladvien/bevy_emerge#N**. Comment on the editor issue with the link.
+1. **Check for one first.** `gh issue list --repo Ladvien/<crate> --state open --label consumer:bevy_grimoire` and read the titles. Add to an open one rather than filing a twin.
+2. **File it.** `gh issue create --repo Ladvien/<crate> --label consumer --label consumer:bevy_grimoire`, with a title saying what the crate should do, and a body with **Problem** (what the editor cannot do, with the call or setting), **Want** (the crate-side behaviour, general enough for any game or tool), **Acceptance** (a test in that repository that fails before and passes after), and **Needed by: bevy-coven/bevy_grimoire#N**. Comment on the editor issue with the link.
 3. **Mark the editor item waiting.** Its backlog evidence (or a comment on its issue) gets `Needs: Ladvien/<crate>#M`. The item is not ready while that issue is open; choose another item. A waiting item never stops the pass.
 4. **Who builds it** depends on whether that crate's own loop is running. `docs/loop/focus.md` lists, under "Family loops running", the crates whose loops the owner has running.
    - **Listed:** leave it to that loop, and re-check the issue each pass.
@@ -403,8 +403,8 @@ recording of the GIF above it when it shows different objects. Before you push a
 3. **Media you cannot regenerate here is logged, not left lying.** With no GPU or display on this machine, name
    the stale file and its path in the report and change its caption to what it still shows.
 4. **Generated docs are regenerated, never edited.** `docs/mcp-tools.md` is rendered from the server's own tool
-   declarations (`cargo run -q -p bevy_emerge_mcp -- --emit-docs > docs/mcp-tools.md`) and
-   `cargo test -p bevy_emerge_mcp --test docs_are_current` must pass. A command the README tells a reader to
+   declarations (`cargo run -q -p bevy_grimoire_mcp -- --emit-docs > docs/mcp-tools.md`) and
+   `cargo test -p bevy_grimoire_mcp --test docs_are_current` must pass. A command the README tells a reader to
    run is run, not recalled.
 
 ## Guardrails

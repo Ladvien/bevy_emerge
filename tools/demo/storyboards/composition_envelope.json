@@ -4,11 +4,11 @@
  "scale": 2,
  "width": 960,
  "setup": [
-  {"mcp": "emerge_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "table", "at": [5.0, 5.0]}}},
-  {"mcp": "emerge_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "dining_chair", "at": [5.0, 4.2]}}},
-  {"mcp": "emerge_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "dining_chair", "at": [5.0, 5.8]}}},
-  {"mcp": "emerge_apply_operation", "args": {"operation": "composition_define", "parameters": {"id": "dining_corner", "from": ["table@1", "dining_chair@2", "dining_chair@3"]}}},
-  {"mcp": "emerge_apply_operation", "args": {"operation": "door_open", "parameters": {"door": "kit", "tab": "compose"}}}
+  {"mcp": "grimoire_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "table", "at": [5.0, 5.0]}}},
+  {"mcp": "grimoire_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "dining_chair", "at": [5.0, 4.2]}}},
+  {"mcp": "grimoire_apply_operation", "args": {"operation": "placement_add", "parameters": {"piece": "dining_chair", "at": [5.0, 5.8]}}},
+  {"mcp": "grimoire_apply_operation", "args": {"operation": "composition_define", "parameters": {"id": "dining_corner", "from": ["table@1", "dining_chair@2", "dining_chair@3"]}}},
+  {"mcp": "grimoire_apply_operation", "args": {"operation": "door_open", "parameters": {"door": "kit", "tab": "compose"}}}
  ],
  "chunks": [
   {"seconds": 4},

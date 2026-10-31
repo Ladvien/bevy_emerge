@@ -4,7 +4,7 @@
 
 ## The problem
 
-`crates/bevy_emerge_core/src/placement/` is 2,546 lines: a staged placement stack with an IR
+`crates/bevy_grimoire_core/src/placement/` is 2,546 lines: a staged placement stack with an IR
 (`ir.rs`, 464), a `Solver` trait and orchestrator (`solver.rs`, 339), a RON asset manifest
 (`manifest.rs`, 290), fine-level prop scatter (`scatter.rs`, 312), a closed surface-class table
 (`surfaces.rs`, 68), and three backends — WFC (`solvers/wfc.rs`, 209), Metropolis
@@ -35,13 +35,13 @@ legacy shims, no stub placeholders".
 
 ### A. Delete it
 
-Remove `placement/` and its three backends, and the `bevy_emerge_solver` dependency if nothing else
+Remove `placement/` and its three backends, and the `bevy_grimoire_solver` dependency if nothing else
 uses it. Fold the two pieces worth keeping into their real homes: `surfaces.rs` (a closed
 surface-class table) into `descriptor.rs` or `vocab.rs`; `scatter.rs` (fine-level prop scatter) if
 it is wanted, into a module of its own with a real name.
 
 - **Cost:** ~2,546 lines go. Any future that wanted a general placement solver has to start over.
-  `bevy_emerge_solver` (604 lines, batsat) loses its only consumer, though `constraints.rs` also
+  `bevy_grimoire_solver` (604 lines, batsat) loses its only consumer, though `constraints.rs` also
   uses it, so it survives.
 - **Gains:** one placement path — the grammar/WFC one that `rules.rs` implements and the editor's
   `G` preview shares with the game. The "staged scaffolding" stops being scaffolding.

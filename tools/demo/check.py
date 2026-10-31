@@ -68,7 +68,7 @@ def change_moments(rec):
                 moments.append(("undo", e["t"]))
             elif "Home" in keys:
                 moments.append(("home", e["t"]))
-        elif e["type"] == "agent" and e.get("tool") == "emerge_frame_view":
+        elif e["type"] == "agent" and e.get("tool") == "grimoire_frame_view":
             moments.append(("view", e["t"]))
     return sorted(moments, key=lambda m: m[1])
 

@@ -1,0 +1,2067 @@
+//! **What rests on what, and how high that puts it.**
+//!
+//! A lamp on a table stands at the table's height. That sentence was expressible in the schema —
+//! [`Mount::OnSurface`] has been there since the descriptor was designed, and ten shipped descriptors
+//! declare it — and it was implemented nowhere. `origin_of` matched `OnWall` and `OnCeiling` and sent
+//! everything else to a `_ => 0.0` arm, so every lamp, plant, television and globe in the library was
+//! placed on the floor. The editor drew it on the floor and the game agreed, which is the failure mode
+//! a shared spawner produces when the thing it shares is wrong: consistent and wrong beats
+//! inconsistent, but not by much.
+//!
+//! # A reference, not a height
+//!
+//! [`crate::map::Placed::on`] names the placement underneath rather than storing a Y. Move the table
+//! and the lamp moves with it. A stored height is correct until someone drags the host and then wrong
+//! in a way that reads as bad authoring rather than as stale data — the same argument
+//! [`crate::map::Placed::id`] makes for being a string instead of an index.
+//!
+//! This is Tutenel et al.'s *semantic class* relation rather than geometry: a piece declares the
+//! surface **class** it needs (`"worktop"`), a host declares the classes it **offers**, and matching
+//! is by class. `bevy_grimoire_core::vocab` already turns both sides into bitmasks — Game AI Pro 4 ch.4's
+//! *"comparing these bitmasks is a very efficient way to filter out invalid links"* — so the check
+//! costs one `&`.
+//!
+//! # Height is measured, not authored
+//!
+//! The top of a piece is its origin plus its drawn height, and *drawn* is the operative word:
+//! `align.scale` and `align.stretch_y` are applied to the entity, so a table measured at 0.796 m and
+//! scaled 1.2 presents its surface at 0.955 m. Reading `extent.height` alone would put the lamp inside
+//! the tabletop on every scaled piece, and nothing downstream would say so.
+//!
+//! That rule is [`crate::descriptor::placed_height`]. It used to be `drawn_height`, defined here —
+//! which was fine for stacking and wrong for everyone else, because `divisions` and `adjacency` wrote
+//! the product out by hand and dropped the `scale` factor. One definition now, in the schema layer
+//! both can reach.
+
+use std::borrow::Cow;
+
+use crate::heightfield::Heightfield;
+use crate::descriptor::{placed_footprint, placed_height, Descriptor, Mount, DecalHost};
+use crate::library::Library;
+use crate::map::{Map, Placed};
+use crate::volume::Volume;
+
+/// **The descriptor a placement actually has**: the library's descriptor for `p.descriptor`, layered
+/// with `p.patch` when the placement carries one.
+///
+/// A placement's `patch` is how a mesh-less marker gets its real size (a road is one descriptor and a
+/// different length per placement) and how any piece is overridden for one copy. Every question about
+/// a placed piece — its footprint, its height, what it blocks, what it offers, where a click lands —
+/// is a question about *this* descriptor, so the editor and the solvers all ask it here instead of
+/// reading `library.get(&p.descriptor)` and silently measuring the unpatched piece.
+///
+/// A `Cow` so the common case, no patch, borrows the library's descriptor and clones nothing. `None`
+/// when the library does not define `p.descriptor`.
+pub fn descriptor_of<'a>(library: &'a Library, p: &Placed) -> Option<Cow<'a, Descriptor>> {
+    descriptor_with(library, &p.descriptor, p.patch.as_ref())
+}
+
+/// [`descriptor_of`] for a caller that holds the id and the patch apart from a [`Placed`] — a piece
+/// of a held clone set, a candidate not yet written to the map.
+pub fn descriptor_with<'a>(
+    library: &'a Library,
+    id: &str,
+    patch: Option<&Descriptor>,
+) -> Option<Cow<'a, Descriptor>> {
+    let base = library.get(id)?;
+    Some(match patch {
+        Some(patch) => Cow::Owned(base.patched_with(patch)),
+        None => Cow::Borrowed(base),
+    })
+}
+
+/// The surface class a descriptor needs **under** it, if it cannot stand without one.
+///
+/// The strict question, and the one every "may this piece go here" guard must ask: a piece that
+/// answers `Some` here and finds no host is refused rather than floored. [`may_take_surface`] is the
+/// permissive sibling, and the difference between the two is the whole of
+/// [`Mount::OnSurfaceOrFloor`].
+pub fn needs_surface(d: &Descriptor) -> Option<&str> {
+    match &d.mount {
+        Some(Mount::OnSurface { class }) => Some(class.as_str()),
+        _ => None,
+    }
+}
+
+/// The surface class a descriptor **would take** if something offering it were under the piece.
+///
+/// `Some` for both surface mounts, because both consult a host when there is one. It is not
+/// [`needs_surface`]: a [`Mount::OnSurfaceOrFloor`] piece that finds no host stands on the floor, so
+/// a caller deciding whether a placement is *legal* asks `needs_surface`, while a caller looking for
+/// what is *under* a piece asks this one.
+///
+/// Two functions rather than one returning a flag, because a `bool` at the call site reads as
+/// "does it need a surface" at both sites and one of them must not.
+pub fn may_take_surface(d: &Descriptor) -> Option<&str> {
+    match &d.mount {
+        Some(Mount::OnSurface { class } | Mount::OnSurfaceOrFloor { class }) => Some(class.as_str()),
+        _ => None,
+    }
+}
+
+/// The face class a descriptor needs to be fixed to, and how far up it, if it needs one.
+///
+/// Its own function rather than a second return from [`needs_surface`]: the two answer different
+/// questions and exactly one of them can be true of a piece, so a caller that wants "does this need a
+/// host at all" asks both and reads better for it.
+pub fn needs_face(d: &Descriptor) -> Option<(&str, f32)> {
+    match &d.mount {
+        Some(Mount::OnFace { class, height }) => Some((class.as_str(), *height)),
+        _ => None,
+    }
+}
+
+/// **The host a piece consults, and how far above that host's own base it lands.**
+///
+/// `None` for every piece that derives its height from the map rather than from a neighbour — the
+/// floor, the ceiling, a doorway, a decal — **and for a [`Mount::OnSurfaceOrFloor`] that took the
+/// floor**, which is the one case where the answer depends on the placement rather than on the
+/// descriptor.
+///
+/// One function because the lookup is not cheap of thought: it resolves another placement's Y, and a
+/// second copy of it is a second place for "the host is gone" to become a different sentence. Before
+/// this, `resolve_one` asked `needs_face` twice to decide between two branches, and the shape a third
+/// host-bearing mount would have had to copy is exactly what a `_ => None` wildcard would have let it
+/// skip.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HostNeed<'a> {
+    /// Rests on a piece offering this surface class; the lift is that piece's own height.
+    Surface(&'a str),
+    /// Fixed to a piece presenting this face class, `f32` metres up it.
+    Face(&'a str, f32),
+}
+
+pub fn host_need<'a>(d: &'a Descriptor, on: Option<&str>) -> Option<HostNeed<'a>> {
+    match &d.mount {
+        Some(Mount::OnSurface { class }) => Some(HostNeed::Surface(class)),
+        // **Resolved by what the placement recorded.** `Placed::on` is the record of which mount it
+        // took: `Some(host)` says it took the surface, `None` says it stands on the floor. A seated
+        // piece whose host has gone is still an error — `resolve_one` refuses it below rather than
+        // letting it fall to the floor, because a silent fall moves a piece the author had seated.
+        Some(Mount::OnSurfaceOrFloor { class }) => {
+            on.map(|_| HostNeed::Surface(class))
+        }
+        Some(Mount::OnFace { class, height }) => Some(HostNeed::Face(class, *height)),
+        _ => None,
+    }
+}
+
+/// Whether `host` offers the surface **or the face** `guest` asks for.
+///
+/// String comparison here rather than the resolved masks because the editor works with a candidate
+/// that has not been through `Vocabularies::masks` yet. The vocabulary check still happens — at
+/// library load, where a misspelled class is refused for everyone at once rather than by failing to
+/// stack.
+///
+/// The two lists are checked separately rather than merged: a class is a class, but reading a top as
+/// a face would put a sconce on a wall's roof.
+pub fn offers_for(host: &Descriptor, guest: &Descriptor) -> bool {
+    // `may_take_surface`, not `needs_surface`: a piece that *may* take a surface and finds a host
+    // offering its class must be seated on it, so "does this host present the class" has to be asked
+    // of the permissive mount too. Reading the strict one here would silently drop every
+    // `OnSurfaceOrFloor` piece to the floor even when a bench is under it.
+    if let Some(class) = may_take_surface(guest) {
+        return host.offers.surfaces.iter().any(|s| s == class);
+    }
+    if let Some((class, _)) = needs_face(guest) {
+        return host.offers.faces.iter().any(|s| s == class);
+    }
+    false
+}
+
+/// Whether a point in map space falls inside a placed piece's footprint.
+///
+/// Yaw-aware: the probe is rotated into the piece's own frame before the half-extent test, so a table
+/// turned 90° is tested as the 0.8 × 1.6 rectangle it now occupies rather than the 1.6 × 0.8 one it
+/// was measured as. The flood fill learned this the expensive way — it used `max(w, d)` on both axes
+/// and striped the floor.
+///
+/// A piece with no measured footprint covers nothing. It is unmeasured, not flat, and treating unknown
+/// as "everywhere" would let a lamp land on a mystery.
+pub fn covers(d: &Descriptor, placed_at: (f32, f32), yaw: f32, probe: (f32, f32)) -> bool {
+    let Some((w, depth)) = placed_footprint(d) else {
+        return false;
+    };
+    let (dx, dz) = (probe.0 - placed_at.0, probe.1 - placed_at.1);
+    // Into the piece's frame: rotate by -yaw. Bevy's yaw is about +Y, so a positive yaw turns +X
+    // toward -Z; the inverse used here is the transpose of that rotation.
+    let (s, c) = (-yaw).to_radians().sin_cos();
+    let local_x = dx * c + dz * s;
+    let local_z = -dx * s + dz * c;
+    local_x.abs() <= w * 0.5 && local_z.abs() <= depth * 0.5
+}
+
+/// The placement under `probe` that can hold `guest` up, and the world Y of its surface.
+///
+/// **The highest one wins**, so a lamp dropped over a shelf standing on a table lands on the shelf.
+/// Ties break on the placement id — unique within a map, so the answer is total and does not depend on
+/// authoring order. This project's determinism lint exists because a "stable enough" key is how the
+/// same map came out two ways.
+pub fn host_under<'a>(
+    map: &'a Map,
+    library: &Library,
+    y: &[f32],
+    guest: &Descriptor,
+    probe: (f32, f32),
+) -> Option<(&'a Placed, f32)> {
+    may_take_surface(guest)?;
+    let mut best: Option<(&Placed, f32)> = None;
+    for (i, p) in map.placements.iter().enumerate() {
+        let (Some(d), Some(&py)) = (descriptor_of(library, p), y.get(i)) else {
+            continue;
+        };
+        let d: &Descriptor = &d;
+        // A tipped piece offers no surface: "where is the tabletop of a table on its side" has no
+        // answer worth inventing, and its recorded footprint no longer describes what it covers.
+        if p.tip != (0, 0) || !offers_for(d, guest) || !covers(d, p.at, p.yaw, probe) {
+            continue;
+        }
+        let Some(top) = placed_height(d).map(|h| py + h) else {
+            continue;
+        };
+        let better = match best {
+            None => true,
+            Some((bp, by)) => (top, p.id.as_str()) > (by, bp.id.as_str()),
+        };
+        if better {
+            best = Some((p, top));
+        }
+    }
+    best
+}
+
+/// The world Y of every placement's origin, in map order.
+///
+/// Resolved together rather than one at a time because a guest's height is its host's height, and the
+/// host may be authored anywhere in the file. [`Map::validate`] has already refused cycles and dangling
+/// hosts, so the walk below terminates; it re-checks anyway, because a caller that skipped validation
+/// deserves an error rather than a hang.
+pub fn resolve_y(map: &Map, library: &Library) -> Result<Vec<f32>, String> {
+    resolve_y_on(map, library, None)
+}
+
+/// [`resolve_y`] over sculpted ground: a piece that stands on the floor (no host under it) rests at
+/// the map's floor **plus the terrain's height under its footprint** ([`Heightfield::rest_height`]: the
+/// highest ground under any corner or the centre, so no corner sinks into a slope). Guests ride their
+/// hosts, so they follow too. `None` is flat ground, exactly [`resolve_y`]. Walls, ceilings, openings
+/// and decals keep the map's own datum: they belong to the building, not the ground.
+pub fn resolve_y_on(map: &Map, library: &Library, ground: Option<&Heightfield>) -> Result<Vec<f32>, String> {
+    resolve_y_in(map, library, ground, None)
+}
+
+/// [`resolve_y_on`] with the map's carved [`Volume`] (#101). A floor-standing piece whose authored
+/// height (the map's floor plus its `lift`) lies in open air under the terrain surface, inside a
+/// carved cave, falls to the cave's floor ([`Volume::floor_below`]); its `lift` is where the drop
+/// starts and is not added again. A start inside rock, or no cave under it, keeps the terrain rest.
+/// Needs `ground`: without terrain there is no surface for a cave to lie under.
+pub fn resolve_y_in(map: &Map, library: &Library, ground: Option<&Heightfield>, volume: Option<&Volume>) -> Result<Vec<f32>, String> {
+    let mut out = vec![f32::NAN; map.placements.len()];
+    let mut done = vec![false; map.placements.len()];
+    for i in 0..map.placements.len() {
+        resolve_one(map, library, (ground, volume), i, &mut out, &mut done, &mut Vec::new())?;
+    }
+    Ok(out)
+}
+
+/// One placement's Y, resolving its host first. `path` carries the chain being walked so a loop names
+/// itself rather than recursing until the stack runs out.
+fn resolve_one(
+    map: &Map,
+    library: &Library,
+    (ground, volume): (Option<&Heightfield>, Option<&Volume>),
+    i: usize,
+    out: &mut [f32],
+    done: &mut [bool],
+    path: &mut Vec<usize>,
+) -> Result<f32, String> {
+    if done[i] {
+        return Ok(out[i]);
+    }
+    if path.contains(&i) {
+        return Err(format!(
+            "map: placement `{}` rests on itself through a loop — nothing in the chain reaches the \
+             floor",
+            map.placements[i].id
+        ));
+    }
+    let p = &map.placements[i];
+    let d_owned = descriptor_of(library, p).ok_or_else(|| {
+        format!(
+            "map: placement `{}` names descriptor `{}`, which this library does not define",
+            p.id, p.descriptor
+        )
+    })?;
+    let d: &Descriptor = &d_owned;
+
+    // The host, resolved first — the only part of the datum that depends on another placement, and so
+    // the only part that can recurse. **Three mounts arrive here and they differ only in how far above
+    // the host they land**: a top answers with the host's own height, a face with a distance measured
+    // up it. Sharing the lookup is what makes "the host is gone" one error rather than three.
+    //
+    // `host_need` also answers *whether* there is a host to look for, and that is what makes
+    // `OnSurfaceOrFloor` work: a placement that recorded no `on` took the floor, so it needs none and
+    // falls through to `datum`'s floor arm — while one that recorded a host is held to the same
+    // refusal a plain `OnSurface` gets when that host has gone.
+    let host_top = match host_need(d, p.on.as_deref()) {
+        Some(need) => {
+            let (class, what, fix) = match need {
+                HostNeed::Surface(class) => (
+                    class,
+                    "mounts on a",
+                    "Placing it at floor level is how a lamp ends up inside the floor — put it on a \
+                     piece that offers `{class}`, or change the descriptor's layer",
+                ),
+                HostNeed::Face(class, _) => (
+                    class,
+                    "is fixed to a",
+                    "put it on a piece that offers the `{class}` face, or change the descriptor's \
+                     layer",
+                ),
+            };
+            let host_id = p.on.as_ref().ok_or_else(|| {
+                format!(
+                    "map: placement `{}` {what} `{class}` and records nothing under it. {}",
+                    p.id,
+                    fix.replace("{class}", class)
+                )
+            })?;
+            let hi = map
+                .placements
+                .iter()
+                .position(|q| &q.id == host_id)
+                .ok_or_else(|| {
+                    format!(
+                        "map: placement `{}` rests on `{host_id}`, which does not exist",
+                        p.id
+                    )
+                })?;
+            let host = &map.placements[hi];
+            let host_d_owned = descriptor_of(library, host).ok_or_else(|| {
+                format!(
+                    "map: host `{}` names descriptor `{}`, which this library does not define",
+                    host.id, host.descriptor
+                )
+            })?;
+            let host_d: &Descriptor = &host_d_owned;
+            // A top lifts by the host's whole height; a face by however far up it the fixture is
+            // fixed. Both are measured from the host's own resolved Y, which is what makes either
+            // one follow the host when it moves.
+            let lift = match need {
+                HostNeed::Face(_, height) => {
+                    if !offers_for(host_d, d) {
+                        return Err(face_refusal(host_d, d, &host.id, &p.id));
+                    }
+                    height
+                }
+                HostNeed::Surface(_) => surface_of(host_d, d, &host.id, &p.id)?,
+            };
+            path.push(i);
+            let host_y = resolve_one(map, library, (ground, volume), hi, out, done, path)?;
+            path.pop();
+            Some(host_y + lift)
+        }
+        None => None,
+    };
+
+    // The authored lift rides on top of whatever the layer decided — and because it lands in
+    // `out`, a guest resolving through its host inherits the host's lift for free: raise the
+    // table and the lamp comes with it.
+    let base_y = datum(map, d, host_top, &p.id)?;
+    let mut y = base_y + p.lift;
+    let on_ground = matches!(&d.mount, None | Some(Mount::OnFloor) | Some(Mount::Tiled) | Some(Mount::OnSurfaceOrFloor { .. }));
+    if let (Some(g), None, true) = (ground, host_top, on_ground) {
+        let surface = base_y + g.height_at(p.at.0, p.at.1);
+        let cave = volume
+            .filter(|_| y < surface)
+            .and_then(|v| v.floor_below(p.at.0, p.at.1, y, surface - y, &|q| q[1] - (base_y + g.height_at(q[0], q[2]))));
+        match cave {
+            Some(floor) => y = floor,
+            None => y += rest_on(g, d, p.at, p.yaw),
+        }
+    }
+    out[i] = y;
+    done[i] = true;
+    Ok(out[i])
+}
+
+/// The terrain height a floor-standing piece rests at: the highest ground under its rotated footprint's
+/// corners or centre. A piece with no measured footprint rests at its centre.
+fn rest_on(g: &Heightfield, d: &Descriptor, at: (f32, f32), yaw: f32) -> f32 {
+    let Some((w, depth)) = placed_footprint(d) else {
+        return g.height_at(at.0, at.1);
+    };
+    // The inverse of the rotation `covers` applies to a probe.
+    let (s, c) = (-yaw).to_radians().sin_cos();
+    let corners: Vec<(f32, f32)> = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+        .iter()
+        .map(|&(sx, sz)| {
+            let (lx, lz) = (sx * w * 0.5, sz * depth * 0.5);
+            (at.0 + c * lx - s * lz, at.1 + s * lx + c * lz)
+        })
+        .collect();
+    g.rest_height(&corners)
+}
+
+/// Why a host cannot carry this fixture, naming what it does offer.
+///
+/// Its own function so the message reads the same shape as [`surface_of`]'s, which is the one an
+/// author has already met — the difference between "cannot hold it up" and "has no such face" is the
+/// only part that should differ.
+fn face_refusal(host_d: &Descriptor, guest: &Descriptor, host_id: &str, guest_id: &str) -> String {
+    let class = needs_face(guest).map(|(c, _)| c).unwrap_or("");
+    format!(
+        "map: `{guest_id}` is fixed to a `{class}` face and rests on `{host_id}`, which presents {}. \
+         A piece that does not present the face cannot carry it.",
+        if host_d.offers.faces.is_empty() {
+            "none".to_owned()
+        } else {
+            host_d.offers.faces.join(", ")
+        }
+    )
+}
+
+/// How far above its own origin a host presents its surface — after checking it is entitled to.
+fn surface_of(host_d: &Descriptor, guest: &Descriptor, host_id: &str, guest_id: &str) -> Result<f32, String> {
+    let class = needs_surface(guest).unwrap_or("");
+    if !offers_for(host_d, guest) {
+        return Err(format!(
+            "map: `{guest_id}` needs a `{class}` surface and rests on `{host_id}`, which offers {}. \
+             A piece that does not offer the class cannot hold it up.",
+            if host_d.offers.surfaces.is_empty() {
+                "none".to_owned()
+            } else {
+                host_d.offers.surfaces.join(", ")
+            }
+        ));
+    }
+    surface_lift(host_d).ok_or_else(|| {
+        format!(
+            "map: `{guest_id}` rests on `{host_id}`, whose descriptor records no height. An \
+             unmeasured piece cannot say where its surface is — measure `{}` in the tiles tab.",
+            host_d.id
+        )
+    })
+}
+
+/// How far above its own **resolved origin** a host's lid sits: `placed_height` less the host's own
+/// `align.y_offset`.
+///
+/// `datum` has already added `y_offset` to the host's Y, and `y_offset` is what seats the mesh's base
+/// on the ground (`-base_y`), so the lid stands `placed_height` above the *ground*, not above the
+/// shifted origin. Lifting a guest by the whole `placed_height` counted the offset twice and left a
+/// guest on `crate_wooden` (offset 0.052) floating above its lid. A host with no offset is unchanged.
+/// Public so a checker can ask a descriptor where its lid is without re-deriving the arithmetic.
+pub fn surface_lift(host_d: &Descriptor) -> Option<f32> {
+    placed_height(host_d).map(|h| h - host_d.align.y_offset.unwrap_or(0.0))
+}
+
+/// **The layer decides the height.** One function, so the editor's ghost and the game's spawner cannot
+/// come to different answers about where a piece goes.
+///
+/// Exhaustive on purpose: the arm that used to be `_ => 0.0` is what silently floored every
+/// `OnSurface` piece in the library, and a wildcard here means the next mount variant repeats it
+/// without a compile error.
+///
+/// `host_top` is the world Y of the surface underneath, and is required by exactly one layer.
+pub fn datum(
+    map: &Map,
+    d: &Descriptor,
+    host_top: Option<f32>,
+    who: &str,
+) -> Result<f32, String> {
+    let base = match &d.mount {
+        // The map's own floor. A door fills its hole from the floor up, and the hole starts there.
+        None | Some(Mount::OnFloor) | Some(Mount::Tiled) | Some(Mount::InOpening { .. }) => {
+            map.origin.1
+        }
+        Some(Mount::OnWall { height }) => map.origin.1 + height,
+        // **The map's ceiling, not a constant.** This was hardcoded 2.4 m, which hung the lights of a
+        // 3.5 m room in mid-air. The map states its own height; that is the only number entitled to
+        // answer this.
+        Some(Mount::OnCeiling) => map.origin.1 + map.bounds.1,
+        Some(Mount::OnSurface { class }) => host_top.ok_or_else(|| {
+            format!("`{who}` needs a `{class}` surface and there is none under it")
+        })?,
+        // **Whichever it took.** A placement that recorded a host was lifted to it by
+        // `resolve_one` and arrives here with `host_top`; one that recorded none stands on the
+        // floor, which is this map's own origin — the same answer `OnFloor` gives, deliberately,
+        // because taking the floor is not a degraded surface.
+        Some(Mount::OnSurfaceOrFloor { .. }) => host_top.unwrap_or(map.origin.1),
+        // Already the host's base plus the height up its face — `resolve_one` did the addition,
+        // because only it can resolve another placement.
+        Some(Mount::OnFace { class, .. }) => host_top.ok_or_else(|| {
+            format!("`{who}` is fixed to a `{class}` face and there is nothing presenting one")
+        })?,
+        // A decal lies on the plane it names. The floor and the ceiling are the map's to state; a
+        // wall's height is nobody's, so `DecalHost::Wall` carries it — this used to be the one arm
+        // with no answer, and it returned an error rather than invent a number.
+        Some(Mount::Decal { on }) => match on {
+            DecalHost::Floor => map.origin.1,
+            DecalHost::Ceiling => map.origin.1 + map.bounds.1,
+            DecalHost::Wall { height } => map.origin.1 + height,
+        },
+    };
+    // A geometric correction on the mesh, applied on top of whatever the layer decided rather than
+    // instead of it: a floor grate is 6 cm into its floor, and into a tabletop too if it sat on one.
+    Ok(base + d.align.y_offset.unwrap_or(0.0))
+}
+
+/// Where a piece **would** go if it were dropped at `probe` right now, and what it would rest on.
+///
+/// The ghost's question and the click's question are the same question, so they ask it once. A piece
+/// that needs a surface and finds none is an `Err` rather than a piece at floor level — the editor
+/// shows the sentence and declines to place it.
+pub fn placement_at<'a>(
+    map: &'a Map,
+    library: &Library,
+    y: &[f32],
+    d: &Descriptor,
+    probe: (f32, f32),
+) -> Result<(f32, Option<&'a Placed>), String> {
+    let host = host_under(map, library, y, d, probe);
+    // **The strict question, on purpose.** Only a piece that *cannot* stand without a host is
+    // refused here. An `OnSurfaceOrFloor` piece that finds none takes the floor, which is one of the
+    // two answers its mount allows — `datum`'s own arm for it lands at the map's origin.
+    if needs_surface(d).is_some() && host.is_none() {
+        let class = needs_surface(d).unwrap_or("");
+        return Err(no_surface_sentence(d, class));
+    }
+    let at = datum(map, d, host.map(|(_, top)| top), &d.id)?;
+    Ok((at, host.map(|(p, _)| p)))
+}
+
+/// The refusal for a piece that needs a surface and finds none under its probe. It is one function so
+/// the ghost can recognise this exact refusal, and not every datum error on a piece with a surface.
+pub fn no_surface_sentence(d: &Descriptor, class: &str) -> String {
+    format!(
+        "`{}` goes on a `{class}` surface — there is none here. Put it on something that offers \
+         one.",
+        d.id
+    )
+}
+
+/// **How deep two footprints must interpenetrate before they are "overlapping"**, metres.
+///
+/// Not zero, and the size is the point: kitbashing wants pieces laid *flush* — wall segment against
+/// wall segment, exactly end to end — and flush pieces touch. An exact test would refuse the very
+/// gesture the overlap rule exists to protect, and float noise would refuse it intermittently,
+/// which is worse. A centimetre of tolerated lap is invisible at authoring scale and makes
+/// touching unambiguous.
+pub const OVERLAP_EPS: f32 = 0.01;
+
+type PlanRect = ((f32, f32), [(f32, f32); 2], (f32, f32));
+
+/// A placed piece's plan rectangle: centre, its two axis directions at this yaw, and half-extents —
+/// tips folded in via [`crate::descriptor::tipped_extents`], so a wall lying on its side reserves
+/// the long low box it actually fills. `None` when unmeasured, on [`covers`]' own rule: unknown is
+/// not flat, and unknown is not everywhere either.
+fn plan_box(d: &Descriptor, at: (f32, f32), yaw: f32, tip: (u8, u8)) -> Option<PlanRect> {
+    let (w, _h, depth) = crate::descriptor::tipped_extents(d, tip)?;
+    let (s, c) = yaw.to_radians().sin_cos();
+    Some((at, [(c, -s), (s, c)], (w * 0.5, depth * 0.5)))
+}
+
+/// Do two plan rectangles interpenetrate by more than [`OVERLAP_EPS`]?
+///
+/// Separating-axis test over the four face normals — exact for any yaw, which matters because yaw
+/// is free degrees here, not the quarter turns a fill rounds to.
+fn plans_overlap(
+    a: PlanRect,
+    b: PlanRect,
+) -> bool {
+    let (ac, aa, ah) = a;
+    let (bc, ba, bh) = b;
+    let d = (bc.0 - ac.0, bc.1 - ac.1);
+    let dot = |u: (f32, f32), v: (f32, f32)| u.0 * v.0 + u.1 * v.1;
+    for n in [aa[0], aa[1], ba[0], ba[1]] {
+        let dist = dot(d, n).abs();
+        let ra = ah.0 * dot(aa[0], n).abs() + ah.1 * dot(aa[1], n).abs();
+        let rb = bh.0 * dot(ba[0], n).abs() + bh.1 * dot(ba[1], n).abs();
+        if dist >= ra + rb - OVERLAP_EPS {
+            return false;
+        }
+    }
+    true
+}
+
+/// Do two pieces contest the same space at all?
+///
+/// The layers are the schema's own, not judgement: two floor-standing pieces share the floor; two
+/// wall pieces share a wall only at the same height; two surface pieces contest only the same host
+/// (`on`); [`Mount::Tiled`] is its own stratum, which is what keeps a floor tile from "blocking"
+/// the crate standing on it — laying floor under a dressed room is `box_fill`'s documented
+/// ordinary case. `Decal` never participates: *"claims no volume"* is its own doc's promise.
+fn same_layer(a: &Descriptor, a_on: Option<&str>, b: &Descriptor, b_on: Option<&str>) -> bool {
+    use Mount::*;
+    match (a.mount.as_ref(), b.mount.as_ref()) {
+        (None | Some(OnFloor), None | Some(OnFloor)) => true,
+        (Some(Tiled), Some(Tiled)) => true,
+        (Some(OnCeiling), Some(OnCeiling)) => true,
+        (Some(InOpening { .. }), Some(InOpening { .. })) => true,
+        (Some(OnWall { height: h1 }), Some(OnWall { height: h2 })) => (h1 - h2).abs() < 1e-3,
+        // **The surface family, resolved by what the placement recorded.** `OnSurfaceOrFloor` is the
+        // one variant whose layer is a property of the placement rather than of the descriptor, so
+        // its two halves are read here: with a host it is a surface piece on that host, without one
+        // it stands in the floor layer.
+        //
+        // Mixed pairs are handled in this arm by `on` alone, which is exactly the resolution: two
+        // surface pieces contest only the same host, and a piece with no host is on the floor
+        // whatever its mount says. A bare `OnSurface` with no `on` cannot occur on a validated map
+        // (resolve refuses it), and reading it as "floor" here would be the silent fall this mount
+        // exists to prevent — so the `None, None` case is narrowed to the two-way variant by name.
+        (
+            Some(OnSurface { .. } | OnSurfaceOrFloor { .. }),
+            Some(OnSurface { .. } | OnSurfaceOrFloor { .. }),
+        ) => match (a_on, b_on) {
+            (Some(x), Some(y)) => x == y,
+            (None, None) => {
+                matches!(a.mount, Some(OnSurfaceOrFloor { .. }))
+                    && matches!(b.mount, Some(OnSurfaceOrFloor { .. }))
+            }
+            _ => false,
+        },
+        // The two-way variant that took the floor shares the floor layer with what stands on it.
+        (Some(OnFloor) | None, Some(OnSurfaceOrFloor { .. }))
+        | (Some(OnSurfaceOrFloor { .. }), Some(OnFloor) | None) => a_on.is_none() && b_on.is_none(),
+        // **Two fixtures contest a face only if it is the same face of the same host, at the same
+        // height.** Host alone is too coarse — a corridor wall carries a sconce on each side and they
+        // never meet — and the class is what tells the two sides apart. Height too, because a sconce
+        // and a socket on one wall are the ordinary case, not a collision.
+        (
+            Some(OnFace { class: c1, height: h1 }),
+            Some(OnFace { class: c2, height: h2 }),
+        ) => c1 == c2 && (h1 - h2).abs() < 1e-3 && matches!((a_on, b_on), (Some(x), Some(y)) if x == y),
+        _ => false,
+    }
+}
+
+/// **The placement already occupying the space `d` would take at `at`** — the overlap rule.
+///
+/// A placement is refused, not layered, when its plan rectangle interpenetrates an existing
+/// placement's on the same layer: kitbashing wants pieces flush, and a mesh hidden inside another
+/// is the kind of authoring accident that is only found by counting draw calls. Flush is legal by
+/// [`OVERLAP_EPS`]; different layers pass each other by [`same_layer`]'s table.
+///
+/// The first blocker **in map order** is returned — file order, stable for a status line. `on` is
+/// the host the new piece would rest on, so two lamps contest one table but not two tables.
+///
+/// # The bounded claim: **within a layer, in plan**
+///
+/// Stated because it is a real limitation that was scoped rather than missed, and the next person to
+/// find a floating interpenetration should not have to re-derive it.
+///
+/// `plans_overlap` is a separating-axis test over two oriented boxes in **X and Z**. Height never
+/// enters. That is right *within* a layer, because a layer is a horizontal stratum — but
+/// [`same_layer`] returns `false` for every heterogeneous pair, so nothing is checked *across* layers
+/// at all. So:
+///
+/// - a 2.2 m floor-standing cabinet and a sconce at 1.8 m on the wall behind it never contest, and
+///   interpenetrate silently;
+/// - a door and the wall it is set into cannot conflict, which is correct — but neither can a door
+///   and a crate standing in the doorway.
+///
+/// The information to close it exists: `Mount::OnWall` and `DecalHost::Wall` both carry a height and
+/// `Extent::height` is measured for every piece. Closing it is a decision about what an author wants
+/// refused, not a missing measurement.
+pub fn blocking<'a>(
+    map: &'a Map,
+    library: &Library,
+    d: &Descriptor,
+    at: (f32, f32),
+    yaw: f32,
+    tip: (u8, u8),
+    on: Option<&str>,
+) -> Option<&'a Placed> {
+    blocker_indices(map, library, d, at, yaw, tip, on)
+        .next()
+        .and_then(|i| map.placements.get(i))
+}
+
+/// **Every placement [`blocking`] would name, as indices into `map.placements`, ascending.**
+///
+/// The same test as `blocking` (same layer, plans overlap), for a caller that replaces what it
+/// lands on instead of refusing: it needs all of them, not the first. `blocking` is this iterator's
+/// first item, so the two cannot disagree about what is in the way.
+pub fn blockers(
+    map: &Map,
+    library: &Library,
+    d: &Descriptor,
+    at: (f32, f32),
+    yaw: f32,
+    tip: (u8, u8),
+    on: Option<&str>,
+) -> Vec<usize> {
+    blocker_indices(map, library, d, at, yaw, tip, on).collect()
+}
+
+/// **Every pair of placements whose plans interpenetrate on the same layer** — the overlap rule,
+/// over the whole map, as `(i, j)` indices into `map.placements` with `i < j`, ascending.
+///
+/// The rule [`blocking`] applies to a piece that is about to be placed, asked of what is already
+/// there. A map can hold an overlap that the click path would have refused: a map written by a
+/// generator, a patch or a hand edit, a piece turned after its neighbour was laid, a kit whose
+/// measurement changed under a map that was authored against the old one. Nothing asked this
+/// question before, so an overlap that was already on disk was invisible.
+///
+/// # Why not `blockers` per placement
+///
+/// That is the same rule, and it is the wrong shape here: `blockers` resolves a guest descriptor
+/// once and every other placement once per call, so asking it about each placement resolves every
+/// descriptor `n` times and does `n²` separating-axis tests. This does `n` resolutions and then
+/// `n²` cheap tests, which is the same answer for a fraction of the work.
+///
+/// # Pairs, not placements
+///
+/// A pair, because an overlap is a property of two placements and naming one of them would make the
+/// answer depend on which end was asked about. `i < j` and ascending, so two runs over the same map
+/// produce the same list, and a caller can diff two maps' answers as sets.
+///
+/// A placement whose descriptor the library does not have, or whose extents are unmeasured, takes
+/// part in no pair — the same "unknown is not everywhere" rule [`covers`] states. Reporting it is
+/// [`crate::vocab::validate_library`]'s job, not this one's.
+pub fn overlaps(map: &Map, library: &Library) -> Vec<(usize, usize)> {
+    // **Resolved once each**, because a descriptor's plan box depends on its own extents and yaw and
+    // on nothing else. `None` is a placement this pass cannot speak about, kept in step with the
+    // index so a pair names the map's own order.
+    let resolved: Vec<Option<(std::borrow::Cow<'_, Descriptor>, PlanRect)>> = map
+        .placements
+        .iter()
+        .map(|p| {
+            let d = descriptor_of(library, p)?;
+            let plan = plan_box(&d, p.at, p.yaw, p.tip)?;
+            Some((d, plan))
+        })
+        .collect();
+    let mut out = Vec::new();
+    for (i, left) in resolved.iter().enumerate() {
+        let Some((di, bi)) = left else { continue };
+        for (j, right) in resolved.iter().enumerate().skip(i + 1) {
+            let Some((dj, bj)) = right else { continue };
+            let (pi, pj) = (&map.placements[i], &map.placements[j]);
+            if same_layer(di, pi.on.as_deref(), dj, pj.on.as_deref()) && plans_overlap(*bi, *bj) {
+                out.push((i, j));
+            }
+        }
+    }
+    out
+}
+
+fn blocker_indices<'a>(
+    map: &'a Map,
+    library: &'a Library,
+    d: &'a Descriptor,
+    at: (f32, f32),
+    yaw: f32,
+    tip: (u8, u8),
+    on: Option<&'a str>,
+) -> impl Iterator<Item = usize> + 'a {
+    let guest = plan_box(d, at, yaw, tip);
+    map.placements
+        .iter()
+        .enumerate()
+        .filter(move |(_, p)| {
+            let Some(guest) = guest else {
+                return false;
+            };
+            let Some(pd) = descriptor_of(library, p) else {
+                return false;
+            };
+            let pd: &Descriptor = &pd;
+            if !same_layer(d, on, pd, p.on.as_deref()) {
+                return false;
+            }
+            match plan_box(pd, p.at, p.yaw, p.tip) {
+                Some(b) => plans_overlap(guest, b),
+                None => false,
+            }
+        })
+        .map(|(i, _)| i)
+}
+
+/// One placement resolved to the four things a space question asks about it: its descriptor, its plan
+/// rectangle, the vertical span it occupies in map space, and which way its own front points.
+struct Body<'a> {
+    descriptor: Cow<'a, Descriptor>,
+    plan: PlanRect,
+    /// `(bottom, top)` in map space, metres.
+    span: (f32, f32),
+    /// Degrees the piece's own front points at in world space — `placement.yaw + align.front`, the
+    /// composition [`crate::descriptor::Align::front`] documents. A piece with no front is symmetric,
+    /// so its own yaw is the only answer there is.
+    front: f32,
+}
+
+/// **Every placement resolved once**, or `None` when the map does not resolve.
+///
+/// A plan box, a vertical span and a front depend on the placement and on nothing else, so asking per
+/// pair would resolve every descriptor `n` times for the same answer. Two checks ask
+/// ([`blocked_openings`], [`blocked_clearances`]) and they must agree about *where* a piece is, or one
+/// of them would be reporting a hole the other thinks is elsewhere.
+///
+/// `None` rather than a partial list: when [`resolve_y`] errs, the map has a defect other code reports
+/// by name, and inventing heights here would report a second, wrong thing about it.
+fn bodies<'a>(map: &'a Map, library: &'a Library) -> Option<Vec<Option<Body<'a>>>> {
+    let bases = resolve_y(map, library).ok()?;
+    Some(
+        map.placements
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let d = descriptor_of(library, p)?;
+                let plan = plan_box(&d, p.at, p.yaw, p.tip)?;
+                let (_, h, _) = crate::descriptor::tipped_extents(&d, p.tip)?;
+                let base = bases[i];
+                let front = p.yaw + d.align.front.map(|f| f.yaw_degrees()).unwrap_or(0.0);
+                Some(Body { descriptor: d, plan, span: (base, base + h), front })
+            })
+            .collect(),
+    )
+}
+
+/// **One piece standing in a measured opening**, as `(opening index, intruder index)` into
+/// `map.placements` — the doorway rule, over the whole map (E-079).
+///
+/// [`Mount::InOpening`]'s `clear` is the `(width, height)` of the hole a door leaf fills, measured off
+/// the piece because jambs and a lintel sit inside its bounding box. This is the check that reads it:
+/// the opening's hole is a rectangle, and any other placement that reaches into that rectangle at a
+/// height the hole spans is standing in the doorway.
+///
+/// # Why this is not [`overlaps`]
+///
+/// [`same_layer`] returns `false` for every heterogeneous pair, and it has to: a door and the wall it
+/// is set into must not conflict. The consequence is that a door and a crate *also* do not conflict,
+/// which is the bounded claim [`blocking`]'s own doc states in as many words. A doorway is not a
+/// layer, it is a **hole a piece may stand in**, so the question is asked about the hole rather than
+/// about a stratum.
+///
+/// # What is deliberately not reported
+///
+/// - **Another opening.** Two leaves of one doorway contest each other through [`same_layer`] already;
+///   reporting that here would flag every double door in the project.
+/// - **A piece resting on the door** (`Placed::on` names it). A door with a mail slot on it is one
+///   object, and the slot would be intruding into its own host.
+/// - **Anything at a height the hole does not span**, so a lintel course above it is clear, and a
+///   piece shorter than the floor it stands on cannot be. Vertical is read because a doorway is the
+///   one case where it can be: the hole's floor and height both come from the map and the descriptor.
+/// - **An opening whose `clear` is `None`.** "Nobody has measured it" is not "zero wide" — the shipped
+///   `furniture_kenney.ron` door is exactly this row, and flagging every crate near it is the false
+///   positive that teaches an author to ignore the field.
+/// - **A map that does not resolve.** Bases come from [`resolve_y`], which is the same answer the
+///   spawner uses; when it errs the map has a defect that other code reports by name, and inventing
+///   heights here would report a second, wrong thing about it.
+///
+/// # Pairs, ordered
+///
+/// Ascending by `(opening, intruder)` index, so two runs over one map produce the same list and a
+/// caller can diff two maps' answers as sets — the same contract [`overlaps`] states.
+pub fn blocked_openings(map: &Map, library: &Library) -> Vec<(usize, usize)> {
+    let Some(bodies) = bodies(map, library) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for (i, opening) in bodies.iter().enumerate() {
+        let Some(Body { descriptor, plan, span, .. }) = opening else { continue };
+        let Some((width, height)) = opening_hole(descriptor) else { continue };
+        // **The hole is `clear`'s own rectangle, not the door's footprint.** A frame carries jambs
+        // that sit inside its bounding box (`site/wall_doorway` is 0.3 m thick and 1.0 m wide to frame
+        // a 0.6 m hole), so comparing a crate against the frame would flag pieces standing beside the
+        // doorway.
+        let hole = hole_rect(*plan, width);
+        let hole_span = (span.0, span.0 + height);
+        for (j, other) in bodies.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            let Some(Body { descriptor: od, plan: other_plan, span: other_span, .. }) = other else {
+                continue;
+            };
+            if matches!(od.mount, Some(Mount::InOpening { .. })) {
+                continue;
+            }
+            // A rider on the door is part of it, not something in its way.
+            if map.placements[j].on.as_deref() == Some(map.placements[i].id.as_str()) {
+                continue;
+            }
+            if !plans_overlap(hole, *other_plan) {
+                continue;
+            }
+            // **Vertically disjoint is clear**, on `plan_box`'s own "unknown is not everywhere" rule:
+            // a piece whose span ends before the hole's floor, or starts above its head, passes.
+            if other_span.1 <= hole_span.0 + OVERLAP_EPS
+                || other_span.0 >= hole_span.1 - OVERLAP_EPS
+            {
+                continue;
+            }
+            out.push((i, j));
+        }
+    }
+    out
+}
+
+/// **A piece standing in space another piece reserved**, as `(keeper index, intruder index)` into
+/// `map.placements` — the clearance rule, over the whole map (E-079's other half).
+///
+/// [`Descriptor::clearance`] has been documented since the schema was written as *"space that must stay
+/// free around the piece"*, and it was read by exactly two things that decide nothing about space: the
+/// validator that refuses a negative distance ([`Descriptor::resolve`]) and the composition fingerprint
+/// that makes two differently-clearing pieces hash apart. So an author could write "0.91 m around this
+/// dining table" — Merrell's own number — and `blocking` would put a chair flush against it, `overlaps`
+/// would say nothing, the map would validate, and the only evidence the reservation existed was a RON
+/// line.
+///
+/// # Clearance crosses the layers, and it has to
+///
+/// Same reason [`blocked_openings`] exists: [`same_layer`] returns `false` for every heterogeneous pair,
+/// so a wall behind a table is not an overlap *and cannot be one* — a wall and a floor piece meeting is
+/// how a room is built. But a wall inside the table's pull-out space is exactly what the field was
+/// authored to forbid. So the question is asked about the **reserved band**, not about a stratum.
+///
+/// # What is deliberately not reported
+///
+/// - **An intruder that reserves space itself.** Two chairs' pull-out zones overlap by design;
+///   reporting that would make every dining set a finding. This is Tutenel et al. (2010)'s exemption,
+///   quoted in [`crate::descriptor::Clearance`]'s own doc — *"clearance features may overlap only other
+///   clearance features"* — and it is read as "any `clearance` at all", because that field is what makes
+///   a piece a clearance feature.
+/// - **`Mount::Tiled` and `Mount::Decal` intruders.** `Tiled` is floor covering — a rug under a table is
+///   not in the way of its chairs — and a decal claims no volume by its own doc's promise.
+/// - **A piece resting on the keeper** (`Placed::on` names it). A lamp on a table is part of the table.
+/// - **A piece whose span misses the keeper's.** Vertical comes from [`resolve_y`], the spawner's own
+///   answer, so a sconce at 1.8 m over a 0.8 m table is clear of its pull-out space. This is a stated
+///   bound, not an oversight: a person's head is above the table, and head height is a number nothing
+///   in the schema carries. The bound is written down here so the next person to find an unreported
+///   sconce does not have to re-derive it.
+/// - **An unmeasured keeper**, or a map that does not resolve — "unknown is not everywhere", on
+///   [`covers`]' own rule.
+///
+/// # The band, precisely
+///
+/// Each [`crate::descriptor::Clearance`] is a rectangle lying **outside** the keeper's own footprint on
+/// the side it names. The direction is world-space `yaw + align.front`, the composition
+/// [`crate::descriptor::Align::front`] documents, and the footprint's extent along an arbitrary
+/// direction is the exact projection `half.0·|axis0·u| + half.1·|axis1·u|` — so a piece turned 45° still
+/// reserves from its own edge rather than from a circumscribed square.
+///
+/// `Around` is four bands, each widened by `dist` across so the corners are covered; the union is a
+/// square with rounded-off corners, the same rounding every bounding-box test here makes.
+///
+/// # Pairs, ordered
+///
+/// Ascending and deduplicated, so one intruder pressed by two of a keeper's sides is one finding, and
+/// two runs over one map produce the same list — the contract [`overlaps`] and [`blocked_openings`]
+/// both state.
+pub fn blocked_clearances(map: &Map, library: &Library) -> Vec<(usize, usize)> {
+    use crate::descriptor::Dir;
+
+    let Some(bodies) = bodies(map, library) else {
+        return Vec::new();
+    };
+
+    // Tutenel's exemption, asked of the descriptor so a patched placement answers what its patch says.
+    let reserves = |d: &Descriptor| !d.clearance.is_empty();
+
+    let mut out: Vec<(usize, usize)> = Vec::new();
+    for (i, keeper) in bodies.iter().enumerate() {
+        let Some(Body { descriptor, plan, span, front }) = keeper else { continue };
+        if descriptor.clearance.is_empty() {
+            continue;
+        }
+        // `Around` covers all four sides; every other direction is one band.
+        for clear in &descriptor.clearance {
+            if !(clear.dist.is_finite() && clear.dist > 0.0) {
+                continue;
+            }
+            let sides: &[(f32, f32, f32)] = match clear.dir {
+                // `(direction, dist, widen)` — the widen is zero for a single side and `dist` across
+                // for `Around`, whose four bands must overlap at the corners to cover them.
+                Dir::Front => &[(0.0, clear.dist, 0.0)],
+                Dir::Back => &[(180.0, clear.dist, 0.0)],
+                Dir::Left => &[(90.0, clear.dist, 0.0)],
+                Dir::Right => &[(270.0, clear.dist, 0.0)],
+                Dir::Around => &[
+                    (0.0, clear.dist, clear.dist),
+                    (90.0, clear.dist, clear.dist),
+                    (180.0, clear.dist, clear.dist),
+                    (270.0, clear.dist, clear.dist),
+                ],
+            };
+            for &(offset, dist, widen) in sides {
+                let band = clearance_band(*plan, *front, offset, dist, widen);
+                for (j, other) in bodies.iter().enumerate() {
+                    if i == j {
+                        continue;
+                    }
+                    let Some(Body { descriptor: od, plan: other_plan, span: other_span, .. }) = other
+                    else {
+                        continue;
+                    };
+                    if reserves(od)
+                        || matches!(od.mount, Some(Mount::Tiled) | Some(Mount::Decal { .. }))
+                    {
+                        continue;
+                    }
+                    // A rider on the keeper is part of it.
+                    if map.placements[j].on.as_deref() == Some(map.placements[i].id.as_str()) {
+                        continue;
+                    }
+                    if other_span.1 <= span.0 + OVERLAP_EPS
+                        || other_span.0 >= span.1 - OVERLAP_EPS
+                    {
+                        continue;
+                    }
+                    if plans_overlap(band, *other_plan) {
+                        out.push((i, j));
+                    }
+                }
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// **The rectangle a clearance reserves on one side**, in plan.
+///
+/// `front` is the world direction the keeper's own front points at, in degrees (`yaw + align.front`);
+/// `offset` turns that direction to the side being reserved — 0 front, 90 left, 180 back, 270 right —
+/// in the same clockwise sense [`crate::descriptor::Face::yaw_degrees`] numbers the compass, so a
+/// piece facing south reserves its front band to the south.
+///
+/// The band starts exactly at the footprint's edge and reaches `dist` beyond it. `widen` grows it
+/// across, which is only what `Around` needs to cover the corners where its four bands meet.
+fn clearance_band(plan: PlanRect, front: f32, offset: f32, dist: f32, widen: f32) -> PlanRect {
+    let (centre, axes, half) = plan;
+    let rad = (front + offset).to_radians();
+    let (s, c) = rad.sin_cos();
+    // The engine's forward is `(sin yaw, cos yaw)` — the convention `Face::yaw_degrees` states.
+    let u = (s, c);
+    let across = (c, -s);
+    let dot = |a: (f32, f32), b: (f32, f32)| a.0 * b.0 + a.1 * b.1;
+    // **Exact projection, not the larger half.** A rotated footprint's extent along an arbitrary
+    // direction is its half-extents dotted against that direction on both of its own axes; taking the
+    // larger half instead would reserve from a circumscribed square and report a diagonal neighbour as
+    // inside the band.
+    let reach = |n: (f32, f32)| half.0 * dot(axes[0], n).abs() + half.1 * dot(axes[1], n).abs();
+    let out = reach(u) + dist * 0.5;
+    let centre = (centre.0 + u.0 * out, centre.1 + u.1 * out);
+    (centre, [across, u], (reach(across) + widen, dist * 0.5))
+}
+
+fn opening_hole(d: &Descriptor) -> Option<(f32, f32)> {
+    match &d.mount {
+        Some(Mount::InOpening { clear: Some((w, h)) }) if w.is_finite() && h.is_finite() => {
+            Some((*w, *h))
+        }
+        _ => None,
+    }
+}
+
+/// **The hole a doorway reserves, in plan** — `clear`'s width along the door's run face, centred on
+/// it, keeping the frame's own through-wall depth.
+///
+/// The width is what a person walks through, so it runs **along the wall**, and [`plan_box`]'s second
+/// axis is that one: at yaw 0 the axes are `[(1, 0), (0, 1)]` and `half` is
+/// `(footprint.0 / 2, footprint.1 / 2)` — X through the wall, Z along it, which is how the shipped
+/// `site/wall` reads at `(0.2, 1.0)`. So the hole keeps `half.0` and takes `width / 2` on axis 1.
+fn hole_rect(door: PlanRect, width: f32) -> PlanRect {
+    let (centre, axes, half) = door;
+    (centre, axes, (half.0, width * 0.5))
+}
+
+/// What a move changed, so the caller can respawn exactly those entities and undo exactly that edit.
+///
+/// One record per placement that actually moved — the piece plus everything that was riding on it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Moved {
+    /// `(index, where it was, what it rested on)`, in the order they were written. Restoring these in
+    /// order puts the map back exactly.
+    pub was: Vec<(usize, (f32, f32), Option<String>)>,
+}
+
+/// **Move a placement to `to`, taking everything resting on it along.**
+///
+/// Move the table and the lamp goes with it. That is already the promise [`crate::map::Placed::on`]
+/// makes — it names the host rather than storing a height *"so move the table and the lamp moves with
+/// it"* — but nothing had ever moved a table, so the promise had never been kept by anything.
+///
+/// # All of it, or none of it
+///
+/// Every member is re-seated through [`placement_at`], the same call the click path makes, so a move
+/// obeys the same mount rules as a placement. If any member cannot be seated — a lamp dragged somewhere
+/// its host no longer covers, a shelf pushed off the wall — **the whole move is refused and the map is
+/// untouched**. A partial move would leave a `Placed::on` pointing at a piece that is no longer under
+/// it, which is exactly the dangling reference [`Map::validate`] exists to refuse, written by the
+/// editor rather than by an author.
+///
+/// That is why the work happens on a clone. Applying in place and rolling back on failure is two code
+/// paths that have to agree about what "back" means, and the rollback is the one that never gets run.
+///
+/// # Riders are found transitively, in a total order
+///
+/// A mug on a tray on the table moves with the table. Collection is breadth-first over `Placed::on`
+/// and the result is sorted by `Placed::id` — unique within a map — so the write order does not depend
+/// on authoring order. `Map::validate` has already refused cycles, and the `seen` set means a
+/// malformed map still terminates here rather than hanging.
+pub fn move_placement(
+    map: &mut Map,
+    library: &Library,
+    index: usize,
+    to: (f32, f32),
+) -> Result<Moved, String> {
+    let anchor = map.placements.get(index).ok_or_else(|| {
+        format!(
+            "move: no placement at index {index}; the map has {}",
+            map.placements.len()
+        )
+    })?;
+    let from = anchor.at;
+    let delta = (to.0 - from.0, to.1 - from.1);
+    let group = group_of(map, index);
+
+    // Proposed, on a copy. Nothing below can leave `map` half-written.
+    let mut next = map.clone();
+    for &i in &group {
+        let p = &mut next.placements[i];
+        p.at = (p.at.0 + delta.0, p.at.1 + delta.1);
+    }
+
+    // **Only the anchor is re-seated; the riders keep their host.**
+    //
+    // The group moves rigidly, so every rider is at the same offset from the same host it was already
+    // on and its mount holds for exactly the reason it held before. Re-asking `placement_at` for them
+    // would be worse than redundant: `host_under` does not know to skip the piece it is seating, so a
+    // tray would find *itself* under itself, and a mug would hop onto whatever the group happened to
+    // pass over. The anchor is the only member whose surroundings actually changed.
+    let anchor_d_owned = descriptor_of(library, &next.placements[index]).ok_or_else(|| {
+        format!(
+            "move: `{}` names descriptor `{}`, which the library does not have",
+            next.placements[index].id, next.placements[index].descriptor
+        )
+    })?;
+    let anchor_d: &Descriptor = &anchor_d_owned;
+    // **Asked against a map the group is not in.** "What would be under this if the things travelling
+    // with it were not there" is the honest question — otherwise a table lands on its own mug, which
+    // is the cycle `resolve_y` then refuses.
+    let mut probe = next.clone();
+    let mut drop_order = group.clone();
+    drop_order.sort_unstable();
+    for &i in drop_order.iter().rev() {
+        probe.placements.remove(i);
+    }
+    let probe_ys = resolve_y(&probe, library)?;
+    let (_, host) = placement_at(
+        &probe,
+        library,
+        &probe_ys,
+        anchor_d,
+        next.placements[index].at,
+    )?;
+    let anchor_on = host.map(|h| h.id.clone());
+
+    // Everything held. Record what it was, then commit.
+    let mut was = Vec::with_capacity(group.len());
+    for &i in &group {
+        was.push((i, map.placements[i].at, map.placements[i].on.clone()));
+        map.placements[i].at = next.placements[i].at;
+        if i == index {
+            map.placements[i].on = anchor_on.clone();
+        }
+    }
+    Ok(Moved { was })
+}
+
+/// **A placement and everything riding on it**, transitively — the set a move carries.
+///
+/// A mug on a tray on the table is in here, found by walking `Placed::on` breadth-first. Shared with
+/// the editor, which needs the same set *before* the move so it can take the whole group out of the
+/// map while it is in hand; computing it twice is how the thing you see picked up comes to differ
+/// from the thing that lands.
+///
+/// The result is sorted by `Placed::id` — unique within a map, which `pick_at` already leans on — so
+/// it does not depend on which order the walk happened to pop. `Map::validate` has already refused
+/// cycles, and the `seen` set means a malformed map terminates here rather than hanging.
+///
+/// Empty for an index the map does not have, rather than a panic: the editor holds a placement across
+/// frames in which an undo can remove it.
+pub fn group_of(map: &Map, index: usize) -> Vec<usize> {
+    if index >= map.placements.len() {
+        return Vec::new();
+    }
+    let mut group = vec![index];
+    let mut seen: Vec<usize> = vec![index];
+    let mut frontier = vec![index];
+    while let Some(host) = frontier.pop() {
+        let host_id = map.placements[host].id.clone();
+        for (i, p) in map.placements.iter().enumerate() {
+            if seen.contains(&i) || p.on.as_deref() != Some(host_id.as_str()) {
+                continue;
+            }
+            seen.push(i);
+            group.push(i);
+            frontier.push(i);
+        }
+    }
+    group.sort_by(|a, b| map.placements[*a].id.cmp(&map.placements[*b].id));
+    group
+}
+
+/// Put back exactly what [`move_placement`] recorded. The inverse, and the editor's undo.
+pub fn restore_moved(map: &mut Map, moved: &Moved) {
+    for (i, at, on) in &moved.was {
+        if let Some(p) = map.placements.get_mut(*i) {
+            p.at = *at;
+            p.on = on.clone();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// **Every `Mount` variant contests itself, unless it is exempt on purpose.**
+    ///
+    /// [`same_layer`] ends in `_ => false`, so a variant added tomorrow contests **nothing —
+    /// including another of itself** until somebody remembers to add an arm. It fails open, in the
+    /// direction of "the edit is allowed", and silently.
+    ///
+    /// The hole is invisible without this test because the one variant that *should* fall through
+    /// does: `Decal` claims no volume by design, so the fall-through looks deliberate for every
+    /// variant. Naming the exemption is what separates "decided" from "not yet written".
+    ///
+    /// Exhaustive by construction — the `match` below has no wildcard, so a new variant does not
+    /// compile until its author has answered the question.
+    #[test]
+    fn every_mount_variant_contests_itself_or_says_why_not() {
+        use crate::descriptor::{Extent, Mount, DecalHost};
+
+        let every = [
+            Mount::OnFloor,
+            Mount::OnWall { height: 1.8 },
+            Mount::OnCeiling,
+            Mount::InOpening { clear: None },
+            Mount::OnSurface { class: "worktop".to_owned() },
+            Mount::OnSurfaceOrFloor { class: "worktop".to_owned() },
+            Mount::Decal { on: DecalHost::Floor },
+            Mount::Tiled,
+            Mount::OnFace { class: "wall-inner".to_owned(), height: 1.8 },
+        ];
+
+        for mount in every {
+            // Answered per variant, with no wildcard: adding a `Mount` breaks this line first.
+            let (exempt, why) = match &mount {
+                Mount::Decal { .. } => (
+                    true,
+                    "claims no volume — two decals may share a wall, which is the point of them",
+                ),
+                Mount::OnFloor
+                | Mount::OnWall { .. }
+                | Mount::OnCeiling
+                | Mount::InOpening { .. }
+                | Mount::OnSurface { .. }
+                | Mount::OnSurfaceOrFloor { .. }
+                | Mount::OnFace { .. }
+                | Mount::Tiled => (false, ""),
+            };
+
+            let d = Descriptor {
+                id: "probe".to_owned(),
+                extent: Extent { footprint: Some((1.0, 1.0)), height: Some(1.0) },
+                mount: Some(mount.clone()),
+                ..Descriptor::default()
+            };
+            // `OnSurface` and `OnFace` contest only pieces on the SAME host, so the probe names one.
+            let host = matches!(mount, Mount::OnSurface { .. } | Mount::OnFace { .. })
+                .then_some("table@1");
+            let contests = same_layer(&d, host, &d, host);
+
+            if exempt {
+                assert!(
+                    !contests,
+                    "`{mount:?}` is exempt because it {why}, but it contests itself"
+                );
+            } else {
+                assert!(
+                    contests,
+                    "`{mount:?}` does not contest another of itself, so two of them may occupy one \
+                     space and nothing will refuse it. Add an arm to `same_layer`, or exempt it here \
+                     with a reason."
+                );
+            }
+        }
+    }
+
+    use super::*;
+    use crate::descriptor::{Align, Extent, Offers};
+    use crate::library::LIBRARY_VERSION;
+    use crate::map::Placed;
+
+    fn table() -> Descriptor {
+        Descriptor {
+            id: "table".into(),
+            extent: Extent {
+                footprint: Some((1.6, 0.8)),
+                height: Some(0.8),
+            },
+            offers: Offers {
+                surfaces: vec!["worktop".into()],
+                faces: Vec::new(),
+                sockets: Vec::new(),
+            },
+            mount: Some(Mount::OnFloor),
+            ..Descriptor::default()
+        }
+    }
+
+    fn lamp() -> Descriptor {
+        Descriptor {
+            id: "lamp".into(),
+            extent: Extent {
+                footprint: Some((0.3, 0.3)),
+                height: Some(0.5),
+            },
+            mount: Some(Mount::OnSurface {
+                class: "worktop".into(),
+            }),
+            ..Descriptor::default()
+        }
+    }
+
+    fn lib(descriptors: Vec<Descriptor>) -> Library {
+        Library {
+            version: LIBRARY_VERSION,
+            note: None,
+            descriptors,
+        }
+    }
+
+    fn at(id: &str, descriptor: &str, on: Option<&str>) -> Placed {
+        Placed {
+            id: id.into(),
+            descriptor: descriptor.into(),
+            at: (0.0, 0.0),
+            on: on.map(str::to_owned),
+            ..Placed::default()
+        }
+    }
+
+    fn map(placements: Vec<Placed>) -> Map {
+        Map {
+            name: "test_map".into(),
+            placements,
+            ..Map::default()
+        }
+    }
+
+    /// A table with a lamp and a mug on it, and a second table nowhere near them.
+    fn stacked() -> (Map, Library) {
+        let mut m = map(vec![
+            at("t1", "table", None),
+            at("l1", "lamp", Some("t1")),
+            at("m1", "lamp", Some("t1")),
+            at("t2", "table", None),
+        ]);
+        m.placements[3].at = (10.0, 10.0);
+        // Both guests sit within the table's 1.6 x 0.8 footprint, offset so the move can be seen to
+        // preserve the offsets rather than to collapse them onto the host.
+        m.placements[1].at = (0.4, 0.2);
+        m.placements[2].at = (-0.4, -0.2);
+        (m, lib(vec![table(), lamp()]))
+    }
+
+    /// **Move the table and the lamp moves with it** — the promise `Placed::on`'s own doc makes, which
+    /// nothing had ever kept because nothing could move a table.
+    #[test]
+    fn moving_a_host_carries_everything_resting_on_it() {
+        let (mut m, l) = stacked();
+        let moved = move_placement(&mut m, &l, 0, (3.0, 0.0)).unwrap_or_else(|e| panic!("{e}"));
+
+        assert_eq!(m.placements[0].at, (3.0, 0.0), "the table went where it was sent");
+        // Offsets preserved, not collapsed.
+        assert_eq!(m.placements[1].at, (3.4, 0.2));
+        assert_eq!(m.placements[2].at, (2.6, -0.2));
+        // Still resting on the same host, which is what makes them still land at its height.
+        assert_eq!(m.placements[1].on.as_deref(), Some("t1"));
+        assert_eq!(m.placements[2].on.as_deref(), Some("t1"));
+        let y = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y[1], 0.8, "the lamp is still on the tabletop");
+
+        // The untouched table stayed untouched, and is not in the record.
+        assert_eq!(m.placements[3].at, (10.0, 10.0));
+        assert_eq!(moved.was.len(), 3, "table plus two riders: {:?}", moved.was);
+    }
+
+    /// **All of it or none of it.** A piece dragged where its mount cannot hold refuses the whole
+    /// move, rather than landing at floor level and reading as an authoring mistake — the same
+    /// refusal the click path makes, and the reason the work happens on a clone.
+    #[test]
+    fn a_move_that_cannot_be_seated_changes_nothing() {
+        let (mut m, l) = stacked();
+        let before = m.clone();
+
+        // The lamp is `OnSurface { worktop }`. Off the table there is no worktop, so there is nowhere
+        // for it to go.
+        let err = move_placement(&mut m, &l, 1, (40.0, 40.0))
+            .expect_err("a piece with nowhere to rest must refuse the move");
+        assert!(err.contains("worktop"), "the refusal names the surface: {err}");
+        assert_eq!(m, before, "a refused move must leave the map byte-identical");
+    }
+
+    /// **A host does not come to rest on its own guest.** Re-seating the anchor asks what would be
+    /// under it if the things travelling with it were not there; asking against the moved map instead
+    /// let a table find the mug standing on it, and `resolve_y` then refused the cycle the move had
+    /// just written.
+    #[test]
+    fn a_moved_host_does_not_land_on_the_things_it_is_carrying() {
+        let (mut m, l) = stacked();
+        move_placement(&mut m, &l, 0, (3.0, 0.0)).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            m.placements[0].on, None,
+            "the table stands on the floor, not on its own lamp"
+        );
+        // And the map still resolves, which is the property a cycle would have destroyed.
+        resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    /// Moving a *rider* off its host and onto another one re-seats it — the anchor is the member
+    /// whose surroundings changed, so it is the one that gets a new `on`.
+    #[test]
+    fn moving_a_guest_onto_another_host_repoints_it() {
+        let (mut m, l) = stacked();
+        // `t2` is the far table; the lamp lands on it.
+        move_placement(&mut m, &l, 1, (10.0, 10.0)).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            m.placements[1].on.as_deref(),
+            Some("t2"),
+            "the lamp now rests on the table it was dropped on"
+        );
+        let y = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y[1], 0.8, "and stands at that table's height");
+    }
+
+    /// The recorded inverse puts every member back, which is what the editor's undo replays.
+    #[test]
+    fn restoring_a_move_puts_the_whole_group_back() {
+        let (mut m, l) = stacked();
+        let before = m.clone();
+        let moved = move_placement(&mut m, &l, 0, (3.0, 0.0)).unwrap_or_else(|e| panic!("{e}"));
+        assert_ne!(m, before, "the move did something");
+        restore_moved(&mut m, &moved);
+        assert_eq!(m, before, "restoring must be exact, not approximate");
+    }
+
+    /// A mug on a tray on a table moves with the table — riders are found transitively.
+    #[test]
+    fn riders_are_collected_through_the_whole_chain() {
+        let mut tray = table();
+        tray.id = "tray".into();
+        tray.extent.footprint = Some((0.6, 0.6));
+        tray.extent.height = Some(0.05);
+        tray.mount = Some(Mount::OnSurface {
+            class: "worktop".into(),
+        });
+        let mut m = map(vec![
+            at("t1", "table", None),
+            at("tray1", "tray", Some("t1")),
+            at("mug1", "lamp", Some("tray1")),
+        ]);
+        let l = lib(vec![table(), lamp(), tray]);
+
+        let moved = move_placement(&mut m, &l, 0, (5.0, 0.0)).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(moved.was.len(), 3, "the mug two levels up must come too");
+        assert_eq!(m.placements[1].at, (5.0, 0.0));
+        assert_eq!(m.placements[2].at, (5.0, 0.0));
+        assert_eq!(m.placements[2].on.as_deref(), Some("tray1"));
+    }
+
+    /// An index the map does not have is refused by name rather than panicking.
+    #[test]
+    fn moving_a_placement_that_is_not_there_is_refused() {
+        let (mut m, l) = stacked();
+        let err = move_placement(&mut m, &l, 99, (1.0, 1.0)).expect_err("no such placement");
+        assert!(err.contains("99"), "{err}");
+    }
+
+    /// **The bug this module exists for.** Ten shipped descriptors declare `OnSurface`; every one of
+    /// them was placed at floor level, in the editor and in the game alike.
+    #[test]
+    fn a_lamp_on_a_table_stands_at_the_tables_height() {
+        let m = map(vec![
+            at("t1", "table", None),
+            at("l1", "lamp", Some("t1")),
+        ]);
+        let y = resolve_y(&m, &lib(vec![table(), lamp()])).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y[0], 0.0);
+        assert_eq!(y[1], 0.8);
+    }
+
+    /// A wall that presents an inner face, and a sconce fixed 1.8 m up it.
+    fn wall() -> Descriptor {
+        Descriptor {
+            id: "wall".into(),
+            extent: Extent { footprint: Some((0.1, 1.0)), height: Some(2.4) },
+            offers: Offers {
+                surfaces: Vec::new(),
+                faces: vec!["wall-inner".into()],
+                sockets: Vec::new(),
+            },
+            mount: Some(Mount::OnFloor),
+            ..Descriptor::default()
+        }
+    }
+
+    fn sconce() -> Descriptor {
+        Descriptor {
+            id: "sconce".into(),
+            extent: Extent { footprint: Some((0.2, 0.2)), height: Some(0.3) },
+            mount: Some(Mount::OnFace { class: "wall-inner".into(), height: 1.8 }),
+            ..Descriptor::default()
+        }
+    }
+
+    /// **A fixture is fixed to a wall, not to a number.**
+    ///
+    /// `Mount::OnWall { height }` answers `map.origin.1 + height` — a constant on the descriptor,
+    /// shared by every wall light in the project, answering to no wall in particular. So the sconce
+    /// sat at 1.8 m whether its wall was 2.4 m or absent, and
+    /// `docs/2026-08-09-unified-composition.md` §1 records the consequence: *"Delete the wall and the
+    /// sconce hangs there, and nothing reports it."*
+    ///
+    /// `OnFace` resolves the host first, so the height is measured up **that** wall.
+    #[test]
+    fn a_fixture_rides_the_face_it_is_fixed_to() {
+        let l = lib(vec![wall(), sconce()]);
+        let m = map(vec![at("w1", "wall", None), at("s1", "sconce", Some("w1"))]);
+        let y = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y[0], 0.0, "the wall stands on the floor");
+        assert_eq!(y[1], 1.8, "the sconce is 1.8 m up the wall");
+
+        // **Raise the wall and the sconce comes with it** — the property a bare height cannot have.
+        // `Placed::lift` lands in the host's resolved Y, so the guest inherits it for free.
+        let mut raised = m.clone();
+        raised.placements[0].lift = 0.5;
+        let y = resolve_y(&raised, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!((y[0], y[1]), (0.5, 2.3));
+    }
+
+    /// **Delete the wall and it says so**, instead of leaving a sconce in mid-air. This is the whole
+    /// point of the relationship existing.
+    #[test]
+    fn a_fixture_whose_host_is_gone_is_an_error_naming_both() {
+        let l = lib(vec![wall(), sconce()]);
+        // The wall is gone; the sconce still names it.
+        let m = map(vec![at("s1", "sconce", Some("w1"))]);
+        let e = resolve_y(&m, &l).expect_err("a missing host must be reported, not floored");
+        assert!(e.contains("s1") && e.contains("w1"), "{e}");
+
+        // And a host that exists but presents no such face is refused naming what it does present.
+        let m = map(vec![at("t1", "table", None), at("s1", "sconce", Some("t1"))]);
+        let e = resolve_y(&m, &lib(vec![table(), sconce()]))
+            .expect_err("a table presents no wall face");
+        assert!(e.contains("wall-inner"), "{e}");
+        assert!(e.contains("presents none"), "it must say what the host does present: {e}");
+    }
+
+    /// A fixture that names no host at all is refused at the door, the same way a surface piece is.
+    #[test]
+    fn a_fixture_with_no_host_recorded_is_refused() {
+        let m = map(vec![at("s1", "sconce", None)]);
+        let e = resolve_y(&m, &lib(vec![wall(), sconce()])).expect_err("no host, no height");
+        assert!(e.contains("wall-inner"), "{e}");
+    }
+
+    /// The host may be authored below its guest — file order is not the author's problem.
+    #[test]
+    fn the_host_may_appear_after_the_piece_that_rests_on_it() {
+        let m = map(vec![
+            at("l1", "lamp", Some("t1")),
+            at("t1", "table", None),
+        ]);
+        let y = resolve_y(&m, &lib(vec![table(), lamp()])).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y[0], 0.8);
+        assert_eq!(y[1], 0.0);
+    }
+
+    /// Stacks compose, and the whole tower rides the map's own floor.
+    #[test]
+    fn stacks_compose_and_ride_the_maps_floor() {
+        let mut shelf = table();
+        shelf.id = "shelf".into();
+        shelf.mount = Some(Mount::OnSurface {
+            class: "worktop".into(),
+        });
+        shelf.extent.height = Some(0.4);
+
+        let m = Map {
+            name: "test_map".into(),
+            origin: (0.0, 10.0, 0.0),
+            placements: vec![
+                at("t1", "table", None),
+                at("s1", "shelf", Some("t1")),
+                at("l1", "lamp", Some("s1")),
+            ],
+            ..Map::default()
+        };
+        let y = resolve_y(&m, &lib(vec![table(), shelf, lamp()])).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y, vec![10.0, 10.8, 11.2]);
+    }
+
+    /// **The extent already carries the scale**, so the surface plane is `height × stretch_y` and
+    /// nothing else. A previous version asserted `height × scale × stretch_y` — the double-application
+    /// [`crate::descriptor::placed_footprint`]'s contract note describes, pinned as if it were the
+    /// rule. `extent.height` IS the drawn height (`site/books`: raw mesh 0.297 m × scale 0.6 = the
+    /// recorded 0.178 m); multiplying by scale again put the surface plane somewhere nothing draws.
+    #[test]
+    fn the_surface_plane_is_the_extent_and_scale_does_not_move_it() {
+        let mut big = table();
+        big.align = Align {
+            scale: Some(2.0),
+            ..Align::default()
+        };
+        let m = map(vec![at("t1", "table", None), at("l1", "lamp", Some("t1"))]);
+        // The table's recorded height is 0.8 — as placed, whatever render scale reached it.
+        let y = resolve_y(&m, &lib(vec![big, lamp()])).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y[1], 0.8);
+
+        // `stretch_y` is game policy layered on top of the extent, the one factor that DOES move it.
+        let mut stretched = table();
+        stretched.align = Align {
+            scale: Some(2.0),
+            stretch_y: Some(1.5),
+            ..Align::default()
+        };
+        let y = resolve_y(&m, &lib(vec![stretched, lamp()])).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y[1], 1.2);
+    }
+
+    /// A surface mount with nothing under it is refused rather than floored — the exact silence this
+    /// module replaces.
+    #[test]
+    fn a_surface_mount_with_no_host_is_refused() {
+        let m = map(vec![at("l1", "lamp", None)]);
+        let err = resolve_y(&m, &lib(vec![table(), lamp()]))
+            .err()
+            .unwrap_or_default();
+        assert!(err.contains("records nothing under it"), "{err}");
+    }
+
+    /// Resting on a piece that does not offer the class is refused. Every token is spelled correctly,
+    /// so nothing else in the stack would notice.
+    #[test]
+    fn a_host_that_does_not_offer_the_class_is_refused() {
+        let mut crate_ = table();
+        crate_.id = "crate".into();
+        crate_.offers.surfaces.clear();
+        let m = map(vec![at("c1", "crate", None), at("l1", "lamp", Some("c1"))]);
+        let err = resolve_y(&m, &lib(vec![crate_, lamp()]))
+            .err()
+            .unwrap_or_default();
+        assert!(err.contains("cannot hold it up"), "{err}");
+    }
+
+    /// An unmeasured host cannot say where its surface is, and guessing zero would stack a lamp at
+    /// floor level on top of a bookcase.
+    #[test]
+    fn an_unmeasured_host_is_refused() {
+        let mut vague = table();
+        vague.extent.height = None;
+        let m = map(vec![at("t1", "table", None), at("l1", "lamp", Some("t1"))]);
+        let err = resolve_y(&m, &lib(vec![vague, lamp()]))
+            .err()
+            .unwrap_or_default();
+        assert!(err.contains("records no height"), "{err}");
+    }
+
+    /// The ceiling is the map's, not a constant — the hardcoded 2.4 hung a 3.5 m room's lights in
+    /// mid-air.
+    #[test]
+    fn a_ceiling_mount_hangs_from_the_maps_own_ceiling() {
+        let mut light = lamp();
+        light.mount = Some(Mount::OnCeiling);
+        let m = Map {
+            name: "test_map".into(),
+            bounds: (10.0, 3.5, 10.0),
+            placements: vec![at("l1", "lamp", None)],
+            ..Map::default()
+        };
+        let y = resolve_y(&m, &lib(vec![light])).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y[0], 3.5);
+    }
+
+    /// **Every layer has an answer.** A wall decal carries its own height — the one arm that used
+    /// to return an error, because `OnWall` had a height and `Decal` had nowhere to put one. The
+    /// floor and ceiling decals take theirs from the map, since that is whose business they are.
+    #[test]
+    fn a_decal_lies_on_the_plane_it_names() {
+        let m = Map {
+            name: "test_map".into(),
+            origin: (0.0, 10.0, 0.0),
+            bounds: (8.0, 3.0, 8.0),
+            placements: vec![at("d", "decal", None)],
+            ..Map::default()
+        };
+        let decal = |on| {
+            let mut d = lamp();
+            d.id = "decal".into();
+            d.mount = Some(Mount::Decal { on });
+            d
+        };
+
+        let floor = resolve_y(&m, &lib(vec![decal(DecalHost::Floor)]))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(floor[0], 10.0);
+
+        let ceiling = resolve_y(&m, &lib(vec![decal(DecalHost::Ceiling)]))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(ceiling[0], 13.0);
+
+        // A poster at 1.6 m on the wall of a room whose floor is at 10.
+        let wall = resolve_y(&m, &lib(vec![decal(DecalHost::Wall { height: 1.6 })]))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(wall[0], 11.6);
+    }
+
+    /// A cycle is caught by the resolver as well as by `Map::validate`, so a caller that skipped
+    /// validation gets an error rather than a hang.
+    #[test]
+    fn a_loop_is_an_error_rather_than_a_hang() {
+        // Both ends offer what the other needs, so the loop is the FIRST thing wrong with this map
+        // rather than something the surface-class check would have caught on the way past.
+        let mut shelf = lamp();
+        shelf.id = "shelf".into();
+        shelf.offers.surfaces = vec!["worktop".into()];
+        let m = map(vec![
+            at("a", "shelf", Some("b")),
+            at("b", "shelf", Some("a")),
+        ]);
+        let err = resolve_y(&m, &lib(vec![shelf]))
+            .err()
+            .unwrap_or_default();
+        assert!(err.contains("loop"), "{err}");
+    }
+
+    /// The footprint test is in the piece's own frame, so turning a table turns the area it covers.
+    /// The flood fill learned this the expensive way and striped a floor over it.
+    #[test]
+    fn a_turned_piece_covers_the_area_it_now_occupies() {
+        let t = table(); // 1.6 wide × 0.8 deep
+        assert!(covers(&t, (0.0, 0.0), 0.0, (0.7, 0.0)));
+        // Along the long axis at rest, outside it once turned a quarter turn.
+        assert!(covers(&t, (0.0, 0.0), 0.0, (0.7, 0.3)));
+        assert!(!covers(&t, (0.0, 0.0), 90.0, (0.7, 0.3)));
+        // And the reverse: what was outside the short axis is inside it now.
+        assert!(!covers(&t, (0.0, 0.0), 0.0, (0.0, 0.7)));
+        assert!(covers(&t, (0.0, 0.0), 90.0, (0.0, 0.7)));
+
+        // An unmeasured piece covers nothing — unknown is not "everywhere".
+        let mut vague = table();
+        vague.extent.footprint = None;
+        assert!(!covers(&vague, (0.0, 0.0), 0.0, (0.0, 0.0)));
+    }
+
+    /// **The highest surface wins**, so a lamp dropped over a shelf standing on a table lands on the
+    /// shelf rather than inside it.
+    #[test]
+    fn the_topmost_surface_is_the_one_a_piece_lands_on() {
+        let mut shelf = table();
+        shelf.id = "shelf".into();
+        shelf.mount = Some(Mount::OnSurface {
+            class: "worktop".into(),
+        });
+        shelf.extent.height = Some(0.4);
+
+        let m = map(vec![at("t1", "table", None), at("s1", "shelf", Some("t1"))]);
+        let l = lib(vec![table(), shelf, lamp()]);
+        let ys = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+
+        let (host, top) = host_under(&m, &l, &ys, &lamp(), (0.0, 0.0))
+            .unwrap_or_else(|| panic!("nothing under the cursor"));
+        assert_eq!(host.id, "s1");
+        assert_eq!(top, 1.2);
+    }
+
+    /// Away from any table there is nothing to stand on, and the answer is the sentence rather than
+    /// a piece at floor level.
+    #[test]
+    fn a_surface_piece_over_bare_floor_is_refused_with_a_reason() {
+        let m = map(vec![at("t1", "table", None)]);
+        let l = lib(vec![table(), lamp()]);
+        let ys = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+
+        // Over the table: on it.
+        let (y, host) = placement_at(&m, &l, &ys, &lamp(), (0.0, 0.0)).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y, 0.8);
+        assert_eq!(host.map(|h| h.id.as_str()), Some("t1"));
+
+        // Ten metres away: nothing, and it says which class it wanted.
+        let err = placement_at(&m, &l, &ys, &lamp(), (10.0, 10.0))
+            .err()
+            .unwrap_or_default();
+        assert!(err.contains("worktop"), "{err}");
+
+        // A floor piece needs no host anywhere.
+        let (y, host) = placement_at(&m, &l, &ys, &table(), (10.0, 10.0)).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(y, 0.0);
+        assert!(host.is_none());
+    }
+
+    /// **A map that is not at the origin.** Every bug in this area has had the same shape: two spaces
+    /// that coincide for a map at `(0, 0, 0)` — the only kind the editor authors — so the confusion
+    /// was invisible until something moved. The floor plan is the map's own, the cursor answers in
+    /// world metres, and the conversion between them is stated once.
+    #[test]
+    fn a_moved_map_keeps_its_own_floor_plan() {
+        let m = Map {
+            name: "test_map".into(),
+            origin: (100.0, 0.0, -50.0),
+            bounds: (32.0, 4.0, 32.0),
+            ..Map::default()
+        };
+        // The plan is centred on zero wherever the map stands — it describes the map, not the world.
+        assert_eq!(m.floor_rect(), (-16.0, -16.0, 16.0, 16.0));
+        // A cursor over the map's centre is `at = (0, 0)`, not `at = (100, -50)`.
+        assert_eq!(m.to_map_space((100.0, -50.0)), (0.0, 0.0));
+        assert_eq!(m.to_map_space((104.0, -50.0)), (4.0, 0.0));
+        // And the corner of the plan is the corner of the map on the ground.
+        let (min_x, min_z, ..) = m.floor_rect();
+        assert_eq!(
+            m.to_map_space((m.origin.0 + min_x, m.origin.2 + min_z)),
+            (min_x, min_z)
+        );
+    }
+
+    /// `Map::validate` refuses the same shapes at the door, so nothing reaches the resolver.
+    #[test]
+    fn validate_refuses_a_dangling_host_and_a_loop() {
+        let dangling = map(vec![at("l1", "lamp", Some("nothing"))]);
+        let err = dangling.validate().err().unwrap_or_default();
+        assert!(err.contains("does not exist"), "{err}");
+
+        let looped = map(vec![at("a", "lamp", Some("b")), at("b", "lamp", Some("a"))]);
+        let err = looped.validate().err().unwrap_or_default();
+        assert!(err.contains("loop"), "{err}");
+
+        let itself = map(vec![at("a", "lamp", Some("a"))]);
+        let err = itself.validate().err().unwrap_or_default();
+        assert!(err.contains("rests on itself"), "{err}");
+    }
+
+    /// **Flush is legal; inside is not.** The overlap rule's whole bargain: kitbashing lays wall
+    /// segments exactly end to end, so touching must pass while interpenetration refuses.
+    #[test]
+    fn flush_passes_and_overlap_blocks() {
+        let (m, l) = (map(vec![at("t1", "table", None)]), lib(vec![table(), lamp()]));
+        // The table is 1.6 wide at (0,0): a second table exactly flush starts at x = 1.6.
+        assert!(
+            blocking(&m, &l, &table(), (1.6, 0.0), 0.0, (0, 0), None).is_none(),
+            "flush end-to-end must not read as overlap"
+        );
+        let hit = blocking(&m, &l, &table(), (1.0, 0.0), 0.0, (0, 0), None);
+        assert_eq!(hit.map(|p| p.id.as_str()), Some("t1"), "a lapped table is blocked");
+        // And the test is yaw-honest: turned 90 the second table presents 0.8 along X, so at
+        // x = 1.3 its near edge (0.9) clears the first's far edge (0.8).
+        assert!(
+            blocking(&m, &l, &table(), (1.3, 0.0), 90.0, (0, 0), None).is_none(),
+            "the turned footprint is the one that counts"
+        );
+    }
+
+    /// **`blockers` is every overlap, ascending; `blocking` is its first.** A replacing click needs
+    /// all of them, and the two must never disagree about what is in the way.
+    #[test]
+    fn blockers_lists_every_overlap_in_map_order_and_blocking_is_the_first() {
+        let m = map(vec![
+            at("t1", "table", None),
+            // Past the first table's far edge (0.8) and the guest's near edge: clear.
+            Placed { at: (5.0, 0.0), ..at("far", "table", None) },
+            Placed { at: (1.0, 0.0), ..at("t2", "table", None) },
+        ]);
+        let l = lib(vec![table(), lamp()]);
+        let hit = blockers(&m, &l, &table(), (0.5, 0.0), 0.0, (0, 0), None);
+        assert_eq!(hit, vec![0, 2], "both lapped tables, never the far one, ascending");
+        let first = blocking(&m, &l, &table(), (0.5, 0.0), 0.0, (0, 0), None);
+        assert_eq!(first.map(|p| p.id.as_str()), Some("t1"));
+        assert!(blockers(&m, &l, &table(), (3.0, 0.0), 0.0, (0, 0), None).is_empty());
+    }
+
+    /// **The whole-map pass names a lapped pair once, in map order.** A table is 1.6 wide, so a
+    /// second at x = 1.0 is inside it; the answer is the one pair, and no piece with itself.
+    #[test]
+    fn the_overlap_pass_names_a_lapped_pair_once() {
+        let m = map(vec![
+            at("t1", "table", None),
+            Placed { at: (1.0, 0.0), ..at("t2", "table", None) },
+        ]);
+        let l = lib(vec![table(), lamp()]);
+        assert_eq!(overlaps(&m, &l), vec![(0, 1)]);
+    }
+
+    /// **Flush is legal here too**, because it is the same rule `blocking` applies to a placed piece:
+    /// kitbashing lays wall segments exactly end to end, and a whole-map pass that called those an
+    /// overlap would report every assembled wall in the project.
+    #[test]
+    fn the_overlap_pass_lets_flush_pieces_be() {
+        let m = map(vec![
+            at("t1", "table", None),
+            Placed { at: (1.6, 0.0), ..at("t2", "table", None) },
+        ]);
+        let l = lib(vec![table(), lamp()]);
+        assert!(overlaps(&m, &l).is_empty(), "flush end-to-end is not an overlap");
+    }
+
+    /// **A rider and its host are not an overlap.** The lamp's plan sits inside the table's, which is
+    /// the ordinary case: a surface piece is *meant* to be over its host. `same_layer` is what makes
+    /// the pass silent here, and this test is the one that fails if that table ever changes.
+    #[test]
+    fn the_overlap_pass_ignores_a_rider_on_its_host() {
+        let m = map(vec![
+            at("t1", "table", None),
+            Placed { at: (0.0, 0.0), ..at("l1", "lamp", Some("t1")) },
+        ]);
+        let l = lib(vec![table(), lamp()]);
+        assert!(
+            overlaps(&m, &l).is_empty(),
+            "a lamp on a table is not a table inside a table"
+        );
+    }
+
+    /// Layers pass each other: the floor tile a crate stands on is not in its way, two lamps
+    /// contest one table but not two tables, and a decal claims no volume at all.
+    #[test]
+    fn other_layers_do_not_block() {
+        let tiled = Descriptor {
+            id: "floor_tile".into(),
+            extent: Extent {
+                footprint: Some((0.5, 0.5)),
+                height: Some(0.05),
+            },
+            mount: Some(Mount::Tiled),
+            ..Descriptor::default()
+        };
+        let l = lib(vec![table(), lamp(), tiled.clone()]);
+        let m = map(vec![at("f1", "floor_tile", None), at("t1", "table", None)]);
+        // A floor-standing table over a Tiled tile: different strata.
+        assert!(blocking(&m, &l, &table(), (0.0, 0.0), 0.0, (0, 0), None).is_some());
+        assert!(blocking(&m, &l, &tiled, (1.6, 0.0), 0.0, (0, 0), None).is_none());
+
+        // Two lamps on the same host contest it; on different hosts they never meet.
+        let stacked = map(vec![
+            at("t1", "table", None),
+            at("l1", "lamp", Some("t1")),
+        ]);
+        assert!(
+            blocking(&stacked, &l, &lamp(), (0.0, 0.0), 0.0, (0, 0), Some("t1")).is_some(),
+            "two lamps on one table at one spot is an overlap"
+        );
+        assert!(
+            blocking(&stacked, &l, &lamp(), (0.0, 0.0), 0.0, (0, 0), Some("t2")).is_none(),
+            "a different host is a different layer"
+        );
+    }
+
+    /// A tipped piece reserves the box it actually fills: a 0.8 m-tall table tipped about X lies
+    /// 0.8 m deep in plan, so a probe its upright depth would have cleared now collides.
+    #[test]
+    fn a_tip_swaps_the_reserved_footprint() {
+        let l = lib(vec![table(), lamp()]);
+        let mut m = map(vec![at("t1", "table", None)]);
+        m.placements[0].tip = (1, 0); // height (0.8) now lies along depth
+        // Upright depth is 0.8 (half 0.4); at z = 0.7 a 0.8-deep guest (near edge 0.3) clears an
+        // upright table but laps a tipped one only if the tip really swapped nothing... it does
+        // not change depth here (0.8 == 0.8), so test the OTHER tip: about Z, width becomes 0.8.
+        m.placements[0].tip = (0, 1); // width (1.6) -> height; height (0.8) -> width
+        assert!(
+            blocking(&m, &l, &table(), (1.2, 0.0), 0.0, (0, 0), None).is_none(),
+            "tipped about Z the table is only 0.8 wide, so x = 1.2 clears it"
+        );
+        m.placements[0].tip = (0, 0);
+        assert!(
+            blocking(&m, &l, &table(), (1.2, 0.0), 0.0, (0, 0), None).is_some(),
+            "upright it is 1.6 wide again and x = 1.2 laps it"
+        );
+    }
+
+    /// What a road placement carries over the one descriptor roads share: a 4 x 20 m strip.
+    fn strip() -> Descriptor {
+        Descriptor {
+            extent: Extent {
+                footprint: Some((4.0, 20.0)),
+                height: Some(1.0),
+            },
+            ..Descriptor::default()
+        }
+    }
+
+    /// **The placement's own descriptor, borrowed unless it is patched.** The unpatched case is every
+    /// placement in every map that has no patch, so it must not clone.
+    #[test]
+    fn the_descriptor_of_a_placement_is_borrowed_unless_patched() {
+        let l = lib(vec![table()]);
+        let plain = at("t1", "table", None);
+        match descriptor_of(&l, &plain) {
+            Some(Cow::Borrowed(d)) => assert_eq!(d.extent.footprint, Some((1.6, 0.8))),
+            other => panic!("an unpatched placement must borrow the library's descriptor: {other:?}"),
+        }
+        let mut long = at("t2", "table", None);
+        long.patch = Some(strip());
+        match descriptor_of(&l, &long) {
+            Some(Cow::Owned(d)) => {
+                assert_eq!(d.id, "table", "a patch that names no id keeps the base's");
+                assert_eq!(d.extent.footprint, Some((4.0, 20.0)));
+                assert_eq!(d.offers.surfaces, vec!["worktop".to_owned()], "inherited");
+            }
+            other => panic!("a patched placement owns its layered descriptor: {other:?}"),
+        }
+        assert!(descriptor_of(&l, &at("x", "nope", None)).is_none());
+    }
+
+    /// **A patched footprint blocks, and is blocked, at its real size.** A road marker is one
+    /// descriptor; its length lives on the placement, and an overlap test that read the library's
+    /// would let anything be put on the far end of a 20 m road.
+    #[test]
+    fn a_patched_footprint_blocks_and_is_blocked_at_its_real_size() {
+        let l = lib(vec![table()]);
+        let probe = (0.0, 8.0);
+
+        // Existing patched strip, new unpatched guest 8 m along it.
+        let mut m = map(vec![at("road", "table", None)]);
+        assert!(blockers(&m, &l, &table(), probe, 0.0, (0, 0), None).is_empty());
+        m.placements[0].patch = Some(strip());
+        assert_eq!(blockers(&m, &l, &table(), probe, 0.0, (0, 0), None), vec![0]);
+        assert!(blocking(&m, &l, &table(), probe, 0.0, (0, 0), None).is_some());
+        // Past the strip's end it is clear again.
+        assert!(blockers(&m, &l, &table(), (0.0, 11.0), 0.0, (0, 0), None).is_empty());
+
+        // New patched guest, existing unpatched piece at the origin: the guest's own length reaches it.
+        let m = map(vec![at("t1", "table", None)]);
+        let guest = table().patched_with(&strip());
+        assert!(blockers(&m, &l, &table(), probe, 0.0, (0, 0), None).is_empty());
+        assert_eq!(blockers(&m, &l, &guest, probe, 0.0, (0, 0), None), vec![0]);
+    }
+
+    /// **Heights and hosts follow the patched piece.** A surface patched taller holds its rider
+    /// higher, and a surface patched into a 4 x 20 m strip holds one 8 m along it.
+    #[test]
+    fn heights_and_hosts_use_the_patched_descriptor() {
+        let l = lib(vec![table(), lamp()]);
+        let mut m = map(vec![at("t1", "table", None), at("l1", "lamp", Some("t1"))]);
+        let plain = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert!((plain[1] - 0.8).abs() < 1e-5, "unpatched: the table's own 0.8 m");
+
+        m.placements[0].patch = Some(strip());
+        let patched = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert!((patched[1] - 1.0).abs() < 1e-5, "patched: the strip's 1.0 m, got {}", patched[1]);
+
+        let probe = (0.0, 8.0);
+        let ys = &patched;
+        let (_, host) = placement_at(&m, &l, ys, &lamp(), probe).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(host.map(|h| h.id.as_str()), Some("t1"), "8 m along the strip is on the strip");
+
+        m.placements[0].patch = None;
+        let ys = resolve_y(&m, &l).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            placement_at(&m, &l, &ys, &lamp(), probe).is_err(),
+            "unpatched, 8 m from the table is bare floor"
+        );
+    }
+}

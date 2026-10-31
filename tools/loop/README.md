@@ -7,7 +7,7 @@ copies an `assets` directory to `/tmp` first and closes the editor it launched b
 **`common.py`** — what the others share: the repo path, `binary(name)` (a workspace binary looked up
 through `cargo metadata`'s target directory, so the shared `~/.cargo-target-shared/global` is found
 rather than assumed), `free_port()`, `make_scratch(source, dest)`, `class Editor` (one editor
-process, `wait_ready(pred)` polling `emerge/state`, closed by pid), and `class Client` (the demo
+process, `wait_ready(pred)` polling `grimoire/state`, closed by pid), and `class Client` (the demo
 recorder's `McpClient` plus `tools/list`). It imports `McpClient` and `brp` from `tools/demo/record.py`
 rather than writing a second MCP client.
 
@@ -26,8 +26,8 @@ imports a mesh and places it, for measuring the Blender bridge. Exit 0 only when
 
 **`perf.py`** — responsiveness, in the five numbers the reports quote: `frame_ms_median` (from
 `bevy_debugger/status`'s frame counter over five 2 s windows), `key_p95_ms` (a keystroke until
-`emerge/state` says the armed tool changed), `file_ms` (a `yaw:` rewritten in the map file until the
-watched placement's transform carries it), `mcp_ms` (the same value through `emerge_apply_operation`),
+`grimoire/state` says the armed tool changed), `file_ms` (a `yaw:` rewritten in the map file until the
+watched placement's transform carries it), `mcp_ms` (the same value through `grimoire_apply_operation`),
 and `load_avg_1m` — because every number above is a statement about the machine as much as the code.
 Exit 1 if a latency came back `None`: a report with a hole in it gets quoted as if it were a
 measurement.

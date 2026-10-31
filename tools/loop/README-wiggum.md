@@ -22,7 +22,7 @@ the gate prerequisite — is `docs/loop/RUNNING-A-LOOP.md`.** This file assumes 
 | protected evaluator | the repo's harness + tests | the score. **No pass may edit it.** |
 
 Every loop repo's command is `.omp/commands/build-loop.md` (the owner's rule since 2026-10-28: one name to
-know, in bevy_emerge, bevy_elements, bevy_lights and bevy_society), and it wins over the generic `bevy-loop`
+know, in bevy_grimoire, bevy_elements, bevy_lights and bevy_society), and it wins over the generic `bevy-loop`
 where both exist. A repo with no loop command of its own, such as `bevy_debugger_mcp`, runs the generic one.
 
 ## What runs what
@@ -33,13 +33,13 @@ flowchart TD
   drv -->|"one pass, then sleep 60s"| omp["omp -p /build-loop<br/>fresh context"]
   omp --> gate["cargo build · clippy · test --workspace"]
   omp --> acc["accept.py --source ~/bevy_emerge_loop/assets → 10/10"]
-  acc --> ed["bevy_emerge_mapper<br/>windowed — needs a display"]
+  acc --> ed["bevy_grimoire_mapper<br/>windowed — needs a display"]
   unit -->|"ExecStartPre"| xvfb["Xvfb, one number per loop"]
   drv -->|"git commit + push"| gh["origin"]
 ```
 
 **Each loop gets its own display number.** `bevy_lights` is `:97`, `bevy_society` is `:98` and
-`bevy_emerge` on big is `:99`; two units whose preflight reaps the same `Xvfb :99` reap each other's
+`bevy_grimoire` on big is `:99`; two units whose preflight reaps the same `Xvfb :99` reap each other's
 server, so the number is part of the unit, not a machine-wide constant.
 
 **`WIGGUM_REPO` is `~/bevy_emerge_loop`,** a clean clone. It is deliberately **not** `~/bevy_emerge`,

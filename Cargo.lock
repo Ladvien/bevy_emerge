@@ -681,7 +681,7 @@ dependencies = [
 [[package]]
 name = "bevy_carnage"
 version = "0.7.0"
-source = "git+https://github.com/Ladvien/bevy_carnage?rev=615c264e28680448b934d3f28b73487dd8b98750#615c264e28680448b934d3f28b73487dd8b98750"
+source = "git+https://github.com/bevy-coven/bevy_carnage?rev=615c264e28680448b934d3f28b73487dd8b98750#615c264e28680448b934d3f28b73487dd8b98750"
 dependencies = [
  "bevy",
  "isomesh 0.0.10",
@@ -904,109 +904,13 @@ dependencies = [
 [[package]]
 name = "bevy_elements"
 version = "0.7.6"
-source = "git+https://github.com/Ladvien/bevy_elements?rev=2fee42a6c385081783116301469ada6f2d0a4792#2fee42a6c385081783116301469ada6f2d0a4792"
+source = "git+https://github.com/bevy-coven/bevy_elements?rev=2fee42a6c385081783116301469ada6f2d0a4792#2fee42a6c385081783116301469ada6f2d0a4792"
 dependencies = [
  "bevy",
  "bevy_isomesh",
  "bytemuck",
  "isomesh 0.0.11",
  "serde",
-]
-
-[[package]]
-name = "bevy_emerge"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_emerge_core",
-]
-
-[[package]]
-name = "bevy_emerge_anim"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_emerge_core",
-]
-
-[[package]]
-name = "bevy_emerge_core"
-version = "0.1.0"
-dependencies = [
- "bevy_emerge_rng 0.1.0",
- "bevy_emerge_solver",
- "rand",
- "rand_chacha",
- "ron",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "bevy_emerge_decide"
-version = "0.1.0"
-dependencies = [
- "ron",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "bevy_emerge_mapper"
-version = "0.1.0"
-dependencies = [
- "accesskit",
- "arboard",
- "base64 0.22.1",
- "bevy",
- "bevy_carnage",
- "bevy_devshot",
- "bevy_elements",
- "bevy_emerge",
- "bevy_emerge_anim",
- "bevy_emerge_core",
- "bevy_emerge_decide",
- "bevy_emerge_snip",
- "bevy_fairy",
- "bevy_flora",
- "bevy_gooey",
- "bevy_light_grid",
- "bevy_lights",
- "bevy_orca",
- "bevy_society",
- "bevy_speech_bubbles",
- "bevy_stigmergy",
- "image",
- "isomesh 0.0.11",
- "ron",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "bevy_emerge_mcp"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "bevy_emerge_core",
- "bevy_emerge_decide",
- "bevy_emerge_snip",
- "rmcp",
- "schemars",
- "serde",
- "serde_json",
- "tokio",
- "ureq",
-]
-
-[[package]]
-name = "bevy_emerge_rng"
-version = "0.1.0"
-dependencies = [
- "rand",
- "rand_chacha",
 ]
 
 [[package]]
@@ -1017,22 +921,6 @@ checksum = "ee1fce0dd7e868beef35d4f2c6c3c5a34ca17ae2a1bbc6104a160319436990d0"
 dependencies = [
  "rand",
  "rand_chacha",
-]
-
-[[package]]
-name = "bevy_emerge_snip"
-version = "0.1.0"
-dependencies = [
- "image",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "bevy_emerge_solver"
-version = "0.1.0"
-dependencies = [
- "batsat",
 ]
 
 [[package]]
@@ -1078,7 +966,7 @@ dependencies = [
 [[package]]
 name = "bevy_fairy"
 version = "0.3.1"
-source = "git+https://github.com/Ladvien/bevy_fairy?rev=06c9c1805651fabb2474a9d09af84c761be406aa#06c9c1805651fabb2474a9d09af84c761be406aa"
+source = "git+https://github.com/bevy-coven/bevy_fairy?rev=06c9c1805651fabb2474a9d09af84c761be406aa#06c9c1805651fabb2474a9d09af84c761be406aa"
 dependencies = [
  "bevy",
  "image",
@@ -1121,7 +1009,7 @@ dependencies = [
 [[package]]
 name = "bevy_flora"
 version = "0.46.0"
-source = "git+https://github.com/Ladvien/bevy_flora?rev=25e956b3f88ba32a1b6d75957360c6840da6afd9#25e956b3f88ba32a1b6d75957360c6840da6afd9"
+source = "git+https://github.com/bevy-coven/bevy_flora?rev=25e956b3f88ba32a1b6d75957360c6840da6afd9#25e956b3f88ba32a1b6d75957360c6840da6afd9"
 dependencies = [
  "bevy",
  "ron",
@@ -1251,10 +1139,122 @@ dependencies = [
 [[package]]
 name = "bevy_gooey"
 version = "0.1.0"
-source = "git+https://github.com/Ladvien/bevy_gooey?rev=23e851a8d4921cb0375a59400f5ec60f68fe8ea5#23e851a8d4921cb0375a59400f5ec60f68fe8ea5"
+source = "git+https://github.com/bevy-coven/bevy_gooey?rev=23e851a8d4921cb0375a59400f5ec60f68fe8ea5#23e851a8d4921cb0375a59400f5ec60f68fe8ea5"
 dependencies = [
  "bevy",
  "serde",
+]
+
+[[package]]
+name = "bevy_grimoire"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_grimoire_core",
+]
+
+[[package]]
+name = "bevy_grimoire_anim"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_grimoire_core",
+]
+
+[[package]]
+name = "bevy_grimoire_core"
+version = "0.1.0"
+dependencies = [
+ "bevy_grimoire_rng",
+ "bevy_grimoire_solver",
+ "rand",
+ "rand_chacha",
+ "ron",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "bevy_grimoire_decide"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "bevy_grimoire_mapper"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "arboard",
+ "base64 0.22.1",
+ "bevy",
+ "bevy_carnage",
+ "bevy_devshot",
+ "bevy_elements",
+ "bevy_fairy",
+ "bevy_flora",
+ "bevy_gooey",
+ "bevy_grimoire",
+ "bevy_grimoire_anim",
+ "bevy_grimoire_core",
+ "bevy_grimoire_decide",
+ "bevy_grimoire_snip",
+ "bevy_light_grid",
+ "bevy_lights",
+ "bevy_orca",
+ "bevy_society",
+ "bevy_speech_bubbles",
+ "bevy_stigmergy",
+ "image",
+ "isomesh 0.0.11",
+ "ron",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "bevy_grimoire_mcp"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bevy_grimoire_core",
+ "bevy_grimoire_decide",
+ "bevy_grimoire_snip",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "ureq",
+]
+
+[[package]]
+name = "bevy_grimoire_rng"
+version = "0.1.0"
+dependencies = [
+ "rand",
+ "rand_chacha",
+]
+
+[[package]]
+name = "bevy_grimoire_snip"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "bevy_grimoire_solver"
+version = "0.1.0"
+dependencies = [
+ "batsat",
 ]
 
 [[package]]
@@ -1432,7 +1432,7 @@ dependencies = [
 [[package]]
 name = "bevy_light_grid"
 version = "0.1.0"
-source = "git+https://github.com/Ladvien/bevy_light_grid?rev=8b4a3c760ccc05f39e81bb22e366b330080fcc95#8b4a3c760ccc05f39e81bb22e366b330080fcc95"
+source = "git+https://github.com/bevy-coven/bevy_light_grid?rev=8b4a3c760ccc05f39e81bb22e366b330080fcc95#8b4a3c760ccc05f39e81bb22e366b330080fcc95"
 dependencies = [
  "bevy_ecs",
  "bevy_math",
@@ -1441,7 +1441,7 @@ dependencies = [
 [[package]]
 name = "bevy_lights"
 version = "0.2.5"
-source = "git+https://github.com/Ladvien/bevy_lights?rev=15af29a7dc05ada701caa4c154a00cee363c84b3#15af29a7dc05ada701caa4c154a00cee363c84b3"
+source = "git+https://github.com/bevy-coven/bevy_lights?rev=15af29a7dc05ada701caa4c154a00cee363c84b3#15af29a7dc05ada701caa4c154a00cee363c84b3"
 dependencies = [
  "bevy",
  "serde",
@@ -1567,7 +1567,7 @@ checksum = "bff34eb29ff4b8a8688bc7299f14fb6b597461ca80fec03ed7d22939ab33e48f"
 [[package]]
 name = "bevy_orca"
 version = "0.2.0"
-source = "git+https://github.com/Ladvien/bevy_orca?rev=e7160df097dc75652633f801f6c0ab1c73356bc4#e7160df097dc75652633f801f6c0ab1c73356bc4"
+source = "git+https://github.com/bevy-coven/bevy_orca?rev=e7160df097dc75652633f801f6c0ab1c73356bc4#e7160df097dc75652633f801f6c0ab1c73356bc4"
 dependencies = [
  "bevy_math",
 ]
@@ -1911,10 +1911,10 @@ dependencies = [
 [[package]]
 name = "bevy_society"
 version = "0.5.0"
-source = "git+https://github.com/Ladvien/bevy_society?rev=d2e39703e06ebf40b5e787a2da4b6882a9beee3e#d2e39703e06ebf40b5e787a2da4b6882a9beee3e"
+source = "git+https://github.com/bevy-coven/bevy_society?rev=d2e39703e06ebf40b5e787a2da4b6882a9beee3e#d2e39703e06ebf40b5e787a2da4b6882a9beee3e"
 dependencies = [
  "bevy",
- "bevy_emerge_rng 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bevy_emerge_rng",
  "rand_chacha",
  "rhai",
  "ron",
@@ -1924,7 +1924,7 @@ dependencies = [
 [[package]]
 name = "bevy_speech_bubbles"
 version = "0.2.1"
-source = "git+https://github.com/Ladvien/bevy_speech_bubbles?rev=b2d67f0d8a8a984a78f9bc9291cc63be867c6822#b2d67f0d8a8a984a78f9bc9291cc63be867c6822"
+source = "git+https://github.com/bevy-coven/bevy_speech_bubbles?rev=b2d67f0d8a8a984a78f9bc9291cc63be867c6822#b2d67f0d8a8a984a78f9bc9291cc63be867c6822"
 dependencies = [
  "ab_glyph",
  "bevy",
@@ -2024,7 +2024,7 @@ dependencies = [
 [[package]]
 name = "bevy_stigmergy"
 version = "0.2.0"
-source = "git+https://github.com/Ladvien/bevy_stigmergy?rev=6ecee6a3c2ff0bf7f18dab10f376c49b49914c44#6ecee6a3c2ff0bf7f18dab10f376c49b49914c44"
+source = "git+https://github.com/bevy-coven/bevy_stigmergy?rev=6ecee6a3c2ff0bf7f18dab10f376c49b49914c44#6ecee6a3c2ff0bf7f18dab10f376c49b49914c44"
 dependencies = [
  "bevy_math",
  "rayon",
@@ -3945,7 +3945,7 @@ dependencies = [
 [[package]]
 name = "isomesh"
 version = "0.0.11"
-source = "git+https://github.com/Ladvien/isomesh?rev=d3dc6c0fb6b43b899e534643f51f76a856d2d9ee#d3dc6c0fb6b43b899e534643f51f76a856d2d9ee"
+source = "git+https://github.com/bevy-coven/isomesh?rev=d3dc6c0fb6b43b899e534643f51f76a856d2d9ee#d3dc6c0fb6b43b899e534643f51f76a856d2d9ee"
 dependencies = [
  "libm",
 ]

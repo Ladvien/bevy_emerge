@@ -1,0 +1,20 @@
+[package]
+name = "bevy_grimoire_rng"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+description = "One deterministic RNG for a whole simulation: a seeded ChaCha8 stream plus the unbiased integer and float draws generators actually need, reproducible from a single u64 across platforms and thread counts."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bevy-coven/bevy_grimoire"
+keywords = ["random", "deterministic", "reproducible", "chacha", "simulation"]
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE-*"]
+categories = ["algorithms", "simulation", "game-development"]
+
+# **Explicit versions, not `workspace = true`.** This crate is a leaf and is meant to be the thing
+# other crates can depend on without inheriting anything, so its manifest has to stand on its own.
+[dependencies]
+# ChaCha8: portable, well-tested, and identical on every platform — which a hash-based PRNG tuned for
+# speed is not. The whole value here is that a seed reproduces a run, so the stream has to be a
+# specified algorithm rather than whatever the standard library felt like this release.
+rand = "0.10"
+rand_chacha = "0.10"

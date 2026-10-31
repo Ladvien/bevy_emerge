@@ -3,7 +3,7 @@
 
 usage: perf.py --source <project assets dir> --out <json>
 
-The loop skipped measurement repeatedly because the tool lived in `/tmp/emerge_live/lat.py` and was
+The loop skipped measurement repeatedly because the tool lived in `/tmp/grimoire_live/lat.py` and was
 one reboot from gone. This is that tool, in the repo, with the same five numbers:
 
   frame_ms_median   the display's own frame rate, five 2 s windows
@@ -56,16 +56,16 @@ def frame_ms(port, windows=5, seconds=2.0):
 def key_ms(port, presses=10):
     """Time from a keystroke to the editor's state saying the armed tool changed.
 
-    `KeyB` cycles the tool, and `emerge/state` reports which tool is armed — so the stop condition
+    `KeyB` cycles the tool, and `grimoire/state` reports which tool is armed — so the stop condition
     is the editor's own answer, not a guess about a frame count.
     """
     times = []
     for _ in range(presses):
-        before = brp(port, "emerge/state", {})["result"]["editor"]["tool"]
+        before = brp(port, "grimoire/state", {})["result"]["editor"]["tool"]
         t0 = time.time()
         brp(port, "bevy_debugger/input", {"kind": "Keyboard", "key": "KeyB", "action": "Tap"})
         while time.time() - t0 < 3.0:
-            now = brp(port, "emerge/state", {})["result"]["editor"]["tool"]
+            now = brp(port, "grimoire/state", {})["result"]["editor"]["tool"]
             if now != before:
                 times.append((time.time() - t0) * 1000.0)
                 break
@@ -159,7 +159,7 @@ def main():
     args = ap.parse_args()
 
     stamp = int(time.time())
-    scratch = make_scratch(Path(args.source), Path(f"/tmp/emerge_perf/run-{stamp}"))
+    scratch = make_scratch(Path(args.source), Path(f"/tmp/grimoire_perf/run-{stamp}"))
     report = {"source": str(args.source), "scratch": str(scratch), "load_avg_1m": None}
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -174,17 +174,17 @@ def main():
             report["key_p95_ms"], report["key_ms_raw"] = key_ms(port)
 
             # **A file edit**, then the same value through MCP, with the original restored.
-            map_path = Path(scratch) / "assets" / "emerge" / "maps" / f"{args.map}.map.ron"
+            map_path = Path(scratch) / "assets" / "grimoire" / "maps" / f"{args.map}.map.ron"
             original = rewrite_yaw(map_path, 90.0)
             try:
                 report["file_ms"] = poll_yaw(port, 90.0)
             finally:
                 map_path.write_text(original)
 
-            client = Client(str(binary("bevy_emerge_mcp")), str(scratch), port, "perf")
+            client = Client(str(binary("bevy_grimoire_mcp")), str(scratch), port, "perf")
             try:
                 t0 = time.time()
-                answer = client.json_call("emerge_apply_operation", {
+                answer = client.json_call("grimoire_apply_operation", {
                     "operation": "placement_set_yaw",
                     "parameters": {"id": "tower_00", "yaw": 135.0},
                 })
@@ -192,7 +192,7 @@ def main():
                 report["mcp_outcome"] = answer.get("outcome", answer)
                 report["mcp_ms"] = poll_yaw(port, 135.0)
                 if report["mcp_ms"] is not None:
-                    client.json_call("emerge_apply_operation", {
+                    client.json_call("grimoire_apply_operation", {
                         "operation": "placement_set_yaw",
                         "parameters": {"id": "tower_00", "yaw": 0.0},
                     })

@@ -1,18 +1,18 @@
-# The runtime half: retire `bevy_emerge`, or let the game adopt it
+# The runtime half: retire `bevy_grimoire`, or let the game adopt it
 
 **Status:** open — owner's call. Found 2026-10-20 by the technical review.
 
 ## The problem
 
-`bevy_emerge` is 1,035 lines: `EmergeWorld`, `EmergePlugin`, `spawn_descriptor`, `SmartObjects` /
+`bevy_grimoire` is 1,035 lines: `GrimoireWorld`, `GrimoirePlugin`, `spawn_descriptor`, `SmartObjects` /
 `Offer`, `MountedOn` / `Supporting`, `Paint` / `PaintedMaterials` / `apply_paint`.
 
 Outside its own `lib.rs` and `examples/spawn_headless.rs`, **none of it has a caller.** The editor
 calls `spawn_descriptor` directly. Sanctuary does not depend on the crate at all — it reads
-`bevy_emerge_core` and spawns its own town through `src/prototype/town_map.rs` and
+`bevy_grimoire_core` and spawns its own town through `src/prototype/town_map.rs` and
 `src/prototype/town.rs`.
 
-The crate header claims: *"the editor spawns pieces through `bevy_emerge::spawn_descriptor` rather
+The crate header claims: *"the editor spawns pieces through `bevy_grimoire::spawn_descriptor` rather
 than its own copy, so a map cannot look one way here and another in the game."* That is true
 **editor-vs-runtime-crate** and false **editor-vs-game**, which is the failure the claim exists to
 prevent. The game currently has two spawn paths.
@@ -20,10 +20,10 @@ prevent. The game currently has two spawn paths.
 Supporting facts, all verified:
 
 - `spawn_world` is O(n²) in its `by_id` lookup for `MountedOn`.
-- There is no reload or despawn path in the crate. Re-inserting `EmergeWorld` would spawn a second
-  copy. Sanctuary has its own watcher (`emerge_data.rs`) and its own despawn.
+- There is no reload or despawn path in the crate. Re-inserting `GrimoireWorld` would spawn a second
+  copy. Sanctuary has its own watcher (`grimoire_data.rs`) and its own despawn.
 - Asset-load failure is unhandled: `assets.load` is async, and a missing `.glb` is silent.
-- The crate's own test suite has no App-level test of `EmergePlugin` spawning placements, and no
+- The crate's own test suite has no App-level test of `GrimoirePlugin` spawning placements, and no
   test of `tip_seat`, `tip_quat`, `apply_paint` or the `MountedOn` linkage.
 - `SmartObjects` / `Offer` / `MountedOn` / `Paint` / `apply_paint` have **no** callers outside the
   crate. They are a second, parallel model of interaction that nothing uses.
@@ -32,7 +32,7 @@ Supporting facts, all verified:
 
 ### A. Let the game adopt it
 
-Sanctuary loads `EmergeWorld` and lets `EmergePlugin` spawn the map; the editor already calls
+Sanctuary loads `GrimoireWorld` and lets `GrimoirePlugin` spawn the map; the editor already calls
 `spawn_descriptor`, so both halves share one spawner and the claim becomes true.
 
 - **Cost:** the game inherits the crate's O(n²) mount lookup, its silent asset failure, and its
@@ -44,7 +44,7 @@ Sanctuary loads `EmergeWorld` and lets `EmergePlugin` spawn the map; the editor 
 
 ### B. Retire it
 
-Delete `bevy_emerge`, keep `spawn_descriptor` where it is needed (or move it into the editor), and
+Delete `bevy_grimoire`, keep `spawn_descriptor` where it is needed (or move it into the editor), and
 let the game keep its own spawn path. The claim in the crate header stops being a claim.
 
 - **Cost:** the editor and the game still have two spawn paths, and "a map cannot look one way

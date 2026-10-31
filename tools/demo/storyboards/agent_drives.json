@@ -6,7 +6,7 @@
   "crop": [0, 0, 1280, 703],
   "setup": [
     {
-      "mcp": "emerge_frame_view",
+      "mcp": "grimoire_frame_view",
       "args": {"target": {"placements": ["abbey", "well"]}}
     }
   ],
@@ -31,15 +31,15 @@
   "steps": [
     {
       "at": 0.0,
-      "caption": "agent: emerge_frame_view placements abbey, well (71 x 52 m), before recording"
+      "caption": "agent: grimoire_frame_view placements abbey, well (71 x 52 m), before recording"
     },
     {
       "at": 0.45,
-      "caption": "agent: emerge_apply_operation placement_set_yaw abbey, yaw 90"
+      "caption": "agent: grimoire_apply_operation placement_set_yaw abbey, yaw 90"
     },
     {
       "at": 0.85,
-      "caption": "agent: emerge_apply_operation placement_remove abbey_table (and the items on it)"
+      "caption": "agent: grimoire_apply_operation placement_remove abbey_table (and the items on it)"
     },
     {
       "at": 1.45,

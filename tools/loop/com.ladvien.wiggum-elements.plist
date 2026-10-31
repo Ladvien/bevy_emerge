@@ -98,7 +98,7 @@
     <key>RUSTUP_TOOLCHAIN</key>
     <string>1.98.1</string>
     <!-- A release build of this crate is the heaviest job the machine does. Six of ten cores leaves
-         room for the emerge loop, whose tests also compile hard. -->
+         room for the grimoire loop, whose tests also compile hard. -->
     <key>CARGO_BUILD_JOBS</key>
     <string>6</string>
     <key>RUST_BACKTRACE</key>

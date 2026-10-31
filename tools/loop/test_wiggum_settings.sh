@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for the per-repo settings file (<repo>/.omp/wiggum/<command>.env), written 2026-10-28 for Sanctuary's emerge loop.
+# Tests for the per-repo settings file (<repo>/.omp/wiggum/<command>.env), written 2026-10-28 for Sanctuary's grimoire loop.
 # What the file is for: a checkout other people and agents work in must never be parked (git add -A, commit, check main
 # out), whatever start line was typed. Case 5 is the control: the same dirty tree WITHOUT the file is parked, so case 4
 # proves something; case 11 is the same for the final snapshot (WIGGUM_SNAPSHOT). Cases 8-10: the omp overlay

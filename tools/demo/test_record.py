@@ -21,7 +21,7 @@ class McpEventIsStampedWhenCalled(unittest.TestCase):
         tl = record.Timeline()
         time.sleep(0.05)
         before = tl.now()
-        step = {"_kind": "mcp", "mcp": "emerge_frame_view", "args": {}, "at": 0.0}
+        step = {"_kind": "mcp", "mcp": "grimoire_frame_view", "args": {}, "at": 0.0}
         record.do_step(step, tl, None, SlowAgent(0.5))
         (event,) = tl.events
         # The call took 0.5 s. The event must be stamped when it started, not when it returned.

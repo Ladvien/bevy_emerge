@@ -4,9 +4,9 @@
  "scale": 2,
  "width": 960,
  "setup": [
-  {"mcp": "emerge_frame_view", "args": {"target": {"rect": [-9, -9, 9, 9]}}},
-  {"mcp": "emerge_apply_operation", "args": {"operation": "tree_edit", "parameters": {"name": "elm", "preset": "oak"}}},
-  {"mcp": "emerge_apply_operation", "args": {"operation": "forest_scatter", "parameters": {"map": "grove", "place": {"species": "trees/elm.tree.ron", "at": [0.0, 0.0], "age_years": 25.0, "seed": 7}}}}
+  {"mcp": "grimoire_frame_view", "args": {"target": {"rect": [-9, -9, 9, 9]}}},
+  {"mcp": "grimoire_apply_operation", "args": {"operation": "tree_edit", "parameters": {"name": "elm", "preset": "oak"}}},
+  {"mcp": "grimoire_apply_operation", "args": {"operation": "forest_scatter", "parameters": {"map": "grove", "place": {"species": "trees/elm.tree.ron", "at": [0.0, 0.0], "age_years": 25.0, "seed": 7}}}}
  ],
  "chunks": [
   {"seconds": 6},

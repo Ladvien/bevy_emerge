@@ -5,7 +5,7 @@
  "width": 960,
  "setup": [
   {
-   "mcp": "emerge_apply_operation",
+   "mcp": "grimoire_apply_operation",
    "args": {
     "operation": "note_add",
     "parameters": {
@@ -17,7 +17,7 @@
    }
   },
   {
-   "mcp": "emerge_apply_operation",
+   "mcp": "grimoire_apply_operation",
    "args": {
     "operation": "note_add",
     "parameters": {
@@ -30,7 +30,7 @@
    }
   },
   {
-   "mcp": "emerge_apply_operation",
+   "mcp": "grimoire_apply_operation",
    "args": {
     "operation": "note_add",
     "parameters": {

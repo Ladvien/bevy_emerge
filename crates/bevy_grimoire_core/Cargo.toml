@@ -1,0 +1,34 @@
+[package]
+name = "bevy_grimoire_core"
+version = "0.1.0"
+edition = "2024"
+description = "Engine-free world-building core: constraint IR, solvers, WFC, deterministic RNG."
+# Relicensed MIT OR Apache-2.0 on extraction from foundation_vs_slop (owner decision, Sanctuary decision 0087).
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bevy-coven/bevy_grimoire"
+
+# **No `bevy`, and that is the point of the crate.** Everything here is plain data and arithmetic, so
+# it can be consumed by the game, by the headless search, and by a standalone editor without any of
+# them agreeing on a renderer. `placement/ir.rs` has stated this invariant since before there was a
+# crate to enforce it; the crate is what turns the comment into a compiler error.
+#
+# Adding a `bevy` dependency here is a design change, not a convenience — see
+# `docs/2026-08-03-emerge-mapper-plan.md`.
+[dependencies]
+# The deterministic RNG, lifted out of this crate so a permissive sibling can share the exact same
+# generator rather than copy it. Re-exported as `bevy_grimoire_core::rng`, so this crate's callers are
+# unchanged. See `crates/bevy_grimoire_rng/CLAUDE.md` for why one definition is non-negotiable.
+bevy_grimoire_rng = { path = "../bevy_grimoire_rng", version = "0.1.0" }
+# The Boolean satisfiability back-end `constraints::Problem::solve` delegates to. Its own crate
+# because it is the one part of the constraint stack likely to be REPLACED, and because the decision
+# procedure knows nothing about grids or prototypes. It carries its own `tests/leaf.rs`, so the
+# boundary is policed on that side rather than taken on trust here.
+bevy_grimoire_solver = { path = "../bevy_grimoire_solver", version = "0.1.0" }
+serde.workspace = true
+ron.workspace = true
+# Reading a `.glb`'s JSON chunk (`glb.rs`). Data only — no engine, no renderer. The reader is
+# hand-rolled rather than pulling a glTF crate, for the reason `tests/common/mod.rs` gives: it would
+# be "a second, differently-behaved reader of an asset the engine already parses its own way".
+serde_json.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true

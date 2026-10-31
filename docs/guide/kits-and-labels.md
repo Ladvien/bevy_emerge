@@ -4,7 +4,7 @@ A kit is the set of meshes a map draws from. You bring meshes into a kit, label 
 
 ## What a kit is
 
-A **kit** is a folder of meshes and the `library.ron` file that lists them. Each entry in that file is a **piece**: one mesh, its size, and its labels. The file lives beside the meshes, for example at `assets/emerge/kit/library.ron`.
+A **kit** is a folder of meshes and the `library.ron` file that lists them. Each entry in that file is a **piece**: one mesh, its size, and its labels. The file lives beside the meshes, for example at `assets/grimoire/kit/library.ron`.
 
 A **door** is one of the editor's three screens: Map, Kit and Rigs. Press `=` to switch to the other door. The kit door has three panels, and you switch between them with `1`, `2` and `3`:
 
@@ -38,7 +38,7 @@ Goal: add every `.glb` under a directory to a library in one step, then label th
 1. Run the importer from the repository root, with three arguments: the asset root, a directory under it, and the library file.
 
    ```
-   cargo run -p bevy_emerge_core --example import_dir -- /path/to/game/assets models/kit /path/to/game/assets/emerge/kit/library.ron
+   cargo run -p bevy_grimoire_core --example import_dir -- /path/to/game/assets models/kit /path/to/game/assets/grimoire/kit/library.ron
    ```
 
 2. Open the kit in the editor and check the Meshes panel.
@@ -65,7 +65,7 @@ A piece has six label axes:
 - `mount`: where the piece attaches. A piece may also declare **two**: `OnSurfaceOrFloor { class }` says it rests on a piece offering `class` when dropped on one, and stands on the floor when dropped anywhere else. The placement records which of the two it took, so a reload reproduces it.
 - `note`: a description in your own words.
 
-The first four are **tokens**: words from the vocabulary in `assets/emerge/vocab.ron`. A token that is not in the vocabulary is refused.
+The first four are **tokens**: words from the vocabulary in `assets/grimoire/vocab.ron`. A token that is not in the vocabulary is refused.
 
 Each piece shows its labels on the Meshes panel as chips, grouped under `KIND`, `DOES`, `LOOKS` and `OFFERS`. The chip colour says who set the value. A value you set reads in the normal text colour. A value a model or an agent set, and you have not changed, reads in the unchecked colour.
 
@@ -96,14 +96,14 @@ Goal: have a vision model propose labels for a piece, and check them.
 
 The labeller sends a photograph of a piece to a vision model. The model replies with tokens for each axis. The editor applies them as they arrive.
 
-Set this up once. The labeller needs `EMERGE_VLM_KEY`. Put it in the project root's `.env` file, which is gitignored, or set it in the environment. A value in the environment wins over the one in `.env`.
+Set this up once. The labeller needs `GRIMOIRE_VLM_KEY`. Put it in the project root's `.env` file, which is gitignored, or set it in the environment. A value in the environment wins over the one in `.env`.
 
-- `EMERGE_VLM_KEY`: required. An empty value is an error.
-- `EMERGE_VLM_URL`: the chat-completions endpoint. The default is `http://127.0.0.1:9292/v1/chat/completions`.
-- `EMERGE_VLM_MODEL`: the model to ask. The default is `qwen3.8-27b`.
-- `EMERGE_VLM_TIMEOUT_SECS`: how long to wait for a reply. The default is 600.
-- `EMERGE_VLM_THINK`: set to `1` or `true` to let the model reason before it answers. It is off by default.
-- `EMERGE_VLM_MAX_TOKENS`: the reply's length limit. The default is 2000.
+- `GRIMOIRE_VLM_KEY`: required. An empty value is an error.
+- `GRIMOIRE_VLM_URL`: the chat-completions endpoint. The default is `http://127.0.0.1:9292/v1/chat/completions`.
+- `GRIMOIRE_VLM_MODEL`: the model to ask. The default is `qwen3.8-27b`.
+- `GRIMOIRE_VLM_TIMEOUT_SECS`: how long to wait for a reply. The default is 600.
+- `GRIMOIRE_VLM_THINK`: set to `1` or `true` to let the model reason before it answers. It is off by default.
+- `GRIMOIRE_VLM_MAX_TOKENS`: the reply's length limit. The default is 2000.
 
 Steps:
 
@@ -118,9 +118,9 @@ What you see: the labels row reads `confidence <level> · <model> · <date>` in 
 
 If it goes wrong:
 
-- If `EMERGE_VLM_KEY` is not set, the labeller stops before it asks, and the message names the missing setting.
+- If `GRIMOIRE_VLM_KEY` is not set, the labeller stops before it asks, and the message names the missing setting.
 - The editor checks a local or LAN endpoint before it asks. A remote endpoint is not checked in advance, so a failure shows only when the request runs.
-- The reply must use only tokens in the vocabulary. The editor refuses the whole suggestion if any token is outside it, and asks the model once more. If the second reply is still wrong, nothing is applied. To allow a word the vocabulary lacks, add it to `assets/emerge/vocab.ron` by hand.
+- The reply must use only tokens in the vocabulary. The editor refuses the whole suggestion if any token is outside it, and asks the model once more. If the second reply is still wrong, nothing is applied. To allow a word the vocabulary lacks, add it to `assets/grimoire/vocab.ron` by hand.
 - A reply that names no model is refused.
 - A mesh that lies on its side is not turned for you. Turn it with `N` (X), `O` (Y) or `P` (Z) on the Meshes panel, then press `L` again.
 
@@ -151,13 +151,13 @@ Goal: know the other two panels well enough to find your way.
 
 Goal: know which sockets of a kit no piece can close before a map runs into them.
 
-A face whose edge tokens no piece of the kit presents back, at any quarter turn, is a dead end: a jamb with no partner, a hallway that cannot be capped. Select a piece on the Meshes panel; its `dead ends` row names each such side and what the face presents, for example `E: jamb_l jamb_r, nothing meets it`. A piece with no dead face has no row. An agent reads the whole kit's list in `emerge_state.dead_ends`. Add a piece that presents the face back and the row goes away.
+A face whose edge tokens no piece of the kit presents back, at any quarter turn, is a dead end: a jamb with no partner, a hallway that cannot be capped. Select a piece on the Meshes panel; its `dead ends` row names each such side and what the face presents, for example `E: jamb_l jamb_r, nothing meets it`. A piece with no dead face has no row. An agent reads the whole kit's list in `grimoire_state.dead_ends`. Add a piece that presents the face back and the row goes away.
 
-When some piece comes near, the line says which and how far off: `E: jamb_l jamb_r, nothing meets it; closest b_near at 0°, 1 off` means `b_near`, unturned, agrees with the face in every cell but one. `emerge_state.dead_ends` rows carry the same as `closest`: the piece, its turn in degrees, and each cell it gets wrong (`at`, `want`, `found`). Ties go to the fewest wrong cells, then the piece id, then the turn.
+When some piece comes near, the line says which and how far off: `E: jamb_l jamb_r, nothing meets it; closest b_near at 0°, 1 off` means `b_near`, unturned, agrees with the face in every cell but one. `grimoire_state.dead_ends` rows carry the same as `closest`: the piece, its turn in degrees, and each cell it gets wrong (`at`, `want`, `found`). Ties go to the fewest wrong cells, then the piece id, then the turn.
 
-A kit that caps every opening can still fail to build. Two stress tests in `bevy_emerge_core::adjacency` build with the kit, the way shipped modular kits are proved: `ring(&library, face_bands)` returns the smallest closed loop, four pieces around a point with every inner seam declared and passing the seam check, and `room(&library, face_bands)` the smallest room with a middle, three rows of three, where the middle piece meets a neighbour on all four sides. Each returns the pieces with their quarter turns and the map they make, or `None`: a corridor kit of straights and corners loops back but never opens into a room.
+A kit that caps every opening can still fail to build. Two stress tests in `bevy_grimoire_core::adjacency` build with the kit, the way shipped modular kits are proved: `ring(&library, face_bands)` returns the smallest closed loop, four pieces around a point with every inner seam declared and passing the seam check, and `room(&library, face_bands)` the smallest room with a middle, three rows of three, where the middle piece meets a neighbour on all four sides. Each returns the pieces with their quarter turns and the map they make, or `None`: a corridor kit of straights and corners loops back but never opens into a room.
 
-An agent reads both in `emerge_state.stress`, from the library on every call, so an edit to a piece's tokens is in the next answer: `ring` is the loop's four pieces (north-west, north-east, south-west, south-east) and `room` three rows of three, north to south and west to east with the middle at `[1][1]`, each piece as `{piece, turn}` with its turn in degrees, or `null` when the kit cannot build it. `declared` counts the pieces that carry an edge token: at `0` the kit is unlabelled, and its nulls say nothing about it. The editor's panels do not show them yet.
+An agent reads both in `grimoire_state.stress`, from the library on every call, so an edit to a piece's tokens is in the next answer: `ring` is the loop's four pieces (north-west, north-east, south-west, south-east) and `room` three rows of three, north to south and west to east with the middle at `[1][1]`, each piece as `{piece, turn}` with its turn in degrees, or `null` when the kit cannot build it. `declared` counts the pieces that carry an edge token: at `0` the kit is unlabelled, and its nulls say nothing about it. The editor's panels do not show them yet.
 
 ## Undo on the kit door
 
@@ -169,19 +169,19 @@ On the Meshes panel, press `Cmd+Z` to undo the newest change to a piece. Press `
 
 Goal: have an agent find unchecked labels and set them.
 
-The agent uses three operations and one read. It calls them through `emerge_apply_operation`, which takes `operation`, `parameters` and `dry_run`. On this tool `dry_run` defaults to `false`; set it to `true` to preview a change without making it.
+The agent uses three operations and one read. It calls them through `grimoire_apply_operation`, which takes `operation`, `parameters` and `dry_run`. On this tool `dry_run` defaults to `false`; set it to `true` to preview a change without making it.
 
 ![An agent lists the pieces a model labelled, the editor crosses to the kit door's Meshes panel, the arrow keys walk the piece list, and the labels row reads confidence high · model file · date.](../media/review-labels.gif)
 
 Steps:
 
-1. Find the pieces a model labelled. Call `emerge_list_pieces` with `{"by_model": true}`. The reply has `total` and a page of up to 50 pieces. Pass `pieces_from`, with the value of `pieces_next`, to read the next page.
-2. Open the kit's Meshes panel. Call `emerge_apply_operation` with `{"operation": "door_open", "parameters": {"door": "kit", "tab": "meshes"}, "dry_run": false}`.
-3. Select the piece. Call `emerge_apply_operation` with `{"operation": "piece_select", "parameters": {"id": "<piece id>"}, "dry_run": false}`. The editor refuses a piece the shelf filter hides.
-4. Set a label. Call `emerge_apply_operation` with `{"operation": "label_set", "parameters": {"id": "<piece id>", "axis": "look", "tokens": ["<word from vocab.ron>"]}, "dry_run": false}`. `axis` is one of `kind`, `effects`, `look` or `surfaces`. The tokens replace the whole axis.
+1. Find the pieces a model labelled. Call `grimoire_list_pieces` with `{"by_model": true}`. The reply has `total` and a page of up to 50 pieces. Pass `pieces_from`, with the value of `pieces_next`, to read the next page.
+2. Open the kit's Meshes panel. Call `grimoire_apply_operation` with `{"operation": "door_open", "parameters": {"door": "kit", "tab": "meshes"}, "dry_run": false}`.
+3. Select the piece. Call `grimoire_apply_operation` with `{"operation": "piece_select", "parameters": {"id": "<piece id>"}, "dry_run": false}`. The editor refuses a piece the shelf filter hides.
+4. Set a label. Call `grimoire_apply_operation` with `{"operation": "label_set", "parameters": {"id": "<piece id>", "axis": "look", "tokens": ["<word from vocab.ron>"]}, "dry_run": false}`. `axis` is one of `kind`, `effects`, `look` or `surfaces`. The tokens replace the whole axis.
 
-What you see: the labels row reads `agent set look`, in the unchecked colour, until you change that axis. To take the change back, call `emerge_undo_operation` with the `operation_id` that step 4 returned.
+What you see: the labels row reads `agent set look`, in the unchecked colour, until you change that axis. To take the change back, call `grimoire_undo_operation` with the `operation_id` that step 4 returned.
 
-`emerge_list_pieces` also takes these filters: `with_mesh` leaves out pieces with no mesh, `unlabelled` lists pieces with no labels, `confidence` takes `high`, `medium` or `low`, and `id_contains` matches part of an id. The filters combine.
+`grimoire_list_pieces` also takes these filters: `with_mesh` leaves out pieces with no mesh, `unlabelled` lists pieces with no labels, `confidence` takes `high`, `medium` or `low`, and `id_contains` matches part of an id. The filters combine.
 
-To list every operation and its parameters, call `emerge_list_operations`.
+To list every operation and its parameters, call `grimoire_list_operations`.

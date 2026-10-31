@@ -32,7 +32,7 @@ ExecStart=%h/bevy_elements/scripts/bevy-build-loop.sh
 # schedule: the loop is meant to keep going, and a human stops it. At ~2.5 h a pass this is about 42 days.
 Environment=LOOP_MAX=400
 # Six hours per pass: the command budgets capture → judge → research → implement → benchmark → gate, and
-# an honest pass at this crate's gates has taken that long. Not the 75 minutes a bevy_emerge pass gets.
+# an honest pass at this crate's gates has taken that long. Not the 75 minutes a bevy_grimoire pass gets.
 Environment=LOOP_TIMEOUT=6h
 # Stop after a single pass that adds no loop-log entry: at six hours each, two silent passes is a day
 # wasted, and their driver's own default already says 1.
@@ -44,7 +44,7 @@ Environment=LOOP_STATE=%h/.local/state/bevy-elements-loop
 Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 Environment=RUST_BACKTRACE=1
 
-# **Under the machine's other work.** big also runs `hs-distill` (10 GB RSS), a bevy_emerge loop, and
+# **Under the machine's other work.** big also runs `hs-distill` (10 GB RSS), a bevy_grimoire loop, and
 # GitHub Actions runners in podman. Measured while starting this: load 40.9 on 24 cores, 5 GB RAM
 # available, 21 GB of swap already in use. A release build of this crate is the heaviest thing the box
 # does, so it goes below everything else rather than competing with it.

@@ -1,4 +1,4 @@
-# bevy_emerge
+# bevy_grimoire
 
 Editor, learned grammar and WFC for Bevy games. Workspace of crates under `crates/`; fixtures under `assets/`.
 
@@ -14,7 +14,7 @@ When one of these seems necessary, stop and ask. Name the exact command, what it
 
 ## Version pin
 
-Pinned to **Bevy 0.20.0** (`[workspace.dependencies] bevy`). Read the vendored source and migration guides, not bevy.org (which tracks `main`): `~/.cargo/registry/src/index.crates.io-*/bevy-0.20.0/` with `examples/` and `_release-content/migration-guides/`. `bevy_emerge_anim` and `bevy_devshot` name `0.20.0` themselves because they need `default-features = false`; bump them by hand with the workspace.
+Pinned to **Bevy 0.20.0** (`[workspace.dependencies] bevy`). Read the vendored source and migration guides, not bevy.org (which tracks `main`): `~/.cargo/registry/src/index.crates.io-*/bevy-0.20.0/` with `examples/` and `_release-content/migration-guides/`. `bevy_grimoire_anim` and `bevy_devshot` name `0.20.0` themselves because they need `default-features = false`; bump them by hand with the workspace.
 
 ## Working with consumers
 
@@ -31,13 +31,13 @@ Consumers: Sanctuary (`/Users/ladvien/sanctuary`, decision 0087).
 
 A game asks for what it needs here through GitHub issues, and that is the only coupling between its loop and this repo's: neither loop reads the other's code or backlog to decide what to build, so any game can join the same way.
 
-- **The game files** an issue on `Ladvien/bevy_emerge` with the labels `consumer`, `consumer:<game>` (create it the first time) and `bug` or `enhancement`: what the game needs and why, current behaviour, proposed API, edge cases, and acceptance criteria this repo can prove with its own test. It searches its open `consumer:<game>` issues first, so a need is filed once.
+- **The game files** an issue on `bevy-coven/bevy_grimoire` with the labels `consumer`, `consumer:<game>` (create it the first time) and `bug` or `enhancement`: what the game needs and why, current behaviour, proposed API, edge cases, and acceptance criteria this repo can prove with its own test. It searches its open `consumer:<game>` issues first, so a need is filed once.
 - **This repo's loop** (`.omp/commands/build-loop.md`) takes an open `consumer` issue right after bug issues and ahead of the owner's focus. It builds the general form (the game is the example, never a name in the API), proves it with a test here, and closes the issue only through a verified fix (`Fixes #N`). One it cannot work gets a comment saying what it needs.
-- **The game waits** with `Needs: bevy_emerge#N` on its own item and takes it up again when the issue is closed as completed and its checkout of this repo has the fix. Closed as not planned means declined: that is a question for the owner, not a retry.
+- **The game waits** with `Needs: bevy_grimoire#N` on its own item and takes it up again when the issue is closed as completed and its checkout of this repo has the fix. Closed as not planned means declined: that is a question for the owner, not a retry.
 
 ### Iterating from a consumer
 
-A game links only `bevy_emerge_core` (with `bevy_emerge_rng` and `bevy_emerge_solver`); the editor crates are a separate binary run from this repo on the game's project: `cargo run -p bevy_emerge_mapper -- <game-root> <map> --kit <kit>`, and with `--live` it writes every change through to disk for a game that watches its project (series S-003). So an editor-only change never touches the game's build, while a change to core is picked up by the game's next `cargo` run through its path dependency, with nothing to copy or bump. `cargo run -q -p bevy_emerge_mapper --example boot_headless -- <game-root>` proves a game's project still opens without a window. The per-game loop (what to run, what to commit where) is in the game's `AGENTS.md`; Sanctuary's is under "bevy_emerge: live editing, evolving with Sanctuary".
+A game links only `bevy_grimoire_core` (with `bevy_grimoire_rng` and `bevy_grimoire_solver`); the editor crates are a separate binary run from this repo on the game's project: `cargo run -p bevy_grimoire_mapper -- <game-root> <map> --kit <kit>`, and with `--live` it writes every change through to disk for a game that watches its project (series S-003). So an editor-only change never touches the game's build, while a change to core is picked up by the game's next `cargo` run through its path dependency, with nothing to copy or bump. `cargo run -q -p bevy_grimoire_mapper --example boot_headless -- <game-root>` proves a game's project still opens without a window. The per-game loop (what to run, what to commit where) is in the game's `AGENTS.md`; Sanctuary's is under "bevy_grimoire: live editing, evolving with Sanctuary".
 
 ## The changelog: a line for every change, a clip for every visible one
 
@@ -69,7 +69,7 @@ The owner's Bevy crates are meant to be the heart of this editor (issues #96–#
 
 - **Configure, don't fork.** A crate's own serde types are the data, saved in the game's project and editable live. The editor never defines a second schema for a crate's settings.
 - **Each crate is an optional cargo feature** of the editor, pinned by git revision on the crate's `main`: never a path into another checkout, and never a crates.io version, which would need a publish.
-- **The two-way street.** A change the editor needs in a crate is made in that crate's repository, in its own commits with its own tests. It is requested there as an issue labelled `consumer` and `consumer:bevy_emerge`, and the editor takes it by moving its pin once that issue is closed as fixed. Never patch, wrap or vendor a crate here. The loop's procedure is in `.omp/commands/build-loop.md`, "the two-way street".
+- **The two-way street.** A change the editor needs in a crate is made in that crate's repository, in its own commits with its own tests. It is requested there as an issue labelled `consumer` and `consumer:bevy_grimoire`, and the editor takes it by moving its pin once that issue is closed as fixed. Never patch, wrap or vendor a crate here. The loop's procedure is in `.omp/commands/build-loop.md`, "the two-way street".
 
 ## Blender is a tool we own, and it is not rebuilt here
 
@@ -79,9 +79,9 @@ under "Use the ladvien crate family" applies to it unchanged: **fix it at the so
 repo, in its own commits with its own tests — never vendor, patch or re-implement it here.**
 
 The boundary, measured on 2026-10-25 (`grep` for `kit.yaml`/`kitbash` under `crates/`: 0 hits; for
-`bevy_emerge`/`library.ron` under golem: 0 hits):
+`bevy_grimoire`/`library.ron` under golem: 0 hits):
 
-| | golem | bevy_emerge |
+| | golem | bevy_grimoire |
 |---|---|---|
 | Subject | a **folder** of `.glb` — a pack | **one** `.glb` inside a project |
 | Writes | `kit.yaml`, for kitbashing *in Blender* | `library.ron` `Descriptor`, for placing *on a map* |
@@ -96,7 +96,7 @@ shared, and neither project knows the other's schema. Concretely:
   code, a `.blend` reader, or a glTF writer to this workspace.
 - A golem behaviour that is wrong or missing is fixed in `~/golem_mcp`. If it is outside this
   iteration, log it in the backlog with golem named — as the family-crate rule says.
-- This repo *does* own reading a `.glb` well enough to place it (`bevy_emerge_core/src/glb.rs`,
+- This repo *does* own reading a `.glb` well enough to place it (`bevy_grimoire_core/src/glb.rs`,
   `import.rs`): it needs bounds, triangles, a front and a cell footprint at authoring time, inside
   the game's own project, with no Blender open. That is a different question from golem's, and the
   two implementations are allowed to differ — neither imports the other.
@@ -109,7 +109,7 @@ A loop is one dumb driver (`tools/loop/wiggum.sh`) running one fresh `omp -p` pe
 
 ## Rules
 
-- `bevy_emerge_core`, `bevy_emerge_rng` and `bevy_emerge_solver` are engine-free. `bevy_emerge_core/tests/engine_free.rs` fails on any `bevy*` dependency except the exact names in `SIBLING_DEPS`.
+- `bevy_grimoire_core`, `bevy_grimoire_rng` and `bevy_grimoire_solver` are engine-free. `bevy_grimoire_core/tests/engine_free.rs` fails on any `bevy*` dependency except the exact names in `SIBLING_DEPS`.
 - Licence is MIT OR Apache-2.0 for every crate. Do not copy GPL code in from foundation_vs_slop's untouched crates.
 - One plugin per domain; split by domain, not by kind.
 - Do not hard-wrap markdown.

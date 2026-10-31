@@ -1,5 +1,5 @@
 [Unit]
-Description=bevy_emerge Wiggum loop (one fresh build-loop pass at a time)
+Description=bevy_grimoire Wiggum loop (one fresh build-loop pass at a time)
 # **Never spin.** A pass that dies instantly, five times running, is a broken machine or a broken
 # checkout, and `Restart=always` alone would retry it forever. Both keys are `[Unit]` keys; systemd
 # ignores them in `[Service]` with only a warning, which is how the first version was silently wrong.

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  THE EMERGE WIGGUM LOOP ON big_mac (Apple Silicon).
+  THE GRIMOIRE WIGGUM LOOP ON big_mac (Apple Silicon).
 
   Why launchd and not a shell: a `setsid nohup` loop dies with the login session and never restarts
   after a reboot or a crash. launchd user agents keep running after logout (as long as the user is

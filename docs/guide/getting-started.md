@@ -11,7 +11,7 @@ You need a Rust toolchain and a clone of this repo. Run every command from the r
 1. Run the editor on this project:
 
    ```
-   cargo run -p bevy_emerge_mapper -- .
+   cargo run -p bevy_grimoire_mapper -- .
    ```
 
 2. Wait for the window. It opens on the menu.
@@ -73,7 +73,7 @@ Press Home to frame the view. With a locked placement, Home frames that placemen
 
 1. Press Cmd+S.
 
-**What you see:** a line in the status band reads `saved`, followed by the file path. The file is `maps/first_map.map.ron` inside the project, which is `assets/emerge/maps/first_map.map.ron`.
+**What you see:** a line in the status band reads `saved`, followed by the file path. The file is `maps/first_map.map.ron` inside the project, which is `assets/grimoire/maps/first_map.map.ron`.
 
 **If it goes wrong:** if the map cannot be saved, the status band shows `NOT SAVED:` followed by the reason. The map stays open and nothing on disk changes. Fix the reason, then press Cmd+S again.
 

@@ -1,6 +1,6 @@
 # Keys
 
-This page lists the keys the editor answers to, grouped by where they work. It is taken from the binding table in `crates/bevy_emerge_mapper/src/keys.rs`. Hold `K` in the editor to see the same keys in an overlay.
+This page lists the keys the editor answers to, grouped by where they work. It is taken from the binding table in `crates/bevy_grimoire_mapper/src/keys.rs`. Hold `K` in the editor to see the same keys in an overlay.
 
 ## How to read this page
 

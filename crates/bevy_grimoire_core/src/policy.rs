@@ -1,0 +1,811 @@
+//! **The project's layer over the library** — where one game's architecture goes.
+//!
+//! A descriptor is a **measurement**. `extent.height` is 0.796 m because somebody measured the mesh;
+//! `align.front` is 90° because the artist modelled it facing that way; `align.scale` corrects an
+//! export. None of that is an opinion, and all of it is the same in every game that loads the asset.
+//!
+//! `align.stretch_y` is not like that. *"A 2.0 m wall mesh made to reach a 2.4 m wall height is a
+//! statement about one game's architecture."* It sat on the descriptor because that is where the Site
+//! kit kept it — as a derived `y_scale` — and it is the reason the plan left open question 3 open:
+//! bake a project's wall height into a shared library and you get one game's ceiling in another's
+//! rooms, silently, with the library file as the only evidence.
+//!
+//! # The patch model already had the answer
+//!
+//! [`Descriptor`] is a patch over defaults — every field optional, absence means inherit. So the
+//! answer is not a new mechanism, it is **one more layer of the mechanism that already exists**:
+//!
+//! ```text
+//! library.ron   the measurements          — shared, portable, true anywhere
+//! project.ron   this game's policy        — stretch_y, and anything else that is an opinion
+//! map.ron       this instance's overrides — Placed::patch
+//! ```
+//!
+//! Each layer is a `Descriptor` and each is applied with [`Descriptor::patched_with`], which is the
+//! same function all the way down. Nothing here is a second way to express a scale.
+//!
+//! # Matching by tag, not only by id
+//!
+//! A policy that had to name all 41 descriptors would be a policy nobody keeps current — the 42nd
+//! piece is imported and quietly does not get the rule. So a patch names either **one id** or **one
+//! `kind` token**, and a rule reads as *"every door in this game is stretched to 2.4 m."*
+//!
+//! Order is file order and later wins, because that is the only rule an author can hold in their head
+//! while reading a file top to bottom. Specificity ordering — "the id beats the tag no matter where
+//! you put it" — sounds better and then requires you to know the whole file to predict one line.
+
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use crate::descriptor::Descriptor;
+use crate::library::Library;
+
+/// Bumped whenever the shape below changes. A mismatch is refused, never migrated.
+pub const POLICY_VERSION: u32 = 2;
+
+/// The library file, inside a project directory.
+pub const LIBRARY_FILE: &str = "library.ron";
+/// The policy file, inside a project directory.
+pub const POLICY_FILE: &str = "project.ron";
+
+/// **Which kit directories this process has layered**, in order — the measure E-003 needed.
+///
+/// **The process, and not the thread, because the work is not on the test's thread.** `cargo test`
+/// runs each test on its own thread, which is why the write counter next door
+/// (`tiles::library_writes_for_test`) can be a `thread_local` — but the editor runs every system in
+/// Bevy's default `MultiThreadedExecutor`, so `watch::adopt_changes` layers a kit on a task-pool
+/// thread and a `thread_local` here reads **empty** on the thread that asserted, which is how this
+/// counter first passed a green suite by measuring nothing. A test that reads it must therefore
+/// keep the other tests in its binary out of the window — the file-level lock in
+/// `a_kit_save_rereads_only_that_kit.rs` is that, and it says why.
+///
+/// **A count of directories, not a clock.** A wall-clock assertion on a shared machine is a flaky
+/// test (E-011's lesson); which directories were read is the same question answered
+/// deterministically.
+static LAYERED: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// **The kit directories layered since the last [`forget_layered_for_test`].**
+///
+/// Test-only in intent, product code in substance: the increment is at the one place a library is
+/// layered, so a test cannot pass by measuring somewhere the work does not go.
+pub fn layered_for_test() -> Vec<std::path::PathBuf> {
+    LAYERED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// **Start the count over**, so an editor's own open is not charged to the change under test.
+pub fn forget_layered_for_test() {
+    LAYERED.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
+/// **The** way a library is loaded: measurements, then this project's policy over them.
+///
+/// One function because there are two readers — the editor and the game — and a library layered one
+/// way in the editor and another in the game is a preview that lies, which is the failure this whole
+/// crate keeps being written to avoid.
+///
+/// Both files are **required**. A missing `project.ron` could reasonably mean "no rules", and that is
+/// exactly the reasoning that grows a second code path: the absent-file branch and the empty-file
+/// branch would then be two ways to say the same thing, and only one of them would get tested. A
+/// project states its policy, even when its policy is nothing.
+pub fn layered_library(dir: &Path) -> Result<Layered, String> {
+    LAYERED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(dir.to_path_buf());
+    let read = |name: &str| -> Result<String, String> {
+        let path = dir.join(name);
+        std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let measured = Library::parse(&read(LIBRARY_FILE)?)
+        .map_err(|e| format!("{}: {e}", dir.join(LIBRARY_FILE).display()))?;
+    let policy = Policy::parse(&read(POLICY_FILE)?)
+        .map_err(|e| format!("{}: {e}", dir.join(POLICY_FILE).display()))?;
+    let library = policy
+        .apply(&measured)
+        .map_err(|e| format!("{}: {e}", dir.join(POLICY_FILE).display()))?;
+    // **The lattice check is not here, and that moved deliberately.** It needs `face_bands`, which
+    // is now [`crate::map::Map::face_bands`] — a map has one lattice, and once a map can draw on two
+    // kits a per-kit answer has none. So the check belongs to whoever holds a map, and this function
+    // does not: `src/site/kit.rs` opens a kit with no map at all. Each loader that has one calls
+    // `Library::validate_lattices` itself, on the **layered** library, since that is what the game
+    // reads and a patch may change an extent — exactly the case where a cell authored against the
+    // measurement falls outside.
+    // **Compositions are not read here, and that moved with the collection.** A tile may seat
+    // `site/wall` beside `lab/bench`, so it belongs to no single kit and cannot be validated against
+    // one — `kits::bound_library` reads the project's one `compositions.ron` and checks it against
+    // the merged library, which is the only library that can answer.
+    Ok(Layered {
+        measured,
+        library,
+        policy,
+    })
+}
+
+/// **All three layers of an opened project**, because two callers need more than the top one.
+///
+/// The game reads [`Self::library`] and nothing else. An editor needs the other two: it writes
+/// [`Self::measured`] — the measurements file, *without* this game's architecture baked into it —
+/// and it reads [`Self::policy`] for the exclusions. How finely a face is read is
+/// [`crate::map::Map::face_bands`], which is not in this struct because a kit is not a map.
+///
+/// One struct from the one loader rather than a second parse in the editor, for the reason
+/// [`layered_library`] exists at all: a library layered one way in the editor and another in the
+/// game is a preview that lies.
+pub struct Layered {
+    /// `library.ron` exactly as parsed — the measurements, portable to any game.
+    ///
+    /// **What an editor writes back.** Serializing the layered library over this file bakes one
+    /// game's wall heights into a kit meant to be shared, and the next load applies the patches
+    /// again on top of them.
+    pub measured: Library,
+    /// The measurements with this project's policy applied. What the game places.
+    pub library: Library,
+    /// The policy itself, for the fields that are not patches — [`Policy::exclude`].
+    pub policy: Policy,
+}
+
+/// What a patch applies to.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum Match {
+    /// Exactly this descriptor.
+    Id(String),
+    /// Every descriptor carrying this `kind` token — *"every door"*.
+    Kind(String),
+}
+
+/// One rule: what it applies to, why, and the fields it layers on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Patch {
+    #[serde(rename = "match")]
+    pub matches: Match,
+    /// **Why this game does this.** Required, and not decoration: a policy layer is precisely the
+    /// place where a number nobody can justify goes unnoticed for a year, because the file it changes
+    /// is not the file it lives in. `Placed::owned_because` makes the same demand for the same reason.
+    pub because: String,
+    /// The fields to layer on. A `Descriptor` because that is what the layer below is, so the merge is
+    /// [`Descriptor::patched_with`] rather than a second, subtly different set of rules.
+    pub patch: Descriptor,
+}
+
+/// A game's policy over a shared library.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Policy {
+    pub version: u32,
+    /// What this project's architecture is, in a sentence.
+    #[serde(default)]
+    pub note: Option<String>,
+    /// **Mesh paths this kit is not built from** — prefixes, matched against a candidate's path.
+    ///
+    /// The importer scans every `.glb` under `assets/`, because a kit's meshes can live anywhere and
+    /// guessing a directory convention would be a rule nobody wrote down. That is right for finding
+    /// art and wrong for *offering* it: a site kit is never going to be built out of character rigs
+    /// or a skybox, and a labelling pass over 778 candidates spent its tenth call describing
+    /// `characters/cipher_field` — a mesh that could not be a tile under any circumstances.
+    ///
+    /// A **prefix**, so one entry covers a whole folder (`characters`) or a single file
+    /// (`characters/cipher_field.glb`). No globs: a pattern language here would be a second, worse
+    /// path syntax, and the two shapes that are actually wanted are already both prefixes.
+    ///
+    /// **Per kit, and that is the point.** The same mesh is scenery to one kit and the subject of
+    /// another; this says what *this* kit is built from, which is exactly what a policy layer is
+    /// for. Excluded meshes are still scanned and still listed — collapsed and greyed — because a
+    /// mesh that has silently vanished looks identical to one that was never there.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    #[serde(default)]
+    pub patches: Vec<Patch>,
+}
+
+
+impl Policy {
+    /// **Is this mesh path excluded from the kit?** Prefix match — see [`Policy::exclude`].
+    ///
+    /// Anchored at a path separator or the end, so `characters` excludes `characters/rig.glb` and
+    /// does **not** excludes `characters_of_note/rig.glb`. A bare `starts_with` would make a short
+    /// folder name quietly swallow a longer one, which is the kind of rule nobody notices until a
+    /// mesh they wanted is missing and nothing says why.
+    pub fn excludes(&self, mesh: &str) -> bool {
+        self.exclude.iter().any(|prefix| {
+            let prefix = prefix.trim_end_matches('/');
+            mesh == prefix
+                || mesh
+                    .strip_prefix(prefix)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
+    }
+}
+
+impl Default for Policy {
+    fn default() -> Self {
+        Policy {
+            version: POLICY_VERSION,
+            note: None,
+            exclude: Vec::new(),
+            patches: Vec::new(),
+        }
+    }
+}
+
+impl Policy {
+    pub fn parse(text: &str) -> Result<Policy, String> {
+        let p: Policy = ron::from_str(text).map_err(|e| format!("policy: {e}"))?;
+        p.validate()?;
+        Ok(p)
+    }
+
+    pub fn to_ron(&self) -> Result<String, String> {
+        ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::default())
+            .map_err(|e| format!("policy: {e}"))
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.version != POLICY_VERSION {
+            return Err(format!(
+                "policy: version {} but this build reads {POLICY_VERSION} — refusing to load rather \
+                 than guess at a migration",
+                self.version
+            ));
+        }
+        // Refused at the project boundary rather than per lattice: every piece derives from this one
+        // number, so a bad value here would make every tile in the project wrong at once.
+        //
+        // **Two, not one.** A divisor of 1 makes `TILE / 1` and `TILE / 1²` both the tile, which is a
+        // three-rung ladder whose rungs are all the same height — an author pressing Shift and
+        // watching nothing move. `SnapLevel::pitch` clamps it as a guard for callers holding no
+        // policy, but a policy that says 1 is stating something it cannot mean, so it is refused here
+        // rather than quietly repaired.
+        for p in &self.patches {
+            if p.because.trim().is_empty() {
+                return Err(format!(
+                    "policy: the patch for {:?} says nothing about why. A policy layer is where an \
+                     unjustifiable number hides longest, because the file it changes is not the file \
+                     it lives in.",
+                    p.matches
+                ));
+            }
+            // A patch that renames what it patches is not a patch, it is a second descriptor wearing
+            // one — and the id is what every map placement references.
+            if !p.patch.id.is_empty() {
+                return Err(format!(
+                    "policy: the patch for {:?} sets `id`. A policy layers fields onto a descriptor; \
+                     renaming it would break every placement that names it.",
+                    p.matches
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Layer this policy over a library, returning the library the game actually uses.
+    ///
+    /// Every matching patch is applied in file order, so two rules touching one descriptor compose
+    /// and the last word wins. A patch that matches nothing is an **error**: it is either a typo or a
+    /// rule about a piece somebody deleted, and both of those are things an author wants to hear
+    /// about at load rather than infer from a room that looks wrong.
+    pub fn apply(&self, library: &Library) -> Result<Library, String> {
+        let mut out = library.clone();
+        for rule in &self.patches {
+            let mut hits = 0usize;
+            for d in &mut out.descriptors {
+                let applies = match &rule.matches {
+                    Match::Id(id) => &d.id == id,
+                    Match::Kind(token) => d.kind.iter().any(|k| k == token),
+                };
+                if applies {
+                    *d = d.patched_with(&rule.patch);
+                    hits += 1;
+                }
+            }
+            if hits == 0 {
+                return Err(match &rule.matches {
+                    Match::Id(id) => format!(
+                        "policy: the patch for `{id}` matches no descriptor in this library. Either \
+                         the id is misspelled or the piece is gone; a rule that silently applies to \
+                         nothing is how a policy rots."
+                    ),
+                    Match::Kind(token) => format!(
+                        "policy: the patch for kind `{token}` matches no descriptor in this library. \
+                         Either the token is misspelled or nothing carries it yet."
+                    ),
+                });
+            }
+        }
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::descriptor::{Align, Extent};
+    use crate::library::LIBRARY_VERSION;
+
+    fn descriptor(id: &str, kind: &[&str], height: f32) -> Descriptor {
+        Descriptor {
+            id: id.to_owned(),
+            mesh: Some(format!("{id}.glb")),
+            extent: Extent {
+                footprint: Some((1.0, 1.0)),
+                height: Some(height),
+            },
+            kind: kind.iter().map(|k| (*k).to_owned()).collect(),
+            ..Descriptor::default()
+        }
+    }
+
+    fn library() -> Library {
+        Library {
+            version: LIBRARY_VERSION,
+            note: None,
+            descriptors: vec![
+                descriptor("door_single", &["door"], 2.0),
+                descriptor("door_double", &["door"], 2.0),
+                descriptor("crate", &["container"], 0.6),
+            ],
+        }
+    }
+
+    fn stretch(by: f32) -> Descriptor {
+        Descriptor {
+            align: Align {
+                stretch_y: Some(by),
+                ..Align::default()
+            },
+            ..Descriptor::default()
+        }
+    }
+
+    fn rule(matches: Match, patch: Descriptor) -> Patch {
+        Patch {
+            matches,
+            because: "this game's doorways are 2.4 m".into(),
+            patch,
+        }
+    }
+
+    /// **The point of the layer.** A rule reads as "every door in this game", so the 42nd door
+    /// imported next month gets it without anyone remembering to say so.
+    #[test]
+    fn a_rule_about_a_kind_reaches_every_piece_that_carries_it() {
+        let policy = Policy {
+            patches: vec![rule(Match::Kind("door".into()), stretch(1.2))],
+            ..Policy::default()
+        };
+        let out = policy.apply(&library()).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(out.descriptors[0].align.stretch_y, Some(1.2));
+        assert_eq!(out.descriptors[1].align.stretch_y, Some(1.2));
+        // And nothing else is touched — a policy is a statement about some pieces, not all of them.
+        assert_eq!(out.descriptors[2].align.stretch_y, None);
+    }
+
+    /// The library underneath is unchanged: the same measurements can be layered by two games.
+    #[test]
+    fn the_measurements_underneath_are_left_alone() {
+        let base = library();
+        let policy = Policy {
+            patches: vec![rule(Match::Kind("door".into()), stretch(1.2))],
+            ..Policy::default()
+        };
+        let _ = policy.apply(&base).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(base.descriptors[0].align.stretch_y, None);
+
+        // Two projects, one library, two architectures — which is the whole argument for the split.
+        let tall = Policy {
+            patches: vec![rule(Match::Kind("door".into()), stretch(1.5))],
+            ..Policy::default()
+        };
+        let a = policy.apply(&base).unwrap_or_else(|e| panic!("{e}"));
+        let b = tall.apply(&base).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(a.descriptors[0].align.stretch_y, Some(1.2));
+        assert_eq!(b.descriptors[0].align.stretch_y, Some(1.5));
+    }
+
+    /// Rules compose in file order and the last word wins — the rule an author can hold in their head
+    /// while reading top to bottom.
+    #[test]
+    fn a_later_rule_wins_over_an_earlier_one() {
+        let policy = Policy {
+            patches: vec![
+                rule(Match::Kind("door".into()), stretch(1.2)),
+                rule(Match::Id("door_double".into()), stretch(1.4)),
+            ],
+            ..Policy::default()
+        };
+        let out = policy.apply(&library()).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(out.descriptors[0].align.stretch_y, Some(1.2));
+        assert_eq!(out.descriptors[1].align.stretch_y, Some(1.4));
+    }
+
+    /// A rule that matches nothing is a typo or a rule about a deleted piece. Both are worth hearing
+    /// at load rather than inferring from a room that looks wrong.
+    #[test]
+    fn a_rule_that_matches_nothing_is_refused() {
+        let policy = Policy {
+            patches: vec![rule(Match::Id("dooor_single".into()), stretch(1.2))],
+            ..Policy::default()
+        };
+        let err = policy.apply(&library()).err().unwrap_or_default();
+        assert!(err.contains("misspelled"), "{err}");
+
+        let policy = Policy {
+            patches: vec![rule(Match::Kind("hatch".into()), stretch(1.2))],
+            ..Policy::default()
+        };
+        let err = policy.apply(&library()).err().unwrap_or_default();
+        assert!(err.contains("hatch"), "{err}");
+    }
+
+    /// A number nobody can justify hides longest in a policy layer, because the file it changes is not
+    /// the file it lives in.
+    #[test]
+    fn a_patch_has_to_say_why() {
+        let text = Policy {
+            patches: vec![Patch {
+                matches: Match::Kind("door".into()),
+                because: "   ".into(),
+                patch: stretch(1.2),
+            }],
+            ..Policy::default()
+        }
+        .to_ron()
+        .unwrap_or_else(|e| panic!("{e}"));
+        let err = Policy::parse(&text).err().unwrap_or_default();
+        assert!(err.contains("says nothing about why"), "{err}");
+    }
+
+    /// A patch may not rename what it patches — the id is what every placement references.
+    #[test]
+    fn a_patch_may_not_rename_its_target() {
+        let text = Policy {
+            patches: vec![Patch {
+                matches: Match::Kind("door".into()),
+                because: "because".into(),
+                patch: Descriptor {
+                    id: "something_else".into(),
+                    ..Descriptor::default()
+                },
+            }],
+            ..Policy::default()
+        }
+        .to_ron()
+        .unwrap_or_else(|e| panic!("{e}"));
+        let err = Policy::parse(&text).err().unwrap_or_default();
+        assert!(err.contains("renaming it"), "{err}");
+    }
+
+    /// Round-trips through RON, so the file an author writes is the file the game reads.
+    #[test]
+    fn a_policy_round_trips() {
+        let policy = Policy {
+            version: POLICY_VERSION,
+            note: Some("this facility has 2.4 m ceilings".into()),
+            // Round-trips too: an exclusion an author wrote must survive a read and a write.
+            exclude: vec!["characters".into()],
+            patches: vec![rule(Match::Kind("door".into()), stretch(1.2))],
+        };
+        let text = policy.to_ron().unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(Policy::parse(&text).unwrap_or_else(|e| panic!("{e}")), policy);
+    }
+
+
+
+    /// Version mismatch is refused rather than migrated, the same rule the map and library hold.
+    #[test]
+    fn a_policy_from_another_schema_is_refused() {
+        let text = Policy {
+            version: POLICY_VERSION + 1,
+            ..Policy::default()
+        }
+        .to_ron()
+        .unwrap_or_else(|e| panic!("{e}"));
+        let err = Policy::parse(&text).err().unwrap_or_default();
+        assert!(err.contains("refusing to load"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod exclude_tests {
+    use super::*;
+
+    /// **A prefix is anchored at a separator**, so a short folder name cannot quietly swallow a
+    /// longer one. `characters` must not take `characters_of_note`, or a mesh goes missing and
+    /// nothing on screen says why.
+    #[test]
+    fn an_excluded_prefix_stops_at_a_path_boundary() {
+        let policy = Policy {
+            exclude: vec!["characters".into(), "kit/sky.glb".into()],
+            ..Policy::default()
+        };
+
+        assert!(policy.excludes("characters/cipher_field.glb"), "the folder");
+        assert!(policy.excludes("characters"), "and the folder itself");
+        assert!(policy.excludes("kit/sky.glb"), "a single file by its whole path");
+
+        assert!(
+            !policy.excludes("characters_of_note/rig.glb"),
+            "a longer folder that merely starts the same way is a DIFFERENT folder"
+        );
+        assert!(!policy.excludes("kit/sky.glb.bak"), "and a longer file name is a different file");
+        assert!(!policy.excludes("ozea_kit/crate.glb"), "everything else is untouched");
+    }
+
+    /// An empty list excludes nothing — the default, and the state every existing kit is in.
+    #[test]
+    fn a_kit_with_no_exclusions_excludes_nothing() {
+        let policy = Policy::default();
+        assert!(policy.exclude.is_empty());
+        for mesh in ["characters/rig.glb", "ozea_kit/crate.glb", "anything"] {
+            assert!(!policy.excludes(mesh));
+        }
+    }
+
+    /// A trailing slash is the same statement — an author typing `characters/` means the folder.
+    #[test]
+    fn a_trailing_slash_is_the_same_prefix() {
+        let policy = Policy {
+            exclude: vec!["characters/".into()],
+            ..Policy::default()
+        };
+        assert!(policy.excludes("characters/rig.glb"));
+        assert!(!policy.excludes("characters_of_note/rig.glb"));
+    }
+}
+
+/// **Rewrite a policy file's `exclude` list, and nothing else.**
+///
+/// A serialize-and-write would be shorter and would destroy the file: `assets/grimoire/site/project.ron`
+/// is hand-authored, and its patches carry paragraphs explaining why each one exists. That is the
+/// whole argument `ron_surgery` was written for — *"a writer that reformats them is not a faster
+/// version of this, it is a different, lossy tool"* — so this splices the one field.
+///
+/// Inserts the field after `version:` when the file has none, which every kit written before
+/// exclusions existed is the case for.
+///
+/// The result is **re-parsed before it is returned**, so a splice that produced something the game
+/// could not read is an error here rather than a broken kit on disk.
+pub fn rewrite_exclude(text: &str, exclude: &[String]) -> Result<String, String> {
+    let rendered = if exclude.is_empty() {
+        "    exclude: [],".to_owned()
+    } else {
+        let items: Vec<String> = exclude.iter().map(|e| format!("        \"{e}\",")).collect();
+        format!("    exclude: [\n{}\n    ],", items.join("\n"))
+    };
+
+    let out = match find_exclude(text) {
+        Some(span) => format!("{}{rendered}{}", &text[..span.start], &text[span.end..]),
+        None => {
+            // After `version:`, which every policy file has and which `Policy::parse` requires.
+            let at = line_span(text, "version:")
+                .ok_or_else(|| "policy: no `version:` line to write `exclude` after".to_owned())?;
+            format!("{}\n{rendered}{}", &text[..at.end], &text[at.end..])
+        }
+    };
+    // The splice is only correct if the file still reads. Checked here so a bad edit cannot land.
+    Policy::parse(&out).map_err(|e| format!("policy: rewriting `exclude` broke the file: {e}"))?;
+    Ok(out)
+}
+
+/// **Drop the patch at `ordinal` within `patches`, preserving every comment in the file.**
+///
+/// Keyed on position, not on `matches`: nothing forbids two patches sharing a `matches` key, so a
+/// key-based removal is ambiguous by construction. The same line-splice shape as
+/// [`rewrite_exclude`] — a serialize-and-write would destroy the file, whose patches carry
+/// paragraphs explaining why each one exists — and the result is re-parsed before it is returned,
+/// so a splice that produced something the game could not read is an error here rather than a
+/// broken kit on disk.
+///
+/// An `ordinal` past the end refuses rather than writing.
+pub fn remove_patch(path: &Path, ordinal: usize) -> Result<(), String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let policy = Policy::parse(&text)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    if ordinal >= policy.patches.len() {
+        return Err(format!(
+            "policy: no patch at index {ordinal} — {} holds {}.",
+            path.display(),
+            policy.patches.len()
+        ));
+    }
+
+    // **Locate the `patches: [` list and splice out the record at `ordinal`.**
+    //
+    // `LineDoc` scans the list's records and keeps every comment and blank line inside it, which is
+    // the whole point of the module — a record's trailing `// why` and the prose above it survive.
+    // The list is a `[` list, not a `( … )` block, so `LineDoc` scans the whole file for the
+    // `patches: [` header directly.
+    let mut doc = crate::ron_surgery::LineDoc::parse(&text, &["patches"])
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    doc.remove("patches", ordinal)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let out = doc.render();
+
+    // The splice is only correct if the file still reads. Checked here so a bad edit cannot land.
+    Policy::parse(&out).map_err(|e| format!("policy: removing the patch broke the file: {e}"))?;
+    crate::ron_surgery::save_atomic(path, &out)
+}
+
+/// The byte span of an `exclude: [ … ]` field, quote-aware so a `]` inside a path cannot end it
+/// early, and comment-aware so a line mentioning the field in prose is not mistaken for it.
+fn find_exclude(text: &str) -> Option<std::ops::Range<usize>> {
+    let mut at = 0usize;
+    for line in text.split_inclusive('\n') {
+        let start = at;
+        at += line.len();
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") || !trimmed.starts_with("exclude:") {
+            continue;
+        }
+        let field_start = start + (line.len() - trimmed.len());
+        // Walk to the closing bracket from here, ignoring anything inside quotes.
+        let rest = &text[field_start..];
+        let mut depth = 0i32;
+        let mut in_string = false;
+        for (i, c) in rest.char_indices() {
+            match c {
+                '"' => in_string = !in_string,
+                '[' if !in_string => depth += 1,
+                ']' if !in_string => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Take the trailing comma with it, so the splice does not leave two.
+                        let end = rest[i + 1..]
+                            .find(',')
+                            .filter(|c| rest[i + 1..i + 1 + c].trim().is_empty())
+                            .map_or(field_start + i + 1, |c| field_start + i + 2 + c);
+                        return Some(field_start..end);
+                    }
+                }
+                _ => {}
+            }
+        }
+        return None;
+    }
+    None
+}
+
+/// The span of the first line whose trimmed text starts with `prefix` and is not a comment.
+fn line_span(text: &str, prefix: &str) -> Option<std::ops::Range<usize>> {
+    let mut at = 0usize;
+    for line in text.split_inclusive('\n') {
+        let start = at;
+        at += line.len();
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("//") && trimmed.starts_with(prefix) {
+            return Some(start..at - usize::from(line.ends_with('\n')));
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod exclude_write_tests {
+    use super::*;
+
+    const PROSE: &str = r#"(
+    version: 2,
+    // A comment that must survive, because this file is read by people.
+    note: Some("SCP-9191 containment site."),
+)
+"#;
+
+    /// **The prose survives.** That is the entire reason this is a splice and not a serialize.
+    #[test]
+    fn writing_an_exclusion_keeps_every_comment() {
+        let out = rewrite_exclude(PROSE, &["characters".into()]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            out.contains("// A comment that must survive"),
+            "a serialize-and-write would have eaten this:\n{out}"
+        );
+        assert!(out.contains("SCP-9191 containment site."), "and the note:\n{out}");
+        let policy = Policy::parse(&out).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(policy.exclude, vec!["characters".to_owned()]);
+        assert!(
+            policy.note.is_some(),
+            "and the rest of the policy is untouched"
+        );
+    }
+
+    /// Rewriting replaces the list rather than appending a second field.
+    #[test]
+    fn rewriting_replaces_the_list_it_finds() {
+        let once = rewrite_exclude(PROSE, &["characters".into()]).unwrap_or_else(|e| panic!("{e}"));
+        let twice = rewrite_exclude(&once, &["characters".into(), "scp610".into()])
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(twice.matches("exclude:").count(), 1, "one field, not two:\n{twice}");
+        let policy = Policy::parse(&twice).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(policy.exclude, vec!["characters".to_owned(), "scp610".to_owned()]);
+
+        // And emptying it again leaves a valid file with nothing excluded.
+        let none = rewrite_exclude(&twice, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(Policy::parse(&none).unwrap_or_else(|e| panic!("{e}")).exclude.is_empty());
+        assert!(none.contains("// A comment that must survive"), "still:\n{none}");
+    }
+
+    /// A line of prose that merely mentions the field is not the field.
+    #[test]
+    fn a_comment_naming_the_field_is_not_the_field() {
+        let text = r#"(
+    version: 2,
+    // exclude: this line is prose about excluding, not an exclusion.
+    note: Some("a policy with nothing but prose in it"),
+)
+"#;
+        let out = rewrite_exclude(text, &["characters".into()]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(out.contains("// exclude: this line is prose"), "the comment stands:\n{out}");
+        assert_eq!(
+            Policy::parse(&out).unwrap_or_else(|e| panic!("{e}")).exclude,
+            vec!["characters".to_owned()]
+        );
+    }
+}
+
+#[cfg(test)]
+/// A temp file for the splice tests, unique per test name and process.
+fn temp_policy(name: &str, text: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("grimoire-policy-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("cannot make {dir:?}: {e}"));
+    let path = dir.join("project.ron");
+    std::fs::write(&path, text).unwrap_or_else(|e| panic!("cannot write {path:?}: {e}"));
+    path
+}
+
+/// **The right patch is removed.** A file with a comment, one exclusion and **two patches sharing
+/// `Match::Id("crate_b")`** but different `because` strings: `remove_patch(path, 0)` leaves exactly
+/// the second one, the exclusion untouched and the comment present. The shared key is the point —
+/// it is what makes a `matches`-keyed removal wrong.
+#[test]
+fn removing_a_patch_takes_the_ordinal_and_keeps_everything_else() {
+    let text = r#"(
+    version: 2,
+    // A comment that must survive, because this file is read by people.
+    note: Some("SCP-9191 containment site."),
+    exclude: ["characters"],
+    patches: [
+        ( match: Id("crate_b"), because: "the first reason", patch: ( align: ( stretch_y: Some(1.2) ) ) ),
+        ( match: Id("crate_b"), because: "the second reason", patch: ( align: ( stretch_y: Some(1.4) ) ) ),
+    ],
+)
+"#;
+    let path = temp_policy("shared-key", text);
+    remove_patch(&path, 0).unwrap_or_else(|e| panic!("{e}"));
+
+    let out = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{e}"));
+    assert!(out.contains("// A comment that must survive"), "the comment stands:\n{out}");
+    let policy = Policy::parse(&out).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(policy.exclude, vec!["characters".to_owned()], "the exclusion is untouched");
+    assert_eq!(policy.patches.len(), 1, "exactly one patch left:\n{out}");
+    assert_eq!(
+        policy.patches[0].because, "the second reason",
+        "the SECOND patch survives — removal is by ordinal, not by key"
+    );
+}
+
+/// An `ordinal` past the end refuses and leaves the file byte-identical.
+#[test]
+fn removing_a_patch_past_the_end_refuses_without_writing() {
+    let text = r#"(
+    version: 2,
+    note: Some("a policy with one patch"),
+    patches: [
+        ( match: Id("crate_a"), because: "the only reason", patch: ( align: ( stretch_y: Some(1.2) ) ) ),
+    ],
+)
+"#;
+    let path = temp_policy("past-end", text);
+    let before = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{e}"));
+    let err = remove_patch(&path, 7)
+        .err()
+        .unwrap_or_else(|| panic!("an ordinal past the end must be refused"));
+    assert!(err.contains("7"), "names the ordinal: {err}");
+    let after = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(before, after, "nothing was written: {err}");
+}

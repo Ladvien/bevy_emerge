@@ -56,7 +56,7 @@ REPO="${WIGGUM_REPO:-$HOME/bevy_emerge}"
 COMMAND="${WIGGUM_COMMAND:-build-loop}"
 
 # **A repo carries its own settings, in `.omp/wiggum/<command>.env`.** Found 2026-10-28 reading the code for
-# Sanctuary's emerge loop, whose start line carried no flags: the first pass would have run `git add -A` over
+# Sanctuary's grimoire loop, whose start line carried no flags: the first pass would have run `git add -A` over
 # the 29 files other agents were editing in that checkout, committed them to `wiggum/parked-pass-0-…` and
 # checked `main` out under them, all before the free-space gate got to refuse the pass. A checkout people work
 # in needs `WIGGUM_PARK=0`, `WIGGUM_CHECKPOINT=0` and a raised `WIGGUM_MAX_DIRTY` on every start, and a start
@@ -159,10 +159,10 @@ CHECKPOINT_EVERY="${WIGGUM_CHECKPOINT:-600}"
 
 # **A pass that ends cleanly in under two minutes did no work, and the driver backs off from it.**
 # Measured 2026-10-27: bevy_lights logged 50 consecutive passes of about 20 s each (iterations 61 to
-# 110), every one a refusal to build on a tree it had not made, and bevy_emerge ran 25 passes of about 26 s
+# 110), every one a refusal to build on a tree it had not made, and bevy_grimoire ran 25 passes of about 26 s
 # whose only output was a log line, 19 of them pushed to `main` as commits. Each was a full model call
 # every 90 seconds, so a loop with nothing it may do cost the same as one working. A real pass takes
-# minutes (the shortest real fix seen, emerge's issue #83, took 5), so `rc=0` under `IDLE_UNDER` seconds
+# minutes (the shortest real fix seen, grimoire's issue #83, took 5), so `rc=0` under `IDLE_UNDER` seconds
 # is idle, and each consecutive idle pass doubles the sleep up to `IDLE_MAX`. A pass that takes longer,
 # or fails, resets it; `WIGGUM_IDLE_MAX=0` turns it off. It does not ask *why* a pass idled: a stranded
 # tree, a blocked backlog and a missing tool all look the same from here, and all deserve the same answer.
@@ -247,7 +247,7 @@ commit_adds_bytes() {
 # `origin/main` as the branch tip in all four shared repos (lights `35c7824`, society `89d9563` — a
 # mid-pass checkpoint —, elements `911ca5b`). The loop commands build a `loop/iter-N` branch from
 # `main` and merge back only after their gate, so a commit written straight onto `main` bypasses the
-# gate entirely, and Sanctuary path-deps `bevy_emerge_core`. A checkpoint must not be a commit on a
+# gate entirely, and Sanctuary path-deps `bevy_grimoire_core`. A checkpoint must not be a commit on a
 # branch anybody builds from.
 #
 # So the tree is written to **an object under `refs/wiggum/`**, which is not a branch: `git branch`,

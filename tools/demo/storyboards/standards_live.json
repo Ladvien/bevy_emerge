@@ -5,7 +5,7 @@
  "width": 960,
  "setup": [
   {
-   "mcp": "emerge_apply_operation",
+   "mcp": "grimoire_apply_operation",
    "args": {
     "operation": "door_open",
     "parameters": {
@@ -64,7 +64,7 @@
   {
    "at": 4.0,
    "write": {
-    "path": "assets/emerge/standards.ron",
+    "path": "assets/grimoire/standards.ron",
     "text": "(version: 1, rules: [\n    (name: \"ceiling\", dim: Height, max: Some(2.5)),\n    (name: \"wall module\", dim: Width, multiple_of: Some(0.5)),\n])\n"
    },
    "caption": "standards.ron saved: ceiling max 2.5 m, width a multiple of 0.5 m; the pane names both breaches"
@@ -72,7 +72,7 @@
   {
    "at": 8.0,
    "write": {
-    "path": "assets/emerge/standards.ron",
+    "path": "assets/grimoire/standards.ron",
     "text": "(version: 1, rules: [\n    (name: \"ceiling\", dim: Height),\n])\n"
    },
    "caption": "a rule with no bound: the file's problem is named, the editor keeps what it had"
@@ -80,7 +80,7 @@
   {
    "at": 12.0,
    "write": {
-    "path": "assets/emerge/standards.ron",
+    "path": "assets/grimoire/standards.ron",
     "text": "(version: 1, rules: [\n    (name: \"ceiling\", dim: Height, max: Some(3.0)),\n    (name: \"wall module\", dim: Width, multiple_of: Some(0.5)),\n])\n"
    },
    "caption": "fixed, ceiling raised to 3.0 m: one breach left, without reselecting the piece"

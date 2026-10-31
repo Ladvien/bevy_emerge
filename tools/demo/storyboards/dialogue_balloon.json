@@ -5,7 +5,7 @@
  "width": 960,
  "crop": [0, 0, 1280, 703],
  "setup": [
-  {"mcp": "emerge_frame_view", "args": {"target": {"rect": [-38, -33, -20, -15]}}}
+  {"mcp": "grimoire_frame_view", "args": {"target": {"rect": [-38, -33, -20, -15]}}}
  ],
  "chunks": [
   {"seconds": 1.5},

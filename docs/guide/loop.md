@@ -1,6 +1,6 @@
 # The development loop
 
-bevy_emerge is built one iteration at a time. An iteration fixes a bounded set of bugs, makes at most one enhancement, proves it, and writes a report. This page describes what an iteration leaves behind, so you can find it.
+bevy_grimoire is built one iteration at a time. An iteration fixes a bounded set of bugs, makes at most one enhancement, proves it, and writes a report. This page describes what an iteration leaves behind, so you can find it.
 
 The brief an iteration follows is `.omp/commands/emerge-feature-loop.md`.
 

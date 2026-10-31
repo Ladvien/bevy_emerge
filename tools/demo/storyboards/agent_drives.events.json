@@ -272,19 +272,19 @@
   {
    "t": 0.049,
    "type": "caption",
-   "text": "agent: emerge_frame_view placements abbey, well (71 x 52 m), before recording",
+   "text": "agent: grimoire_frame_view placements abbey, well (71 x 52 m), before recording",
    "t_stamp": 0.022142041940242052
   },
   {
    "t": 0.709,
    "type": "caption",
-   "text": "agent: emerge_apply_operation placement_set_yaw abbey, yaw 90",
+   "text": "agent: grimoire_apply_operation placement_set_yaw abbey, yaw 90",
    "t_stamp": 0.6156515829497948
   },
   {
    "t": 1.394,
    "type": "caption",
-   "text": "agent: emerge_apply_operation placement_remove abbey_table (and the items on it)",
+   "text": "agent: grimoire_apply_operation placement_remove abbey_table (and the items on it)",
    "t_stamp": 1.308771749958396
   },
   {

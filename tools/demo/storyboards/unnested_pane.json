@@ -5,7 +5,7 @@
  "width": 960,
  "setup": [
   {
-   "mcp": "emerge_apply_operation",
+   "mcp": "grimoire_apply_operation",
    "args": {
     "operation": "door_open",
     "parameters": {
@@ -61,7 +61,7 @@
   {
    "at": 4.0,
    "write": {
-    "path": "assets/emerge/standards.ron",
+    "path": "assets/grimoire/standards.ron",
     "text": "(version: 1, rules: [\n    (name: \"bed module\", kind: Some(\"bed\"), dim: Width, multiple_of: Some(0.52)),\n    (name: \"fence module\", kind: Some(\"fence\"), dim: Depth, multiple_of: Some(0.4)),\n])\n"
    },
    "caption": "saved: beds on a 0.52 m module, fences on 0.4 m; the pane names the pair that does not nest"
@@ -69,7 +69,7 @@
   {
    "at": 9.0,
    "write": {
-    "path": "assets/emerge/standards.ron",
+    "path": "assets/grimoire/standards.ron",
     "text": "(version: 1, rules: [\n    (name: \"bed module\", kind: Some(\"bed\"), dim: Width, multiple_of: Some(0.52)),\n    (name: \"fence module\", kind: Some(\"fence\"), dim: Depth, multiple_of: Some(0.26)),\n])\n"
    },
    "caption": "fence module set to 0.26 m, which divides 0.52 m: the modules nest and the line goes"

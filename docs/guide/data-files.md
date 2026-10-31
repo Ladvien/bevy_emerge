@@ -1,6 +1,6 @@
 # Data files
 
-This page lists every file in a bevy_emerge project. Each table says where the file lives, what it holds, who writes it, whether the editor reloads it when it changes, and which code reads it.
+This page lists every file in a bevy_grimoire project. Each table says where the file lives, what it holds, who writes it, whether the editor reloads it when it changes, and which code reads it.
 
 "Live reload" means the editor watches the file and reloads it when its content changes. The game never reloads a file. It reads the project once, when it starts.
 
@@ -8,7 +8,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | `assets/emerge/kits.ron` |
+| Where | `assets/grimoire/kits.ron` |
 | What it holds | The kit folders the project binds (`bind`), each as a namespace and a folder. Named groups of bound kits (`bash`). The lattice (optional, default `face_bands` 1 in the range 1 to 8, `snap_divisor` 3 in the range 2 to 8, `cell_height` 4.0 m). The `authoring` kit (optional). |
 | Written by | The editor's kit chooser adds, removes and points bindings and `authoring`. Other fields are edited by hand. |
 | Live reload | Yes. |
@@ -19,7 +19,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | `assets/emerge/vocab.ron` |
+| Where | `assets/grimoire/vocab.ron` |
 | What it holds | The token tables that every piece is described with. Each axis lists its tokens, up to 64 per axis. The axes are `kind`, `effects`, `look` and `surfaces`, and three optional axes: `capabilities` (what a person can do), `edge` (what a cell presents to its neighbour) and `slot` (what may fill a hole in a tile). |
 | Written by | Edited by hand. The editor's labelling writes suggested tokens to `slop/llm/vocab_proposals.ron`, which nothing loads. |
 | Live reload | Yes. A change reloads the whole file or none of it. |
@@ -30,7 +30,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | Each bound kit's folder, such as `assets/emerge/<kit>/library.ron` |
+| Where | Each bound kit's folder, such as `assets/grimoire/<kit>/library.ron` |
 | What it holds | The pieces a kit defines, one entry per piece. Each entry carries the piece's id, mesh, footprint, extent, alignment and tokens. |
 | Written by | The editor. Committing a piece in the kit door writes it, and measuring a mesh writes its measured values. |
 | Live reload | Yes. |
@@ -41,7 +41,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | Each bound kit's folder, such as `assets/emerge/<kit>/project.ron` |
+| Where | Each bound kit's folder, such as `assets/grimoire/<kit>/project.ron` |
 | What it holds | How this project uses the kit. `exclude` lists path prefixes the project does not use. `patches` are changes to a kit's pieces that apply to this project only. `note` is free text. |
 | Written by | The editor's kit chooser (patches) and its exclude action. |
 | Live reload | Yes. |
@@ -52,7 +52,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | `assets/emerge/compositions.ron`. Optional: the game treats an absent file as no compositions. |
+| Where | `assets/grimoire/compositions.ron`. Optional: the game treats an absent file as no compositions. |
 | What it holds | Named groups of pieces. A map stamps a composition, and the game expands the stamp into placements at load. |
 | Written by | The editor, when a composition is saved or renamed. |
 | Live reload | Yes. |
@@ -63,7 +63,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | `assets/emerge/rules.ron`. Optional: an absent file means no rules. |
+| Where | `assets/grimoire/rules.ron`. Optional: an absent file means no rules. |
 | What it holds | Rules the editor checks against the bound library. |
 | Written by | The editor's rule operations. |
 | Live reload | Yes. |
@@ -74,10 +74,10 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | `assets/emerge/standards.ron`. Optional: an absent file means no standards. |
+| Where | `assets/grimoire/standards.ron`. Optional: an absent file means no standards. |
 | What it holds | The project's kit standards: rules on a piece's width, depth or height (`min`, `max`, `multiple_of`), each for the pieces whose `kind` holds a token, or every piece. |
 | Written by | Hand. |
-| Live reload | Yes. The Meshes pane's `standards` row names the rules the selected piece breaks, and every pair of modules that do not nest where a rule covering that piece is one of the two; `emerge_state.standards` lists every breach, every rule that covers no piece, and in `unnested` every pair of rules whose `multiple_of` modules do not nest (neither a whole multiple of the other, so a 2 m wall run and a 1.5 m fence run share a grid line only every 6 m; width and depth compare with each other, height with height), with where they meet again; `piece_import` reports a new piece's breaches. A breach is reported, not refused. |
+| Live reload | Yes. The Meshes pane's `standards` row names the rules the selected piece breaks, and every pair of modules that do not nest where a rule covering that piece is one of the two; `grimoire_state.standards` lists every breach, every rule that covers no piece, and in `unnested` every pair of rules whose `multiple_of` modules do not nest (neither a whole multiple of the other, so a 2 m wall run and a 1.5 m fence run share a grid line only every 6 m; width and depth compare with each other, height with height), with where they meet again; `piece_import` reports a new piece's breaches. A breach is reported, not refused. |
 | Read by | The editor. |
 | Format version | 1 |
 
@@ -85,17 +85,17 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | `assets/emerge/repetition.ron`. Optional: an absent file means the default rules (6 m, structure kinds `building-module`, `fence`, `tile`, `landmark`, `grave`, `door`, weight 0.1, no round kinds). |
+| Where | `assets/grimoire/repetition.ron`. Optional: an absent file means the default rules (6 m, structure kinds `building-module`, `fence`, `tile`, `landmark`, `grave`, `door`, weight 0.1, no round kinds). |
 | What it holds | What counts as a visible repeat and what it costs: `radius_m`, the `kind` tokens that make a piece `structure` (meant to repeat), `structure_weight` against clutter's 1.0, and `round`, the `kind` tokens of pieces that look the same at any yaw (a barrel, a pot): their copies repeat whatever their yaw, and `repetition_vary` never turns one but counts it as left. A field left out keeps its default. |
 | Written by | Hand. |
-| Live reload | Yes. `emerge_state.repetition` reads it on every call and names a bad file in its `error`; the status bar's `REPEATS` line re-reads it when it changes. The `repetition_vary` operation (or the Terrain field line `repeats vary`) reads it on every run: it turns each clutter copy (never a round one) that looks like an earlier one in range by a half or quarter turn until none does, never turns structure, keeps the first copy's yaw, and one undo puts every turned row back. A piece whose floor footprint is longer one way than the other (a bench, a cart) gets the half turn only, since a quarter turn would swap its width and depth onto cells it never covered; a copy the half turn cannot end is counted as left. A bad file is refused, never replaced by the defaults. |
+| Live reload | Yes. `grimoire_state.repetition` reads it on every call and names a bad file in its `error`; the status bar's `REPEATS` line re-reads it when it changes. The `repetition_vary` operation (or the Terrain field line `repeats vary`) reads it on every run: it turns each clutter copy (never a round one) that looks like an earlier one in range by a half or quarter turn until none does, never turns structure, keeps the first copy's yaw, and one undo puts every turned row back. A piece whose floor footprint is longer one way than the other (a bench, a cart) gets the half turn only, since a quarter turn would swap its width and depth onto cells it never covered; a copy the half turn cannot end is counted as left. A bad file is refused, never replaced by the defaults. |
 | Read by | The editor. |
 
 ## rigs.ron
 
 | | |
 |---|---|
-| Where | `assets/emerge/rigs.ron` |
+| Where | `assets/grimoire/rigs.ron` |
 | What it holds | The animation rigs: which clips a character plays and the timing values measured for them. |
 | Written by | The editor's animation tab, when a person adopts measured values. The write replaces the whole file. |
 | Live reload | No. The editor does not watch this file. |
@@ -106,7 +106,7 @@ This page lists every file in a bevy_emerge project. Each table says where the f
 
 | | |
 |---|---|
-| Where | `assets/emerge/maps/<name>.map.ron`, one file per map |
+| Where | `assets/grimoire/maps/<name>.map.ron`, one file per map |
 | What it holds | One map: its name, its origin and bounds, its placements, its stamps, its locations and its `enclosure` wish. The file keeps each stamp as a stamp. The game expands stamps when it loads. |
 | Written by | The editor, when a map is saved and when a new empty map is made. The save **checks** the map by expanding its stamps — the same `Map::expanded` the game uses, so the gate and the loader agree — and then writes the map **unexpanded**, so each stamp stays a stamp. |
 | Live reload | Yes, for the map the editor has open. |
@@ -135,8 +135,8 @@ enclosure: (wish: 0.25, weight: 200),
 
 | | |
 |---|---|
-| Where | `assets/emerge/forest/<map>.ron`, one file per map, beside its terrain. Needs the editor built with `--features bevy_flora`. |
-| What it holds | The map's trees: each one's `id`, `species` (a `bevy_flora` preset name such as `oak`, or a `.tree.ron` path under `assets/emerge/` such as `trees/tall.tree.ron`), its trunk's `at: (x, z)`, the `ground_m` it stands on, `yaw` (radians), `scale` and pool `variant`; a tree placed by hand also has `age_years` and `seed`. |
+| Where | `assets/grimoire/forest/<map>.ron`, one file per map, beside its terrain. Needs the editor built with `--features bevy_flora`. |
+| What it holds | The map's trees: each one's `id`, `species` (a `bevy_flora` preset name such as `oak`, or a `.tree.ron` path under `assets/grimoire/` such as `trees/tall.tree.ron`), its trunk's `at: (x, z)`, the `ground_m` it stands on, `yaw` (radians), `scale` and pool `variant`; a tree placed by hand also has `age_years` and `seed`. |
 | Written by | `forest_scatter`: a `plant` stroke (`bevy_flora`'s own Scatter, kept only within `radius_m` of the stroke, on the terrain) or one `place`d tree; the Terrain field's `forest <x> <z> <radius_m> <spacing_m> <seed> <species>` line sends the same operation. Each is one undo step. |
 | Live reload | Yes. The viewport draws every tree with `bevy_flora`'s plugin and redraws within half a second of a change to this file or to a `.tree.ron` it names: a scattered tree is a `PooledTree` of its species' pool, built in the background, and a placed tree is a `ProceduralTree` grown from its species with its own seed and age, the tree the game grows. With `bevy_elements` too, the trees wear the map's date. |
 | Read by | The editor. A game that lists `bevy_flora` reads it to spawn the same trees through the crate's pools. |
@@ -146,7 +146,7 @@ enclosure: (wish: 0.25, weight: 200),
 
 | | |
 |---|---|
-| Where | `assets/emerge/trees/<name>.tree.ron` |
+| Where | `assets/grimoire/trees/<name>.tree.ron` |
 | What it holds | One tree species: `bevy_flora`'s own `TreeParams`, in the format its asset loader reads. |
 | Written by | `tree_edit` (`preset` starts it from a crate preset, `set` changes fields by dotted path, an unknown field is refused), or the Terrain field's `tree <name> [<preset>] [<field.path>=<value> ...]` line. One undo step per edit. |
 | Live reload | Yes. Every drawn tree of this species regrows within half a second of an edit. |
@@ -167,7 +167,7 @@ enclosure: (wish: 0.25, weight: 200),
 
 | | |
 |---|---|
-| Where | `assets/emerge/oplog.jsonl` |
+| Where | `assets/grimoire/oplog.jsonl` |
 | What it holds | The editor's history of changes, one JSON object per line. It is only appended to. |
 | Written by | The editor, one line per operation. |
 | Live reload | No. The editor does not watch this file. |
@@ -180,7 +180,7 @@ enclosure: (wish: 0.25, weight: 200),
 |---|---|
 | Where | `target/loop/captures/snips/`, under the project root. Each snip is a `snip-<ms>.png` with a `.json` beside it. |
 | What it holds | A cut-out of the editor's window, written by the editor and the MCP server. |
-| Written by | The editor and `bevy_emerge_snip`. Each file is created new, so an existing file is never replaced. |
+| Written by | The editor and `bevy_grimoire_snip`. Each file is created new, so an existing file is never replaced. |
 | Live reload | No. |
 | Read by | Nothing in the project. The game does not read it. |
 | Format version | None. |

@@ -4,7 +4,7 @@
   "scale": 2,
   "width": 600,
   "crop": [470, 64, 950, 690],
-  "setup": [{"mcp": "emerge_frame_view", "args": {"target": {"rect": [16.6, -69.9, 56.6, -39.9]}}}],
+  "setup": [{"mcp": "grimoire_frame_view", "args": {"target": {"rect": [16.6, -69.9, 56.6, -39.9]}}}],
   "chunks": [{"seconds": 4.0}],
   "steps": [
     {"at": 0.4, "caption": "person: taps A and D to pan left and right"},

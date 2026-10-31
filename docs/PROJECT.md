@@ -1,4 +1,4 @@
-# bevy_emerge: what it is, why it exists, and what is wrong with it
+# bevy_grimoire: what it is, why it exists, and what is wrong with it
 
 One document, written 2026-10-26 at commit `f2c5b34`, after 56 recorded loop iterations. It is an
 outside-in description of the project as it actually stands — including the parts that do not work and
@@ -11,7 +11,7 @@ rather than reporting I say so.
 
 ## 1. The one-sentence version
 
-**bevy_emerge is a world editor for Bevy games in which a person and an AI agent edit the same map
+**bevy_grimoire is a world editor for Bevy games in which a person and an AI agent edit the same map
 through the same named operations, with one undo history between them.**
 
 That is not a feature list. It is the design constraint everything else follows from, and it is the
@@ -32,7 +32,7 @@ between them is lossy in the same way:
 | Agent describes a change in prose | A person retypes it, and the retyping is where it goes wrong |
 | Agent uses a separate "AI" path | Two implementations of "place a crate" that drift, and the AI path is always the worse one |
 
-bevy_emerge's answer is structural: **there is exactly one way to change anything**, a typed operation
+bevy_grimoire's answer is structural: **there is exactly one way to change anything**, a typed operation
 in a single registry, and both the keyboard and the agent dispatch it. Everything else — undo, the log,
 the validators, the parity test — falls out of that one decision.
 
@@ -45,14 +45,14 @@ operations, 14 MCP tools, 56 recorded loop iterations.
 
 | Crate | Lines | What it is |
 |---|---:|---|
-| `bevy_emerge_mapper` | 122,506 | The editor application. Opens a project directory, writes `<root>/assets/emerge`. |
-| `bevy_emerge_core` | 37,058 | The engine-free schema, grammar learner, WFC, validators. No Bevy. |
-| `bevy_emerge_mcp` | 4,016 | The MCP server: 14 tools over stdio, talking to the running editor over BRP. |
-| `bevy_emerge_anim` | 1,327 | Clip-weight blending on a skinned rig. |
-| `bevy_emerge_solver` | 1,304 | A deterministic SAT back-end. |
-| `bevy_emerge` | 1,275 | The runtime: load a library and a map into a game. |
-| `bevy_emerge_snip` | 581 | Cuts one rectangle out of a picture of the editor. |
-| `bevy_emerge_rng` | 368 | One seeded ChaCha8 stream for the whole simulation. |
+| `bevy_grimoire_mapper` | 122,506 | The editor application. Opens a project directory, writes `<root>/assets/grimoire`. |
+| `bevy_grimoire_core` | 37,058 | The engine-free schema, grammar learner, WFC, validators. No Bevy. |
+| `bevy_grimoire_mcp` | 4,016 | The MCP server: 14 tools over stdio, talking to the running editor over BRP. |
+| `bevy_grimoire_anim` | 1,327 | Clip-weight blending on a skinned rig. |
+| `bevy_grimoire_solver` | 1,304 | A deterministic SAT back-end. |
+| `bevy_grimoire` | 1,275 | The runtime: load a library and a map into a game. |
+| `bevy_grimoire_snip` | 581 | Cuts one rectangle out of a picture of the editor. |
+| `bevy_grimoire_rng` | 368 | One seeded ChaCha8 stream for the whole simulation. |
 | `bevy_devshot` | 134 | A frame on demand, from the GPU. |
 
 **The 122k/37k split is the architecture in one number.** The editor is a Bevy app and cannot be
@@ -114,13 +114,13 @@ an operation lacks an MCP tool or a UI entry point, or if the two expose differe
 
 ### 4.4 The agent interface
 
-- 14 tools, `emerge_`-prefixed, domain-worded (`emerge_apply_operation`, not "run tool 7").
+- 14 tools, `grimoire_`-prefixed, domain-worded (`grimoire_apply_operation`, not "run tool 7").
 - **Every mutating answer carries an operation id** an agent cites and a person reverts by.
 - **Every map change reports what it broke**: edge faults and overlapping placements the change
   introduced, with the whole map's totals beside them, and a standing fault is never renamed "new".
 - **`dry_run` previews** anything; the preview is the operation's own pure `plan`, so it cannot
   half-apply.
-- **A presented turn is one undo step**, from either door — `Cmd+Z` and `emerge_undo_operation {turn:
+- **A presented turn is one undo step**, from either door — `Cmd+Z` and `grimoire_undo_operation {turn:
   true}` take back the same amount.
 
 ### 4.5 The person's half of the collaboration
@@ -176,14 +176,14 @@ the only real project in this repo is the evidence that this was not a theoretic
 
 **4. The engine-free core is portable.**
 
-`bevy_emerge_core` has no Bevy dependency, so the grammar learner, the WFC and the validators can run
+`bevy_grimoire_core` has no Bevy dependency, so the grammar learner, the WFC and the validators can run
 in a game, a test, a CI job or a server. Sanctuary — the shipping game this was built for — uses it
 without the editor.
 
 ### Unusual but fragile
 
 - **A VLM labeller that refuses to confirm its own guesses.** Right, and expensive.
-- **Determinism everywhere**: `bevy_emerge_solver` reads no clock and uses no threads; `bevy_emerge_rng`
+- **Determinism everywhere**: `bevy_grimoire_solver` reads no clock and uses no threads; `bevy_grimoire_rng`
   is one seeded stream. A generated layout is reproducible from its seed.
 - **The editor is driveable with no window raised** (an offscreen mirror camera plus BRP), which is
   what makes the loop's own visual verification possible.
@@ -202,7 +202,7 @@ This is the section I would want if I were reading someone else's project.
 
 **1. The editor crate is enormous and unaudited.**
 
-122,506 lines in `bevy_emerge_mapper`, and the README says it plainly: *"Vibe Coded — written by an AI
+122,506 lines in `bevy_grimoire_mapper`, and the README says it plainly: *"Vibe Coded — written by an AI
 agent working from a human's direction… no line-by-line human audit."* I think that is the single
 biggest risk in the repository. It is covered by tests, and the tests are good, but a test suite proves
 the properties someone thought to assert — not that the code is comprehensible to the next person.
@@ -216,7 +216,7 @@ not remove the duplication. **A shared params crate would.**
 
 **3. The editor and the game load the same data through two implementations.**
 
-`bevy_emerge` (the runtime) and `bevy_emerge_mapper` (the editor) both read a library and a map. The
+`bevy_grimoire` (the runtime) and `bevy_grimoire_mapper` (the editor) both read a library and a map. The
 repo's own convention is "consistent and wrong beats inconsistent", which is true, but it means a
 schema change has two readers to update and one of them is checked less often.
 
@@ -306,7 +306,7 @@ tunes a courtyard in ten minutes and one who gives up.
 
 It is the smallest item on the "wrong" list and the one with the clearest failure: a hand-written body
 that silently drops a field, found only by a live run, after every deterministic check passed. A shared
-`bevy_emerge_protocol` crate would make it a compile error instead of a ratchet, and it would shrink the
+`bevy_grimoire_protocol` crate would make it a compile error instead of a ratchet, and it would shrink the
 surface where two copies of one contract exist anywhere in the workspace.
 
 The bigger items — the 122k-line unaudited editor, the performance trend nobody can measure — are real
