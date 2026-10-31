@@ -537,9 +537,9 @@ pub trait Operation: 'static {
         false
     }
 
-    /// **Whether this operation writes the library** (`measured`, the Meshes door's data). Its logged
-    /// change joins the Meshes history, so one Cmd+Z there takes back the newest library change,
-    /// whoever made it (cycle 9 gap 1). `false` unless it does.
+    /// **Whether this operation writes the library** (`measured`, the Meshes door's data), or the
+    /// kit's policy beside it. Its logged change joins the Meshes history, so one Cmd+Z there takes
+    /// back the newest library change, whoever made it (cycle 9 gap 1). `false` unless it does.
     fn writes_library(&self) -> bool {
         false
     }
@@ -2559,6 +2559,7 @@ pub fn registry() -> Vec<Box<dyn Operation>> {
         Box::new(piece_select::PieceSelect),
         Box::new(label_set::LabelSet),
         Box::new(piece_set_mount::PieceSetMount),
+        Box::new(pack_set_excluded::PackSetExcluded),
         Box::new(crate::ops_label_vlm::LabelSuggest),
         Box::new(crate::ops_label_vlm::LabelApply),
         Box::new(crate::ops_data::DataSet),
@@ -2815,6 +2816,9 @@ pub const UI_ENTRY_POINTS: &[(&str, &str)] = &[
     // mount through `step_mount`, which calls `set_mount` and dispatches `piece_set_mount` for a
     // library piece, the same write an agent's `apply` makes.
     ("piece_set_mount", "set_mount("),
+    // **The pack key (E-002, #129 slice 7)** — `Shift+R` on the Meshes tab calls `set_pack_excluded`
+    // and dispatches `pack_set_excluded`, the same policy write an agent's `apply` makes.
+    ("pack_set_excluded", "set_pack_excluded("),
     // **The labeler's two halves (E-043)** — `L` photographs a piece and asks the model through
     // `request_photos`, and the answer lands through `apply_suggestion`; `label_suggest` and
     // `label_apply` are the same two steps for an agent that brings its own shots.
@@ -5655,6 +5659,243 @@ pub mod piece_set_mount {
                 saved: true,
                 inverse: Some(json!({"id": id, "restore": e.before})),
                 after: Some(e.after),
+            })
+        }
+    }
+}
+
+/// **Leave a pack out of the kit, or bring it back** (E-002, #129 slice 7).
+///
+/// `Shift+R` on the Meshes tab wrote the kit's `project.ron` with a splice of its own, named by no
+/// operation, so an agent could label a piece and not say that a whole folder of art is not what the
+/// kit is built from, no log line named the change, and Cmd+Z could not take it back. This is the same
+/// write, one validated, saved, logged and undoable change for the key and for an agent.
+///
+/// **A pack is a folder under `assets/`**, spelled as the Meshes shelf spells it (`characters/rigs`).
+/// The file is spliced through `policy::rewrite_exclude`, which leaves the file's prose alone and
+/// re-reads what it wrote, and it is written atomically, so a refused write leaves the kit as it was.
+/// An exclusion that is already in force, a restore of a pack nobody excluded and a folder that does
+/// not exist are refused rather than logged as a change that changed nothing.
+///
+/// **Undo** is the same operation with `excluded` flipped, so an agent may exclude and restore a pack
+/// itself and nothing here puts a file's bytes in the log. The one undo-only form is the put-back of a
+/// restore (`put_back`): it re-lists a pack without asking whether its folder is still there, so a
+/// restore is always undoable, and an agent cannot send it as a change.
+pub mod pack_set_excluded {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Params {
+        /// The folder under `assets/`, as the Meshes shelf names a pack.
+        pub pack: String,
+        /// `true` leaves the pack out of the kit; `false` brings it back.
+        pub excluded: bool,
+        /// **Undo only.** Re-list an entry a restore removed although its folder has gone since.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pub put_back: bool,
+    }
+
+    fn parse(raw: &serde_json::Value) -> Result<Params, Refusal> {
+        serde_json::from_value(raw.clone()).map_err(|e| {
+            Refusal::new(format!(
+                "this is not a pack to exclude or restore: {e}. The fields are `pack` (a folder \
+                 under assets/) and `excluded` (true or false), and both are required."
+            ))
+        })
+    }
+
+    /// **The pack as the policy file spells it**: no trailing slash, relative, and a folder name a
+    /// quoted RON string can hold. `..` and `.` are refused because neither names a pack.
+    fn clean(pack: &str) -> Result<String, Refusal> {
+        let pack = pack.trim_end_matches('/');
+        let bad = pack.is_empty()
+            || pack.starts_with('/')
+            || pack.chars().any(|c| c == '"' || c == '\\' || c.is_control())
+            || pack.split('/').any(|part| part.is_empty() || part == "." || part == "..");
+        if bad {
+            return Err(Refusal::new(format!(
+                "`{pack}` is not a pack: a pack is a folder under assets/, written relative to it as the \
+                 Meshes shelf writes it (`characters/rigs`). Nothing was changed."
+            )));
+        }
+        Ok(pack.to_owned())
+    }
+
+    fn is_excluded(project: &Project, pack: &str) -> bool {
+        project
+            .policy
+            .exclude
+            .iter()
+            .any(|e| e.trim_end_matches('/') == pack)
+    }
+
+    /// **The listed entry that already leaves this pack out** because it names a folder above it.
+    fn covered_by<'p>(project: &'p Project, pack: &str) -> Option<&'p str> {
+        project.policy.exclude.iter().map(|e| e.trim_end_matches('/')).find(|e| {
+            pack.strip_prefix(e)
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
+    }
+
+    struct Edit {
+        path: PathBuf,
+        text: String,
+        exclude: Vec<String>,
+        pack: String,
+        excluded: bool,
+        summary: String,
+    }
+
+    /// **The write, computed and checked and not made.** The file is read and spliced here, so a
+    /// preview refuses a policy file the commit could not rewrite.
+    fn edit(project: &Project, p: &Params) -> Result<Edit, Refusal> {
+        let pack = clean(&p.pack)?;
+        let had = is_excluded(project, &pack);
+        if had == p.excluded {
+            return Err(Refusal::new(format!(
+                "`{pack}` is already {}, so nothing was changed.",
+                if had { "excluded" } else { "offered" }
+            )));
+        }
+        if p.excluded && !p.put_back {
+            // **Already in force through a folder above it**: logging it would record a change that
+            // changed nothing.
+            if let Some(above) = covered_by(project, &pack) {
+                return Err(Refusal::new(format!(
+                    "`{pack}` is already excluded: `{above}` leaves it out, so nothing was changed."
+                )));
+            }
+            if !project.root.join("assets").join(&pack).is_dir() {
+                return Err(Refusal::new(format!(
+                    "there is no folder `{pack}` under assets/, so nothing was excluded. A pack is named as \
+                     the Meshes shelf names it."
+                )));
+            }
+        }
+        let mut exclude = project.policy.exclude.clone();
+        if had {
+            exclude.retain(|e| e.trim_end_matches('/') != pack);
+        } else {
+            exclude.push(pack.clone());
+            exclude.sort();
+        }
+        let path = project.grimoire_dir.join(bevy_grimoire_core::policy::POLICY_FILE);
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))
+            .and_then(|text| bevy_grimoire_core::policy::rewrite_exclude(&text, &exclude))
+            .map_err(|why| Refusal::new(format!("{why}, so nothing was changed.")))?;
+        let summary = if p.excluded {
+            format!("`{pack}` excluded from this kit \u{2014} it will not be offered or labelled")
+        } else {
+            format!("`{pack}` is back \u{2014} it can be imported and labelled again")
+        };
+        Ok(Edit {
+            path,
+            text,
+            exclude,
+            pack,
+            excluded: p.excluded,
+            summary,
+        })
+    }
+
+    /// **What an undo compares.** The key is `id`, the name every library change is scoped by, so a
+    /// newer change to one pack never blocks the undo of another's. It carries a `pack:` prefix: a
+    /// piece id and a map's name are scopes of the same kind, and a pack may share a word with one.
+    fn state_json(pack: &str, excluded: bool) -> serde_json::Value {
+        json!({"id": format!("pack:{pack}"), "excluded": excluded})
+    }
+
+    /// **Exclude one pack from the kit, or restore it.**
+    pub struct PackSetExcluded;
+
+    impl Operation for PackSetExcluded {
+        fn name(&self) -> &'static str {
+            "pack_set_excluded"
+        }
+
+        fn undo(&self) -> Undo {
+            Undo::Inverse
+        }
+
+        /// **A kit-level write joins the Meshes history**, and a bare `operation_undo` scopes past it
+        /// as it does a library write: it takes back the open map's newest change.
+        fn writes_library(&self) -> bool {
+            true
+        }
+
+        /// **A put-back is never a request an agent may send.**
+        fn only_as_undo(&self, params: &serde_json::Value) -> bool {
+            parse(params).is_ok_and(|p| p.put_back)
+        }
+
+        fn schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["pack", "excluded"],
+                "properties": {
+                    "pack": {
+                        "type": "string",
+                        "description": "The mesh folder under assets/, written relative to it as the Meshes shelf names a pack, e.g. characters/rigs."
+                    },
+                    "excluded": {
+                        "type": "boolean",
+                        "description": "true leaves the pack out of this kit (it is no longer offered or labelled); false brings it back."
+                    }
+                }
+            })
+        }
+
+        /// **Whether the pack is excluded now**, against what the change recorded.
+        fn state_of(&self, ctx: &Ctx, after: &serde_json::Value) -> Option<serde_json::Value> {
+            let pack = after.get("id")?.as_str()?.strip_prefix("pack:")?;
+            let project = ctx.project.as_ref()?;
+            Some(state_json(pack, is_excluded(project, pack)))
+        }
+
+        fn plan(
+            &self,
+            ctx: &Ctx,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value, Refusal> {
+            let p = parse(params)?;
+            let Some(project) = ctx.project.as_ref() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no kit to exclude a pack from.",
+                ));
+            };
+            let e = edit(project, &p)?;
+            Ok(state_json(&e.pack, e.excluded))
+        }
+
+        fn commit(&self, ctx: &mut Ctx, params: &serde_json::Value) -> Result<Outcome, Refusal> {
+            let p = parse(params)?;
+            let Some(project) = ctx.project.as_mut() else {
+                return Err(Refusal::new(
+                    "no project is open, so there is no kit to exclude a pack from.",
+                ));
+            };
+            let e = edit(project, &p)?;
+            // **The file first**, so a refused write leaves the policy as it was.
+            bevy_grimoire_core::ron_surgery::save_atomic(&e.path, &e.text).map_err(|why| {
+                Refusal::new(format!(
+                    "the policy file refused the change, so nothing was written: {why}"
+                ))
+            })?;
+            project.policy.exclude = e.exclude;
+            Ok(Outcome {
+                summary: e.summary,
+                affected: 1,
+                saved: true,
+                inverse: Some(if e.excluded {
+                    json!({"pack": e.pack, "excluded": false})
+                } else {
+                    json!({"pack": e.pack, "excluded": true, "put_back": true})
+                }),
+                after: Some(state_json(&e.pack, e.excluded)),
             })
         }
     }
