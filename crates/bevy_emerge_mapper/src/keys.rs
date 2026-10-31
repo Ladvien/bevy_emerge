@@ -616,7 +616,8 @@ enumerated! {
     PalettePrev,
     PaletteNext,
     /// A quarter turn tipping the piece under the cursor about the map's X axis — set dressing;
-    /// see `Placed::tip` for why quarter turns and why a hosting piece refuses.
+    /// see `Placed::tip` for why quarter turns and why a hosting piece refuses. A placed piece tips
+    /// through `placement_set_tip`, the operation an agent calls.
     TipX,
     /// The same quarter turn about Z.
     TipZ,
@@ -895,6 +896,7 @@ impl Action {
         match self {
             Action::OwnToggle => Some("placement_set_pin"),
             Action::TurnPieceLeft | Action::TurnPieceRight => Some("placement_set_yaw"),
+            Action::TipX | Action::TipZ => Some("placement_set_tip"),
             Action::PalettePrev | Action::PaletteNext => Some("brush_arm"),
             Action::ArmComposition | Action::ComposeArm => Some("composition_arm"),
             Action::RenameComposition => Some("composition_rename"),
